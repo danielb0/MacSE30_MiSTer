@@ -609,10 +609,38 @@ the translation.
 
 **Open items for 1.10.**
 
-1. Whether the Quartus install carries a ModelSim / Questa edition that can
-   take a 103k-line design. The free Starter editions have historically been
-   line-limited. **Unverified - and it is a licence check, not a simulation
-   run, so it is cheap and it eliminates one option outright if it fails.**
+1. Which simulator the Quartus install carries. **ANSWERED, and better than
+   expected.**
+
+   `C:\intelFPGA_lite\17.0\modelsim_ase` - **ModelSim ALTERA Starter Edition
+   10.5b**, already installed with Quartus Prime Lite 17.0. It compiles
+   MacPlus's `rtl/via6522.vhd` with 0 errors, and - the part that matters -
+   **it does mixed-language simulation.** Proven, not assumed: a Verilog
+   testbench instantiating that VHDL entity elaborated and ran clean.
+
+   ```
+   M=/c/intelFPGA_lite/17.0/modelsim_ase/win32aloem
+   $M/vlib.exe work
+   $M/vcom.exe -work work rtl/via6522.vhd     # VHDL   -> 0 errors
+   $M/vlog.exe -work work tb_mixed.v          # Verilog TB instantiating it
+   $M/vsim.exe -c -do "run -all; quit -f" work.tb_mixed
+   #  -> "Loading work.via6522(gideon)" ... Errors: 0
+   ```
+
+   **This is the capability 1.10 needs and the one iverilog cannot provide.**
+   It means upstream's VHDL bench suite can run *and* we can write Verilog
+   system benches with the VHDL CPU instantiated inside them - so the
+   103,693-line generated kernel may never be needed at all, and no new
+   tooling has to be installed.
+
+   **One unknown remains: the Starter Edition's design-size limit.** It is
+   not documented anywhere in the install's own readme or release notes
+   (checked). It is commonly cited as ~10,000 executable lines, with
+   *performance degradation* rather than refusal beyond that. The 030 VHDL is
+   ~15,900 lines (kernel 10,509 + PMMU 5,004 + cache 376), so it is likely to
+   be over. **Whether that is merely slow or actually unusable can only be
+   measured with the real kernel in hand** - that is the next measurement,
+   and it needs the TG68K sources cut into a tree first.
 2. Whether GHDL will run upstream's benches as written, or whether they lean
    on ModelSim-specific constructs. GHDL is VHDL-only either way, so
    `tb_cpu_wrapper_pmmu.v` - the Verilog wrapper bench, and the one closest
