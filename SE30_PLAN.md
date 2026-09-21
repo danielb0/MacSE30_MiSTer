@@ -415,10 +415,35 @@ are closed by the survey, one is reframed.
 4. **Enumerate our bus masters** against the RMC obligation in 1.7 and design
    the arbitration. Promoted from a check to design work.
 5. **Reproduce the IIvi's claim**: build their core, boot it, confirm the
-   PMMU is live - and establish whether it boots 24-bit or 32-bit, since
-   danifunker is himself unsure and 1.5 makes 24-bit our primary path.
+   PMMU is live in practice. **Narrowed** - most of this item turned out to
+   be answerable by reading the code, and is closed below.
 6. Only then: cut the CPU into a MacLC-derived tree and bring up ROM + RAM to
    a first fetch.
+
+**Answered from the code, not by a build.** Item 5 previously also asked
+whether the IIvi runs 24-bit or 32-bit, because danifunker said "I think this
+core is only 24-bit right now but I will verify with you later." Reading
+`MacIIvi.sv` settles it:
+
+- It declares `wire [31:0] cpuAddr;` with `assign cpuAddr[0] = 1'b0;` and
+  **no truncation or masking anywhere**. The decode is a full 32-bit decode -
+  which confirms 1.5 from RTL rather than from `VASP_RETARGET.md`'s prose.
+- Its RAM menu offers 8 / 20 / 36 / 48 / 68MB, clamped by a `mem_cap` against
+  the fitted SDRAM "to prevent address wrapping into ROM/VRAM regions". The
+  default is 8MB.
+- The CPU strap is hardwired: `.cpu ( 2'b10 ),  // 68030 (Mac LC II)` - the
+  68030-with-PMMU selection described in 1.4.
+
+His own post carries the contradiction: 24-bit addressing spans 16MB, so
+"unlocked to 48MB" and "only 24-bit" cannot both be true. The hardware is
+32-bit; whichever mode the *OS* runs in is a software setting, and 48MB is
+reachable only in 32-bit mode. **This does not transfer to us** - the IIvi
+has a 32-bit clean 1993 ROM, where 1.5 establishes the SE/30's is dirty.
+
+What still needs a build and a boot is only the narrow claim that the PMMU is
+live and translating in practice. Note also that at top level `MacIIvi.sv`
+sees only the debug probes (`dbg_walk_cycle_o`, `dbg_pmmu_*`); the walker bus
+plumbing lives one level down in `rtl/tg68k/tg68k.v`, exactly as 1.4 records.
 
 **Closed by the survey, not by work:** generating a cputest 68030 corpus - it
 exists upstream as packaged `68030_Basic` and `68030_ODD_IRQ` data with
