@@ -291,6 +291,51 @@ is how a NuBus card identifies itself; the ROM's video driver and
 initialisation routines live in it. Section 2 must treat pseudo-slot video as
 a structural feature of the machine, not as a video detail.
 
+**Sources for that logic, and which board revision to target.** Apple's
+*Guide* Table 3-7 gives the SE/30's general logic as "GLUE and video PALs".
+The programmable half is six small parts - UI6, UH7, UG6, UG7, UE6, UE7 - and
+**there are two board revisions with different parts in them.** Only UI6
+(`341-0665-A`) and UH7 (`341S0689-C`) are common to both:
+
+| posn | earlier board (bitsavers `se30_pals.jpg`) | later board (Bolle) |
+|---|---|---|
+| UI6 | 341-0665-A | **341-0665-A** |
+| UH7 | 341S0689-C | **341S0689-C** |
+| UG6 | 341-0635-A | 341-0747-A |
+| UG7 | 341-0633-A | 341-0746-A |
+| UE6 | 341-0637-A | 341-0754-A |
+| UE7 | 341-0688-A (AMD) | 341-0755-A |
+
+bitsavers carries Apple fuse maps for only four of the earlier board's six,
+and **two of those four are bad dumps**: `3410635A` and `3410637A`
+disassemble to degenerate nonsense - `vcc` repeated eight times, terms that
+can never be true, five distinct rows in sixty-four.
+`github.com/TheRealBolle/SE30`, a logicboard recreation, carries a complete
+set of six for the later board, reverse-engineered rather than dumped.
+
+**Decided: target the better-preserved revision - Bolle's complete six.**
+Both boards are SE/30s running the same ROM, so both implement the same
+machine; a coherent complete set beats a partial one spanning two respins.
+And his work is trustworthy where it can be checked: his `UI6` is
+**bit-for-bit identical to Apple's `3410665A`**, 0 of 2048 array fuses
+differing.
+
+**`scripts/jedec_dis.py`** recovers equations from any of these. Its fuse
+conventions are *derived, not assumed* - it reproduces National's JED2EQN
+output exactly on `3410633A`, which its `validate` subcommand re-proves on
+demand. Two cautions it encodes:
+
+- **Device type must be established per part.** Every bitsavers `.EQN` claims
+  `PAL16R8`, but UI6's GAL config bits imply a **16R4**. A combinatorial
+  output spends its first product term on the output enable, so assuming the
+  wrong type silently misreads half the equations.
+- **A fuse map carries no signal names.** The logic is exact and the pins are
+  anonymous; `se30.pdf` must name them before any equation means anything.
+
+Bolle's repo is **CC-BY-NC-SA**, incompatible with the GPLv2 this core must
+carry. Read it and derive behaviour from it; incorporate none of it. This is
+a real incompatibility, not the settled MiSTer-fork licensing question.
+
 ## 1.7 Known deviations and risks
 
 **RMC / atomic table search - confirmed, and it is our problem.** Documented
