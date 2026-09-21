@@ -231,16 +231,37 @@ unread.
 | MacIIvi today | ~100% ALM; LOW placement effort fails fitter 170012 | `MacIIvi.qsf:50-60` |
 
 The IIvi runs ~100% because it *additionally* carries NuBus and the mdc824
-colour complex. An SE/30 needs neither, and its 1-bit 512x342 framebuffer
-lives in main RAM rather than in the ~384 RAM blocks the LC spends on a
-colour framebuffer. Their own per-entity audit (`MacIIvi.qsf:57-60`) found
+colour complex. An SE/30 needs neither, and its 1-bit 512x342 framebuffer is
+far smaller than the colour one the LC spends ~384 RAM blocks on - **but it
+is not free, and it does not live in main RAM; see the correction below.** Their own per-entity audit (`MacIIvi.qsf:57-60`) found
 every family-shared entity at or below the MacLC numbers - the IIvi's
 overflow is device fullness, not a port regression. **Area looks survivable,
 but it is not yet proven for our configuration and must not be treated as
 settled.**
 
-**Open - the framebuffer claim above is contradicted by MAME.**
-`src/mame/apple/macii.cpp` maps dedicated VRAM, not main RAM:
+**CORRECTED from Apple's documentation. The framebuffer is NOT in main RAM.**
+*Guide to the Macintosh Family Hardware*, 2nd ed., Chapter 12, "Video display
+in the Macintosh SE/30 computer":
+
+> "The main logic board of the Macintosh SE/30 contains a **separate 64 KB
+> video display RAM** and a **separate 8192-byte video declaration ROM**. The
+> video display RAM occupies physical address space **$FE00 0000 to $FEFF
+> FFFF**. This address space was chosen because it is the same as the address
+> space used by expansion slot $E in the Macintosh II family."
+>
+> "The video buffer occupies RAM that is **separate from the main memory**."
+>
+> "independent RAM: 64 KB of RAM containing **two screen buffers**"
+
+This is **pseudo-slot video**: the SE/30's video hardware deliberately
+simulates a Macintosh II Video Card in a NuBus slot, so that the machine can
+share the common MC68030 system ROM with the NuBus Macs. 512x342, 60.15 Hz,
+no CLUT and no programmable timing controller, because it drives only the
+built-in mono monitor.
+
+**MAME was right and this plan was wrong.** `macii.cpp`'s map corroborates
+exactly, including the arithmetic: `$FEFFE000`-`$FEFFFFFF` is `$2000` = the
+8192-byte declaration ROM the Guide specifies.
 
 ```cpp
 map(0xfe000000, 0xfe00ffff).ram().share("vram");
@@ -248,10 +269,16 @@ map(0xfee00000, 0xfee0ffff).ram().share("vram");
 map(0xfeffe000, 0xfeffffff).rom().region("se30vrom", 0x0);
 ```
 
-plus an `se30vrom` ROM region this plan has not accounted for at all. The
-RAM-block half of the area argument rests on which of these is right, so it
-is **not settled** until confirmed against hardware sources. The ALM half of
-the argument does not depend on it.
+**Area consequence, and it is real.** We owe **64KB of VRAM** (~52 M10K
+blocks) plus an **8KB declaration ROM** (~7 blocks) - roughly 59 blocks
+against MacPlus's current 135/553. Affordable, but it is not the "free"
+framebuffer this section previously assumed, and it must be carried in the
+budget. The IIvi already does this with `rtl/vram_bram.sv`.
+
+**And it is a requirement, not an implementation choice.** A declaration ROM
+is how a NuBus card identifies itself; the ROM's video driver and
+initialisation routines live in it. Section 2 must treat pseudo-slot video as
+a structural feature of the machine, not as a video detail.
 
 ## 1.7 Known deviations and risks
 
