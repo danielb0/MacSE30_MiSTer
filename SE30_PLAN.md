@@ -659,6 +659,44 @@ the translation.
 
    **The measurement that matters is therefore the full-system bench, not the
    CPU alone**, and it needs the TG68K sources cut into a tree first.
+
+4. **Can it be split?** Yes, with one hard limit: **the CPU cannot be split.**
+   It is a single elaboration unit of ~15,900 VHDL lines, over the limit by
+   itself. Everything else splits naturally, which is the MacPlus ladder
+   unchanged - GLUE, SDRAM, video, SWIM, ASC and SCSI each get a small bench
+   on iverilog. The exposure is the *combination*, and the technique for that
+   is a **bus-functional model**: a few hundred lines of Verilog impersonating
+   the 030 on the bus - FC codes, MOVES probes at FC=7, walker-style cycles,
+   the walk-read DTACK gate, `beat_valid`. Then:
+
+   - our RTL + BFM -> pure Verilog, iverilog, fast, covers the risky seams
+     daily;
+   - real CPU + upstream's VHDL suite -> ModelSim, over the line limit but
+     only ~2.5x slower;
+   - real CPU + our system -> occasional, to confirm the BFM still tells the
+     truth.
+
+   This fits where the work actually is: the CPU is fixed inherited code
+   while our RTL iterates. **The BFM's risk is that it encodes our *belief*
+   about the CPU** - if the belief is wrong the benches pass and the hardware
+   fails, which is the unowned seam relocated rather than removed. Derive it
+   from the integration contract in 1.4, and validate it by capturing real
+   bus traces from the CPU under ModelSim and replaying them through it.
+
+5. **Is there an open-source mixed-language simulator?** Not a mature one, as
+   of 2026-09. GHDL is VHDL; its Verilog work targets *synthesis* via
+   `ghdl-yosys-plugin`, not simulation. **NVC** is the promising trajectory -
+   near-complete VHDL-2008, LLVM-compiled, fast, with experimental Verilog
+   under development - but not there yet. **Pulse** (MIT, C++) appeared this
+   month with mixed-language *planned*; far too new to depend on.
+
+   So the mature open-source answer is the old one: **convert the VHDL to
+   Verilog and stay in one language** - which is exactly what the
+   103,693-line generated kernel is, produced by the same GHDL machinery.
+   The two options are therefore not independent: ModelSim buys true
+   mixed-language at a speed penalty, the generated kernel buys the same
+   destination on free tools at a readability penalty. With a BFM in the
+   ladder, either is needed far less often than the earlier framing assumed.
 2. Whether GHDL will run upstream's benches as written, or whether they lean
    on ModelSim-specific constructs. GHDL is VHDL-only either way, so
    `tb_cpu_wrapper_pmmu.v` - the Verilog wrapper bench, and the one closest
