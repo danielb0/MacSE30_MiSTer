@@ -27,15 +27,26 @@ this core:
 | `cpuAddr` is `[23:0]` throughout (`MacPlus.sv:508`) | 32-bit machine |
 | Plus/SE decode: ROM $400000, VIA $EFE1FE, IWM $DFE1FF (`rtl/addrDecoder.v`) | GLUE, I/O in the $5000_xxxx block |
 | PWM sound buffer scanned out of RAM | ASC - no scan, no phase; `SOUND_PHASE_PLAN.md`'s entire problem space is absent |
+| video scanned out of main RAM, contending with the CPU | **pseudo-slot video**: private 64K VRAM, a declaration ROM, no main-bus fetch. See 1.6 |
 | IWM / GCR | SWIM / FDHD |
 | 68000 (fx68k) or the fantasy 020 | 68030 + PMMU + 68882 |
 
 The base to build on is **`MacLC_MiSTer`**, not this repo. It already carries
 32-bit CPU address plumbing (`rtl/addrController_top.v:18`), `asc.sv`,
 `swim.v` with the MFM encoder/decoder pair, and a TG68K it already knows how
-to regenerate. What this repo contributes is the 1-bit video path and the
-VIA-shift-register ADB the SE/30 uses (`rtl/adb.sv`), which is the SE's
-mechanism, not the LC's Egret.
+to regenerate. What this repo contributes is the **1-bit video output
+stage** and the VIA-shift-register ADB the SE/30 uses (`rtl/adb.sv`), which
+is the SE's mechanism, not the LC's Egret.
+
+**Be precise about the video, because the resemblance is superficial.** The
+SE/30's display looks identical to a Plus - 512x342, 1bpp, 60.15 Hz, two
+buffers - but only the *output* is shared. What transfers from here is sync
+and blanking generation and the pixel shifter. What does not: the framebuffer
+location, the fetch mechanism, the address map, and the declaration ROM,
+which has no donor in this repo at all. A Plus scans video out of main RAM
+and contends with the CPU for it; an SE/30 does neither (1.6). One useful
+consequence: **the video fetch is not a main-bus master**, so it cannot
+collide with the PMMU table walker - one contender fewer for 1.9 item 4.
 
 ---
 
