@@ -617,9 +617,35 @@ the translation.
    on ModelSim-specific constructs. GHDL is VHDL-only either way, so
    `tb_cpu_wrapper_pmmu.v` - the Verilog wrapper bench, and the one closest
    to what we would be re-creating - cannot run under it.
-3. How the MacPlus core's existing benches handle `rtl/via6522.vhd`. That
-   project already contains VHDL, so there may be a settled local precedent
-   that decides this. **Unread.**
+3. How the MacPlus core's benches handle `rtl/via6522.vhd`. **ANSWERED, and
+   it argues against reusing the same strategy here.**
+
+   The MacPlus practice is that **iverilog never touches the VHDL at all**.
+   Across 33 benches in `sim/`, not one elaborates `rtl/via6522.vhd`, nor
+   `dataController_top.sv` which instantiates it - the three benches that
+   mention `dataController_top` do so only in comments. Testable logic is
+   instead factored *out* into standalone Verilog modules.
+   `MAC128K_PLAN.md:984` states it plainly:
+
+   > "`rtl/disk_pwm_duty.v` ... is a **separate module on purpose**:
+   > `dataController_top.sv` instantiates VHDL and cannot be elaborated by
+   > iverilog, so anything buried in it is untestable -- and every bug in
+   > this project has been in exactly that kind of unowned seam."
+
+   **So a precedent exists, and it decides against itself for this core.** On
+   MacPlus the VHDL is one peripheral, and you can factor around a VIA. On
+   the SE/30 the VHDL is **the CPU**: every system-level bench has it at the
+   centre and nothing can be factored around it. Applying the MacPlus
+   strategy here would make the entire machine the unowned seam - exactly
+   the region that quote identifies as where every bug in that project has
+   lived.
+
+   This retires the hope that local precedent settles 1.10 cheaply. It does
+   the opposite, and is the strongest argument yet that we must **buy**
+   system-level simulation: either the generated Verilog kernel as an opaque
+   block under iverilog, or a mixed-language simulator. Doing neither means
+   accepting that the CPU, the PMMU and every bus interaction with them are
+   untestable.
 
 ---
 
