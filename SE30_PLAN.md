@@ -633,14 +633,32 @@ the translation.
    103,693-line generated kernel may never be needed at all, and no new
    tooling has to be installed.
 
-   **One unknown remains: the Starter Edition's design-size limit.** It is
-   not documented anywhere in the install's own readme or release notes
-   (checked). It is commonly cited as ~10,000 executable lines, with
-   *performance degradation* rather than refusal beyond that. The 030 VHDL is
-   ~15,900 lines (kernel 10,509 + PMMU 5,004 + cache 376), so it is likely to
-   be over. **Whether that is merely slow or actually unusable can only be
-   measured with the real kernel in hand** - that is the next measurement,
-   and it needs the TG68K sources cut into a tree first.
+   **The Starter Edition's size limit, and what it actually counts.** Not in
+   the install's readme or release notes; the PDF manuals under
+   `docs/pdfdocs/` match on the terms and were not opened. From Intel's
+   community answers and the Verification Academy discussion:
+
+   - The limit is **10,000 "executable lines"**, where an executable line is
+     one you could set a breakpoint on - statements only, not comments,
+     blank lines, declarations or port maps.
+   - It counts **the design elaborated into the simulator**, at load time -
+     *not* the repository's size and *not* lines exercised during a run.
+   - Exceeding it does **not refuse**. It warns, then runs at roughly **40%
+     of full ModelSim PE/DE speed**.
+   - There is a **second, separate instance limit** beyond which simulation
+     drops to about **1%** of full speed. That is the real cliff; its numeric
+     value was not found.
+
+   So the cost scales per bench, not per project:
+
+   | bench | loads | outlook |
+   |---|---|---|
+   | our own RTL units | one module | unaffected (and can stay on iverilog) |
+   | CPU / PMMU suite | kernel + PMMU + cache, ~15,900 VHDL lines | over the line limit; expect ~2.5x slower, survivable |
+   | full system | CPU + GLUE + SDRAM + video | worst case, and the one 1.10 wants - **may trip the instance limit** |
+
+   **The measurement that matters is therefore the full-system bench, not the
+   CPU alone**, and it needs the TG68K sources cut into a tree first.
 2. Whether GHDL will run upstream's benches as written, or whether they lean
    on ModelSim-specific constructs. GHDL is VHDL-only either way, so
    `tb_cpu_wrapper_pmmu.v` - the Verilog wrapper bench, and the one closest
