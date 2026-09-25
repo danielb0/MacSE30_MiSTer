@@ -9,6 +9,12 @@ field. 1.5, 1.6 and 1.8 gained addenda; **1.7 was rewritten**; 1.9 was
 re-ordered and two of its items closed; 1.10 is new. The original text of 1.1
 to 1.4 stands.
 
+**Revision 2026-09-25.** 1.9 item 2 is done: the SE/30 ROM has been read.
+**1.11 is new** and records what the ROM asks of the PMMU. 1.7's risk item 1
+is withdrawn (its premise was a 68040 fact), 1.8's first bullet is answered,
+and 1.5's claim that 24-bit mode is the PMMU's work now rests on the ROM's
+own tables rather than on another project's prose.
+
 **This document is being composed in sections, each one following its own
 research pass.** Only Section 1 is written. It settles the CPU and the PMMU,
 because that was the only open question capable of making the project
@@ -198,6 +204,10 @@ what executes it. My earlier sketch of this project called for "a new
 addrDecoder plus 24-bit mode" - the second half of that was wrong and is
 withdrawn.
 
+**Confirmed from the ROM itself, 2026-09-25 - see 1.11.** The "translation
+tables" are one sixteen-entry table at `$40800050`, and its eight RAM entries
+are the 8MB ceiling described below, stated in hardware terms.
+
 **Addendum - but 24-bit is the SE/30's *normal* mode.** The above is right
 about the hardware and incomplete about the machine. The SE/30's ROM is
 **32-bit dirty**: it contains 24-bit addressing code, so its Memory Manager
@@ -228,7 +238,11 @@ One open detail for the RAM section: MAME does SE/30 RAM-size configuration
 in `via2_out_a`, so whatever size is offered has to reach the ROM as a valid
 strap combination. What configurations the real ROM accepts, and whether
 fitting more than 8MB with a stock ROM boots-and-ignores or confuses it, is
-unread.
+unread. Two facts toward it from the ROM read (1.11): MAME's pointer checks
+out - `$4080366E` holds `01 02 04 05 08 10 11 14 20 40 41 44 50 80`, sizes in
+MB, so the ROM's own table goes to 128MB - and the cold-start memory sizing at
+`$40802BBC` runs with the 32-bit MMU row loaded, so the 8MB window is not what
+bounds the sizing pass.
 
 ## 1.6 Cost
 
@@ -407,11 +421,12 @@ substantially broken recently. Open at the time of reading:
 **Deviations from the MC68030 UM that could bite a Mac ROM.** Six intentional
 ones are documented. Three matter to us:
 
-1. **PMMU registers are PMOVE-only.** The UM lists TC/TT0/TT1/MMUSR as
-   MOVEC-accessible; the kernel's MOVEC whitelist *excludes* them, and such
-   attempts trap as privilege violations. **If the SE/30 ROM reaches a PMMU
-   register through MOVEC, it breaks.** Concrete, testable, and exactly what
-   1.9 item 2 should be looking for.
+1. **PMMU registers are PMOVE-only.** ~~The UM lists TC/TT0/TT1/MMUSR as
+   MOVEC-accessible~~ - **withdrawn 2026-09-25; that list is the 68040's.**
+   The MC68030 UM's MOVEC description names SFC, DFC, CACR, USP, VBR, CAAR,
+   MSP and ISP and says all other codes take an exception, so PMOVE-only is
+   the correct 68030 behaviour, not a deviation. And the ROM agrees: its 40
+   MOVEC instructions touch only VBR, USP and CACR (1.11). Not a risk.
 2. **Format $B internal state ($20-$5C) is mostly zeroed**, except the
    stage-B address ($24) and the data-input buffer ($2C) - "sufficient for
    PTEST-based fault re-resolution but incomplete for handlers inspecting
@@ -458,9 +473,10 @@ WSL toolchain, so this is transcription rather than discovery. **Note that
 
 ## 1.8 What Section 1 does not settle
 
-- Whether the SE/30 ROM's demands on the PMMU are the same as the IIvi's.
-  Same CPU and same clock, but a 1989 256K ROM is not a 1992 1MB ROM. The
-  MAME SE/30 driver and the ROM's own `StartBoot` path are the sources.
+- ~~Whether the SE/30 ROM's demands on the PMMU are the same as the IIvi's.~~
+  **Answered 2026-09-25 from the ROM, in 1.11.** The demands are small and
+  are enumerated there; the comparison with the IIvi's ROM is no longer
+  needed, because ours are known directly.
 - The FPU. Every SE/30 shipped a 68882; TG68K has none and the IIvi
   deliberately has none because a stock IIvi has none. `AP68040`'s
   `ap040_fpu.v` (2,343 lines, extended precision) is the only open 68k FPU
@@ -488,10 +504,10 @@ are closed by the survey, one is reframed.
    section. It is now a decision to take rather than only a number to
    measure - but the measurement in 1.10 bounds one of the options and is
    cheap.
-2. **Read the SE/30 ROM's `StartBoot` / MMU path** and MAME's SE/30 driver,
-   now located at `src/mame/apple/macii.cpp`. Confirm the 1.1 premise against
-   the actual ROM rather than by analogy with the IIvi. **Look specifically
-   for MOVEC access to PMMU registers** (1.7), which would break outright.
+2. ~~**Read the SE/30 ROM's `StartBoot` / MMU path**~~ **Done 2026-09-25 -
+   1.11.** No MOVEC reaches a PMMU register, the 1.1 premise holds from the
+   ROM's own tables, and the ROM's entire PMMU contract fits in one bench,
+   proposed there. `scripts/se30_rom_mmu.py` reproduces the reading.
 3. **Diff danifunker's kernel against `030_mmu2`**, to recover the
    Mac-specific BERR / STOP / PMMU changes as an explicit reviewable set
    rather than an opaque inheritance (1.7).
@@ -733,6 +749,137 @@ the translation.
 
 ---
 
+## 1.11 What the SE/30 ROM asks of the PMMU
+
+Read 2026-09-25 from the ROM image itself - `$97221136`, the 256KB ROM the
+II FDHD, IIx, IIcx and SE/30 share; MAME's `macse30` loads the same file -
+with `scripts/se30_rom_mmu.py`. Every claim about the 68030 below is checked
+against the MC68030 User's Manual, 3rd edition (1990), section 9. Nothing
+here comes from an emulator.
+
+**The MOVEC question is closed, and its premise was wrong.** The ROM holds
+40 MOVEC instructions; every one names VBR, USP or CACR. None touches an MMU
+register, and none could: the UM's MOVEC description lists the 68030's
+control registers as SFC, DFC, CACR, USP, VBR, CAAR, MSP and ISP, "all other
+codes cause an exception". MOVEC access to TC, TT0/TT1 and MMUSR is a
+**68040** feature. So upstream's PMOVE-only whitelist is the correct 68030
+behaviour, and 1.7's risk item 1 is withdrawn.
+
+**The ROM executes exactly five PMMU instructions.** Scanning every even
+offset for a coprocessor-0 F-line word finds nine candidates; four are data
+or the middle of another instruction. The five real ones:
+
+| where | instruction | role |
+|---|---|---|
+| `$4083F872` | `PMOVE (a0),TC`, TC = 0 | reset path: disables translation before anything else runs, straight after the CACR probe that identifies a 68030 |
+| `$40803AE0` | `PMOVE TC,-(sp)` under an F-line trap handler | MMU-type probe, taken only on the 68020 path, to tell a 68851 from Apple's AMU |
+| `$40803B32` | `PMOVE $CB1.w,TC` | clears TC.E before a reload - the longword at `$CB1` has bit 31 clear |
+| `$40803B38` | `PMOVE (a0),CRP` | root pointer for the selected mode |
+| `$40803B3C` | `PMOVE 8(a0),TC` | TC for the selected mode |
+
+There is **no PFLUSH, PFLUSHA, PLOAD or PTEST** in executed code, no PMOVE to
+SRP, TT0 or TT1, and no MMUSR read. The ROM relies on a PMOVE with FD=0 to
+flush the ATC when it loads CRP and TC, which the UM specifies (9.5.3, the
+ATC entry's V bit: cleared by "a PMOVE instruction with the FD bit equal to
+zero that loads a value into the CRP, SRP, TC, TT0, or TT1 register").
+Upstream honours it: `TG68K_PMMU_030.vhd:1358-1406` invalidates the ATC on
+TC, SRP and CRP writes unless `reg_fd`.
+
+**24-bit mode is a sixteen-entry table in the ROM.** `_SwapMMUMode` (trap
+`$A05D`, vectored through `$DBC`, body at `$40803A8A`) picks one of two
+twelve-byte rows - CRP then TC - from a table at `$40803B7A`, indexed by MMU
+type and by the mode asked for. The 68030 rows:
+
+| mode | CRP | TC | decoded |
+|---|---|---|---|
+| 24-bit | `7FFF0002 40800050` | `80F84500` | E=1, PS=15 (32KB pages), **IS=8**, TIA=4, TIB=5; limit suppressed (L/U=0, `$7FFF`); short-format table at `$40800050` |
+| 32-bit | `7FFF0002 4083F5A0` | `80F04D00` | E=1, PS=15, IS=0, TIA=4, TIB=13; short-format table at `$4083F5A0` |
+
+Both field sums are 32 (15+8+4+5 and 15+0+4+13), as the TC consistency check
+in UM 9.7 requires. The two 68851 rows beside them differ only in setting CRP
+bit 9 (SG), which the 68030 reserves - Apple kept the parts distinct.
+
+The 24-bit table at `$40800050` - it sits in the ROM header, straight after
+the reset vectors - is sixteen 4-byte descriptors, every one a **page
+descriptor (DT=1) at level A**: early termination, UM 9.5.3.1. Each covers a
+1MB logical block directly, and the 32KB page size never produces a second
+level:
+
+| logical (24-bit) | physical | bits |
+|---|---|---|
+| `$0-$7` | `$00000000-$007FFFFF` | U M |
+| `$8` | `$40800000` (ROM) | U M |
+| `$9-$E` | `$F9000000-$FE000000` (slots 9-E; **`$E` is the SE/30's internal video**, 1.6) | U M CI |
+| `$F` | `$50F00000` (I/O) | U M CI |
+
+**This is the 8MB ceiling of 1.5 stated in hardware terms: eight RAM
+entries.** It is also, from Apple's own code rather than from
+`VASP_RETARGET.md`, the confirmation that 24-bit mode is the PMMU's work and
+none of the decoder's.
+
+The 32-bit table at `$4083F5A0` has the same shape: sixteen early-terminating
+descriptors of 256MB each, identity-mapped, `$0-$4` cacheable and `$5-$F`
+cache-inhibited. So translation is *enabled* in 32-bit mode too, and the
+table exists to set CI over I/O and slot space. The TT registers could have
+done that; the ROM never touches them.
+
+**U and M are pre-set in every descriptor, and the tables are in ROM.** The
+68030 sets U on any descriptor it finds with U clear, and M on a write to a
+page whose M is clear (UM 9.5.3). Had Apple left them clear, the walker would
+issue writes into ROM address space. Upstream's walker gates the same way
+(`TG68K_PMMU_030.vhd:4463-4478` - writeback only when U is clear, or on a
+write with M clear and no write protection), so with this ROM it never
+writes. That is a bench assertion, not an assumption: **any `mem_we` from
+the walker while the stock ROM is running is a bug.**
+
+**Reset ordering.** UM 9.2.2: RESET clears TC.E and the TTx E bits and does
+not flush the ATC. The ROM's first act after the CACR probe at `$4083F856`
+is `PMOVE TC` with zero regardless, so translation is off while the ROM sets
+up. The first table load is the *32-bit* row, at the end of the MMU
+initialisation at `$40803AA8-$40803B54`; `_SwapMMUMode` moves between rows
+thereafter, and the cold-start memory sizing at `$40802BBC` is bracketed by a
+switch to 32-bit and back (`$4083F880`). Where the ROM settles into 24-bit
+before handing over to the System is not traced; a dirty ROM stays there
+(1.5).
+
+**CPU identification depends on CACR readback.** The ROM tells a 68030 from
+a 68020 by writing CACR and reading it back: `$4083F85C` writes `$2000` (WA,
+bit 13) and tests for non-zero; `$4083F74A` writes `$2909` and tests bit 8
+(ED). A kernel that masked either bit on read would be taken for a 68020, and
+the ROM would then probe for a 68851 and find none. Upstream stores bits 13
+to 8 (`TG68KdotC_Kernel.vhd:9902`), so the probe works - but it belongs in
+the bench, because the whole MMU path hangs off it.
+
+The low-memory cells the ROM uses, by address rather than by name since the
+names have not been checked against Apple's equates: `$12F` CPU type, `$CB1`
+MMU type, `$CB2` current mode (0 = 24-bit), `$CB4` and `$CB8` pointers to the
+24-bit and 32-bit rows, `$DBC` the `_SwapMMUMode` vector.
+
+**What this settles for 1.8.** The SE/30 ROM's demands on the PMMU are now
+known and small: short-format descriptors only; one level-A table; early
+termination at level A; PS=15; IS=8 and 0; TIA=4; TIB=5 and 13; CRP with the
+limit suppressed; no SRP, FCL or TT; no PFLUSH; ATC flush on PMOVE; no
+history-bit writes. Each has a code path in upstream's walker
+(`calc_effective_page_shift`, `tc_config_invalid`, the DT=1-at-level-A branch
+at `:3096`). What it does not settle is the *System's* use of the PMMU:
+virtual memory under System 7 builds real multi-level tables in RAM, and that
+is where U/M writeback, RMC and the walker timeout of 1.7 become live. Per
+1.5, that is the enhancement path, not the base machine.
+
+**Proposed bench - cheap and decisive, and the first thing 1.10's ModelSim
+path should run.** Load the two 68030 rows into the upstream PMMU, serve the
+tables from a ROM-image model, present one logical address per block, and
+assert the sixteen translations, the CI outputs, the CACR readback, and that
+`mem_we` never rises. That is the SE/30's entire MMU contract in about forty
+vectors.
+
+**Noted for Section 2, not read further.** The same reset path identifies
+the machine from VIA1 PA6 and VIA2 PB3 (`$4083F76A-$4083F79C`, a six-entry
+table at `$4083F79E`), and MAME's remark about the RAM-size table checks out:
+`$4080366E` holds `01 02 04 05 08 10 11 14 20 40 41 44 50 80`, sizes in MB.
+
+---
+
 ## Appendix - where the sources are
 
 The two reference cores were shallow-cloned into a session scratchpad that does
@@ -752,6 +899,13 @@ not survive. Re-clone as needed:
 
 GPLv2 or GPLv2-or-later where checked. **wf68k30L's licence has not been
 checked.**
+
+**Primary documents and the ROM.**
+
+| source | where |
+|---|---|
+| **MC68030 User's Manual, 3rd edition (1990)** | bitsavers `components/motorola/68000/68030/MC68030_Users_Manual_3ed_1990.pdf` (20MB, use the `trailing-edge` mirror); copied to `C:\temp\Mac\SE30\Docs`. `pdftotext -layout` gives a greppable text; section 9 is the MMU |
+| **The SE/30 ROM** | `C:\temp\Mac\ROMS\256KB ROMs\1988-09 - 97221136 - Mac II FDHD & IIx & IIcx.ROM`. There is no file named SE/30: this is the SE/30's ROM, shared with those three machines (MAME's `macse30` loads the same image). Physical base `$40800000` |
 
 **Emulators and software references.**
 
