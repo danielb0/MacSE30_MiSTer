@@ -866,12 +866,36 @@ virtual memory under System 7 builds real multi-level tables in RAM, and that
 is where U/M writeback, RMC and the walker timeout of 1.7 become live. Per
 1.5, that is the enhancement path, not the base machine.
 
-**Proposed bench - cheap and decisive, and the first thing 1.10's ModelSim
-path should run.** Load the two 68030 rows into the upstream PMMU, serve the
-tables from a ROM-image model, present one logical address per block, and
-assert the sixteen translations, the CI outputs, the CACR readback, and that
-`mem_we` never rises. That is the SE/30's entire MMU contract in about forty
-vectors.
+**The bench exists and passes: `sim/pmmu_rom_contract/`.** Written and run
+2026-09-25, the first use of 1.10's ModelSim path: a Verilog bench
+instantiating the VHDL `TG68K_PMMU_030` from the IIvi tree, serving both
+tables from the real ROM image. It loads the two 68030 rows as
+`_SwapMMUMode` does (CRP high, CRP low, TC; FD=0), presents one bus cycle
+per block in each mode, and checks 67 things: all sixteen translations and
+CI bits in both modes; the named addresses (ROM, VIA2, video slot `$E`, top
+of the 8MB window); that IS=8 makes the top byte irrelevant to the
+*translation*; that the walker issued exactly one descriptor read per
+early-terminating entry, **62 reads in all, zero writes, zero outside the
+ROM**; that both TC geometries were accepted without an MMU configuration
+exception; that a reload with FD=0 re-walks (the ATC was flushed); and that
+TC=0 returns to identity. **It runs in well under a second - the PMMU alone
+is ~5,000 VHDL lines, under the Starter Edition's speed limit.**
+
+One expectation of mine was wrong, and the manual corrected it rather than
+the bench. I had assumed a second access to a block with junk in the top
+byte would hit the ATC, since IS=8 ignores it. It walked again - and UM
+9.7.3 says it must: "all 32 bits of the address are compared during address
+translation, bits ignored due to initial shift cannot have random values."
+The ATC tag also carries the function code (UM 9.4). So a 24-bit System
+that leaves flag bits in the top byte of an address gets the correct
+translation every time, at the cost of one ATC entry per distinct value -
+real-silicon behaviour, and upstream reproduces it. The bench now asserts
+it.
+
+**Still owed:** the CACR readback the ROM uses to identify a 68030 lives in
+the kernel, not the PMMU, so it needs a kernel-level bench; that is the
+natural second bench once the tree exists, and it is the one that will
+measure the Starter Edition against the full ~15,900-line CPU.
 
 **Noted for Section 2, not read further.** The same reset path identifies
 the machine from VIA1 PA6 and VIA2 PB3 (`$4083F76A-$4083F79C`, a six-entry
@@ -882,12 +906,14 @@ table at `$4083F79E`), and MAME's remark about the RAM-size table checks out:
 
 ## Appendix - where the sources are
 
-The two reference cores were shallow-cloned into a session scratchpad that does
-not survive. Re-clone as needed:
+The IIvi core is now cloned durably at `C:/Git/MiSTer-devel/MacIIvi_MiSTer`
+beside MacLC (2026-09-25); `sim/pmmu_rom_contract/run.sh` compiles the PMMU
+from there by default. The others were shallow-cloned into a session
+scratchpad that does not survive; re-clone as needed:
 
 | repo | why |
 |---|---|
-| `github.com/danifunker/MacIIvi_MiSTer` | **the important one.** 68030 + PMMU at 15.6672 MHz. `rtl/tg68k/TG68K_PMMU_030.vhd`, `68030_PMMU_TESTBENCH.md`, `SingleStepTests/pmmu/` |
+| `github.com/danifunker/MacIIvi_MiSTer` | **the important one.** 68030 + PMMU at 15.6672 MHz. `rtl/tg68k/TG68K_PMMU_030.vhd`, `68030_PMMU_TESTBENCH.md`, `SingleStepTests/pmmu/`, and **upstream's whole ModelSim suite in `tests/tg68k_030/`** (129 files, `Makefile`, `run_tests.do`) - so the VHDL benches of 1.10 are already on disk |
 | `github.com/danifunker/MacLCII_MiSTer` | also 68030; the qip header calls the PMMU branch "for the Mac LC II", so this may be the primary 030 target and the IIvi the follower. Not yet read |
 | `github.com/danifunker/MacLC_MiSTer` | the proposed base. Already cloned at `C:/Git/MiSTer-devel/MacLC_MiSTer` |
 | `github.com/danifunker/MacQuadra800_MiSTer` | 68040. Wrong MMU for us, but `rtl/ap68040/` is the only open 68k FPU found, its `tb/` is iverilog-based, and `scripts/` is a MiSTer hardware-automation harness worth taking on its own merits |
