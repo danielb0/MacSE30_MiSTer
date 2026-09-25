@@ -322,6 +322,9 @@ The programmable half is six small parts - UI6, UH7, UG6, UG7, UE6, UE7 - and
 | UE6 | 341-0637-A | 341-0754-A |
 | UE7 | 341-0688-A (AMD) | 341-0755-A |
 
+(2026-09-25: BOMARC's 1992 drawings, 2.1, are of a board marked
+**820-0260-A** carrying the right-hand column's parts - so that is the
+later board's number, and the VLSI part is confirmed as GLUE.)
 bitsavers carries Apple fuse maps for only four of the earlier board's six,
 and **two of those four are bad dumps**: `3410635A` and `3410637A`
 disassemble to degenerate nonsense - `vcc` repeated eight times, terms that
@@ -1062,6 +1065,7 @@ schematic, from the ROM, or is marked as a reading of a secondary source.
 | `se30.pdf` (bitsavers) | **Apple drawing 050-0253-01, "Schematic, Main Logic Board, Mac SE/30", Engineering Release** - 9 D-size sheets, of which the scan holds 8 (sheets 1-8; sheet 9 is missing). Raster only, ~3500 px wide per sheet | **primary**. Read as images; crops at full resolution are legible to the pin |
 | `mishimasensei/macse30mlb` | a **KiCad redraw of 050-0253-01**, all 9 sheets plus a pin-matrix "Tables" sheet, **MIT licence**. Snapshot at `C:/Git/MiSTer-devel/macse30mlb` (tarball, because one file's name has a colon and cannot exist on NTFS) | **secondary** - someone's transcription of the scan. `scripts/kicad_nets.py` reads its v5 sheets and prints pin-to-net tables; where checked against the scan (UI6, UG7, UE7, UE6, UH7) it agrees, with one bus-label ambiguity noted in 2.6 |
 | Bolle's six JEDECs | reverse-engineered, rewritten equations for the later board's PALs, CC-BY-NC-SA | **behavioural reference, read-only**; see 1.6. `scripts/jedec_dis.py` recovers their equations |
+| **BOMARC Services, 1992** (`se30schems.zip` from Macintosh Repository item 875, extracted to `C:\temp\Mac\SE30\Docs\se30schems\BOMARC`) | nine hand-drawn sheets reverse-engineered from a board marked **820-0260-A**: CPU/FPU/PDS; RAM SIMMs and GLU; video RAM and PAL chips; serial/SCSI/clock/PRAM/ADB; floppy/SWIM/audio; PSU plug/ROM SIMM/clock/battery; plus the ASTEC power supply, the fan and CRT board, and the Sony floppy drive - the analogue boards Apple's set does not cover | **secondary, independent of Apple's drawing** - a second transcription of the same hardware. It names GLUE as `VGC7219A0669 (344S0602-A)`, which settles the "probably GLUE" of 1.6; its PALs are `341-0746-A`, `-0747-A`, `-0754-A`, `-0755-A`, `-0665-A` - **Bolle's set, so the "later board" of 1.6 is 820-0260-A**; and it gives the VRAM as TMS4461-15NL or uPD41264-15. The same zip's `Apple/SE30_P1-P8.GIF` are pixel-identical to `se30.pdf`'s pages; still no sheet 9 |
 | the `$97221136` ROM | | **primary** for what software expects of the hardware (1.11) |
 | MAME `macii.cpp` | | cross-check only |
 
