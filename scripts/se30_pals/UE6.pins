@@ -1,0 +1,19 @@
+# UE6  341-0754-A  16L8  sheet 5 "video interface" - slot-E decode and strobes
+1=VIDREQ
+2=C16M
+3=VIDS4
+4=VIDS3
+5=VIDS2
+6=VIDS1
+7=VIDS0
+8=VID/V
+9=R/W*
+11=A16        # within slot E: VRAM vs declaration ROM
+12=VIDW*      # VRAM write (WB/WE)
+13=VIDMUX*    # VRAM address mux select: CPU address vs video counters
+14=nc14
+15=DOE*       # data output enable, VRAM to D31-24
+16=nc16
+17=DSACK0*    # the slot's acknowledge, 8-bit port
+18=VC*        # VRAM CAS
+19=VIDROM*    # UK6 2764 declaration ROM enable

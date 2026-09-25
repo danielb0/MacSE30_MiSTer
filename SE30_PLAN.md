@@ -1396,11 +1396,10 @@ RAM-size bits and bank rule, and the VBL's origin in VIA2 T1.
 
 Proposed work, cheap and decisive first:
 
-1. **Name every PAL pin and re-derive the six equations with names**, from
-   `kicad_nets.py` plus the scan crops (done for the pins; the equations
-   are still positional). Then write down, per PAL, what it *does* - the
-   video timing generator is the one that matters, and Bolle's equations
-   are its behavioural reference, not its source.
+1. ~~**Name every PAL pin and re-derive the six equations with names**~~
+   **Done 2026-09-25 - 2.9.** New open item from it: **372 or 370 lines
+   per frame** (2.9), which needs a good dump of Apple's UG6 or a
+   measurement on hardware.
 2. ~~**Re-read Figure 3-6's I/O rows and the interrupt section**~~ **Done
    2026-09-25** - `pdftoppm` (poppler-utils under WSL) renders the JBIG2
    pages; results folded into 2.2, 2.4, 2.6 and 2.7.
@@ -1412,6 +1411,133 @@ Proposed work, cheap and decisive first:
    written against.
 5. Only then: the video PALs as RTL, from the named equations, benched
    against the *Guide*'s line and frame counts (704 x 370 at 15.6672 MHz).
+
+## 2.9 The PALs, named and read
+
+Done 2026-09-25 (2.8 item 1). `scripts/se30_pals/` holds one `.pins` file
+per device - pin number to schematic signal, from `kicad_nets.py` and the
+scan crops - and `run.sh` disassembles Bolle's six JEDECs with those names.
+Three things had to be fixed in `jedec_dis.py` first, each a way the earlier
+positional reading was silently wrong:
+
+- **Polarity.** A GAL16V8 has a per-output XOR fuse; five of the six files
+  use it. The tool now applies it (an output with XOR=1 is rendered `X :=`
+  rather than `/X :=`), taking the bits pin 19 first. Evidence for that
+  order: read so, UG6's `VSYNC*` decodes active-low and its `LCTRRST` - an
+  LS393's active-high CLR - decodes active-high, both as the board needs;
+  the reverse order breaks `VSYNC*`.
+- **Product-term enables** (one fuse per row) are honoured; in UI6 the
+  unused rows are exactly the disabled ones.
+- **16L8 columns.** In a 16L8 - and a GAL in complex mode - pins 1 and 11
+  are inputs and take the two array columns that a registered part gives
+  to pins 19 and 12's feedback. Found because `A16`, UE6's pin 11, appeared
+  in none of its equations; with the map corrected it is the RAM/ROM
+  split, exactly where it should be.
+- **Output-enable terms** are now printed for combinatorial pins, which is
+  where UI6's `BERR*` logic actually lives.
+
+`validate` still reproduces National's reference disassembly exactly after
+all of this.
+
+**Standing.** Bolle's equations are a behavioural rewrite under
+CC-BY-NC-SA (1.6): they were *read* to get the behaviour below, and the
+behaviour is recorded as timings and functions. The RTL will be written
+from those numbers and the *Guide*, not from the equations. Where a number
+below disagrees with the *Guide*, the *Guide* is the specification until
+silicon evidence says otherwise ([[feedback-replicate-bugs-else-spec]]).
+
+**Horizontal timing - UG7 with the UG8 counter.** Clocked by the 15.6672
+MHz pixel clock. A 2-bit internal phase counter, resynchronised by
+`VIDTIME`, divides it to `C2M` = C16M/8 - one count per byte of pixels -
+which clocks UG8. UG8 counts 0-87 and `HCTRRST` clears it at 88: **88
+counts x 8 = 704 pixels per line**, the *Guide*'s figure exactly. `SC`,
+the VRAMs' serial clock, pulses once per byte for counts 0-63 - **64 bytes
+= 512 pixels** - and `SREGLD` (one clock behind `SC`) loads each byte into
+the LS166; for counts 64-87 nothing is loaded and the shifter clocks in
+ones from its pulled-up serial input, which is black (1 = black), so
+**horizontal blanking is implicit** - 192 pixels, as the *Guide* says. The
+counter also makes `TWOLINE`, which toggles at every `HCTRRST` and clocks
+the vertical counter every two lines. `HSYNC*` is low from count 67 (pixel
+536) to count 15 of the *next* line (pixel 120): **288 pixels, 18.4 us,
+overlapping the first 120 active pixels.** That is not a blanking gate; it
+is the horizontal drive waveform the analogue board wants, and the
+display's left edge is set by the deflection, not by this signal. The
+timing measured by simulating the named equations pixel by pixel:
+
+| | measured | *Guide* 12 |
+|---|---|---|
+| pixels per line | 704 | 704 (512 + 192) |
+| bytes fetched per active line | 64 | 512 pixels |
+| `HSYNC*` low | 288 px from pixel 536 | not given |
+
+**Vertical timing - UG6 with the UF8 counter.** UG6's internal Q1-Q3 form a
+mod-8 pixel phase; `VIDTIME` is *vertical-active AND phase 2* - one pulse
+per byte during active lines, which is what drives `SC` and `C2M`'s
+resynchronisation. Q4 is the vertical-active flag, set and cleared by
+decodes of the line-pair count `VADR`. `VIDOUT` is `SERVID` registered
+(one clock late). Measured:
+
+| | measured | *Guide* 12 |
+|---|---|---|
+| active lines | 342 (line pairs 1-171) | 342 |
+| `VSYNC*` | low 4 lines, from line 344 | not given |
+| **lines per frame** | **372** (`LCTRRST` at pair 186) | **370** |
+| frame rate | 59.82 Hz | 60.15 Hz |
+
+**The 372-versus-370 discrepancy is a new open item, and it matters.**
+Either Bolle's rewrite differs from Apple's PAL by one line pair - invisible
+on a CRT, which is all he needed - or the *Guide* reused the Plus's 370 for
+the SE/30, or the reading here is off by a pair (it was checked: 342 active
+lines and `VSYNC*` at 344 both come out right, which they would not if the
+pair mechanism were misread). The only Apple fuse map of a vertical PAL,
+bitsavers' `3410635A`, is a bad dump (1.6). **Resolution needs either a
+good dump of Apple's UG6 (`341-0747-A` or `341-0635-A`) or a measurement on
+a real SE/30. Until then the core is built to the *Guide*'s 370 and this
+note is the record of the doubt.**
+
+**Slot-E access - UE7 with UE6.** UE7 is a five-bit registered state
+machine (`VIDS0-4`) on the pixel clock, with two more registered outputs,
+`VR*` and `VID/V`. It is entered from GLUE's `NUBUS*` qualified by
+`SLTE/F` (A31-A25 all ones) and `A24` = 0 - i.e. a CPU cycle into slot
+`$E` - and it sequences that cycle around the display's own use of the
+VRAMs, taking `HSYNC*` and `VIDTIME` as its phase references. UE6 turns the
+state into strobes: `VIDROM*` = access AND `A16` (the declaration ROM is
+the `A16 = 1` half of every 128KB of the slot, so it appears at
+`$FEFF0000`-`$FEFFFFFF` as the *Guide* shows, and at every other
+`A16 = 1` mirror); `VIDW*` = write AND `A16 = 0` AND the muxes pointed at
+the CPU; `DOE*` = read AND `A16 = 0` at the right state; `VC*` (the VRAM
+CAS) and `VIDMUX*` (address mux select) per state; and `DSACK0*`, driven
+**only while an access is in progress** (its output enable is an internal
+"access active" term) and asserted at a fixed state - the "special
+`/DSACK0`" of Figure 3-6 for the video, done in a PAL rather than in GLUE.
+The exact cycle count from `AS*` to `DSACK0*` is not extracted here; it
+will be, by simulation, when the video RTL is written, and it is what
+determines VRAM access speed.
+
+**UI6 - CPU-side glue, four functions.**
+
+1. `AS*` = `LAS*` gated by FC != 7 - the FC=7 rule (1.4, 2.7).
+2. `C16M` = `C16G` re-registered on `C32M`: the phase-aligned 16 MHz for
+   the CPU sheet.
+3. `IRQ6*` = **`VSYNC*` latched while `VSYNCEN*` is low, released when
+   `VSYNCEN*` goes high.** So the slot-`$E` interrupt is level-held until
+   software deasserts `vSyncEnA` (VIA1 PB6) - the driver acknowledges the
+   VBL by toggling that bit. The core must model the latch, or the
+   interrupt will either be missed or never clear.
+4. **`BERR*` is a bus-cycle timeout clocked by `HSYNC*`.** Two internal
+   flip-flops watch `HSYNC*` while `LAS*` is asserted; `BERR*` is driven
+   low once the cycle has seen `HSYNC*` high, then low, then high again -
+   **between one and two line times, ~45-90 us, with no acknowledge.**
+   This is what turns "no DSACK" in Figure 3-6 into a bus error, for slot
+   space and the PDS as well as for GLUE's own undecoded ranges (GLUE's
+   `BERRN` is a second source on the same net).
+
+**UH7 - RAM write strobes and the clock buffer.** `RCMUX*` = `/RCMUX`
+(the 74F258 select), `WR` = `/WR*`, `C32M` = `/C32G` (the oscillator
+buffered into GLUE), and two per-bank write strobes: `RAMRWA` asserts when
+`RASA` is active and `CASLL` low and the cycle is a write, and holds itself
+until `RASA` releases; `RAMRWB` the same for bank B. DRAM early-write
+semantics, one strobe per bank.
 
 ---
 

@@ -1,0 +1,19 @@
+# UI6  341-0665-A  16R4  sheet 1 "CPU/FPU" - CPU-side glue (bit-identical to Apple's 3410665A dump)
+1=C32M        # clock
+2=C16G        # GLUE's 16 MHz
+3=LAS*        # the 68030's AS
+4=VSYNC*
+5=VSYNCEN*    # VIA1 PB6, vSyncEnA
+6=FC2
+7=FC1
+8=FC0
+9=LBGACK*
+11=PD15       # /OE pulled down
+12=BERR*      # combinatorial (16R4 outer pin)
+13=IRQ6*      # slot $E interrupt, to GLUE SLTIRQ6N and VIA2 PA5 (combinatorial)
+14=nc14       # registered, unused
+15=nc15
+16=nc16
+17=C16M       # registered, via R29 22R to the C16M net
+18=HSYNC*     # combinatorial pin used as an INPUT (OE never true)
+19=AS*        # system AS, to GLUE and the PDS (combinatorial)

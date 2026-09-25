@@ -1,0 +1,19 @@
+# UG6  341-0747-A  16R8  sheet 5 "video interface" - vertical timing, pixel gate
+1=C16M
+2=VADR0       # UF8 LS393 line-pair counter, clocked by TWOLINE
+3=VADR1
+4=VADR2
+5=VADR3
+6=VADR4
+7=VADR5
+8=VADR7       # VADR6 is not an input
+9=SERVID      # serial pixel stream from UE8
+11=PD7        # /OE pulled down
+12=VIDTIME    # active frame, to UG7 and UE7
+13=VIDOUT     # the pixel, to the CRT board (sheet 8)
+14=VSYNC*
+15=LCTRRST    # clear (active-high) of UF8
+16=Q4int
+17=Q3int
+18=Q2int
+19=Q1int

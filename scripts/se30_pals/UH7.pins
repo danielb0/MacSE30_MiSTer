@@ -1,0 +1,20 @@
+# UH7  341S0689-C  16L8  sheet 2 "ROM, RAM address muxes" - RAM write strobes and clock buffer
+# Read from a full-resolution crop of the scan; the KiCad sheet is v6 and unparsed.
+1=nc1         # drawn to a wire, no label read; unused by the equations
+2=RCMUX       # from GLUE
+3=RASA        # from GLUE, bank A
+4=WR*         # from sheet 6 (R/W* buffered)
+5=RASB        # from GLUE, bank B
+6=nc6
+7=CASLL       # from GLUE, lowest byte lane CAS
+8=C32G        # 31.3344 MHz oscillator Y2
+9=nc9
+11=nc11
+12=C32M       # to GLUE through R28 47R
+13=RAMRWB     # bank B write strobe
+14=nc14
+15=RAMRWA     # bank A write strobe
+16=WR         # buffered R/W (sheet 6)
+17=R/W*       # used as an INPUT (OE never true)
+18=RCMUX*     # to the 74F258 mux selects
+19=nc19

@@ -42,6 +42,12 @@ OUT_PINS = [19, 18, 17, 16, 15, 14, 13, 12]
 
 # Column c selects literal COL_ORDER[c // 2]; an even c is the true literal.
 COL_ORDER = [2, 19, 3, 18, 4, 17, 5, 16, 6, 15, 7, 14, 8, 13, 9, 12]
+# In a 16L8 (and a GAL16V8 in complex mode) pins 1 and 11 are ordinary
+# inputs, not CLK and /OE, and they take the two columns that a registered
+# part gives to the feedback of pins 19 and 12 - which in a 16L8 are
+# output-only.  Found the hard way on the SE/30's UE6, where A16 on pin 11
+# appeared in no equation until this was applied.
+COL_ORDER_16L8 = [2, 1, 3, 18, 4, 17, 5, 16, 6, 15, 7, 14, 8, 13, 9, 11]
 
 INTACT = 0          # derived by validate(); see module docstring
 
@@ -58,7 +64,18 @@ REGISTERED = {
 # GAL16V8 fuse map beyond the 2048-fuse array.  The AC1 bit order is INFERRED
 # as pins 19..12 and has not been confirmed against the datasheet - treat any
 # device-type guess from it as a hypothesis, not a finding.
-GAL_XOR, GAL_AC1, GAL_SYN, GAL_AC0 = 2048, 2120, 2192, 2193
+#
+# The XOR (output polarity) bits are taken in the same order, pin 19 first,
+# and for those there IS evidence (2026-09-25, Bolle's UG6): read that way,
+# VSYNC* on pin 14 decodes active-low and LCTRRST on pin 15 - an LS393's
+# active-high CLR - decodes active-high, both as the board needs; the
+# reverse order makes VSYNC* active-high.  XOR=1 means the output is
+# active-high, i.e. the equation is "o := terms" rather than "/o := terms".
+# A plain PAL16R8/16L8 has no XOR bits and every output is active-low.
+#
+# The product-term enable bits (one per array row) are 1 for a live row and
+# 0 for a disabled one - in Bolle's UI6 the unused rows are exactly the 0s.
+GAL_XOR, GAL_AC1, GAL_PTE, GAL_SYN, GAL_AC0 = 2048, 2120, 2128, 2192, 2193
 
 
 def parse_jedec(path):
@@ -92,17 +109,30 @@ def decode(fuses, dev="16R8"):
     unused product term reads on an unprogrammed row.
     """
     registered = REGISTERED.get(dev, set(OUT_PINS))
+    gal = len(fuses) > GAL_PTE + N_ROWS
+    cols = COL_ORDER_16L8 if dev == "16L8" else COL_ORDER
     equations = {}
     for group, pin in enumerate(OUT_PINS):
         first = group * 8
         # A combinatorial output burns its first product term on the OE.
+        # That term is decoded too, under key (pin, "oe"): for a pin whose
+        # logic is trivial the OE is where the meaning is (UI6's BERR*).
         rows = range(first + (0 if pin in registered else 1), first + 8)
+        if pin not in registered:
+            oe = set()
+            for c in range(N_COLS):
+                if fuses[first * N_COLS + c] == INTACT:
+                    oe.add((cols[c // 2], c % 2 == 0))
+            if not (gal and fuses[GAL_PTE + first] == 0):
+                equations[(pin, "oe")] = [frozenset(oe)]
         terms = []
         for r in rows:
+            if gal and fuses[GAL_PTE + r] == 0:   # product term disabled
+                continue
             literals = set()
             for c in range(N_COLS):
                 if fuses[r * N_COLS + c] == INTACT:
-                    literals.add((COL_ORDER[c // 2], c % 2 == 0))
+                    literals.add((cols[c // 2], c % 2 == 0))
             # Both polarities of the same pin present => never true.
             if any((p, True) in literals and (p, False) in literals
                    for p, _ in literals):
@@ -146,19 +176,25 @@ def parse_eqn(path):
 
 
 def as_sets(equations):
-    """Canonical form for comparison: term order and repeats are irrelevant."""
-    return {p: set(t) for p, t in equations.items() if t}
+    """Canonical form for comparison: term order and repeats are irrelevant.
+    OE terms are left out: JED2EQN's .EQN files omit them too."""
+    return {p: set(t) for p, t in equations.items() if t and not isinstance(p, tuple)}
 
 
-def format_equations(equations, dev):
+def format_equations(equations, dev, pins=None, xor=None):
+    """Render equations.  `pins` maps pin number -> signal name (positional
+    i2..i9 / o12..o19 otherwise).  `xor` is the 8-bit GAL polarity list, pin
+    19 first; an output with XOR=1 is rendered active-high."""
     registered = REGISTERED.get(dev, set(OUT_PINS))
-    name = lambda p: (f"i{p}" if p < 10 else f"o{p}")
+    pins = pins or {}
+    name = lambda p: pins.get(p) or (f"i{p}" if p < 10 else f"o{p}")
     out = []
-    for pin in OUT_PINS:
+    for idx, pin in enumerate(OUT_PINS):
         op = ":=" if pin in registered else "="
+        lhs = ("" if (xor and xor[idx]) else "/") + name(pin)
         terms = equations.get(pin) or []
         if not terms:
-            out.append(f"  /{name(pin)} {op} gnd")
+            out.append(f"  {lhs} {op} gnd" + ("" if pin in registered else "   ; OE never true: pin is an input or unused"))
             continue
         rendered = []
         for t in terms:
@@ -168,8 +204,41 @@ def format_equations(equations, dev):
             rendered.append(" * ".join(
                 ("" if pol else "/") + name(p)
                 for p, pol in sorted(t, key=lambda x: x[0])))
-        out.append(f"  /{name(pin)} {op} " + "\n        + ".join(rendered))
+        out.append(f"  {lhs} {op} " + "\n        + ".join(rendered))
+        oe = equations.get((pin, "oe"))
+        if oe is not None and pin not in registered:
+            t = oe[0]
+            contradictory = any((p, True) in t and (p, False) in t for p, _ in t)
+            if contradictory:
+                s = "never (pin is an input)"
+            elif not t:
+                s = "always"
+            else:
+                s = " * ".join(("" if pol else "/") + name(p)
+                               for p, pol in sorted(t, key=lambda x: x[0]))
+            out.append(f"        ; OE({name(pin)}) = {s}")
     return "\n".join(out)
+
+
+def parse_pins(spec):
+    """'1=C16M,2=CNT0,...' or '@file' holding the same, one entry per line
+    or comma-separated; '#' starts a comment."""
+    if not spec:
+        return {}
+    if spec.startswith("@"):
+        text = open(spec[1:], encoding="utf-8").read()
+    else:
+        text = spec
+    pins = {}
+    for line in text.split("\n"):
+        line = line.split("#", 1)[0]          # comments first: they may hold commas
+        for chunk in line.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            num, _, nm = chunk.partition("=")
+            pins[int(num)] = nm.strip()
+    return pins
 
 
 def cmd_validate(args):
@@ -190,19 +259,25 @@ def cmd_validate(args):
 def cmd_dis(args):
     count, fuses = parse_jedec(args.jed)
     dev = args.type
-    if dev == "auto":
-        if count > 2048:                      # a GAL carries config fuses
-            ac1 = fuses[GAL_AC1:GAL_AC1 + 8]
-            comb = sum(ac1)
-            dev = {0: "16R8", 4: "16R4", 8: "16L8"}.get(comb, "16R8")
-            print(f"; GAL16V8: SYN={fuses[GAL_SYN]} AC0={fuses[GAL_AC0]} "
-                  f"AC1={''.join(map(str, ac1))}")
-            print(f"; inferred equivalent: {dev}  (AC1 bit order UNCONFIRMED)")
-        else:
-            dev = "16R8"
+    xor = None
+    if count > 2048:                          # a GAL carries config fuses
+        ac1 = fuses[GAL_AC1:GAL_AC1 + 8]
+        xor = fuses[GAL_XOR:GAL_XOR + 8]
+        if dev == "auto":
+            dev = {0: "16R8", 4: "16R4", 8: "16L8"}.get(sum(ac1), "16R8")
+        print(f"; GAL16V8: SYN={fuses[GAL_SYN]} AC0={fuses[GAL_AC0]} "
+              f"AC1={''.join(map(str, ac1))} XOR={''.join(map(str, xor))} (pin 19 first)")
+        print(f"; inferred equivalent: {dev}  (AC1 bit order UNCONFIRMED; "
+              "XOR order supported by UG6's VSYNC*/LCTRRST polarities)")
+    elif dev == "auto":
+        dev = "16R8"
+    pins = parse_pins(args.pins)
     print(f"; {args.jed}  ({count} fuses, decoded as {dev})")
-    print("; pin names are positional - a fuse map carries no signal names")
-    print(format_equations(decode(fuses, dev), dev))
+    if pins:
+        print("; pin names from the schematic (secondary: the redraw + scan crops)")
+    else:
+        print("; pin names are positional - a fuse map carries no signal names")
+    print(format_equations(decode(fuses, dev), dev, pins, xor))
     return 0
 
 
@@ -246,6 +321,8 @@ def main():
     p.add_argument("jed")
     p.add_argument("--type", default="auto",
                    choices=["auto", "16R8", "16R4", "16L8", "16V8"])
+    p.add_argument("--pins", default="",
+                   help="pin names: '1=CLK,2=A0,...' or '@file'")
     p.set_defaults(fn=cmd_dis)
 
     p = sub.add_parser("diff", help="compare two fuse arrays")
