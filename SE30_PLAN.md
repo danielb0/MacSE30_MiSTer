@@ -1117,13 +1117,40 @@ is the SE/30's own):
 GLUE "responds to any I/O device address with a /DSACK0 signal" and "the
 /DSACK0 and /DSACK1 signals ... indicate to the MC68030 the size of a
 device's data bus" - so the I/O devices are 8-bit ports and RAM/ROM are
-32-bit. Which I/O addresses go where is in MAME's map and matches the GLUE
-select outputs in 2.3; the *Guide*'s figure gives `$50000000` VIA1,
-`$50002000` VIA2, `$50004000` SCC, `$50006000` SCSI pseudo-DMA, `$50010000`
-SCSI, `$50012000` SCSI DRQ, `$50014000` ASC, `$50016000` SWIM, and marks
-`$50018000-$50020000` and above as undecoded - **the figure's OCR is poor
-and this row set is to be re-read from the page image before it is relied
-on.**
+32-bit. **The I/O map, read from Figure 3-6's page image (2026-09-25,
+poppler render), bottom to top:**
+
+| range | device | DSACK |
+|---|---|---|
+| `$50000000-$50002000` | VIA1 | special |
+| `$50002000-$50004000` | VIA2 | special |
+| `$50004000-$50006000` | SCC | special |
+| `$50006000-$50008000` | SCSI (handshake) | special |
+| `$50008000-$50010000` | expansion address space | **no DSACK** |
+| `$50010000-$50012000` | SCSI | one wait state, DSACK0 |
+| `$50012000-$50014000` | SCSI (pseudo-DMA) | one wait state, DSACK0 |
+| `$50014000-$50016000` | Sound (ASC) | two wait states, DSACK0 |
+| `$50016000-$50018000` | SWIM | one wait state, DSACK0 |
+| `$50018000-$50020000` | expansion address space | one wait state, DSACK0 |
+| `$50020000-$51000000` | "reserved for future expansion (presently wraps `$50000000-$5001FFFF` eight times)" | |
+| `$51000000-$5FFFFFFF` | undecoded | **no DSACK** |
+
+"Wraps eight times" is the figure's phrase; the *decoded* block is 128KB
+(`$20000`), and GLUE's missing A18/A19 pins explain a wrap, but eight
+repeats over 16MB do not follow from the pin list alone - **the exact
+mirror rule is an open item for the GLUE specification (2.8).** MAME's map
+agrees on every device address; it mirrors on `$00F00000`, which is a
+different, coarser statement.
+
+The same figure's **standard slot space**, `$F1000000-$FFFFFFFF` at 16MB
+per slot: three **"pseudo-slots"** at `$F9000000`, `$FA000000` and
+`$FB000000` - the PDS, which presents expansion cards as slots 9-B - a gap
+at `$FC-$FD`, and at `$FE000000` **"Video: RAM `$FE000000-$FEFF0000`, ROM
+`$FEFF0000-$FF000000`"** - so the declaration ROM occupies the top 64KB of
+slot `$E`'s space, and MAME's 8KB at `$FEFFE000` is the top of that, where
+a NuBus declaration ROM's directory is expected. `$F0000000-$F1000000` is
+reserved; `$60000000-$F0000000` is drawn as NuBus super-slot space, which
+the SE/30 does not have.
 
 ## 2.3 GLUE
 
@@ -1153,9 +1180,16 @@ redraw's netlist (`kicad_nets.py ... UI8`), checked against the scan:
 
 The two-bank RAM (`RASA`/`RASB`) and the four CAS lanes are the shape of the
 RAM controller we must build; `RAMSIZ` is not a strap but **two VIA2 output
-bits** (PA6, PA7 - sheet 4), so the ROM configures the row/column mux
-arrangement in software during memory sizing, which is what MAME's remark
-about `via2_out_a` means.
+bits** (PA7 `v2RAM1`, PA6 `v2RAM0` - *Guide* Table 4-9, and sheet 4). *Guide*
+Table 4-10 gives their meaning: `00` = 256 Kbit, `01` = 1 Mbit, `10` = 4
+Mbit, `11` = 16 Mbit RAM ICs in bank A, and the text: "set at system
+startup by the firmware to indicate the size of the RAM ICs being used in
+the RAM SIMMs in bank A ... The RAM-size bits determine the physical
+address at which the GLUE IC stops selecting bank A and starts selecting
+bank B." So the ROM sizes bank A, tells GLUE its IC size, and GLUE places
+bank B immediately after it - at 1, 4, 16 or 64 MB - which is what MAME's
+remark about `via2_out_a` means, and is the bank-boundary rule the RAM
+controller implements.
 
 **GLUE is not documented internally anywhere found**, and the VLSI part on
 the board (1.6) is not the kind of thing a fuse map exists for. Everything
@@ -1260,12 +1294,19 @@ what 1.6 assumed about "fetch":
 raises **`IRQ*(6)` = slot `$E`'s interrupt** when `VSYNCEN*` (VIA1 PB6) is
 low - the *Guide* 4 table: PB6 "`vSyncEnA` 0 = vertical synchronization
 interrupt enabled (Macintosh SE/30 only)" - through GLUE's slot-interrupt OR
-into VIA2 CA1, and (b) as `VBLK*` to **VIA1 CA1** and VIA2 PB7. *Guide* 12:
-on the SE/30 "the VBL interrupt is driven by a 60.15 Hz clock and is not
-synchronous with the blanking of the screen" - so the classic VBL on VIA1
-is a timer, and software that wants the real retrace uses the slot
-interrupt through the Vertical Retrace Manager's per-slot queue. MAME's
-`se30_vbl_enable` on VIA1 PB6 and `nubus_irq_w<0xe>` are this.
+into VIA2 CA1; and (b) the classic VBL on **VIA1 CA1**, which is **not the
+video's at all**: `VBLK*` is VIA2 PB7, and *Guide* Table 4-15 says "`v2VBL`
+... 60.15 Hz interrupt request to VIA1 ... driven by timer T1 to send the
+60.15 Hz interrupt request to VIA1 once every 16.63 ms". So the VBL that
+System software sees on VIA1 is **VIA2's timer 1 free-running with PB7
+toggle**, programmed by the ROM, and *Guide* 12's "driven by a 60.15 Hz
+clock and is not synchronous with the blanking of the screen" is exactly
+that. Software that wants the real retrace uses the slot-`$E` interrupt
+through the Vertical Retrace Manager's per-slot queue. MAME's
+`se30_vbl_enable` on VIA1 PB6 and `nubus_irq_w<0xe>` are the slot path.
+**Consequence for the core:** the VIA2 T1/PB7 mechanism must be modelled
+faithfully, because the 60.15 Hz the OS runs its VBL tasks on comes from a
+timer the ROM programs, not from the video counters.
 
 **What the declaration ROM contains is a Section-2 open item.** MAME's
 `se30vrom.uk6` is 8KB at `$FEFFE000` (CRC `b74c3463`); the *Guide* only
@@ -1298,21 +1339,60 @@ GLUE (sheet 4, netlist confirmed). The bit assignments as wired, against
 | CA2 | `RTC-1HZ` | CB2 | `SCSIIRQ` |
 | CB1, CB2 | `ADB-SCLK`, `ADB-DIO` (the shift-register ADB of 1.6) | | |
 
-Interrupt routing, from GLUE's pins: VIA1 and VIA2 IRQ outputs, the SCC's,
-the NMI switch and `PWRIRQ` go into GLUE, which encodes `IPL0-2`. The
-priorities are not in the *Guide*'s SE/30 text read so far; the II family
-convention (VIA1 = 1, VIA2 = 2, SCC = 4, NMI = 7) is the working assumption
-**and must be confirmed from the *Guide*'s interrupt section before it is
-built.**
+**The *Guide*'s tables, now read from the page images** (Tables 4-5, 4-9,
+4-10, 4-14, 4-15), correct and complete the wiring column:
+
+- VIA1 A: 7 `vSCCWrReq` in (SCC W/REQ A and B wire-ORed); **6 `vPage2` out
+  (SE/30: 0 = alternate screen buffer, 1 = main)** - on the II/IIx this pin
+  is `CPU.ID1` in, which is what the ROM's box-ID probe of 1.11 reads; 5
+  `vHeadSel`; 4 `vOverlay` (1 = ROM overlay map); 3 `vSync` (SCC channel A
+  clock select); 0-2 reserved.
+- VIA1 B: 7 `vSndEnb`; **6 `vSyncEnA`, "0 = vertical synchronization
+  interrupt enabled (Macintosh SE/30 only)"**; 5, 4 ADB state ST1, ST0; 3
+  `vFDBInt` ADB interrupt in; 2 `rTCEnb`; 1 `rtcCLK`; 0 `rtcData`.
+- VIA2 A: 7, 6 `v2RAM1`, `v2RAM0` out (2.4); 5-0 `v2IRQ6`-`v2IRQ1` in, the
+  slot `$E`-`$9` interrupt lines, readable so the handler can find the slot.
+- VIA2 B: **7 `v2VBL` out, the 60.15 Hz to VIA1 (2.6)**; 6 `v2SNDEXT`
+  **tied low on the SE/30** ("so that the Sound Manager always operates in
+  stereo mode"; the SE/30's sound circuit mixes to mono for the speaker); 5,
+  4 `v2TM0A`, `v2TM1A` NuBus transfer-mode acknowledge, "available to an
+  expansion card in the processor-direct slot"; **3 `vFC3` tied low on the
+  SE/30** - the `V2PB3` net, which resolves the box-ID probe's PB3 read to
+  a constant 0; 2 `v2PowerOff`; 1 `v2BusLk`; 0 `v2CDis`, "0 = disable main
+  processor's instruction and data caches".
+
+Interrupt levels, *Guide* Table 3-4 (the Macintosh II's, which shares this
+GLUE; nothing SE/30-specific contradicts it): **level 1 VIA1 (autovector
+`$19`), 2 VIA2 (`$1A`), 4 SCC (`$1C`), 6 power switch (early II only), 7
+the interrupt switch (`$1F`)**; all autovectored. The six slot lines are
+ORed by GLUE into VIA2 CA1 and are also readable on VIA2 PA0-5; on the SE/30
+"an expansion card in the processor-direct slot can be addressed like a
+NuBus card in slot `$9`, `$A`, or `$B`, and can generate the corresponding
+interrupt. Also ... the interrupt for slot `$E` can be generated by the
+video logic circuits on the logic board" (Table 4-10's text).
+
+**Interrupt acknowledge, and why it never reaches the bus.** *Guide* 3
+(p. 98): the processor acknowledges by "asserting all three function-code
+signals (FC2 through FC0) to indicate the main processor address space, and
+by putting an address in the range `$FFFFFFF0` through `$FFFFFFFF` on the
+address bus"; it "checks the /AVEC signal, which is permanently asserted
+(tied low)" and autovectors. Sheet 1 shows the 68030's `AVEC` pin grounded
+on the SE/30 too. And UI6 (2.5) suppresses `AS*` for FC=7, so the
+acknowledge cycle is invisible to GLUE and every device. **For the core:**
+tie `AVEC` low in the wrapper, never generate a vector, and expect FC=7
+cycles to complete without any bus activity - the same FC=7 exclusion 1.4
+already records for the walker.
 
 ## 2.8 What Section 2 does not settle, and the work
 
 Not settled: GLUE's internal timing (there is no source; it is a contract);
-the exact I/O map rows of Figure 3-6 (re-read from the page image); the
-interrupt priority encoding; the declaration ROM's contents and where to
-get an image; the `BERR*` term on UI6; the meaning of `V2PB3`; sheet 9;
-and everything on sheets 6-8 (SWIM, SCSI, SCC, ASC, power), which are
-later sections.
+the I/O block's exact mirror rule ("wraps eight times", 2.2); the
+declaration ROM's contents and where to get an image; the `BERR*` term on
+UI6; sheet 9; and everything on sheets 6-8 (SWIM, SCSI, SCC, ASC, power),
+which are later sections. Settled since the first cut, from the *Guide*'s
+page images (poppler under WSL renders the JBIG2 pages): Figure 3-6's I/O
+rows, the interrupt levels and autovectoring, the VIA bit tables, the
+RAM-size bits and bank rule, and the VBL's origin in VIA2 T1.
 
 Proposed work, cheap and decisive first:
 
@@ -1321,9 +1401,9 @@ Proposed work, cheap and decisive first:
    are still positional). Then write down, per PAL, what it *does* - the
    video timing generator is the one that matters, and Bolle's equations
    are its behavioural reference, not its source.
-2. **Re-read Figure 3-6's I/O rows and the interrupt section** from the
-   *Guide* page images (a JBIG2-capable renderer is needed; `jbig2dec` or
-   a ghostscript build).
+2. ~~**Re-read Figure 3-6's I/O rows and the interrupt section**~~ **Done
+   2026-09-25** - `pdftoppm` (poppler-utils under WSL) renders the JBIG2
+   pages; results folded into 2.2, 2.4, 2.6 and 2.7.
 3. **Obtain the declaration ROM** image and read its slot resources - the
    video driver in it is what the System will run.
 4. **Write the GLUE specification** as a table of cycles: for each region,
