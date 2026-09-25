@@ -16,11 +16,13 @@ and 1.5's claim that 24-bit mode is the PMMU's work now rests on the ROM's
 own tables rather than on another project's prose.
 
 **This document is being composed in sections, each one following its own
-research pass.** Only Section 1 is written. It settles the CPU and the PMMU,
-because that was the only open question capable of making the project
-impossible. Nothing about the GLUE address map, the ASC, the SWIM, video,
-SCSI or RAM sizing should be inferred from what is written here - those
-sections do not exist yet, and the facts they need have not been read.
+research pass.** Section 1 settles the CPU and the PMMU, because that was
+the only open question capable of making the project impossible. **Section
+2 (GLUE, the address map, RAM, clocks, video) was opened 2026-09-25 as a
+first cut** with its own open-items list in 2.8. Nothing about the ASC, the
+SWIM, the SCC, SCSI or power should be inferred from what is written here -
+those sections do not exist yet, and the facts they need have not been
+read.
 
 ## Why this is a new core, not a `mac_model.v` entry
 
@@ -1359,6 +1361,9 @@ TG68K kernel, ALU, PMMU and FPU headers all say LGPL-3 or later (1.12).
 |---|---|
 | **MC68030 User's Manual, 3rd edition (1990)** | bitsavers `components/motorola/68000/68030/MC68030_Users_Manual_3ed_1990.pdf` (20MB, use the `trailing-edge` mirror); copied to `C:\temp\Mac\SE30\Docs`. `pdftotext -layout` gives a greppable text; section 9 is the MMU |
 | **The SE/30 ROM** | `C:\temp\Mac\ROMS\256KB ROMs\1988-09 - 97221136 - Mac II FDHD & IIx & IIcx.ROM`. There is no file named SE/30: this is the SE/30's ROM, shared with those three machines (MAME's `macse30` loads the same image). Physical base `$40800000` |
+| **`se30.pdf`** in `C:\temp\Mac\SE30\Docs` | **Apple drawing 050-0253-01, the SE/30 main logic board schematic**, 8 of 9 D-size sheets, raster scan. Sheet titles in 2.1. Read by extracting the page images with pypdf/PIL and cropping at full resolution |
+| `github.com/mishimasensei/macse30mlb` | **KiCad redraw of 050-0253-01, MIT.** All 9 sheets plus a pin-matrix sheet, and per-sheet PDF exports with real text. Snapshot at `C:/Git/MiSTer-devel/macse30mlb` (tarball - a filename with a colon defeats `git clone` on NTFS). `scripts/kicad_nets.py` prints pin-to-net tables from its v5 sheets; `ROM+RAM Muxes.kicad_sch` is v6 and is not parsed (UH7 was read from the scan) |
+| Macintosh Repository, item 875 | "Macintosh SE/30 Schematics and Repair": `se30schems.zip` (4.1MB) and `Repair_Macintosh_SE30.zip`. Downloads sit behind an HTML interstitial; not fetched. The redraw's notes point to the same scans' origin at `museo.freaknet.org` (Andreas Kann) |
 
 **Emulators and software references.**
 
