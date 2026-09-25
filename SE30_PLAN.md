@@ -325,8 +325,10 @@ The programmable half is six small parts - UI6, UH7, UG6, UG7, UE6, UE7 - and
 (2026-09-25: BOMARC's 1992 drawings, 2.1, are of a board marked
 **820-0260-A** carrying the right-hand column's parts - so that is the
 later board's number, and the VLSI part is confirmed as GLUE.)
-bitsavers carries Apple fuse maps for only four of the earlier board's six,
-and **two of those four are bad dumps**: `3410635A` and `3410637A`
+bitsavers carries Apple fuse maps for only four of the earlier board's six
+(Al Kossow's, read from "an SE/30 with unprotected PALs" - 68kmla thread
+45231; the later board's parts are read-protected, which is why Bolle's set
+is a behavioural rewrite), and **two of those four are bad dumps**: `3410635A` and `3410637A`
 disassemble to degenerate nonsense - `vcc` repeated eight times, terms that
 can never be true, five distinct rows in sixty-four.
 `github.com/TheRealBolle/SE30`, a logicboard recreation, carries a complete
@@ -1398,8 +1400,9 @@ Proposed work, cheap and decisive first:
 
 1. ~~**Name every PAL pin and re-derive the six equations with names**~~
    **Done 2026-09-25 - 2.9.** New open item from it: **372 or 370 lines
-   per frame** (2.9), which needs a good dump of Apple's UG6 or a
-   measurement on hardware.
+   per frame** (2.9), which needs a good dump of Apple's UG6, Bolle's
+   account of how his was derived, or a measurement on hardware with
+   Apple's PALs (provenance checked 2026-09-25, in 2.9).
 2. ~~**Re-read Figure 3-6's I/O rows and the interrupt section**~~ **Done
    2026-09-25** - `pdftoppm` (poppler-utils under WSL) renders the JBIG2
    pages; results folded into 2.2, 2.4, 2.6 and 2.7.
@@ -1494,6 +1497,104 @@ bitsavers' `3410635A`, is a bad dump (1.6). **Resolution needs either a
 good dump of Apple's UG6 (`341-0747-A` or `341-0635-A`) or a measurement on
 a real SE/30. Until then the core is built to the *Guide*'s 370 and this
 note is the record of the doubt.**
+
+*Provenance, checked 2026-09-25 - it sharpens the question without closing
+it:*
+
+- **bitsavers' four fuse maps are Al Kossow's**, from "an SE/30 with
+  unprotected PALs" (68kmla thread 45231, Aug 2023) - the earlier board.
+  In that thread Bolle confirms "the UG6 dump is broken" and describes his
+  own set as "the equations I worked out for the newer revision PAL set".
+  His README: "reverse-engineered and equations were rewritten to match the
+  behaviour of the originals - the provided JEDEC files are not dumps".
+  So the later board's parts were not readable, and **his 372 comes from
+  observing a working chip**, by a method he does not state. It is not
+  copied from the *Guide* - that would have given 370 - but it is not a
+  fuse map either.
+- **Where an Apple fuse map can be set beside him, his counts agree.**
+  Apple's earlier-board UG7 (`3410633A`, a good dump) clears the horizontal
+  counter at count 88 = 704 pixels, exactly as his later-board UG7 does,
+  with quite different equations; his UI6 is bit-identical to Apple's
+  (1.6). The horizontal count survives the respin and the rewrite; that is
+  the pattern the vertical count would be expected to follow.
+- The bad `3410635A` is unusable for this specifically: `LCTRRST := gnd`,
+  five distinct rows in sixty-four.
+- **Community figures are not measurements.** The RGBtoHDMI SE/30 profile
+  (Mu0n, tinkerdifferent, Sept 2023) carries 370 lines, but its author does
+  not say it was measured and RGBtoHDMI locks to sync whatever the number.
+  Trammell Hudson's scope figures - 60.10 Hz, 16.64 ms, `VSYNC` 180 us low
+  - are from a Mac SE, not an SE/30; the 180 us is four lines, which
+  matches the four-line `VSYNC*` read here.
+
+*The decode itself, so the arithmetic can be re-checked without the
+tools.* Bolle's UG6 has `LCTRRST := VADR1 * VADR3 * VADR4 * VADR5 * VADR7`
+(qualified by the mod-8 pixel phase). Bits 7, 5, 4, 3 and 1 are 128 + 32 +
+16 + 8 + 2 = **186**; `VADR0` and `VADR2` are don't-cares in that term and
+`VADR6` is not wired to the chip at all (`UG6.pins`), so 186 is the first
+count the term is true at, and the LS393's asynchronous CLR fires within a
+byte of the counter reaching it. The counter therefore lives through pairs
+0 to 185 = **372 lines**. The same reading gives `VSYNC*` set at
+`/VADR1 * VADR2 * VADR3 * /VADR4 * VADR5 * VADR7` = 172, line 344, held for
+two pairs = four lines. An off-by-one-pair misreading would need a bit of
+the product term to be misread, and the two decodes were checked against
+each other; 342 active is the *Guide*'s number and a four-line `VSYNC` is
+what Trammell measured on his SE. A 370-line frame would need
+`LCTRRST` at 185 = `VADR7 * VADR5 * VADR4 * VADR3 * VADR0`, a different
+term.
+
+*What the number affects (2.7).* Almost nothing a program can see. The VBL
+the System runs on - Ticks, `Delay`, cursor, ordinary VBL tasks - is VIA2
+T1 toggling PB7 into VIA1 CA1 at a rate the ROM programs, "not synchronous
+with the blanking of the screen" (*Guide* 12); the time of day comes from
+the RTC's one-second interrupt. Neither moves with the line count. The
+real retrace reaches software only as the slot-`$E` interrupt (VIA1 PB6
+enable), so the sole observable is the rate of slot VBL tasks installed on
+the internal video: 59.82 Hz against 60.15 Hz, one frame in ~185. No
+register exposes the counters; sound is on its own clock and the *line*
+rate is the same in both cases. No program is known to depend on the exact
+count; the only conceivable one is a diagnostic counting retraces against
+Ticks or the RTC, and 0.5% is inside any sane tolerance. So the cost of
+being wrong is half a percent on one interrupt rate, and the cost of the
+core's video output being 59.82 Hz or 60.15 Hz is nil either way (the Plus
+core already runs 60.15 Hz into the same scaler).
+
+*Why 370 is the default (decided 2026-09-25, Daniel: leave open, build to
+the* Guide*).* Evidence tier, not likelihood
+([[feedback-se30-specs-from-documentation]],
+[[feedback-replicate-bugs-else-spec]]). The *Guide* is Apple's
+documentation of the hardware; Bolle's PAL is a third party's behavioural
+rewrite of a chip he could not read, by an unstated method, and not a fuse
+map. As of this date the likelihood favours 372 - his 372 must come from a
+real later-board chip and his other counts agree with Apple's maps - but
+that does not change the tier. Switching to 372 on this evidence is a
+decision to reweigh the tiers, and it is Daniel's, not the plan's.
+
+*What closes it.* Any one of:
+
+1. Bolle's account of how UG6 was derived (68kmla, or an issue on
+   `TheRealBolle/SE30`). If it was a truth-table or logic-analyser capture
+   of `LCTRRST` against the counter, that is a measurement of the later
+   board and closes it as 372.
+2. A good fuse map of Apple's UG6 - `341-0747-A` (later board) or
+   `341-0635-A` (earlier board, bitsavers' copy being bad).
+3. A counter or scope on `VSYNC*` of an SE/30 running Apple's PALs.
+   `VSYNC*` is on the internal video connector to the analogue board (the
+   pins Trammell Hudson tapped on his SE). 16.62 ms / 60.15 Hz is 370;
+   16.71 ms / 59.82 Hz is 372. A second, easier reading on the same
+   probe: the gap from `VSYNC*`'s falling edge to the first line of video.
+   In this reading active video ends at line 343, `VSYNC*` falls at 344
+   and the next frame's video starts at line 374, so the whole 30-line
+   blanking sits after the `VSYNC*` edge: **1.35 ms means 372, 1.26 ms
+   (28 lines - Trammell's SE figure exactly) means 370.** Take the period
+   as well, since the gap alone assumes the trailing gap is zero. Record
+   the board number and the UG6 part number with the reading: **the two board revisions carry different UG6
+   parts and are not known to agree with each other**, so a reading from
+   one does not automatically speak for the other. A measurement on a
+   Bolle board only re-reads Bolle's PAL.
+
+When it closes, the changes are: the constant in the vertical timing
+generator (2.8 item 5), its bench's expected frame count, and the table
+above.
 
 **Slot-E access - UE7 with UE6.** UE7 is a five-bit registered state
 machine (`VIDS0-4`) on the pixel clock, with two more registered outputs,
