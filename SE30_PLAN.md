@@ -529,6 +529,23 @@ are closed by the survey, one is reframed.
    be answerable by reading the code, and is closed below.
 6. Only then: cut the CPU into a MacLC-derived tree and bring up ROM + RAM to
    a first fetch.
+7. **The 68882 - decided 2026-09-25, committed base-machine work, gated
+   after first boot.** The SE/30 shipped one as standard (*Guide* 2e Table
+   3-6), so the finished core has one; the ROM boots without it, so it is
+   not on the first-boot critical path. Sequence: merge the `030_mmu2_fpu2`
+   FPU forward onto the audited kernel - **upstream first**, per the sync
+   rule in 1.12, since it is the same author's code; re-enable the
+   transcendentals; verify under ModelSim against the MC68881/68882 User's
+   Manual and an independent corpus (WinUAE's `cputest` covers the 6888x),
+   with MAME/WinUAE as cross-checks only; then a Quartus fit, which is the
+   real unknown. **Fidelity rule (owner's decision):** replicate the real
+   68882's documented bugs and limitations where the evidence exists -
+   mask errata, the manual's stated transcendental error bounds, frame
+   formats per mask revision - and where it does not, build to the spec.
+   Research items that follow from the rule: locate the MC68881/68882
+   errata sheets, and establish which 68882 mask the SE/30 shipped with
+   (the IIcx BOM is the nearest paper). Bit-identity to silicon is not
+   claimed unless captures from a real 68882 exist to claim it against.
 
 **Answered from the code, not by a build.** Item 5 previously also asked
 whether the IIvi runs 24-bit or 32-bit, because danifunker said "I think this
