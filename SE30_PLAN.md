@@ -1089,7 +1089,7 @@ own 32-bit translation table, 1.11 - the three agree):
 | `$51000000-$5FFFFFFF` | undecoded | Figure 3-6: "no DSACKx" - a bus error by timeout, which GLUE generates (2.3) |
 | `$60000000-$EFFFFFFF` | nothing on an SE/30 | NuBus super-slot space on a II; the SE/30 has no NuBus. Bus error |
 | `$F1000000-$FEFFFFFF` | slot space, 16MB per slot | slots `$9-$E` in the II family; **on the SE/30 only `$E` exists, and it is the internal video** (2.6) |
-| `$FE000000-$FEFFFFFF` | slot `$E`: video | VRAM at `$FE000000`, declaration ROM at `$FEFFE000` (MAME; the *Guide* gives the space, not the offsets - see 2.6) |
+| `$FE000000-$FEFFFFFF` | slot `$E`: video | VRAM at `$FE000000`, declaration ROM at `$FEFFE000` (MAME; the *Guide* gives the space, not the offsets - see 2.6). **The System's ScrnBase is `$FEE08040`** - the driver's own constant (2.10), an alias of the same VRAM through the A16-only decode |
 
 **24-bit map**, which is what the machine runs in (1.5): *Guide* Table 3-8
 and the ROM table at `$40800050` are identical - `$0-$7` MB RAM, `$8` ROM,
@@ -1310,11 +1310,12 @@ through the Vertical Retrace Manager's per-slot queue. MAME's
 faithfully, because the 60.15 Hz the OS runs its VBL tasks on comes from a
 timer the ROM programs, not from the video counters.
 
-**What the declaration ROM contains is a Section-2 open item.** MAME's
-`se30vrom.uk6` is 8KB at `$FEFFE000` (CRC `b74c3463`); the *Guide* only
-says it holds the video driver and initialisation routines. Without it the
-ROM's slot manager finds no video card. It is not in the ROMS folder; it has
-to be obtained.
+**What the declaration ROM contains: read, 2.10.** It is Apple part
+341-0650, 8KB, MAME's `se30vrom.uk6` (CRC `b74c3463`, now at
+`C:\temp\Mac\ROMS\MacSE30\`). One video mode, two pages, ScrnBase
+`$FEE08040`, the driver's whole hardware contract is VIA1 PB6 and PA6, and
+it settles the interrupt latch, the `$FEE0xxxx` aliasing and the `$40` row
+offset. Without it the ROM's Slot Manager finds no video card.
 
 **Cross-check note.** The redraw labels UI6 pin 13 with a bus (`IRQ*(1:6)`);
 the scan says `IRQ*(6)` and so does the logic. Trust the scan.
@@ -1388,8 +1389,8 @@ already records for the walker.
 ## 2.8 What Section 2 does not settle, and the work
 
 Not settled: GLUE's internal timing (there is no source; it is a contract);
-the I/O block's exact mirror rule ("wraps eight times", 2.2); the
-declaration ROM's contents and where to get an image; the `BERR*` term on
+the I/O block's exact mirror rule ("wraps eight times", 2.2); ~~the
+declaration ROM's contents and where to get an image~~ (read, 2.10); the `BERR*` term on
 UI6; sheet 9; and everything on sheets 6-8 (SWIM, SCSI, SCC, ASC, power),
 which are later sections. Settled since the first cut, from the *Guide*'s
 page images (poppler under WSL renders the JBIG2 pages): Figure 3-6's I/O
@@ -1406,8 +1407,11 @@ Proposed work, cheap and decisive first:
 2. ~~**Re-read Figure 3-6's I/O rows and the interrupt section**~~ **Done
    2026-09-25** - `pdftoppm` (poppler-utils under WSL) renders the JBIG2
    pages; results folded into 2.2, 2.4, 2.6 and 2.7.
-3. **Obtain the declaration ROM** image and read its slot resources - the
-   video driver in it is what the System will run.
+3. ~~**Obtain the declaration ROM** image and read its slot resources~~
+   **Done 2026-09-26 - 2.10.** Daniel supplied MAME's image;
+   `scripts/se30_declrom.py` reads it. It settles the interrupt latch, the
+   `$FEE0xxxx` screen address, the `$40` row offset and PA6's polarity,
+   and hands 2.8 item 5 its bench oracles.
 4. **Write the GLUE specification** as a table of cycles: for each region,
    the select, the width, the wait states, the DSACK behaviour, and the
    bus-error timeout - the document the RTL and 1.10's benches are both
@@ -1642,6 +1646,104 @@ semantics, one strobe per bank.
 
 ---
 
+## 2.10 The declaration ROM, read
+
+Done 2026-09-26 (2.8 item 3). The image is
+`C:\temp\Mac\ROMS\MacSE30\se30vrom.uk6`, 8,192 bytes, CRC32 `b74c3463` -
+the same image MAME's `macse30` set loads. `scripts/se30_declrom.py` reads
+it as the Slot Manager would (format block, directory, every sResource,
+VPBlock, driver header) and disassembles the code with capstone, stepping
+over the A-line traps capstone cannot decode. Everything below is read from
+Apple's own code in that image, which puts it in the documentation tier
+([[feedback-se30-specs-from-documentation]]): this is what the System runs.
+
+**It is intact, and it is Apple part 341-0650.** The format block sits in
+the last 20 bytes: test pattern `$5A932BC7` present, length 8192, revision
+1, format 1, and the ROM's own CRC recomputes correctly, so the dump is
+byte-exact. `ByteLanes = $0F` - all four lanes - so the chip's bytes are
+consecutive bus bytes and every offset in the ROM is a chip offset; that is
+the 8-bit `DSACK0*` port with the CPU's dynamic bus sizing doing the
+lane work (2.6). Vendor info: "Apple Computer", revision "MacSE/30-1.0",
+part number **341-0650**. Board name "Macintosh SE/30 Internal Video",
+Board ID `$000C`. A credits block names the video software as David Fung's
+and the hardware as Jim Stockdale's.
+
+**The sResources.**
+
+| id | what | contents |
+|---|---|---|
+| `$01` | board | `sRsrcType` catBoard; **PrimaryInit** (sExecBlock, 68020 code, 136 bytes); VendorInfo. No PRAMInitData, no TimeOutConst |
+| `$80` | video | `sRsrcType` Category 3 display, cType 1 video, **DrSW 1 Apple, DrHW 9**; name `Display_Video_Apple_MacSE/30 Video`; `sRsrcHWDevId` 1; **`MinorBaseOS $00000000`, `MinorLength $0000D5C0`**; driver for `sMacOS68020`, 1,204 bytes, `.Display_Video_Apple_MacSE/30 Video`, `drvrFlags $4C00`; **one mode, `$80`**: VPBlock `vpBaseOffset $8040`, `vpRowBytes 64`, bounds (0,0,342,512), 72 dpi both ways, `vpPixelSize 1`, `vpCmpCount 1`; **`mPageCnt 2`**; `mDevType 1` |
+| `$A0` | second driver | same type words but **DrSW 3**; a 116-byte `sMacOS68030` code block that takes a function code on the stack and hits VIA1 at the absolute 24-bit address `$50F00000` |
+
+**PrimaryInit's first act is to delete `$A0`**: `_SlotManager` selector
+`$31` (sDeleteSRTRec) with `spID = $A0` on its own slot, so under Mac OS
+that sResource is gone from the slot resource table before the System can
+see a second display. (DrSW 3 is `drSwMacsBug` in Apple's ROMDefs as I
+remember it - MacsBug's own console driver - but verify the name before
+relying on it; the code's four functions do the same VIA1 bit operations
+as the main driver, at the 24-bit VIA address.) `$D5C0` = `$8040` + 342 x
+64: `MinorLength` covers exactly the two pages, and the 64KB of VRAM above
+it is not declared.
+
+**What PrimaryInit does at boot, before the System exists.** Through the
+low-memory VIA pointer (`$1D4`): DDRA bit 6 output, DDRB bit 6 output,
+ORA bit 6 = 1, ORB bit 6 = 1. Then it fills page 0 at **`$FEE08040`** and
+page 1 at **`$FEE00040`**, 342 rows of 16 longwords each, rows alternating
+`$AAAAAAAA` and `$55555555`: the 50% grey of the boot screen, both pages.
+That is 10,944 `move.l`s into an 8-bit port, 43,776 byte cycles through
+UE7's state machine, and it is the first thing the core's video path will
+be asked to do - the bench for 2.8 item 5 should time it.
+
+**The driver's whole hardware contract.** These are the only things the
+code touches; there are no other video registers.
+
+| what | where | how |
+|---|---|---|
+| retrace interrupt enable | **VIA1 PB6** (`vSyncEnA`), ORB via `VIA+0`, DDRB6 forced output | **0 = enabled**: Open and SetInterrupt(enable), after `_SIntInstall` (sqType 6, on `dCtlSlot`). **1 = disabled**: PrimaryInit, Close and SetInterrupt(disable), before `_SIntRemove` |
+| retrace interrupt acknowledge | the same bit | the slot ISR does `bset #6` then `bclr #6` on ORB - disable, re-enable - then jumps through `JVBLTask` (`$D28`) with the slot number in D0 (derived from `dCtlDevBase` by `rol.l #8; and #$F` = `$E`) and returns 1 |
+| page select | **VIA1 PA6**, ORA via `VIA+$1E00`, DDRA6 forced output | **1 = page 0 at slot offset `$8040`; 0 = page 1 at `$0040`** (SetPage, from Reset and SetMode; GetBaseAddr reports the same two addresses) |
+| frame buffer | `$FEE08040` / `$FEE00040`, 342 rows x 64 bytes | GrayPage and Reset fill it; **ScrnBase is reported as `$FEE08040`** |
+| everything else | Slot Manager, Memory Manager, `_GetCTSeed` | GetEntries returns a fixed two-entry black-and-white table; SetEntries, SetGamma and SetGray return `ctlErr` (no CLUT); GetPages 2; GetMode `$80`; GetInterrupt reports the stored flag. Control 1 (KillIO) is a no-op |
+
+**What this settles for the core.**
+
+1. **The interrupt latch is confirmed from both ends.** UI6's equation
+   (2.9 item 3) holds `IRQ6*` while `VSYNCEN*` is low and releases it when
+   `VSYNCEN*` goes high; the driver's ISR is exactly that disable-enable
+   pulse. So: `IRQ6*` sets on `VSYNC*` while PB6 = 0, clears when PB6 goes
+   to 1, and re-enabling must not re-fire until the next `VSYNC*`.
+2. **The System's screen address is `$FEE08040`, not `$FE008040`.**
+   `$FEE08040` is the 24-bit slot window `$E08040` written as a 32-bit
+   address, and the driver uses it in both modes. 2.6's decode - video
+   selected by A31-A25 all ones, A24 = 0, then A16 alone splitting VRAM
+   from ROM, everything between ignored - makes `$FEE0xxxx` and
+   `$FE00xxxx` the same VRAM, which is what MAME's `$FE000000` placement
+   relies on too. The core must decode it that way; a decoder that
+   demanded A23-A17 = 0 would boot to a grey screen the System could not
+   draw on.
+3. **The first visible byte of each page is offset `$40`, one 64-byte row
+   in.** So the display's first active line reads VRAM row 1, not row 0,
+   and PA6 = 1 selects the *upper* 32KB - PA6 is VRAM A15 uninverted.
+   Both are constraints on how the 74F253 address muxes are wired (sheet
+   5) and both are bench oracles for 2.8 item 5: write rows 0 and 1
+   differently and see which one the scan shows.
+4. **Nothing else is programmable.** No mode register, no CLUT, no
+   timing register: the PALs are the whole video controller, and the
+   *Guide*'s "no CLUT" (2.6) is now read from the driver that would have
+   used one.
+5. **The floppy dialogs depend on this ROM too.** Open stores a pointer
+   to a 32 x 32 icon with mask - the compact Mac with an arrow to a
+   floppy, the "where is the disk?" picture - into `SonyVars + $130`
+   unless bit 9 of `HWCfgFlags` is set. Not video, but a reason the core
+   cannot leave the declaration ROM out and still look right.
+
+The declaration ROM itself is read at the top of slot `$E`'s standard
+space: the Slot Manager walks down from `$FEFFFFFF`, and with the ROM's
+A0-A12 on the bus and A16 = 1 selecting it, the 8KB appears at
+`$FEFFE000`-`$FEFFFFFF` and at every 8KB mirror below within the A16 = 1
+half - MAME's `$FEFFE000` is the top one.
+
 ## Appendix - where the sources are
 
 The IIvi core is now cloned durably at `C:/Git/MiSTer-devel/MacIIvi_MiSTer`
@@ -1672,6 +1774,7 @@ TG68K kernel, ALU, PMMU and FPU headers all say LGPL-3 or later (1.12).
 |---|---|
 | **MC68030 User's Manual, 3rd edition (1990)** | bitsavers `components/motorola/68000/68030/MC68030_Users_Manual_3ed_1990.pdf` (20MB, use the `trailing-edge` mirror); copied to `C:\temp\Mac\SE30\Docs`. `pdftotext -layout` gives a greppable text; section 9 is the MMU |
 | **The SE/30 ROM** | `C:\temp\Mac\ROMS\256KB ROMs\1988-09 - 97221136 - Mac II FDHD & IIx & IIcx.ROM`. There is no file named SE/30: this is the SE/30's ROM, shared with those three machines (MAME's `macse30` loads the same image). Physical base `$40800000` |
+| **The video declaration ROM** | `C:\temp\Mac\ROMS\MacSE30\se30vrom.uk6` - MAME's `macse30` set (the folder also holds that set's NuBus and PDS card ROMs and a copy of the main ROM). 8KB, CRC32 `b74c3463`, Apple part 341-0650. Read in 2.10 by `scripts/se30_declrom.py` |
 | **`se30.pdf`** in `C:\temp\Mac\SE30\Docs` | **Apple drawing 050-0253-01, the SE/30 main logic board schematic**, 8 of 9 D-size sheets, raster scan. Sheet titles in 2.1. Read by extracting the page images with pypdf/PIL and cropping at full resolution |
 | `github.com/mishimasensei/macse30mlb` | **KiCad redraw of 050-0253-01, MIT.** All 9 sheets plus a pin-matrix sheet, and per-sheet PDF exports with real text. Snapshot at `C:/Git/MiSTer-devel/macse30mlb` (tarball - a filename with a colon defeats `git clone` on NTFS). `scripts/kicad_nets.py` prints pin-to-net tables from its v5 sheets; `ROM+RAM Muxes.kicad_sch` is v6 and is not parsed (UH7 was read from the scan) |
 | Macintosh Repository, item 875 | "Macintosh SE/30 Schematics and Repair": `se30schems.zip` (4.1MB) and `Repair_Macintosh_SE30.zip`. Downloads sit behind an HTML interstitial; not fetched. The redraw's notes point to the same scans' origin at `museo.freaknet.org` (Andreas Kann) |
