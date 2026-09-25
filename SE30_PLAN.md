@@ -1045,6 +1045,290 @@ original licence. Same family throughout; no combination problem.
 
 ---
 
+# Section 2 - GLUE, the address map, RAM, clocks and the video PALs
+
+Opened 2026-09-25. This is the first cut from one research pass; it records
+what was read and where, and it is deliberately blunt about what is
+inference. Every claim below is either from Apple's documentation, from the
+schematic, from the ROM, or is marked as a reading of a secondary source.
+
+## 2.1 Sources, and their standing
+
+| source | what it is | standing |
+|---|---|---|
+| *Guide to the Macintosh Family Hardware*, 2e (1990) | Chapters 3 (processor and general logic), 4 (VIAs), 5 (memory), 12 (displays) | **primary**. Text extracted with `pdftotext`; the page images are JBIG2 and cannot be rendered here, so tables come from the OCR text, which runs words together but is legible |
+| `se30.pdf` (bitsavers) | **Apple drawing 050-0253-01, "Schematic, Main Logic Board, Mac SE/30", Engineering Release** - 9 D-size sheets, of which the scan holds 8 (sheets 1-8; sheet 9 is missing). Raster only, ~3500 px wide per sheet | **primary**. Read as images; crops at full resolution are legible to the pin |
+| `mishimasensei/macse30mlb` | a **KiCad redraw of 050-0253-01**, all 9 sheets plus a pin-matrix "Tables" sheet, **MIT licence**. Snapshot at `C:/Git/MiSTer-devel/macse30mlb` (tarball, because one file's name has a colon and cannot exist on NTFS) | **secondary** - someone's transcription of the scan. `scripts/kicad_nets.py` reads its v5 sheets and prints pin-to-net tables; where checked against the scan (UI6, UG7, UE7, UE6, UH7) it agrees, with one bus-label ambiguity noted in 2.6 |
+| Bolle's six JEDECs | reverse-engineered, rewritten equations for the later board's PALs, CC-BY-NC-SA | **behavioural reference, read-only**; see 1.6. `scripts/jedec_dis.py` recovers their equations |
+| the `$97221136` ROM | | **primary** for what software expects of the hardware (1.11) |
+| MAME `macii.cpp` | | cross-check only |
+
+The sheets of 050-0253-01, from their title boxes: 1 CPU and FPU; 2 ROM and
+RAM address muxes; 3 GLUE and RAM SIMMs; 4 VIA1, VIA2, RTC, ADB; 5 video
+interface; 6 SWIM and SCSI; 7 serial and sound; 8 power connector, pull-ups
+and pull-downs; 9 not in the scan (the redraw titles it "Unknown").
+
+## 2.2 The address map
+
+**32-bit physical map** (*Guide* Figure 3-6 and Table 3-8, and the ROM's
+own 32-bit translation table, 1.11 - the three agree):
+
+| range | what | notes |
+|---|---|---|
+| `$00000000-$3FFFFFFF` | RAM | *Guide* 5: "reserved for RAM"; contents repeat through the unused space. Populated sizes in Table 5-2: 1, 2, 4, 5, 8, 16, 32, 64, 128 MB, top address `$007FFFFF` for 8MB, `$07FFFFFF` for 128MB. "You must use a 32-bit operating system to make use of system memory beyond 8 MB" |
+| `$40000000-$4FFFFFFF` | ROM | the 256KB image repeats. Table 3-8 maps 24-bit `$800000` to `$40000000`; the ROM's own table maps it to `$40800000` and the reset PC is `$4080002A` - both are the same ROM through the mirror. GLUE has no A18, A19, A21 or A23 pins (2.3), so the mirroring is structural |
+| `$50000000-$50FFFFFF` | I/O | GLUE-decoded, one device per `$2000`; see the DSACK table below. MAME mirrors it with mask `$00F00000`, which is what the 24-bit `$F00000 -> $50F00000` mapping needs |
+| `$51000000-$5FFFFFFF` | undecoded | Figure 3-6: "no DSACKx" - a bus error by timeout, which GLUE generates (2.3) |
+| `$60000000-$EFFFFFFF` | nothing on an SE/30 | NuBus super-slot space on a II; the SE/30 has no NuBus. Bus error |
+| `$F1000000-$FEFFFFFF` | slot space, 16MB per slot | slots `$9-$E` in the II family; **on the SE/30 only `$E` exists, and it is the internal video** (2.6) |
+| `$FE000000-$FEFFFFFF` | slot `$E`: video | VRAM at `$FE000000`, declaration ROM at `$FEFFE000` (MAME; the *Guide* gives the space, not the offsets - see 2.6) |
+
+**24-bit map**, which is what the machine runs in (1.5): *Guide* Table 3-8
+and the ROM table at `$40800050` are identical - `$0-$7` MB RAM, `$8` ROM,
+`$9-$E` the slots, `$F` I/O at `$50F00000`. The PMMU does this (1.11); the
+decoder sees only 32-bit addresses.
+
+**The ROM overlay.** *Guide* 3: "The ROM overlay address map, used when the
+Macintosh SE/30 is turned on or reset, maps addresses from `$00000000` to
+`$3FFFFFFF` to locations in ROM rather than to RAM. The RAM cannot be
+addressed at all when the ROM overlay address map is being used. The startup
+or Reset handler software switches from the ROM overlay address map to the
+normal address map by setting low the Overlay signal from VIA1." The signal
+is VIA1 PA4 `OVERLAY`, wired to GLUE pin 49 (sheet 3, sheet 4). This is how
+the reset vector at `$00000000` is fetched from ROM.
+
+**DSACK and wait states** (*Guide* Figure 3-6 and the text under it, which
+is the SE/30's own):
+
+| device | wait states | DSACK |
+|---|---|---|
+| RAM, ROM | **one** ("in contrast to the Macintosh II, in which there are two") | GLUE |
+| SWIM | one | DSACK0 |
+| SCSI, non-handshake | one | DSACK0 |
+| ASC | two on reads, one on writes | DSACK0 |
+| SCC, VIAs, SCSI with handshake | "special control of the /DSACK0 signal" | GLUE holds off: the SCC needs 2.2 us between accesses and GLUE enforces it for back-to-back cycles; the VIAs are 6800-bus synchronous devices clocked by E; SCSI handshaking holds DSACK until the transfer completes |
+
+GLUE "responds to any I/O device address with a /DSACK0 signal" and "the
+/DSACK0 and /DSACK1 signals ... indicate to the MC68030 the size of a
+device's data bus" - so the I/O devices are 8-bit ports and RAM/ROM are
+32-bit. Which I/O addresses go where is in MAME's map and matches the GLUE
+select outputs in 2.3; the *Guide*'s figure gives `$50000000` VIA1,
+`$50002000` VIA2, `$50004000` SCC, `$50006000` SCSI pseudo-DMA, `$50010000`
+SCSI, `$50012000` SCSI DRQ, `$50014000` ASC, `$50016000` SWIM, and marks
+`$50018000-$50020000` and above as undecoded - **the figure's OCR is poor
+and this row set is to be re-read from the page image before it is relied
+on.**
+
+## 2.3 GLUE
+
+**What it does** (*Guide* 3, the SE/30 / II / IIx GLUE section, in full):
+decodes addresses and asserts device selects; sends the acknowledge signals
+that also specify the device's bus width; generates `/RAS`, `/CAS` and
+controls the RAM address multiplexers; refreshes DRAM; generates the
+15.6672 MHz processor clock, the 3.672 MHz SCC clock (also used by the ADB
+transceiver's microcontroller) and the 783.36 kHz E clock for the VIAs;
+monitors data transfers and generates Bus Error when one fails to complete;
+handles SCSI hardware handshaking; ORs the six slot interrupts into VIA2;
+and prioritises the interrupts from the VIAs, the SCC, the power switch and
+the NMI switch onto the IPL lines, passing only the highest.
+
+**What it is connected to** - sheet 3, `UI8`, an 84-pin part, by the
+redraw's netlist (`kicad_nets.py ... UI8`), checked against the scan:
+
+| group | pins |
+|---|---|
+| address in | `A31 A30 A29 A28 A27 A26 A25 A24 A22 A20`, `LA17 LA16 LA13`, `A16 A15 A14 A13`, `A1 A0`. **No A18, A19, A21, A23, and nothing between A2 and A12** - the decode is coarse, and I/O device selection is on A13-A17 |
+| CPU control | `ASN DSN` in; `FC0-2`; `SIZ0 SIZ1`; `WRITEN` (R/W); `DSACK0N DSACK1N` out; `BERRN` out; `IPL0-2N` out |
+| clocks | `C32M` in (from UH7, 2.5); `C16M` out (the net is `C16G`); `C3M`, `SYNC`, `SYNC3M`, `E` out |
+| RAM | `RASA RASB`, `CASLL CASLM CASUM CASUU` (four byte lanes), `RCMUX` (row/column mux select), `RAMSIZ0 RAMSIZ1` in |
+| selects out | `ROMN`, `SCSIN`, `IWMN` (the SWIM), `VIA1CSN VIA2CSN`, `SCCENN SCCRDN SCCWRN`, `IORN IOWN`, `SNDN` (ASC), `FPUN`, **`NUBUSN`** (the pseudo-slot, 2.6), `SCSIDRQ SCSIDACKN` |
+| interrupts in | `SLTIRQ1-6N` (the six slot lines - on the SE/30 only 6 = slot `$E` is driven, by UI6), `SLTIRQN` (the OR, to VIA2 CA1), `NMIN`, `PWRIRQN`, `SCCIRQN`, `VIAIRQ1N VIAIRQ2N` |
+| misc | `OVERLAY` in (VIA1 PA4), `TESTN` / `TSTOEN` (test) |
+
+The two-bank RAM (`RASA`/`RASB`) and the four CAS lanes are the shape of the
+RAM controller we must build; `RAMSIZ` is not a strap but **two VIA2 output
+bits** (PA6, PA7 - sheet 4), so the ROM configures the row/column mux
+arrangement in software during memory sizing, which is what MAME's remark
+about `via2_out_a` means.
+
+**GLUE is not documented internally anywhere found**, and the VLSI part on
+the board (1.6) is not the kind of thing a fuse map exists for. Everything
+above is its *contract*: the *Guide*'s function list, the pin list, the
+wait-state table, and the ROM's expectations. That is the specification
+Section 2's GLUE has to be written to, and 1.10's benches are how it is
+held to it.
+
+## 2.4 RAM
+
+Two banks of four 30-pin SIMMs, 32 bits wide, byte-lane CAS (sheet 3). Row
+and column addresses are multiplexed by eight 74F258s (sheet 2) under
+`RCMUX` from GLUE, with the mux outputs `RAAF*`/`RABF*` fed to the SIMMs
+through series resistors. One wait state per access (*Guide*, 2.2). Refresh
+is GLUE's. The ROM's size table is `01 02 04 05 08 10 11 14 20 40 41 44 50
+80` MB (1.11), i.e. every combination of two banks each of 1MB or 4MB
+SIMMs... plus 16MB SIMMs, which is where 32/64/128 come from.
+
+**`UH7` (16L8, sheet 2) makes the RAM write strobes.** Named from the scan
+crop and from Bolle's equations: inputs `RCMUX`, `RASA`, `WR*`, `RASB`,
+`CASLL`, `C32G`; outputs `RCMUX*` (= `/RCMUX`, to the muxes' select),
+`WR` (= `/WR*`), `C32M` (= `/C32G`, to GLUE through 47 ohms), and two
+latched strobes `RAMRWA` and `RAMRWB`, each set from its bank's RAS with
+`CASLL` and the CPU's R/W and held by feedback until RAS releases. The exact
+equations are in Bolle's `UH7` (read only); the *function* - a per-bank
+early-write strobe latched for the RAS cycle - is what we implement.
+
+## 2.5 Clocks
+
+One oscillator: `Y2`, **31.3344 MHz** (sheet 2), buffered through UH7 as
+`C32M` into GLUE. GLUE divides: `C16M` 15.6672 MHz to the CPU, the FPU, the
+PDS and the video sheet (where it is the **pixel clock** - *Guide* 12:
+"the pixel clock rate is 15.6672 MHz"); `C3M` 3.672 MHz to the SCC and ADB
+transceiver; `E` 783.36 kHz to the VIAs; `SYNC`/`SYNC3M`. `UI6` (16R4, CPU
+sheet) re-registers `C16G` on `C32M` (Bolle's `/o17 := i2`) to make a
+phase-aligned 16 MHz, and also holds the small CPU-side glue: `AS*` to the
+system is the CPU's `LAS*` **suppressed when FC=7** (`/AS* = /LAS* * (/FC0 +
+/FC1 + /FC2)`) - the FC=7 rule of 1.4 exists in hardware, so CPU-space
+cycles never reach GLUE; `IRQ*(6)`, the slot-`$E` interrupt, is
+`VSYNC*` gated by `VSYNCEN*` (VIA1 PB6) and latched; `BERR*` is on pin 12
+with `LAS*` in its term - **the OE handling of that pin is not yet
+understood and is an open item.**
+
+## 2.6 Video: the pseudo-slot
+
+*Guide* 3: the video PALs "perform the video functions handled by the BBU
+in the Macintosh SE, plus the video functions performed by a NuBus video
+card ... they generate the vertical and horizontal blanking interrupt
+signals ... implement the frame buffer controller (FBC) functions of a NuBus
+video card ... implement the declaration ROM functions of a NuBus video
+card", and no CLUT. *Guide* 12: 512 x 342, one bit per pixel, 1 = black;
+15.6672 MHz pixel clock; 512 active + 192 blanking = 704 pixel times per
+line, 44.93 us, **22.25 kHz**; 342 active + 28 blanking = 370 lines,
+16.626 ms, **60.15 Hz**; 21,888 bytes per frame; two screen buffers, the
+alternate at `ScrnBase - $8000`, selected by VIA1 PA6 (`ALTVID` on the
+schematic).
+
+**The hardware, from sheet 5 and the netlist.** Now settled, and it is not
+what 1.6 assumed about "fetch":
+
+- **VRAM is two NEC 41264 dual-port DRAMs** (`UC6`, `UC7`, 64K x 4 each =
+  64KB), on the CPU side through their parallel port to **byte lane
+  `D(31:24)` only** - an 8-bit device, which is why it takes the "special"
+  `DSACK*(0)` from `UE6` - with their own `VIDRAS*`/`VIDCAS*` and address
+  muxes (`UA8-UD8`, 74F253, selecting CPU address or the video counters
+  under `VIDMUX*`).
+- **Scan-out uses the VRAMs' serial ports.** `SO(0:3)` of both parts form
+  `VID(0:7)`, clocked by `SC` (from `UG7`) with `DT/OE*` transferring a row
+  into the serial register; `VID(0:7)` loads a **74LS166 shift register
+  `UE8`** on `SREGLD`, clocked at `C16M`, whose `Qh` is `SERVID` into `UG6`,
+  which produces `VIDOUT`. **So video never reads the CPU-side port and
+  never contends with the bus.** 1.6 said "no main-bus fetch"; it is
+  stronger than that - no *bus* fetch at all.
+- **Timing counters**: `UG8` (two LS393 halves, `CNT0-7`) clocked by `C2M`
+  (`C16M/8` from `UG7`, one count per byte of pixels) and reset by
+  `HCTRRST`; `UF8` (`VADR0-7`) clocked by **`TWOLINE`** and reset by
+  `LCTRRST` - the line counter counts *pairs* of lines (370/2 = 185 fits
+  eight bits), and `VADR` is what the VRAM address muxes see.
+- **`UG7`** (registered): in `CNT0-6`, `VIDTIME`; out `HCTRRST`, `HSYNC*`,
+  `SREGLD`, `SC`, `C2M`, `TWOLINE`, and a 3-bit internal counter on its
+  unconnected pins 16-18. The horizontal timing generator.
+- **`UG6`** (registered): in `VADR0-5`, `VADR7`, `SERVID`; out `VIDTIME`,
+  `VIDOUT`, `VSYNC*`, `LCTRRST`. The vertical timing generator and the
+  final pixel gate.
+- **`UE7`** (registered): in `HSYNC*`, `SLTE-F`, `A(24)`, `NUBUS*`,
+  `VIDTIME`; out a five-bit state `VIDS0-4`, `VR*`, `VIDREQ`, `VID-V`.
+  The CPU-access state machine: it arbitrates a CPU cycle into the VRAM
+  between the display's own row transfers.
+- **`UE6`** (16L8): in `VIDREQ`, `C16M`, `VIDS0-4`, `VID-V`, `R/W*`,
+  `A(16)`; out `VIDROM*`, `VC*`, `DSACK*(0)`, `DOE*`, `VIDMUX*`, `VIDW*`.
+  The decoder for the slot: `A(16)` splits VRAM from declaration ROM
+  within the slot, `VIDROM*` enables `UK6`, a **2764 8KB EPROM** on
+  `D(31:24)` - the declaration ROM - and `DSACK*(0)` is the slot's
+  acknowledge.
+- **Slot decode**: `UJ6` (74LS30) NANDs `A(31:25)` - all ones means
+  `$FE000000` or `$FF000000` - into `SLTE-F`; `UE7` then takes `A(24)` to
+  pick `$FE`, and `NUBUS*` from GLUE qualifies the cycle. GLUE's `NUBUSN`
+  is therefore the pseudo-slot's select, which is exactly how a II's GLUE
+  would select real NuBus space.
+
+**Interrupts, two of them.** `VSYNC*` from `UG6` goes (a) to `UI6`, which
+raises **`IRQ*(6)` = slot `$E`'s interrupt** when `VSYNCEN*` (VIA1 PB6) is
+low - the *Guide* 4 table: PB6 "`vSyncEnA` 0 = vertical synchronization
+interrupt enabled (Macintosh SE/30 only)" - through GLUE's slot-interrupt OR
+into VIA2 CA1, and (b) as `VBLK*` to **VIA1 CA1** and VIA2 PB7. *Guide* 12:
+on the SE/30 "the VBL interrupt is driven by a 60.15 Hz clock and is not
+synchronous with the blanking of the screen" - so the classic VBL on VIA1
+is a timer, and software that wants the real retrace uses the slot
+interrupt through the Vertical Retrace Manager's per-slot queue. MAME's
+`se30_vbl_enable` on VIA1 PB6 and `nubus_irq_w<0xe>` are this.
+
+**What the declaration ROM contains is a Section-2 open item.** MAME's
+`se30vrom.uk6` is 8KB at `$FEFFE000` (CRC `b74c3463`); the *Guide* only
+says it holds the video driver and initialisation routines. Without it the
+ROM's slot manager finds no video card. It is not in the ROMS folder; it has
+to be obtained.
+
+**Cross-check note.** The redraw labels UI6 pin 13 with a bus (`IRQ*(1:6)`);
+the scan says `IRQ*(6)` and so does the logic. Trust the scan.
+
+## 2.7 VIAs
+
+Both are 65C22s at `E` (783.36 kHz), 6800-bus, `PH0 = E`, chip selects from
+GLUE (sheet 4, netlist confirmed). The bit assignments as wired, against
+*Guide* Tables 4-5, 4-14 and the VIA2 tables:
+
+| VIA1 | wired to | VIA2 | wired to |
+|---|---|---|---|
+| PA0-2 | `V1PA0-2` (to the PDS/ID straps, 1.11's box-ID read uses PA6) | PA0-5 | `IRQ*(1:6)` - the slot interrupt lines, readable |
+| PA3 | `SYNC` | PA6, PA7 | **`RAMSIZ(0:1)` out, to GLUE** |
+| PA4 | `OVERLAY` out, to GLUE | PB0 | `CDIS*` (cache disable) |
+| PA5 | `HDSEL` (floppy head select) | PB1 | `BUSLOCK*` |
+| PA6 | `ALTVID` (alternate screen buffer) | PB2 | `PWROFF` |
+| PA7 | `SCCWREQ*` in | PB3, PB6 | `SNDEXT*` / `V2PB3` (the redraw ties both; 1.11's box-ID read tests PB3 as an input - **verify on the scan**) |
+| PB0-2 | RTC data, clock, `CS*` | PB4, PB5 | `TM1A*`, `TM0A*` (to the PDS) |
+| PB3-5 | `ADB-INT*`, `ADB-ST0`, `ADB-ST1` | PB7 | `VBLK*` |
+| PB6 | **`VSYNCEN*`** out | CA1 | `SLOTIRQ*` (GLUE's OR of the slots) |
+| PB7 | `V1PB7` | CA2 | `SCSIDRQ` |
+| CA1 | `VBLK*` | CB1 | `SNDINT*` (ASC) |
+| CA2 | `RTC-1HZ` | CB2 | `SCSIIRQ` |
+| CB1, CB2 | `ADB-SCLK`, `ADB-DIO` (the shift-register ADB of 1.6) | | |
+
+Interrupt routing, from GLUE's pins: VIA1 and VIA2 IRQ outputs, the SCC's,
+the NMI switch and `PWRIRQ` go into GLUE, which encodes `IPL0-2`. The
+priorities are not in the *Guide*'s SE/30 text read so far; the II family
+convention (VIA1 = 1, VIA2 = 2, SCC = 4, NMI = 7) is the working assumption
+**and must be confirmed from the *Guide*'s interrupt section before it is
+built.**
+
+## 2.8 What Section 2 does not settle, and the work
+
+Not settled: GLUE's internal timing (there is no source; it is a contract);
+the exact I/O map rows of Figure 3-6 (re-read from the page image); the
+interrupt priority encoding; the declaration ROM's contents and where to
+get an image; the `BERR*` term on UI6; the meaning of `V2PB3`; sheet 9;
+and everything on sheets 6-8 (SWIM, SCSI, SCC, ASC, power), which are
+later sections.
+
+Proposed work, cheap and decisive first:
+
+1. **Name every PAL pin and re-derive the six equations with names**, from
+   `kicad_nets.py` plus the scan crops (done for the pins; the equations
+   are still positional). Then write down, per PAL, what it *does* - the
+   video timing generator is the one that matters, and Bolle's equations
+   are its behavioural reference, not its source.
+2. **Re-read Figure 3-6's I/O rows and the interrupt section** from the
+   *Guide* page images (a JBIG2-capable renderer is needed; `jbig2dec` or
+   a ghostscript build).
+3. **Obtain the declaration ROM** image and read its slot resources - the
+   video driver in it is what the System will run.
+4. **Write the GLUE specification** as a table of cycles: for each region,
+   the select, the width, the wait states, the DSACK behaviour, and the
+   bus-error timeout - the document the RTL and 1.10's benches are both
+   written against.
+5. Only then: the video PALs as RTL, from the named equations, benched
+   against the *Guide*'s line and frame counts (704 x 370 at 15.6672 MHz).
+
+---
+
 ## Appendix - where the sources are
 
 The IIvi core is now cloned durably at `C:/Git/MiSTer-devel/MacIIvi_MiSTer`
