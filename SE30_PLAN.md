@@ -485,7 +485,9 @@ WSL toolchain, so this is transcription rather than discovery. **Note that
   68881/68882 FPU, with transcendentals, on upstream's `*_fpu2` branches;
   the open question is now the merge onto the audited kernel, not the
   search for an FPU.** The original text follows.
-  Every SE/30 shipped a 68882; TG68K has none and the IIvi
+  Every SE/30 shipped a 68882 - **sourced 2026-09-25: *Guide* 2e Table
+  3-6 lists the SE/30's auxiliary processor as "MC68882", unqualified,
+  beside "None" for the SE** - TG68K has none and the IIvi
   deliberately has none because a stock IIvi has none. `AP68040`'s
   `ap040_fpu.v` (2,343 lines, extended precision) is the only open 68k FPU
   found, and it is an 040 FPU in an 040 core. Leaving it out boots, but
@@ -1002,6 +1004,23 @@ it predates most of the BUG #371-#470 audit. The `030_mmu2` kernel has no
 merge, not a port, and it is the same author's code on both sides. **1.8's
 FPU bullet is reframed accordingly; it is no longer "the only open FPU is
 an 040 one".**
+
+**But its state is "first draft", and the branch says so itself.** The
+FPU work is three commits on 22-23 May 2026 - "first steps with FPU,
+correct frame reported by modified DiagROM", "FPU second try", "enable the
+FPU, but compile out transcendental functions for now" - and then nothing.
+Two benches: `tb_fpu_shell` (69 asserts: null FSAVE frame id, FRESTORE
+post-increment, FMOVE control registers, all "WinUAE-compatible" - modelled
+on an emulator, not silicon) and `tb_fpu_core_smoke` (22 asserts). No FPU
+audit document; the three audit files on the branch are MMU/CPU. The only
+hardware claim is that DiagROM *reports the correct frame* - detection, not
+computation. The transcendental unit is compiled out at the tip. So:
+structurally the whole chip, barely exercised, and "does it work" is
+unanswered. Answering it is the FPU work item: merge forward, re-enable the
+transcendentals, and drive it against the MC68881/68882 manual and a
+silicon corpus - SANE and MathLib being what a Mac actually exercises. The
+68882 is standard on the SE/30 (*Guide* 2e Table 3-6), so this is base
+machine work, not enhancement.
 
 **Licences, corrected.** The appendix said "GPLv2 where checked". The
 kernel, ALU, PMMU and FPU headers all say **LGPL-3 or later** - TG68K.C's
