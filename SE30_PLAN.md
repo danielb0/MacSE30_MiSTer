@@ -381,7 +381,11 @@ is the sole disable lever." So if the SE/30's GLUE drives MMUDIS we get
 nothing from upstream and would be building it ourselves. Whether GLUE drives
 it at all is still unread.
 
-**The kernels have diverged, and ours is the fork.** danifunker states the
+**The kernels have diverged, and ours is the fork.** ~~Superseded 2026-09-25
+by 1.12: the IIvi re-synced to upstream's tip on 2026-08-15 and the kernel
+is now byte-identical; the Mac-specific handling moved into the wrapper.
+What follows is kept as the record of what was believed and why.~~
+danifunker states the
 PMMU came from `apolkosnik/Minimig-AGA_MiSTer` branch `030_mmu2`, and that he
 "had to modify the kernel to handle BERR and STOP commands for Macintosh" and
 "handle some of the PMMU commands a little differently as well, so the
@@ -477,7 +481,11 @@ WSL toolchain, so this is transcription rather than discovery. **Note that
   **Answered 2026-09-25 from the ROM, in 1.11.** The demands are small and
   are enumerated there; the comparison with the IIvi's ROM is no longer
   needed, because ours are known directly.
-- The FPU. Every SE/30 shipped a 68882; TG68K has none and the IIvi
+- The FPU. **Reframed 2026-09-25 - see 1.12: TG68K *does* have a
+  68881/68882 FPU, with transcendentals, on upstream's `*_fpu2` branches;
+  the open question is now the merge onto the audited kernel, not the
+  search for an FPU.** The original text follows.
+  Every SE/30 shipped a 68882; TG68K has none and the IIvi
   deliberately has none because a stock IIvi has none. `AP68040`'s
   `ap040_fpu.v` (2,343 lines, extended precision) is the only open 68k FPU
   found, and it is an 040 FPU in an 040 core. Leaving it out boots, but
@@ -508,9 +516,10 @@ are closed by the survey, one is reframed.
    1.11.** No MOVEC reaches a PMMU register, the 1.1 premise holds from the
    ROM's own tables, and the ROM's entire PMMU contract fits in one bench,
    proposed there. `scripts/se30_rom_mmu.py` reproduces the reading.
-3. **Diff danifunker's kernel against `030_mmu2`**, to recover the
-   Mac-specific BERR / STOP / PMMU changes as an explicit reviewable set
-   rather than an opaque inheritance (1.7).
+3. ~~**Diff danifunker's kernel against `030_mmu2`**~~ **Done 2026-09-25 -
+   1.12.** The kernel is byte-identical to upstream's tip; the Mac-specific
+   set is the wrapper `tg68k.v` plus one silicon-adjudicated ALU hunk and
+   one area workaround. Adopt the IIvi's sync rule: never fork the kernel.
 4. **Enumerate our bus masters** against the RMC obligation in 1.7 and design
    the arbitration. Promoted from a check to design work.
 5. **Reproduce the IIvi's claim**: build their core, boot it, confirm the
@@ -904,6 +913,102 @@ table at `$4083F79E`), and MAME's remark about the RAM-size table checks out:
 
 ---
 
+## 1.12 The kernel diff: there is one kernel, and the Mac lives in the wrapper
+
+Done 2026-09-25 (1.9 item 3). Both trees are now cloned durably beside
+MacLC (appendix). The diff was made with CR/LF normalised, because the IIvi
+tree is CRLF throughout and upstream is LF.
+
+**The kernels have not diverged. They did, and danifunker re-converged
+them.** `TG68KdotC_Kernel.vhd`, `TG68K_PMMU_030.vhd`'s logic,
+`TG68K_Cache_030.vhd`, `TG68K_CacheCtrl_030.vhd`, `TG68K_Pack.vhd` and
+`TG68K.vhd` in `MacIIvi_MiSTer` are **byte-identical** to
+`apolkosnik/Minimig-AGA_MiSTer@030_mmu2` at its tip `c3e8a0d`
+(2026-07-25). The IIvi commit that did it, `ad23427` (2026-08-15), is
+explicit: a "wholesale LF-normalized import ... the kernel our old LCII pin
+forked from, now ~40 audited bugs ahead". The "Mac-specific kernel changes
+for BERR and STOP" that 1.7 set out to recover **no longer exist as kernel
+changes** - the same commit says the new kernel "drops the LCII in-kernel
+walk-hold latch gates for a wrapper-side contract (their `cpu_wrapper.v`),
+which `tg68k.v` now implements". So 1.7's "at least two kernels, diverged,
+neither a superset" was true when danifunker wrote his post and is false
+now. The IIvi's own `CLAUDE.md` states the rule they arrived at, and it is
+the rule we should adopt verbatim: **kernel fixes land upstream first and
+are re-copied; never fork the kernel; the bus wrapper is ours.**
+
+**The whole local delta is two hunks.**
+
+| file | delta | nature |
+|---|---|---|
+| `TG68K_ALU.vhd` | one hunk, DIVU-by-zero | **A real-silicon correction.** The 68030 leaves the CCR unchanged on an unsigned divide by zero; the imported WinUAE-derived model set N/Z/V. Adjudicated against a Macintosh IIcx capture (`SingleStepTests`, 2026-06-13) and landed upstream first as `bfd3428` - which is on **no pushed upstream branch tip** as of today; the IIvi copy (`498eb34`) is the surviving artifact. With it the silicon corpus scores 720/721. **Take it.** |
+| `TG68K_PMMU_030.vhd` | `ATC_ENTRIES` 22 -> 8, plus zero-padding of the debug ports | **An area workaround**, not a fix: "reduced 22 -> 8 to relieve a 98%-ALM fit whose STA-met builds misbehaved on hardware ... a smaller ATC walks more, never translates differently. RE-APPLY ON EVERY re-sync." The IIvi's fabric is full of colour video; ours will not be. **Do not take it** unless our own fit forces it - and 1.11's finding that every distinct top byte in 24-bit mode costs an ATC entry argues for keeping the full 22. `sim/pmmu_rom_contract` passes on both (run against upstream's file with `TG68K_SRC=`). |
+| `TG68K.qip` | build list | Builds `tg68k.v` in place of upstream's `TG68K.vhd` top; `CacheCtrl_030` kept as reference only. |
+
+**The Mac-specific content is `rtl/tg68k/tg68k.v`** - 1,370 lines of
+danifunker's own Verilog, 13 commits, against upstream's 4,545-line Amiga
+`cpu_wrapper.v` for the same job. It is where 1.4's integration contract
+actually lives, and `ad23427`'s message enumerates the terms it implements
+on the Mac's phi grid. They belong in 1.4, and are recorded here until it is
+revised:
+
+- `clkena` held across the **whole** walker-request window
+  (`pmmu_walker_req`), not just the borrowed transfer, and while the PMMU
+  is busy translating (upstream BUG #407: the one-cycle ATC-miss gap);
+- `clkena` force-released on `pmmu_fault` so the exception dispatches,
+  with `beat_valid` low on that beat - the kernel advances but consumes no
+  bus data (upstream's hardware capture: `$1B00`/`$FFFF` junk retired as
+  opcodes without this);
+- the bus FSM parks at `s_state 0` while busy or faulted, never mid-cycle,
+  so no Mac bus cycle launches with a stale or untranslated physical
+  address - the mirror of upstream's `pmmu_suppress_bus`;
+- BERR held across the cycle, and **only for the kernel's own cycle**: a
+  BERR during a walker or cache-fill transfer belongs to the walker, not
+  to whatever instruction is in flight (`berr & ~walk_cycle &
+  ~fill_active`);
+- auto-vectoring, E-clock/VMA and BR/BG/BGACK arbitration in their
+  MacIIvi-proven form.
+
+The pre-2026-08 MacLCII pin (`a254a02`, the in-kernel walk-hold gates) is
+history. **Consequence for 1.9 item 6 and for the MacLC question in the
+memory notes:** whatever CPU MacLC carries is the *old* pin; the CPU comes
+from the IIvi tree or from upstream directly, never from MacLC.
+
+**Upstream is healthier and busier than 1.7 recorded.** Its
+`tests/tg68k_030/` holds 167 files against the 129 the IIvi copied; the 38
+newer ones include ATC stress and timing, cache-controller units, STOP/M-bit
+stack cases, and a family of **MMU fault-restart tests written to
+NetBSD/amiga's demand-paging contract** (`tb_mmu_restart_netbsd.vhd`: fix
+the PTE, `PFLUSH`, plain `RTE` with an unmodified frame, and the faulted
+instruction must re-execute exactly once - including `MOVEM` crossing into
+an invalid page and `CAS` under a Format `$B` frame). The `030_mmu2` tip
+commit reports NetBSD reaching `/etc/rc` on hardware. That is an MMU being
+driven far harder than System 7 will drive it; the SE/30 ROM's demands
+(1.11) are a small subset, and System 7 virtual memory sits between the
+two.
+
+**And upstream has a 68881/68882 FPU - which changes 1.8.** Branches
+`030_mmu2_fpu2`, `030_mmu_fpu`, `030_mmu_fpu2` and `fpu` carry
+`TG68K_FPU*.vhd`: nine files, ~9,100 lines, "TG68K MC68881/68882 Compatible
+Floating Point Unit", LGPL-3 like the kernel, with an `Enable_Transcendental`
+generic (so the trig/log/exp unit the 040 lacks is present, which was the
+whole objection to `ap040_fpu.v`), a packed-decimal unit, and
+68882-format `FSAVE`/`FRESTORE` frames (NULL 4 bytes, IDLE 60 bytes). It is
+integrated through the kernel's F-line decode - which is how a 68882 looks
+to software anyway; the coprocessor bus is invisible above the chip. **The
+cost is that the FPU branch is stale**: `030_mmu2_fpu2`'s tip is 2026-05-23
+and its kernel is 3,004 lines and its PMMU 304 lines behind `030_mmu2`, so
+it predates most of the BUG #371-#470 audit. The `030_mmu2` kernel has no
+`FPU_Enable` hook. Bringing the FPU forward onto the audited kernel is a
+merge, not a port, and it is the same author's code on both sides. **1.8's
+FPU bullet is reframed accordingly; it is no longer "the only open FPU is
+an 040 one".**
+
+**Licences, corrected.** The appendix said "GPLv2 where checked". The
+kernel, ALU, PMMU and FPU headers all say **LGPL-3 or later** - TG68K.C's
+original licence. Same family throughout; no combination problem.
+
+---
+
 ## Appendix - where the sources are
 
 The IIvi core is now cloned durably at `C:/Git/MiSTer-devel/MacIIvi_MiSTer`
@@ -919,12 +1024,14 @@ scratchpad that does not survive; re-clone as needed:
 | `github.com/danifunker/MacQuadra800_MiSTer` | 68040. Wrong MMU for us, but `rtl/ap68040/` is the only open 68k FPU found, its `tb/` is iverilog-based, and `scripts/` is a MiSTer hardware-automation harness worth taking on its own merits |
 | `github.com/alanswx/AP68040`, `github.com/apolkosnik/AP68040` | AP68040 upstreams |
 
-| `github.com/apolkosnik/Minimig-AGA_MiSTer` branch `030_mmu2` | **the PMMU's upstream**, named by danifunker. Carries the audit trail 1.7 now rests on - `030_MMU_PORT_AUDIT.md`, `MMU_AUDIT.md`, `CPU_AUDIT.md`, `REVIEW_2026-07-23_CPU_MMU_CACHE.md` - plus `tests/tg68k_030/` and the packaged cputest 030 data |
+| `github.com/apolkosnik/Minimig-AGA_MiSTer` branch `030_mmu2` | **the PMMU's upstream**, named by danifunker. Carries the audit trail 1.7 now rests on - `030_MMU_PORT_AUDIT.md`, `MMU_AUDIT.md`, `CPU_AUDIT.md`, `REVIEW_2026-07-23_CPU_MMU_CACHE.md` - plus `tests/tg68k_030/` (167 files) and the packaged cputest 030 data. **Cloned shallow at `C:/Git/MiSTer-devel/Minimig-AGA_MiSTer_030_mmu2`** (tip `c3e8a0d`, 2026-07-25), with the `030`, `030_mmu`, `030_mmu_fpu`, `030_mmu_fpu2` and `fpu` tips fetched shallow into it |
+| same repo, branch `030_mmu2_fpu2` | **the 68881/68882 FPU** (1.12): `rtl/tg68k/TG68K_FPU*.vhd`. Tip `bd9d8f1`, 2026-05-23 - older than `030_mmu2`. **Cloned shallow at `C:/Git/MiSTer-devel/Minimig-AGA_MiSTer_030_mmu2_fpu2`** |
 | `github.com/apolkosnik/before` | NeXTcube on MiSTer. **68040**, so not a CPU candidate, but an existence proof that a 68k core with a working MMU boots a demanding Unix on a DE10-Nano |
 | `github.com/AmicableComputers/wf68k30L` | Wolfgang Foerster's pipelined VHDL 68030. **No MMU, no caches, no coprocessor interface** - useless as a CPU here, valuable as a *readable* 030 cross-reference against the generated kernel. Upstream uses it the same way |
 
-GPLv2 or GPLv2-or-later where checked. **wf68k30L's licence has not been
-checked.**
+~~GPLv2 or GPLv2-or-later where checked.~~ **Corrected 2026-09-25:** the
+TG68K kernel, ALU, PMMU and FPU headers all say LGPL-3 or later (1.12).
+**wf68k30L's licence has not been checked.**
 
 **Primary documents and the ROM.**
 
