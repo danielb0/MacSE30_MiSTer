@@ -9,22 +9,23 @@
 //   sim/glue/tb_se30_glue.v.  Where 2.11 leaves a number open the choice
 //   is marked OPEN below and the bench holds the envelope.
 //
-// THE BUS THIS IS WRITTEN TO (plan 2.13)
-//   Not the 68030's pins: the TG68K wrapper's bus, which is 68000-shaped -
-//   16-bit data, UDS*/LDS*, AS*, R/W*, DTACK*, VPA*, BERR, IPL - with a
-//   32-bit address and a flag, lw, that marks both 16-bit beats of a
-//   32-bit access.  Every 8-bit device sits on D15-D8 as it sits on D31-D24
-//   of the real machine; GLUE runs one device cycle per byte of a beat,
-//   high byte first, at A then A+1, which is the 68030's dynamic bus
-//   sizing done here because the wrapper cannot.  A single-byte beat gets
-//   its byte on both lanes.
+// THE BUS (plan 2.11.1, verbatim since 1.13 item 4)
+//   The 68030's: a 32-bit address, AS*, DS*, R/W*, FC, SIZ1-0, 32-bit
+//   data, DSACK1*/DSACK0* back, BERR, IPL.  RAM and ROM are 32-bit ports
+//   and answer DSACK "00"; every I/O device is an 8-bit port on D31-D24
+//   and answers DSACK0* alone ("10"); the processor splits a word or a
+//   longword into the byte cycles itself (dynamic bus sizing, UM 7.2), so
+//   GLUE runs exactly one device cycle per bus cycle.  RAM's byte enables
+//   are Table 7-7's for a 32-bit port: lanes A1A0 to the end of SIZ or of
+//   the long, whichever comes first.  AVEC is grounded on the board and
+//   UI6 keeps AS* from the system for FC = 7, so an interrupt acknowledge
+//   gets no answer from GLUE at all: the processor autovectors.
 //
-// TIMING (plan 2.11.3, counted as the bench counts: AS* low to DTACK*
+// TIMING (plan 2.11.3, counted as the bench counts: AS* low to DSACK*
 // low inclusive, plus one)
-//   RAM, ROM      4 clocks a beat; 2 when lw, so a longword is 4 in all.
-//                 The request goes out with AS*; the acknowledge is
-//                 followed, not assumed, and the word beat is padded to
-//                 the 68030's one-wait-state count.
+//   RAM, ROM      4 clocks: the request goes out with AS*; the acknowledge
+//                 is followed, not assumed, and padded to the 68030's
+//                 one-wait-state count.
 //   SWIM, SCSI    4 (one wait state), the pseudo-DMA port and the
 //                 acknowledged expansion window the same.
 //   ASC           5 read, 4 write.
@@ -41,8 +42,9 @@
 //                 slot, the I/O windows with A17 = 1: no acknowledge, and
 //                 UI6 asserts BERR once HSYNC* has been seen high, low and
 //                 high again with AS* held (18.4-63.3 us).  FC = 7 cycles
-//                 are never timed out; the interrupt acknowledge (A17-A16
-//                 = 11) autovectors, the rest get nothing.
+//                 are never timed out.
+//   A write's device strobe waits for DS*, which the 68030 asserts a
+//   clock after AS* on a write with the data valid; a read's follows AS*.
 //
 // CLOCKS
 //   E is C16M/20, ten clocks high, ten low (duty OPEN, plan 2.13); C3M is
@@ -57,38 +59,36 @@ module se30_glue (
   input         c16_en,                // one clk per C16M period (15.6672 MHz)
   input         reset_n,
 
-  // CPU
+  // CPU: the 68030's bus
   input  [31:0] cpu_addr,
   input         cpu_as_n,
-  input         cpu_uds_n,
-  input         cpu_lds_n,
+  input         cpu_ds_n,
   input         cpu_rw_n,              // 1 = read
   input   [2:0] cpu_fc,
-  input         cpu_lw,                // this beat is half of a 32-bit access
-  input  [15:0] cpu_dout,              // CPU write data
-  output [15:0] cpu_din,               // read data to the CPU
-  output        dtack_n,
+  input   [1:0] cpu_siz,               // SIZ1 SIZ0: bytes remaining, 00 = four
+  input  [31:0] cpu_dout,              // CPU write data, lane 0 = D31:24
+  output [31:0] cpu_din,               // read data to the CPU
+  output  [1:0] dsack_n,               // {DSACK1*, DSACK0*}: 00 a 32-bit port, 10 an 8-bit one, 11 wait
   output        berr,
-  output        vpa_n,                 // interrupt acknowledge: autovector
   output  [2:0] ipl_n,
 
-  // RAM: 16-bit word port
+  // RAM: 32-bit port
   output        ram_req,
   output        ram_we,
-  output [25:0] ram_addr,              // word address, flat over both banks (128MB)
-  output  [1:0] ram_ds,                // {upper, lower} byte enables
-  output [15:0] ram_wdata,
-  input  [15:0] ram_rdata,
+  output [24:0] ram_addr,              // longword address, flat over both banks (128MB)
+  output  [3:0] ram_be,                // byte enables, bit 3 = D31:24
+  output [31:0] ram_wdata,
+  input  [31:0] ram_rdata,
   input         ram_ack,
   output reg    ram_refresh,           // one pulse per refresh cycle
 
-  // ROM: 16-bit word port, 256KB
+  // ROM: 32-bit port, 256KB
   output        rom_req,
-  output [16:0] rom_addr,
-  input  [15:0] rom_rdata,
+  output [15:0] rom_addr,              // longword address
+  input  [31:0] rom_rdata,
   input         rom_ack,
 
-  // 8-bit devices
+  // 8-bit devices, on D31-D24
   output        via1_sel,
   output        via2_sel,
   output        scc_sel,
@@ -108,7 +108,6 @@ module se30_glue (
 
   // slot $E and the PDS
   output        slot_sel,              // NUBUS*, active high here
-  output        slot_a0,               // A0 of the byte in progress (the bus sizing above)
   input         slot_dsack0_n,
   input   [7:0] slot_rdata,
 
@@ -133,9 +132,8 @@ module se30_glue (
   // ------------------------------------------------------------- decode
   // Plan 2.11.2: what GLUE's pins allow.  RAM and ROM on A31-A30 and
   // OVERLAY; I/O on A31-A24 = $50 and A17-A13, A23-A18 ignored; the slots
-  // on A31-A29 >= 011.  FC = 7 is CPU space: only the acknowledge answers.
+  // on A31-A29 >= 011.  FC = 7 is CPU space: nothing answers.
   wire       fc7    = (cpu_fc == 3'd7);
-  wire       iack   = fc7 && (cpu_addr[17:16] == 2'b11);
   wire       low_sp = (cpu_addr[31:30] == 2'b00);
   wire       d_ram  = !fc7 && low_sp && !overlay;
   wire       d_rom  = !fc7 && ((cpu_addr[31:28] == 4'h4) || (low_sp && overlay));
@@ -155,20 +153,24 @@ module se30_glue (
   wire       d_mem  = d_ram || d_rom;
   wire       d_dev  = d_via || d_scc || d_hs || d_scsi || d_dma || d_asc || d_swim || d_exp || d_slot;
 
+  // the byte enables of a 32-bit port (UM Table 7-7): lanes A1A0 to the
+  // end of SIZ or of the long
+  wire [2:0] siz_n = (cpu_siz == 2'b00) ? 3'd4 : {1'b0, cpu_siz};
+  wire [2:0] a10   = {1'b0, cpu_addr[1:0]};
+  wire [3:0] be    = { (a10 == 3'd0),
+                       (a10 <= 3'd1) && (a10 + siz_n > 3'd1),
+                       (a10 <= 3'd2) && (a10 + siz_n > 3'd2),
+                       (a10 + siz_n > 3'd3) };
+
   // ------------------------------------------------------------ the cycle
   reg        active;                   // AS* sampled low, until sampled high
-  reg        done;                     // acknowledged; DTACK* held until AS* negates
+  reg        done;                     // acknowledged; DSACK* held until AS* negates
   reg        mem_done;                 // the RAM or ROM port has answered
-  reg        cur_lo;                   // byte in progress: 0 = high (A), 1 = low (A+1)
-  reg  [1:0] dcnt;                     // clocks into the device byte cycle
+  reg  [1:0] dcnt;                     // clocks into the device cycle
   reg        via_armed;                // the VIA select was up when E rose
-  reg [15:0] din_r;
+  reg [31:0] din_r;
   reg  [5:0] scc_hold;
   reg        ff1, ff2, berr_r;         // UI6's timeout, below
-
-  wire need_hi = !cpu_uds_n;
-  wire need_lo = !cpu_lds_n;
-  wire last_byte = cur_lo || !need_lo;
 
   // E and the SCC hold-off
   reg  [4:0] ecnt;                     // 0..19
@@ -176,14 +178,15 @@ module se30_glue (
   wire e_rise_next = (ecnt == 5'd9);
   wire e_fall_next = (ecnt == 5'd19);
 
-  // the device byte cycle: strobe on clock cap-1, capture on clock cap.
-  // The SCC's select rises with its strobe (CE with RD or WR, as an 8530
-  // is driven) once the hold-off has expired, and its data is taken two
-  // clocks later.
+  // the device cycle: strobe on clock cap-1, capture on clock cap.  A
+  // write waits for DS* (the data is valid with it).  The SCC's select
+  // rises with its strobe (CE with RD or WR, as an 8530 is driven) once
+  // the hold-off has expired, and its data is taken two clocks later.
   wire [1:0] cap = (d_asc && cpu_rw_n) ? 2'd2 : 2'd1;
-  wire dc_adv = active && (!d_hs || dcnt != 0 || scsi_drq);    // the handshake waits at 0 for DRQ
+  wire ds_ok = cpu_rw_n || !cpu_ds_n;
+  wire dc_adv = active && ds_ok && (!d_hs || dcnt != 0 || scsi_drq);    // the handshake waits at 0 for DRQ
   wire fixed_port = d_hs || d_scsi || d_dma || d_asc || d_swim || d_exp;
-  wire scc_go  = d_scc && (dcnt == 0) && (scc_hold == 0);
+  wire scc_go  = d_scc && ds_ok && (dcnt == 0) && (scc_hold == 0);
   wire capture = active && ( (fixed_port && dcnt == cap && dc_adv)
                           || (d_scc && dcnt == 2'd2)
                           || (d_via && via_armed && e_fall_next)
@@ -196,11 +199,10 @@ module se30_glue (
   assign ram_req = !cpu_as_n && d_ram && !mem_done && !ref_busy;
   assign rom_req = !cpu_as_n && d_rom && cpu_rw_n && !mem_done;
   wire mem_ack = ram_ack || rom_ack || (active && d_rom && !cpu_rw_n);   // a ROM write: acknowledged, no effect
-  wire fast_ack = !cpu_as_n && cpu_lw && (ram_ack || rom_ack);          // the 2-clock beat of a longword
 
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      active <= 0; done <= 0; mem_done <= 0; cur_lo <= 0; dcnt <= 0;
+      active <= 0; done <= 0; mem_done <= 0; dcnt <= 0;
       via_armed <= 0; din_r <= 0; dev_strobe <= 0; scc_hold <= 0;
     end else if (c16_en) begin
       dev_strobe <= 0;
@@ -209,24 +211,22 @@ module se30_glue (
       if (!active) begin
         if (!cpu_as_n) begin
           active <= 1; done <= 0; mem_done <= 0; dcnt <= 0; via_armed <= 0;
-          cur_lo <= !need_hi;
           if (scc_go) begin dev_strobe <= 1; dcnt <= 1; end
         end
       end else if (cpu_as_n) begin
         active <= 0; done <= 0; mem_done <= 0; dcnt <= 0;
         if (d_scc) scc_hold <= SCC_HOLD;
       end else if (!done) begin
-        // memory
+        // memory: one 32-bit access, padded to the one-wait-state cycle
         if (d_mem) begin
           if (mem_ack) begin
             mem_done <= 1;
             if (ram_ack) din_r <= ram_rdata;
             if (rom_ack) din_r <= rom_rdata;
-            if (cpu_lw) done <= 1;
           end
           if (mem_done) done <= 1;
         end
-        // an 8-bit port
+        // an 8-bit port: one device cycle, the byte on D31-D24
         if (d_dev) begin
           if (d_scc) begin
             if (scc_go) begin dev_strobe <= 1; dcnt <= 1; end
@@ -236,23 +236,19 @@ module se30_glue (
             if (fixed_port && dc_adv && dcnt == cap - 1'b1) dev_strobe <= 1;
           end
           if (d_via) begin
-            if (e_rise_next) via_armed <= 1;
+            if (e_rise_next && ds_ok) via_armed <= 1;
             if (via_armed && ecnt == 5'd18) dev_strobe <= 1;
           end
           if (capture) begin
-            if (need_hi && need_lo) begin
-              if (cur_lo) din_r[7:0] <= rbyte; else din_r[15:8] <= rbyte;
-            end else din_r <= {rbyte, rbyte};
-            if (last_byte) done <= 1;
-            else begin cur_lo <= 1; dcnt <= 0; via_armed <= 0; end
+            din_r <= {rbyte, 24'h000000};
+            done <= 1;
           end
         end
       end
     end
 
   assign cpu_din  = din_r;
-  assign dtack_n  = !(!cpu_as_n && (done || fast_ack) && !berr_r);
-  assign vpa_n    = !(!cpu_as_n && iack);
+  assign dsack_n  = (!cpu_as_n && done && !berr_r) ? (d_mem ? 2'b00 : 2'b10) : 2'b11;
 
   // selects follow the cycle, as chip selects follow AS*; the slot's drops
   // with the acknowledge so the video PALs do not take a second cycle
@@ -265,22 +261,21 @@ module se30_glue (
   assign swim_sel  = active && d_swim;
   assign exp_sel   = active && d_exp;
   assign slot_sel  = active && d_slot && !done;
-  assign slot_a0   = cur_lo;
-  assign dev_addr  = {cpu_addr[12:1], cur_lo};
+  assign dev_addr  = cpu_addr[12:0];
   assign dev_rw    = cpu_rw_n;
-  assign dev_wdata = cur_lo ? cpu_dout[7:0] : cpu_dout[15:8];
+  assign dev_wdata = cpu_dout[31:24];
 
   // ------------------------------------------------------------ RAM, ROM
   // Bank B follows bank A at the RAMSIZ boundary (Guide Table 4-10); the
   // bits above the two banks are ignored, so the contents repeat.
-  assign ram_addr  = (ramsiz == 2'd0) ? {6'b0, cpu_addr[20:1]} :
-                     (ramsiz == 2'd1) ? {4'b0, cpu_addr[22:1]} :
-                     (ramsiz == 2'd2) ? {2'b0, cpu_addr[24:1]} :
-                                        cpu_addr[26:1];
+  assign ram_addr  = (ramsiz == 2'd0) ? {6'b0, cpu_addr[20:2]} :
+                     (ramsiz == 2'd1) ? {4'b0, cpu_addr[22:2]} :
+                     (ramsiz == 2'd2) ? {2'b0, cpu_addr[24:2]} :
+                                        cpu_addr[26:2];
   assign ram_we    = !cpu_rw_n;
-  assign ram_ds    = {need_hi, need_lo};
+  assign ram_be    = be;
   assign ram_wdata = cpu_dout;
-  assign rom_addr  = cpu_addr[17:1];
+  assign rom_addr  = cpu_addr[17:2];
 
   // ------------------------------------------------------------- clocks
   reg [6:0] c3m_acc;

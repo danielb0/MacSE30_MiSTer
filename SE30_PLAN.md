@@ -1184,7 +1184,8 @@ existing one taught the 030's width rules.
    sequencer and the `lw` fast path from `rtl/se30_glue.v` and leaves the
    decode, the timings, the VIA and SCC machines, UI6, refresh and the
    encoder as they are. The bench's cycle counts do not change; its bus
-   model does.
+   model does. **GLUE done 2026-09-26** (2.13 records it; 91 checks);
+   **the wrapper is next.**
 
 **Cost.** Item 2 touches the kernel's central sequencing, not a corner:
 weeks, not days, with the corpus as the safety net. The alternative -
@@ -2703,13 +2704,24 @@ Neither decision is in 2.11, which is the 68030's view of the board; both
 are about the difference between that view and the bus the core's CPU
 actually presents.
 
-**INTERIM - superseded the same day by 1.13 (owner's decision).** The
-kernel gets a 32-bit port with the 68030's own dynamic bus sizing, and
-GLUE is then re-cut to 2.11.1 verbatim (1.13 item 4): the byte sequencer
-of decision 1 and the 2 + 2 beat of decision 2 go; the decode, the
-timings, the VIA, SCC, UI6, refresh and interrupt logic, and the bench's
-cycle counts stay. The text below is kept as the record of what the
-committed RTL does until then.
+**RETIRED 2026-09-26 - GLUE is re-cut to 2.11.1 (1.13 item 4).** The
+kernel has the 68030's bus (1.15), and `rtl/se30_glue.v` now takes it
+verbatim: `AS*`, `DS*`, `SIZ`, `A1A0`, 32-bit data, `DSACK1/0*`; RAM and
+ROM are 32-bit ports with Table 7-7's byte enables, one access a cycle,
+and every I/O device an 8-bit port on `D31-D24` answering `DSACK0*`
+alone, one device cycle per bus cycle - the processor issues the byte
+cycles of a word or a longword. The byte sequencer of decision 1, the
+2 + 2 beat of decision 2, `lw`, `slot_a0` and `VPA*` are gone; `AVEC` is
+grounded on the board, so an interrupt acknowledge gets nothing from
+GLUE and the processor autovectors. The decode, every timing, the VIA,
+SCC, UI6, refresh and interrupt logic and the bench's cycle counts are
+unchanged: `sim/glue/tb_se30_glue.v` passes 91 checks with its bus model
+rewritten to the 68030's cycle (`DS*` with `AS*` on a read, a clock
+later on a write; write data on the lanes of Table 7-5). The conventions
+below that survive are the cycle count, `HSYNC*`, `E`'s duty, the RAM
+port's flat address (now a longword address), the SCC hold-off, refresh,
+the `A17` = 1 windows and the acknowledge decode. The text below is
+kept as the record of the interim RTL (`86169e7`).
 
 **1. GLUE is written to the TG68K wrapper's bus, not the 68030's pins.**
 The kernel (1.12) has a 16-bit data bus and moves a 32-bit operand as two
