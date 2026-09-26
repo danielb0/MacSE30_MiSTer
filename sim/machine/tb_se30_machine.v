@@ -103,6 +103,21 @@ module tb_se30_machine;
   wire is_io   = (c_fc != 3'd7) && ((c_addr[31:24] == 8'h50) || (c_addr[31:29] >= 3'b011));
   wire is_mem  = (c_fc != 3'd7) && !is_io;
 
+  // phase 2: run on past the first I/O access until the CPU halts or loops
+  // (no fetch address it has not fetched before for LOOP_CYCLES cycles),
+  // logging the I/O accesses and the last fetch addresses - the prediction
+  // for the probe deck on hardware (plan 3.6 item 6)
+  localparam LOOP_CYCLES = 3000, NIO = 24, NRING = 16;
+  reg        seen [0:65535];           // ROM-offset longwords fetched so far
+  integer    since_new = 0, io_n = 0, ring_i = 0, berr_first = -1;
+  reg [31:0] last_fetch = 0, last_as = 0;
+  reg [31:0] io_a [0:NIO-1], io_d [0:NIO-1];
+  reg        io_rw_l [0:NIO-1];
+  reg  [2:0] io_fc_l [0:NIO-1];
+  integer    io_cyc [0:NIO-1];
+  reg [31:0] ring [0:NRING-1];
+  initial for (i = 0; i < 65536; i = i + 1) seen[i] = 0;
+
   always @(posedge clk_sys) if (phi1 && reset_n) begin
     if (!cpu_as_n) begin
       as_clocks = as_clocks + 1;
@@ -118,9 +133,20 @@ module tb_se30_machine;
         log_dsack[cycles] = c_dsack; log_len[cycles] = as_clocks + 1; log_data[cycles] = c_data;
       end
       if (is_mem) begin mem_cycles = mem_cycles + 1; if (as_clocks + 1 > 4) long_cycles = long_cycles + 1; end
-      if (c_berr) berrs = berrs + 1;
+      if (c_berr) begin berrs = berrs + 1; if (berr_first < 0) berr_first = cycles; end
       if (is_io && !stop) begin
         io_addr = c_addr; io_fc = c_fc; io_rw = c_rw; io_cycle = cycles; stop = 1;
+      end
+      last_as = c_addr;
+      if (c_fc == 3'd6) begin
+        last_fetch = c_addr;
+        if (!seen[c_addr[17:2]]) begin seen[c_addr[17:2]] = 1; since_new = 0; end
+        else since_new = since_new + 1;
+        ring[ring_i] = c_addr; ring_i = (ring_i + 1) % NRING;
+      end else since_new = since_new + 1;
+      if (is_io && io_n < NIO) begin
+        io_a[io_n] = c_addr; io_d[io_n] = c_data; io_rw_l[io_n] = c_rw; io_fc_l[io_n] = c_fc; io_cyc[io_n] = cycles;
+        io_n = io_n + 1;
       end
       cycles = cycles + 1;
       as_clocks = 0;
@@ -172,6 +198,22 @@ module tb_se30_machine;
     if (stop) $display("      first I/O access: cycle %0d, %s %08x, fc %0d", io_cycle, io_rw ? "read" : "write", io_addr, io_fc);
     $display("      %0d memory cycles, %0d longer than four clocks (the refresh window)", mem_cycles, long_cycles);
     check(long_cycles * 20 < mem_cycles, "fewer than one memory cycle in twenty stalled");
+
+    // ---- phase 2: on to the halt or the loop
+    $display("---- running on, with the VIAs answering $00");
+    while (!halted && since_new < LOOP_CYCLES && cycles < 40000) @(posedge clk_sys);
+    repeat (4) @(posedge clk_sys);
+    $display("      stopped after %0d cycles: %s", cycles,
+             halted ? "the CPU HALTED (double bus fault)" : (since_new >= LOOP_CYCLES) ? "a LOOP (no new fetch address)" : "the cycle limit");
+    $display("      the first %0d I/O accesses:", io_n);
+    for (i = 0; i < io_n; i = i + 1)
+      $display("      %6d  %s %08x  fc %0d  data %08x", io_cyc[i], io_rw_l[i] ? "rd" : "wr", io_a[i], io_fc_l[i], io_d[i]);
+    if (berrs != 0) $display("      %0d bus errors, the first at cycle %0d", berrs, berr_first);
+    $display("      the last %0d fetch addresses:", NRING);
+    for (i = 0; i < NRING; i = i + 1) $display("      %08x", ring[(ring_i + i) % NRING]);
+    $display("---- PREDICTION for the probe deck (plan 3.5): PIFA %08x  PLAS %08x  PACT %0d%s  halted %0d  bus errors %0d",
+             last_fetch, last_as, cycles, halted ? "" : " and counting", halted, berrs);
+    check(halted || since_new >= LOOP_CYCLES, "the run ends in a halt or a loop, not the cycle limit");
     check(chip.errors == 0, "the SDRAM model saw no datasheet violation");
 
     if (fails == 0) $display("==== PASS: %0d checks, the machine runs the ROM from reset to its first I/O access", pass);
@@ -180,7 +222,7 @@ module tb_se30_machine;
   end
 
   initial begin
-    #5000000;                                                        // 5 ms
+    #40000000;                                                       // 40 ms
     $display("==== FAIL: timeout");
     $finish;
   end

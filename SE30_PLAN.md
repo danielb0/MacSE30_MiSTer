@@ -3299,6 +3299,16 @@ desktop (ADB).
    us of simulated time (the SDRAM's 200 us power-up included) in 9 s of
    wall clock. The Starter Edition's limits are not a problem at this
    altitude.
+   **Run on past the VIA write (2026-09-27), the prediction for the first
+   hardware run:** with the VIAs answering $00 the ROM writes DDRA, then
+   reads and writes ORA (`$50F01E00`, RS = 15) six times - it is driving
+   `OVERLAY` and looking for the result - and settles into a
+   three-instruction polling loop at `$408036FC`/`$40803700`/`$40803704`,
+   never halting and never bus-erroring; 3,109 cycles to the loop's
+   detection. **So the probe deck should read PIFA in that triple, PLAS
+   the same, PACT counting, halted 0, bus errors 0.** Anything else on
+   the board means the SDRAM path, not the ROM, is the question. 45 s of
+   ModelSim for the run.
 9. ~~Elaboration (3.6 item 4).~~ **Done 2026-09-26: 0 errors, 85 warnings
    (the baseline; not yet read for what is ours), 1 min 37 s.** Quartus
    rewrites `MacSE30.qsf` with the framework's pin assignments inlined on
