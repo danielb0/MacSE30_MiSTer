@@ -68,6 +68,7 @@ generic(
 		bf_width					: in std_logic_vector(5 downto 0);
 		bf_ffo_offset			: in std_logic_vector(31 downto 0);
 		bf_loffset				: in std_logic_vector(4 downto 0);
+		beat_step				: in std_logic_vector(2 downto 0) := "010";	-- the address step to the operand's next beat (SE30_PLAN.md 1.15)
 
 		-- BUG #397: Restore CCR on RTE format error
 		restore_ccr				: in std_logic := '0';
@@ -632,7 +633,7 @@ PROCESS (OP2out, reg_QB, opcode, OP1out, OP1in, exe_datatype, addsub_q, execOPC,
 -- addsub
 -----------------------------------------------------------------------------
 PROCESS (OP1out, OP2out, execOPC, Flags, long_start, movem_presub, exe_datatype, exec, addsub_a, addsub_b, opaddsub,
-	     notaddsub_b, add_result, c_in, sndOPC, non_aligned, check_aligned)
+	     notaddsub_b, add_result, c_in, sndOPC, non_aligned, check_aligned, beat_step)
 	BEGIN
 		addsub_a <= OP1out;
 		IF exec(get_bfoffset)='1' THEN	
@@ -685,6 +686,10 @@ PROCESS (OP1out, OP2out, execOPC, Flags, long_start, movem_presub, exe_datatype,
 					ELSE
 						addsub_b <= "00000000000000000000000000000100";
 					END IF;
+			ELSIF long_start='1' THEN
+				-- the step to the operand's next beat: the bytes this one moved
+				-- (SE30_PLAN.md 1.15 item 4; a constant 2 before)
+				addsub_b <= "00000000000000000000000000000" & beat_step;
 			ELSE
 				addsub_b <= "00000000000000000000000000000010";
 			END IF;

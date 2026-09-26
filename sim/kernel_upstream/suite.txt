@@ -1,0 +1,21 @@
+# upstream's test-arch-suite and test-regression members that instantiate the
+# kernel (tests/tg68k_030/Makefile), with the run time each target gives.
+# One bench per line: name, run time.
+tb_abcd 200us
+tb_stack_frame_push 500us
+tb_branch_odd_addr 300us
+tb_chk_long_odd_addr 100us
+tb_odd_irq_regwrite 2ms
+tb_odd_exc_flags 2ms
+tb_movec_illegal 20us
+tb_movec_selector_latch 80us
+tb_cpsave_cprestore_exceptions 80us
+tb_moves_privilege 20us
+tb_ptest_history_bits 20us
+tb_basic_chk_trace 2ms
+tb_basic_div_jmp_trace 2ms
+# tb_divs_word_overflow_flags: named by the Makefile, absent from the tree
+tb_basic_exception_flags 2ms
+tb_basic_group2_user_trace 2ms
+tb_trace_post_rte_user 2ms
+tb_rte_all_formats 500us

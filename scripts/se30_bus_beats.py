@@ -57,7 +57,10 @@ CASES
     A1-A0.  A 5-byte field is two operand cycles per the note to UM 11.6.14
     ("may span 5 bytes that require two operand cycles"); the manual does
     not say which comes first, and here it is the long at A then the byte
-    at A+4 (bytes F0..F4) - marked as this file's assumption, not 7.2's.
+    at A+4 (bytes F0..F4) - the owner adopted that 2026-09-26.  The
+    kernel holds it as one five-byte mask (100000) whose beats never cross
+    the boundary after the fourth byte (plan 1.15), so the mask column is
+    that; `oc` marks the second cycle's beat.
 
 USAGE
     se30_bus_beats.py check            run the rule against the tables
@@ -169,9 +172,11 @@ def ones(n):
 
 
 def operand_beats(size, a1a0, port, names):
-    """The beats of one operand cycle: `names` are the operand's bytes in
-    address order (OP(4-size)..OP3 for a CPU operand).  Returns a list of
-    dicts, one per beat."""
+    """The beats of one operand: `names` are the operand's bytes in address
+    order (OP(4-size)..OP3 for a CPU operand).  A five-byte bit field is
+    one operand with a boundary after its fourth byte: the 68030 accesses
+    it as two operand cycles (UM 11.6.14 note), long then byte, and no
+    beat crosses the boundary.  Returns a list of dicts, one per beat."""
     beats = []
     remaining = size
     a = a1a0
@@ -179,11 +184,14 @@ def operand_beats(size, a1a0, port, names):
     i = 0
     while remaining:
         n = beat_bytes(remaining, a, port)
+        if size == 5 and remaining > 1:                 # the long boundary
+            n = min(n, remaining - 1)
         siz = min(remaining, 4)
         lanes = active_lanes(siz, a & 3, port)[:n]
         assert len(lanes) == n, (size, a1a0, port, remaining, a, n, lanes)
         mask_after = ((mask << n) | ones(n)) & 0b111111
         beats.append({
+            "oc": 1 if size == 5 and remaining == 1 else 0,
             "siz": SIZ[siz], "a1a0": a & 3, "n": n,
             "bytes": names[i:i + n], "lanes": lanes,
             "dsack": DSACK[port],
@@ -211,12 +219,9 @@ def cases():
             for port in PORTS:
                 if size <= 4:
                     names = ["OP%d" % k for k in range(4 - size, 4)]
-                    ocs = [operand_beats(size, a1a0, port, names)]
                 else:
-                    # two operand cycles (UM 11.6.14 note); order assumed
-                    ocs = [operand_beats(4, a1a0, port, ["F0", "F1", "F2", "F3"]),
-                           operand_beats(1, (a1a0 + 4) & 3, port, ["F4"])]
-                out.append((size, a1a0, port, ocs))
+                    names = ["F0", "F1", "F2", "F3", "F4"]
+                out.append((size, a1a0, port, [operand_beats(size, a1a0, port, names)]))
     return out
 
 
@@ -272,6 +277,14 @@ def check():
                 expect((b["mask_after"][1:] == "11111") == b["last"], "mask %s A1A0 %d port %d: %s" % (size, a1a0, port, b))
             expect(beats[0]["mask"][0] == "1", "mask bit 5 not set at operand start")
 
+    # the five-byte field: two operand cycles, no beat across the boundary
+    for a1a0 in range(4):
+        for port in PORTS:
+            bts = operand_beats(5, a1a0, port, list("ABCDE"))
+            expect(sum(b["n"] for b in bts if b["oc"] == 0) == 4, "bf5 first cycle A1A0 %d port %d" % (a1a0, port))
+            expect([b["n"] for b in bts if b["oc"] == 1] == [1], "bf5 second cycle A1A0 %d port %d" % (a1a0, port))
+            expect(bts[0]["mask"] == "100000", "bf5 mask")
+
     # the manual's own worked examples
     ex = operand_beats(4, 0, 16, ["OP0", "OP1", "OP2", "OP3"])          # Fig 7-5/7-6
     expect([(b["siz"], b["a1a0"], b["bytes"]) for b in ex] == [("00", 0, ["OP0", "OP1"]), ("10", 2, ["OP2", "OP3"])], "Fig 7-5")
@@ -303,8 +316,9 @@ def rows():
     hdr = ["case", "A1A0", "port", "oc", "beat", "of", "SIZ", "A1A0'", "n", "bytes", "lanes", "drive", "DSACK", "mask", "mask'", "last"]
     out = []
     for size, a1a0, port, ocs in cases():
-        for oc, beats in enumerate(ocs):
+        for beats in ocs:
             for i, b in enumerate(beats):
+                oc = b["oc"]
                 # what the processor drives on all four lanes (Table 7-5),
                 # with the beat's bytes substituted for the OPn names
                 # Table 7-5 names the bytes still to go OP(4-SIZ)..OP3, which
@@ -332,11 +346,13 @@ HEADER = """\
 # One line per beat.  Columns:
 #   case   byte/word/long: a CPU operand; 3byte: a bit field in 3 bytes;
 #          bf5: a 32-bit bit field spanning 5 bytes, two operand cycles
-#          (UM 11.6.14 note; long at A then byte at A+4 - order assumed);
+#          (UM 11.6.14 note; long at A then byte at A+4 - order adopted
+#          by the owner 2026-09-26): one five-byte mask, no beat crossing
+#          the boundary after the fourth byte;
 #          instr: an instruction prefetch, always a long at A1A0=00
 #   A1A0   the operand's address offset in its longword
 #   port   the port width the device answers on DSACK, 32 / 16 / 8
-#   oc     operand cycle (0, or 1 for bf5's second)
+#   oc     operand cycle (0, or 1 for the beat of bf5's second)
 #   beat   this beat's number within the operand cycle, of `of`
 #   SIZ    SIZ1 SIZ0 driven: bytes remaining, Table 7-2 (00 = four)
 #   A1A0'  A1 A0 driven on this beat

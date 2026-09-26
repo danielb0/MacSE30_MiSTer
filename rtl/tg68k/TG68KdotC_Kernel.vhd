@@ -440,7 +440,6 @@ architecture logic of TG68KdotC_Kernel is
 	signal ALUout	: std_logic_vector(31 downto 0);
 	signal data_write_tmp	: std_logic_vector(31 downto 0);
 	signal data_write_muxin	: std_logic_vector(31 downto 0);
-	signal data_write_mux	: std_logic_vector(47 downto 0);
 	signal nextpass			: bit;
 	signal setnextpass		: bit;
 	signal setdispbyte		: bit;
@@ -715,6 +714,14 @@ architecture logic of TG68KdotC_Kernel is
 	signal memread				: std_logic_vector(3 downto 0);
 	signal wbmemmask			: std_logic_vector(5 downto 0);
 	signal memmaskmux			: std_logic_vector(5 downto 0);
+	-- the beat engine (SE30_PLAN.md 1.15): bytes remaining, bytes this beat,
+	-- a five-byte bit field in flight, this beat's single byte on a 16-bit port
+	signal beat_rem				: integer range 0 to 5;
+	signal beat_n				: integer range 0 to 4;
+	signal beat_step			: std_logic_vector(2 downto 0);
+	signal op5					: std_logic;
+	signal op5_now				: std_logic;
+	signal byte_in				: std_logic_vector(7 downto 0);
 	signal oddout				: std_logic;
 	signal set_oddout			: std_logic;
 	signal PCbase				: std_logic;
@@ -1314,6 +1321,7 @@ ALU: TG68K_ALU
 		bf_width => alu_width,
 		bf_ffo_offset => alu_bf_ffo_offset,
 		bf_loffset => alu_bf_loffset(4 downto 0),
+		beat_step => beat_step,
 
 		set_V_Flag => set_V_Flag,			--: buffer bit;
 		Flags => Flags,					 	--: buffer std_logic_vector(8 downto 0);
@@ -1627,7 +1635,39 @@ ALU: TG68K_ALU
 
 	-- does shift for byte access. note active low me
 	-- should produce address error on 68000
-	memmaskmux <= memmask when addr(0) = '1' else memmask(4 downto 0) & '1';
+	-- The beat engine (SE30_PLAN.md 1.15). memmask names the operand's bytes
+	-- from its address, active low, bit 4 the byte at addr; beat_rem is what
+	-- remains and beat_n what this beat moves: to the port's boundary (a
+	-- 16-bit port: one byte at an odd address, else two), never past the
+	-- operand, and never past the long boundary of a five-byte bit field,
+	-- which the 68030 accesses as two operand cycles (UM 11.6.14 note).
+	-- memmaskmux keeps its meaning for the rest of the kernel: bits 5:4 the
+	-- strobes this beat needs, bit 3 "this is the operand's last beat".
+	beat_rem <= 5 WHEN memmask(0)='0' ELSE
+	            4 WHEN memmask(1)='0' ELSE
+	            3 WHEN memmask(2)='0' ELSE
+	            2 WHEN memmask(3)='0' ELSE
+	            1 WHEN memmask(4)='0' ELSE 0;
+	op5_now <= '1' WHEN memmask="100000" OR op5='1' ELSE '0';
+	PROCESS (beat_rem, op5_now, addr)
+		VARIABLE room, cyc, n : integer range 0 to 5;
+	BEGIN
+		IF addr(0)='1' THEN room := 1; ELSE room := 2; END IF;
+		cyc := beat_rem;
+		IF op5_now='1' AND beat_rem > 1 THEN cyc := beat_rem - 1; END IF;
+		n := beat_rem;
+		IF cyc < n THEN n := cyc; END IF;
+		IF room < n THEN n := room; END IF;
+		beat_n <= n;
+	END PROCESS;
+	beat_step <= "001" WHEN beat_n = 1 ELSE "010" WHEN beat_n = 2 ELSE
+	             "011" WHEN beat_n = 3 ELSE "100" WHEN beat_n = 4 ELSE "000";
+	byte_in <= data_in(7 downto 0) WHEN addr(0)='1' ELSE data_in(15 downto 8);
+	memmaskmux(2 downto 0) <= memmask(2 downto 0) WHEN addr(0)='1' ELSE memmask(1 downto 0) & '1';
+	memmaskmux(3) <= '1' WHEN beat_n = beat_rem ELSE '0';
+	memmaskmux(5 downto 4) <= "11" WHEN beat_n = 0 ELSE
+	                          "00" WHEN beat_n = 2 ELSE
+	                          "10" WHEN addr(0)='1' ELSE "01";
 	-- BUG #428 FIX: Gate bus strobes with pmmu_fault to prevent faulting writes from
 	-- reaching the bus. With the busy='0' override during fault (PMMU fix), UDS/LDS
 	-- would otherwise assert for one cycle before the CPU transitions to berr handling.
@@ -1901,14 +1941,18 @@ ALU: TG68K_ALU
 		END CASE;
 	END PROCESS;
 
-PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, memread, memmask, data_read, dib_sub_hit, dib_sub_data)
+PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, memread, memmask, data_read, dib_sub_hit, dib_sub_data, beat_n, byte_in)
 	BEGIN
-		IF memmaskmux(4)='0' THEN
-			data_read <= last_data_in(15 downto 0)&data_in;
-		ELSE
-			data_read <= last_data_in(23 downto 0)&data_in(15 downto 8);
-		END IF;
-		IF memread(0)='1' OR (memread(1 downto 0)="10" AND memmaskmux(4)='1')THEN
+		-- this beat's bytes appended to what earlier beats brought (1.15 item 5);
+		-- a beat that moves nothing keeps the old word-wide stream timing
+		CASE beat_n IS
+			WHEN 1 => data_read <= last_data_in(23 downto 0)&byte_in;
+			WHEN 2 => data_read <= last_data_in(15 downto 0)&data_in;
+			WHEN OTHERS => data_read <= last_data_in(23 downto 0)&data_in(15 downto 8);
+		END CASE;
+		-- a single-beat operand (the previous beat strobed nothing: the operand's
+		-- first), or the two single-byte beats of a word at an odd address
+		IF memread(1 downto 0)="11" OR (memread(1 downto 0)="10" AND memmaskmux(4)='1')THEN
 			data_read(31 downto 16) <= (OTHERS=>data_read(15));
 		END IF;
 		-- DIB substitution: the armed one-shot supplies the software-completed
@@ -1919,7 +1963,8 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 		
 		IF rising_edge(clk) THEN	
 			IF clkena_lw='1' AND state="10" THEN
-				IF memmaskmux(4)='0' THEN
+				-- the fifth byte of a bit field: the one the 32-bit stream overflows
+				IF beat_n = 2 THEN
 					bf_ext_in <= last_data_in(23 downto 16);
 				ELSE
 					bf_ext_in <= last_data_in(31 downto 24);
@@ -1945,7 +1990,11 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 							last_data_read(31 downto 16) <= (OTHERS=>data_in(15));
 						END IF;
 					END IF;
-					last_data_in <= last_data_in(15 downto 0)&data_in(15 downto 0);
+					IF beat_n = 1 THEN
+						last_data_in <= last_data_in(23 downto 0)&byte_in;
+					ELSE
+						last_data_in <= last_data_in(15 downto 0)&data_in(15 downto 0);
+					END IF;
 				END IF;
 			END IF;
 		END IF;
@@ -2263,9 +2312,11 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 		END IF;
 	END PROCESS;
 
-	PROCESS (long_start, reg_QB, data_write_tmp, exec, data_read, data_write_mux, memmaskmux, bf_ext_out,
-			 data_write_muxin, memmask, oddout, addr,
+	PROCESS (long_start, reg_QB, data_write_tmp, exec, data_read, beat_rem, beat_n, bf_ext_out,
+			 data_write_muxin, memmask,
 			 moves_bus_pending, moves_direction, moves_reg, addsub_q, opcode)
+		VARIABLE op_bytes : std_logic_vector(39 downto 0);
+		VARIABLE b0, b1 : std_logic_vector(7 downto 0);
 	BEGIN
 		-- MC68030 Bus Error Frame: data_write_muxin uses data_write_tmp (default path).
 		-- berr state data is loaded into data_write_tmp in the sequential process
@@ -2292,33 +2343,23 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 			data_write_muxin <= data_write_tmp;
 		END IF;
 		
-		IF BitField=0 THEN
-			IF oddout=addr(0) THEN
-				data_write_mux <= "--------"&"--------"&data_write_muxin;
-			ELSE
-				data_write_mux <= "--------"&data_write_muxin&"--------";
-			END IF;
+		-- The operand as bytes, most significant first: the bit-field extension
+		-- byte, then the value; an operand of k bytes is the low k of the five,
+		-- and this beat drives the beat_n of them that start 5-beat_rem from the
+		-- top (1.15 item 6). A 16-bit port takes the first on D15:8 and the
+		-- second on D7:0; a lone byte rides both halves.
+		op_bytes := bf_ext_out & data_write_muxin;
+		CASE beat_rem IS
+			WHEN 5 => b0 := op_bytes(39 downto 32); b1 := op_bytes(31 downto 24);
+			WHEN 4 => b0 := op_bytes(31 downto 24); b1 := op_bytes(23 downto 16);
+			WHEN 3 => b0 := op_bytes(23 downto 16); b1 := op_bytes(15 downto 8);
+			WHEN 2 => b0 := op_bytes(15 downto 8);  b1 := op_bytes(7 downto 0);
+			WHEN OTHERS => b0 := op_bytes(7 downto 0); b1 := op_bytes(7 downto 0);
+		END CASE;
+		IF beat_n = 2 THEN
+			data_write <= b0 & b1;
 		ELSE
-			IF oddout=addr(0) THEN
-				data_write_mux <= "--------"&bf_ext_out&data_write_muxin;
-			ELSE
-				data_write_mux <= bf_ext_out&data_write_muxin&"--------";
-			END IF;
-		END IF;
-		
-		IF memmaskmux(1)='0' THEN
-			data_write <= data_write_mux(47 downto 32);
-		ELSIF memmaskmux(3)='0' THEN	
-			data_write <= data_write_mux(31 downto 16);
-		ELSE
--- a single byte shows up on both bus halfs
-			IF memmaskmux(5 downto 4) = "10" THEN
-				data_write <= data_write_mux(7 downto 0) & data_write_mux(7 downto 0);
-			ELSIF memmaskmux(5 downto 4) = "01" THEN
-				data_write <= data_write_mux(15 downto 8) & data_write_mux(15 downto 8);
-			ELSE
-				data_write <= data_write_mux(15 downto 0);
-			END IF;
+			data_write <= b0 & b0;
 		END IF;
 		IF exec(mem_byte)='1' THEN	--movep
 			data_write <= data_write_tmp(15 downto 8) & data_write_tmp(15 downto 8);
@@ -3220,7 +3261,11 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 		
 		IF rising_edge(clk) THEN
 			IF clkena_in='1' THEN
-				IF exec(get_2ndOPC)='1' OR (state="10" AND memread(0)='1') THEN
+				-- the operand's start address: its first beat is the one after a beat
+				-- that strobed nothing (memread reset at operand start). Not "no LDS":
+				-- since 1.15 a byte beat at an even address can sit mid-operand (the
+				-- long boundary of a five-byte bit field at an odd offset).
+				IF exec(get_2ndOPC)='1' OR (state="10" AND memread(1 downto 0)="11") THEN
 					tmp_TG68_PC <= addr;
 				END IF;
 					use_base <= '0';
@@ -3499,7 +3544,7 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 					
 		-- only used for movem address update
 --					IF (long_done='0' AND state(1)='1') OR movem_presub='0' THEN
-					if ((memread(0) = '1') and state(1) = '1') or movem_presub = '0' then -- fix for unaligned movem mikej
+					if ((memread(1 downto 0) = "11") and state(1) = '1') or movem_presub = '0' then -- fix for unaligned movem mikej (first beat: see 1.15)
 						memaddr <= addr;
 					END IF;
 			END IF;
@@ -3808,6 +3853,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					flags_shadow <= (others => '0');
 					berr_external_addr <= (others => '0');
 					memmask <= "111111";
+					op5 <= '0';
 					exec_write_back <= '0';
 					-- BUG #70 SIMPLIFICATION: Simple 2-signal initialization
 					pmove_dn_regnum <= (others => '0');
@@ -3827,7 +3873,19 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 --				IPL_nr <= NOT IPL;
 				IF clkena_in='1' THEN
 					IF NOT (state = "00" AND pmmu_busy = '1') AND directpc_retry_hold='0' THEN
-						memmask <= memmask(3 downto 0)&"11";
+						-- consumed by the beat's width (1.15 item 4); a beat that moved
+						-- nothing shifts a word, as it always did
+						CASE beat_n IS
+							WHEN 1 => memmask <= memmask(4 downto 0)&'1';
+							WHEN 3 => memmask <= memmask(2 downto 0)&"111";
+							WHEN 4 => memmask <= memmask(1 downto 0)&"1111";
+							WHEN OTHERS => memmask <= memmask(3 downto 0)&"11";
+						END CASE;
+						IF memmaskmux(3)='1' THEN
+							op5 <= '0';
+						ELSIF memmask="100000" THEN
+							op5 <= '1';
+						END IF;
 						memread <= memread(1 downto 0)&memmaskmux(5 downto 4);
 					END IF;
 --					IF wbmemmask(5 downto 4)="11" THEN

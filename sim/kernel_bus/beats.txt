@@ -4,11 +4,13 @@
 # One line per beat.  Columns:
 #   case   byte/word/long: a CPU operand; 3byte: a bit field in 3 bytes;
 #          bf5: a 32-bit bit field spanning 5 bytes, two operand cycles
-#          (UM 11.6.14 note; long at A then byte at A+4 - order assumed);
+#          (UM 11.6.14 note; long at A then byte at A+4 - order adopted
+#          by the owner 2026-09-26): one five-byte mask, no beat crossing
+#          the boundary after the fourth byte;
 #          instr: an instruction prefetch, always a long at A1A0=00
 #   A1A0   the operand's address offset in its longword
 #   port   the port width the device answers on DSACK, 32 / 16 / 8
-#   oc     operand cycle (0, or 1 for bf5's second)
+#   oc     operand cycle (0, or 1 for the beat of bf5's second)
 #   beat   this beat's number within the operand cycle, of `of`
 #   SIZ    SIZ1 SIZ0 driven: bytes remaining, Table 7-2 (00 = four)
 #   A1A0'  A1 A0 driven on this beat
@@ -124,48 +126,48 @@ long   3     8     0   4     4   01   2      1  OP3              0        OP3 OP
 3byte  3     8     0   1     3   11   3      1  OP1              0        OP1 OP1 OP2* OP1  HL     100011  000111  0
 3byte  3     8     0   2     3   10   0      1  OP2              0        OP2 OP3 OP2 OP3   HL     000111  001111  0
 3byte  3     8     0   3     3   01   1      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
-bf5    0     32    0   1     1   00   0      4  F0+F1+F2+F3      0+1+2+3  F0 F1 F2 F3       LL     100001  011111  1
-bf5    0     32    1   1     1   01   0      1  F4               0        F4 F4 F4 F4       LL     101111  011111  1
-bf5    0     16    0   1     2   00   0      2  F0+F1            0+1      F0 F1 F2 F3       LH     100001  000111  0
-bf5    0     16    0   2     2   10   2      2  F2+F3            0+1      F2 F3 F2 F3       LH     000111  011111  1
-bf5    0     16    1   1     1   01   0      1  F4               0        F4 F4 F4 F4       LH     101111  011111  1
-bf5    0     8     0   1     4   00   0      1  F0               0        F0 F1 F2 F3       HL     100001  000011  0
-bf5    0     8     0   2     4   11   1      1  F1               0        F1 F1 F2 F3       HL     000011  000111  0
-bf5    0     8     0   3     4   10   2      1  F2               0        F2 F3 F2 F3       HL     000111  001111  0
-bf5    0     8     0   4     4   01   3      1  F3               0        F3 F3 F3 F3       HL     001111  011111  1
-bf5    0     8     1   1     1   01   0      1  F4               0        F4 F4 F4 F4       HL     101111  011111  1
-bf5    1     32    0   1     2   00   1      3  F0+F1+F2         1+2+3    F0 F0 F1 F2       LL     100001  001111  0
-bf5    1     32    0   2     2   01   0      1  F3               0        F3 F3 F3 F3       LL     001111  011111  1
-bf5    1     32    1   1     1   01   1      1  F4               1        F4 F4 F4 F4       LL     101111  011111  1
-bf5    1     16    0   1     3   00   1      1  F0               1        F0 F0 F1 F2       LH     100001  000011  0
-bf5    1     16    0   2     3   11   2      2  F1+F2            0+1      F1 F2 F1 F2       LH     000011  001111  0
-bf5    1     16    0   3     3   01   0      1  F3               0        F3 F3 F3 F3       LH     001111  011111  1
-bf5    1     16    1   1     1   01   1      1  F4               1        F4 F4 F4 F4       LH     101111  011111  1
-bf5    1     8     0   1     4   00   1      1  F0               0        F0 F0 F1 F2       HL     100001  000011  0
-bf5    1     8     0   2     4   11   2      1  F1               0        F1 F2 F1 F2       HL     000011  000111  0
-bf5    1     8     0   3     4   10   3      1  F2               0        F2 F2 F3 F2       HL     000111  001111  0
-bf5    1     8     0   4     4   01   0      1  F3               0        F3 F3 F3 F3       HL     001111  011111  1
-bf5    1     8     1   1     1   01   1      1  F4               0        F4 F4 F4 F4       HL     101111  011111  1
-bf5    2     32    0   1     2   00   2      2  F0+F1            2+3      F0 F1 F0 F1       LL     100001  000111  0
-bf5    2     32    0   2     2   10   0      2  F2+F3            0+1      F2 F3 F2 F3       LL     000111  011111  1
-bf5    2     32    1   1     1   01   2      1  F4               2        F4 F4 F4 F4       LL     101111  011111  1
-bf5    2     16    0   1     2   00   2      2  F0+F1            0+1      F0 F1 F0 F1       LH     100001  000111  0
-bf5    2     16    0   2     2   10   0      2  F2+F3            0+1      F2 F3 F2 F3       LH     000111  011111  1
-bf5    2     16    1   1     1   01   2      1  F4               0        F4 F4 F4 F4       LH     101111  011111  1
-bf5    2     8     0   1     4   00   2      1  F0               0        F0 F1 F0 F1       HL     100001  000011  0
-bf5    2     8     0   2     4   11   3      1  F1               0        F1 F1 F2* F1      HL     000011  000111  0
-bf5    2     8     0   3     4   10   0      1  F2               0        F2 F3 F2 F3       HL     000111  001111  0
-bf5    2     8     0   4     4   01   1      1  F3               0        F3 F3 F3 F3       HL     001111  011111  1
-bf5    2     8     1   1     1   01   2      1  F4               0        F4 F4 F4 F4       HL     101111  011111  1
-bf5    3     32    0   1     2   00   3      1  F0               3        F0 F0 F1* F0      LL     100001  000011  0
-bf5    3     32    0   2     2   11   0      3  F1+F2+F3         0+1+2    F1 F2 F3 OP0*     LL     000011  011111  1
-bf5    3     32    1   1     1   01   3      1  F4               3        F4 F4 F4 F4       LL     101111  011111  1
-bf5    3     16    0   1     3   00   3      1  F0               1        F0 F0 F1* F0      LH     100001  000011  0
-bf5    3     16    0   2     3   11   0      2  F1+F2            0+1      F1 F2 F3 OP0*     LH     000011  001111  0
-bf5    3     16    0   3     3   01   2      1  F3               0        F3 F3 F3 F3       LH     001111  011111  1
-bf5    3     16    1   1     1   01   3      1  F4               1        F4 F4 F4 F4       LH     101111  011111  1
-bf5    3     8     0   1     4   00   3      1  F0               0        F0 F0 F1* F0      HL     100001  000011  0
-bf5    3     8     0   2     4   11   0      1  F1               0        F1 F2 F3 OP0*     HL     000011  000111  0
-bf5    3     8     0   3     4   10   1      1  F2               0        F2 F2 F3 F2       HL     000111  001111  0
-bf5    3     8     0   4     4   01   2      1  F3               0        F3 F3 F3 F3       HL     001111  011111  1
-bf5    3     8     1   1     1   01   3      1  F4               0        F4 F4 F4 F4       HL     101111  011111  1
+bf5    0     32    0   1     2   00   0      4  F0+F1+F2+F3      0+1+2+3  F0 F1 F2 F3       LL     100000  001111  0
+bf5    0     32    1   2     2   01   0      1  F4               0        F4 F4 F4 F4       LL     001111  011111  1
+bf5    0     16    0   1     3   00   0      2  F0+F1            0+1      F0 F1 F2 F3       LH     100000  000011  0
+bf5    0     16    0   2     3   11   2      2  F2+F3            0+1      F1 F2 F1 F2       LH     000011  001111  0
+bf5    0     16    1   3     3   01   0      1  F4               0        F4 F4 F4 F4       LH     001111  011111  1
+bf5    0     8     0   1     5   00   0      1  F0               0        F0 F1 F2 F3       HL     100000  000001  0
+bf5    0     8     0   2     5   00   1      1  F1               0        F0 F0 F1 F2       HL     000001  000011  0
+bf5    0     8     0   3     5   11   2      1  F2               0        F1 F2 F1 F2       HL     000011  000111  0
+bf5    0     8     0   4     5   10   3      1  F3               0        F2 F2 F3 F2       HL     000111  001111  0
+bf5    0     8     1   5     5   01   0      1  F4               0        F4 F4 F4 F4       HL     001111  011111  1
+bf5    1     32    0   1     3   00   1      3  F0+F1+F2         1+2+3    F0 F0 F1 F2       LL     100000  000111  0
+bf5    1     32    0   2     3   10   0      1  F3               0        F2 F3 F2 F3       LL     000111  001111  0
+bf5    1     32    1   3     3   01   1      1  F4               1        F4 F4 F4 F4       LL     001111  011111  1
+bf5    1     16    0   1     4   00   1      1  F0               1        F0 F0 F1 F2       LH     100000  000001  0
+bf5    1     16    0   2     4   00   2      2  F1+F2            0+1      F0 F1 F0 F1       LH     000001  000111  0
+bf5    1     16    0   3     4   10   0      1  F3               0        F2 F3 F2 F3       LH     000111  001111  0
+bf5    1     16    1   4     4   01   1      1  F4               1        F4 F4 F4 F4       LH     001111  011111  1
+bf5    1     8     0   1     5   00   1      1  F0               0        F0 F0 F1 F2       HL     100000  000001  0
+bf5    1     8     0   2     5   00   2      1  F1               0        F0 F1 F0 F1       HL     000001  000011  0
+bf5    1     8     0   3     5   11   3      1  F2               0        F1 F1 F2* F1      HL     000011  000111  0
+bf5    1     8     0   4     5   10   0      1  F3               0        F2 F3 F2 F3       HL     000111  001111  0
+bf5    1     8     1   5     5   01   1      1  F4               0        F4 F4 F4 F4       HL     001111  011111  1
+bf5    2     32    0   1     3   00   2      2  F0+F1            2+3      F0 F1 F0 F1       LL     100000  000011  0
+bf5    2     32    0   2     3   11   0      2  F2+F3            0+1      F1 F2 F3 OP0*     LL     000011  001111  0
+bf5    2     32    1   3     3   01   2      1  F4               2        F4 F4 F4 F4       LL     001111  011111  1
+bf5    2     16    0   1     3   00   2      2  F0+F1            0+1      F0 F1 F0 F1       LH     100000  000011  0
+bf5    2     16    0   2     3   11   0      2  F2+F3            0+1      F1 F2 F3 OP0*     LH     000011  001111  0
+bf5    2     16    1   3     3   01   2      1  F4               0        F4 F4 F4 F4       LH     001111  011111  1
+bf5    2     8     0   1     5   00   2      1  F0               0        F0 F1 F0 F1       HL     100000  000001  0
+bf5    2     8     0   2     5   00   3      1  F1               0        F0 F0 F1* F0      HL     000001  000011  0
+bf5    2     8     0   3     5   11   0      1  F2               0        F1 F2 F3 OP0*     HL     000011  000111  0
+bf5    2     8     0   4     5   10   1      1  F3               0        F2 F2 F3 F2       HL     000111  001111  0
+bf5    2     8     1   5     5   01   2      1  F4               0        F4 F4 F4 F4       HL     001111  011111  1
+bf5    3     32    0   1     3   00   3      1  F0               3        F0 F0 F1* F0      LL     100000  000001  0
+bf5    3     32    0   2     3   00   0      3  F1+F2+F3         0+1+2    F0 F1 F2 F3       LL     000001  001111  0
+bf5    3     32    1   3     3   01   3      1  F4               3        F4 F4 F4 F4       LL     001111  011111  1
+bf5    3     16    0   1     4   00   3      1  F0               1        F0 F0 F1* F0      LH     100000  000001  0
+bf5    3     16    0   2     4   00   0      2  F1+F2            0+1      F0 F1 F2 F3       LH     000001  000111  0
+bf5    3     16    0   3     4   10   2      1  F3               0        F2 F3 F2 F3       LH     000111  001111  0
+bf5    3     16    1   4     4   01   3      1  F4               1        F4 F4 F4 F4       LH     001111  011111  1
+bf5    3     8     0   1     5   00   3      1  F0               0        F0 F0 F1* F0      HL     100000  000001  0
+bf5    3     8     0   2     5   00   0      1  F1               0        F0 F1 F2 F3       HL     000001  000011  0
+bf5    3     8     0   3     5   11   1      1  F2               0        F1 F1 F2 F3       HL     000011  000111  0
+bf5    3     8     0   4     5   10   2      1  F3               0        F2 F3 F2 F3       HL     000111  001111  0
+bf5    3     8     1   5     5   01   3      1  F4               0        F4 F4 F4 F4       HL     001111  011111  1

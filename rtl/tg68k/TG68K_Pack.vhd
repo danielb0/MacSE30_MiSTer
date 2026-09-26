@@ -189,6 +189,7 @@ package TG68K_Pack is
 		bf_width					: in std_logic_vector(5 downto 0);
 		bf_ffo_offset			: in std_logic_vector(31 downto 0);
 		bf_loffset				: in std_logic_vector(4 downto 0);
+		beat_step				: in std_logic_vector(2 downto 0) := "010";
 
 		-- BUG #397: Restore CCR on RTE format error
 		restore_ccr				: in std_logic := '0';

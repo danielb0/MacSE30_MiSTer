@@ -1321,7 +1321,8 @@ n), which is one of the things `memmaskmux` stops doing.
   2026-09-26 ("go ahead with whatever you think is better")**. The mask
   `100000` consumed by width would instead merge the long's tail with
   the fifth byte into one beat where the offset allows (`A1A0 = 01`: 3
-  + 2 rather than 3 + 1 + 1). Item 2 splits it as two cycles.
+  + 2 rather than 3 + 1 + 1). 1.15 step 2a bounds it: one mask, no beat
+  across the fourth byte.
 - *A three-byte operand start* (`SIZ = 11` on a first beat) occurs only
   for bit fields; 7.2 defines the beat the same way and the oracle
   carries it.
@@ -1486,12 +1487,42 @@ made to follow n:
 
 **The order, each step green on the 1.14 bench before the next:**
 
-- **2a - the engine in the 16-bit shape**: items 1-6 with width fixed
+- ~~**2a - the engine in the 16-bit shape**: items 1-6 with width fixed
   at 2. Acceptance: `sim/kernel_bus/run.sh` at `PORT=16` with the
   five-byte fields in and the oracle's own masks (the restatement
   removed) - every row, including 1+2+1+1 at the odd offsets; then
   upstream's regression targets, which need a runner here (their suite
-  is `make`-driven, and there is no `make` on this machine).
+  is `make`-driven, and there is no `make` on this machine).~~
+  **Done 2026-09-26.** The bench passes in full: 145 checks, 132 beats,
+  the oracle's own masks, the five-byte fields 1+2+1+1 at the odd
+  offsets. Three things learned on the way, each now in the code:
+  - **the five-byte field is one mask, bounded**, not two masks: the
+    kernel keeps `100000` and no beat crosses the boundary after the
+    fourth byte (`op5`, `cycle_rem`); the oracle now says the same, its
+    `oc` column marking the second cycle's beat. The bus beats are what
+    two operand cycles would produce; the mask is internal.
+  - **"the previous beat had no LDS" was three sites' proxy for "first
+    beat of the operand"** (`memread(0)`: the start-address latch for
+    the RMW write, the sign extension, the unaligned-MOVEM guard). It
+    held because a UDS-only beat was always an operand's last; the
+    boundary beat of an odd five-byte field is UDS-only mid-operand,
+    and BFINS then wrote at A+4. Now "the previous beat strobed
+    nothing" (`memread(1:0) = "11"`), which is what the reset to `1111`
+    at operand start means. That class of proxy - a bus pattern
+    standing in for a sequencing fact - is what to look for in 2b.
+  - **the runner exists**: `sim/kernel_upstream/run.sh` replays
+    upstream's `make` recipe (compile the four files `-93`, the bench,
+    run for the Makefile's time) for the 17 benches of their
+    `test-arch-suite` and `test-basic-cputest` that the tree holds
+    (`suite.txt`; one the Makefile names is absent). Pristine kernel
+    and ours give **identical verdicts on 15**: `tb_stack_frame_push`
+    fails on both (MMU-configuration frame, pre-existing, 1.7's "not
+    green"), and `tb_odd_exc_flags` / `tb_basic_exception_flags` fail
+    on ours only in **"DIVU divide-by-zero saved SR mismatch"** - which
+    is the ALU hunk 1.12 took, the IIcx-adjudicated CCR against the
+    WinUAE model those two benches encode (UM: N, Z, V *undefined* on
+    divide by zero). Confirmed by running both with upstream's ALU under
+    our kernel: pass. The engine change itself regresses nothing there.
 - **2b - the 32-bit port**: item 7 and the width rule of item 2 for
   data operands. Acceptance: the bench at `PORT=32` and `PORT=8`, data
   beats; `PORT=16` unchanged.
@@ -1502,7 +1533,9 @@ made to follow n:
   Verilator under WSL, so a bench of ours reads its captures).
 
 **Cost, revised.** The central change is items 1-6, one afternoon's
-VHDL and a week of watching the 57 + 94 sites behave through the suite;
+VHDL (it was: 2a landed the day it was designed, 130 lines in the
+kernel, 7 in the ALU) and a week of watching the 57 + 94 sites behave
+through the suite;
 2b is small once 2a holds; 2c is the one genuinely new piece of
 sequencing. Weeks in total, as 1.13 said - but most of the risk sits in
 2a, which is testable today.

@@ -154,8 +154,6 @@ def expected_beats(p, oracle, port):
         for b, m in zip(beats, _masks(beats, port)):
             lines.append((label, "bf5" if case == "bf5" else "-", a + consumed, b, dirn, data, m))
             consumed += b["n"]
-            if b["last"] and b["oc"] == 0 and case == "bf5":
-                consumed = 4   # the second operand cycle starts at A+4
     out = []
     for label, cat, addr, b, dirn, data, mask in lines:
         nuds = "0" if 0 in b["lanes"] else "1"
@@ -179,8 +177,7 @@ def expected_beats(p, oracle, port):
 def _masks(beats, port):
     """Per operand cycle: the kernel's convention on a 16-bit port, the
     oracle's otherwise.  bf5 rows hold two operand cycles; split them."""
-    if port != 16:
-        return [b["mask"] for b in beats]
+    return [b["mask"] for b in beats]   # the kernel's mask is the oracle's since 1.15 step 2a
     out, cycle = [], []
     for b in beats:
         cycle.append(b)
