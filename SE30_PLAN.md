@@ -1423,9 +1423,28 @@ Proposed work, cheap and decisive first:
    rows, the bus-error window corrected to 18.4-63.3 us, the cache-inhibit
    finding (no `CIIN` on the board; the PMMU tables do it), and a bench
    list in 2.11.7.
-5. Only then: the video PALs as RTL, from the named equations, benched
+5. ~~Only then: the video PALs as RTL, from the named equations, benched
    against the *Guide*'s line and frame counts (704 x 370 at 15.6672 MHz),
-   and now also extracting row 15's cycle count for 2.11.
+   and now also extracting row 15's cycle count for 2.11.~~ **RTL and
+   bench done 2026-09-26: `rtl/se30_video.v`, `sim/video/tb_se30_video.v`
+   (36 checks pass under iverilog; `sim/video/run.sh`).** Written from the
+   numbers in 2.6, 2.9 and 2.10, not from the equations; standalone, one
+   clock per pixel, dual-ported VRAM, the declaration ROM loaded from the
+   image. Held to: 704 x 370, active lines 2-343 with 64 bytes each,
+   `HSYNC*` 288 from 536, `VSYNC*` 4 from 344, row 1 first and PA6 = 1 the
+   upper 32KB, black blanking, `DSACK0*` only during an access, the ROM
+   half byte-exact and mirrored, the `IRQ6*` latch's whole cycle, and
+   PrimaryInit's 43,776-byte fill. **Still open, as a parameter
+   (`SLOT_ACK`): the slot access length - the RTL acknowledges on the
+   third clock and the bench prints 5 clocks per access, 16.8 ms for the
+   fill; row 15 of 2.11 takes the real number when UE7 is read.** The
+   frame length is the `V_TOTAL` parameter (370), so the 372 question is
+   one number in the DUT. Not yet done: a `cep` enable for running at a
+   core clock above `C16M`, and the GLUE-side decode (A23-A17 ignored,
+   2.10 item 2), which belongs with GLUE.
+6. Next: read UE7/UE6 as a state machine (a small equation simulator over
+   Bolle's JEDECs, behaviour only) to close `SLOT_ACK`; then the GLUE RTL
+   against 2.11.
 
 ## 2.9 The PALs, named and read
 

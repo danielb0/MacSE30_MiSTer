@@ -23,8 +23,9 @@
 //        cleared by PB6 = 1, not re-fired by PB6 = 0
 //        until the next VSYNC*                            2.9 item 3; 2.10 item 1
 //    10. PrimaryInit's grey fill: 43,776 byte writes
-//        through the port, then the first active line
-//        is row 1 = $55 pixels                             2.10
+//        through the port, rows alternating $AA/$55,
+//        then the first, second and last active lines
+//        show the right rows                              2.10
 //
 //   The slot access length (AS* to DSACK0*) is MEASURED and printed, not
 //   asserted: plan 2.11 row 15 is open until UE7's state machine is read.
@@ -208,14 +209,14 @@ module tb_se30_video;
     // ---- 2. frame length, active lines, bytes per line
     $display("---- 2. frame: %0d lines, %0d active, 64 bytes each", V_TOTAL, V_ACTIVE);
     wait_lctrrst;
-    wait_hctrrst;
-    n = 0; cnt = 0; first = -1; last = -1; bad = 0;
-    while (!uut.lctrrst) begin
+    n = 0; cnt = 0; first = -1; last = -1; bad = 0; ok = 0;
+    while (!ok) begin
       @(posedge clk);
-      if (uut.hctrrst) begin
+      if (uut.hctrrst) begin              // the edge ending line `line`: `fetches` is its count
         n = n + 1;
-        if (line_fetches[line] == 64) begin cnt = cnt + 1; if (first < 0) first = line; last = line; end
-        else if (line_fetches[line] != 0) bad = bad + 1;
+        if (fetches == 64) begin cnt = cnt + 1; if (first < 0) first = line; last = line; end
+        else if (fetches != 0) bad = bad + 1;
+        if (uut.lctrrst) ok = 1;
       end
     end
     check(n == V_TOTAL, "lines per frame", n, V_TOTAL);
@@ -335,15 +336,16 @@ module tb_se30_video;
     check(!cyc_timeout, "every fill cycle acknowledged", cyc_timeout, 0);
     page = 1;
     wait_lctrrst;
+    // the fill's first row (VRAM row 1, offset $40) is $AA, then they alternate
     capture_line(FIRST_ACTIVE);
-    want = row_pixels(8'h55, 8'h55);
-    check(cap[0:H_ACTIVE-1] == want, "first active line is row 1 = $55", cap[0:15], want[0:15]);
+    want = row_pixels(8'hAA, 8'hAA);
+    check(cap[0:H_ACTIVE-1] == want, "first active line is fill row 0 = $AA", cap[0:15], want[0:15]);
     capture_line(FIRST_ACTIVE + 1);
-    want = row_pixels(8'hAA, 8'hAA);
-    check(cap[0:H_ACTIVE-1] == want, "second active line is row 2 = $AA", cap[0:15], want[0:15]);
+    want = row_pixels(8'h55, 8'h55);
+    check(cap[0:H_ACTIVE-1] == want, "second active line is fill row 1 = $55", cap[0:15], want[0:15]);
     capture_line(LAST_ACTIVE);
-    want = row_pixels(8'hAA, 8'hAA);
-    check(cap[0:H_ACTIVE-1] == want, "last active line is row 342 = $AA", cap[0:15], want[0:15]);
+    want = row_pixels(8'h55, 8'h55);
+    check(cap[0:H_ACTIVE-1] == want, "last active line is fill row 341 = $55", cap[0:15], want[0:15]);
 
     // ---- verdict
     if (fails == 0) $display("==== PASS: %0d checks, the SE/30 video holds to the Guide and the declaration ROM", checks);
