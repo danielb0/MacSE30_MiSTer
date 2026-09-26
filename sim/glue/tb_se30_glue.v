@@ -146,7 +146,7 @@ module tb_se30_glue;
   end
 
   // ---------------------------------------------------------- ROM model
-  // word at address a reads as {a[16:9], a[8:1]} - address-dependent, so
+  // the word at word address a reads as a[15:0] - address-dependent, so
   // mirrors are told apart from data.
   integer rom_reqs = 0, rom_ack_cnt = 0;
   reg [16:0] rom_last_addr;
@@ -158,7 +158,7 @@ module tb_se30_glue;
         rom_ack_cnt = 0;
         rom_reqs = rom_reqs + 1;
         rom_last_addr = rom_addr;
-        rom_rdata <= {rom_addr[16:9], rom_addr[8:1]};
+        rom_rdata <= rom_addr[15:0];
         rom_ack <= 1;
       end
     end
@@ -214,10 +214,12 @@ module tb_se30_glue;
                  exp_sel ? 8'hEE : 8'hFF;
   end
 
-  // slot: DSACK0* SLOT_DELAY clocks after slot_sel, held while selected
+  // slot: the $E card alone - it decodes A31-A24 = $FE itself, as the video
+  // PALs do - answers DSACK0* SLOT_DELAY clocks after slot_sel, held while
+  // selected; the rest of slot space has nothing in it
   integer slot_delay = 3, slot_cnt = 0;
   always @(posedge clk) begin
-    if (slot_sel) begin
+    if (slot_sel && cpu_addr[31:24] == 8'hFE) begin
       if (slot_cnt < slot_delay) slot_cnt = slot_cnt + 1;
       slot_dsack0_n <= !(slot_cnt >= slot_delay);
     end else begin slot_cnt = 0; slot_dsack0_n <= 1; end
@@ -323,7 +325,8 @@ module tb_se30_glue;
     rd_byte(32'h50040000, 100); check(via_strobes == t0 + 4, "VIA1 at $50040000 (A18 ignored)", via_strobes - t0, 4);
     rd_byte(32'h50002000, 100); check(via_strobes == t0 + 5 && rd[15:8] == 8'h20, "VIA2 at $50002000", rd[15:8], 8'h20);
     t0 = scc_strobes;  rd_byte(32'h50004002, 100); check(scc_strobes == t0 + 1 && rd[15:8] == 8'h31, "SCC at $50004002 (A/B, D/C on A1, A2)", rd[15:8], 8'h31);
-    t0 = dack_strobes; rd_byte(32'h50006000, 100); check(dack_strobes == t0 + 1, "SCSI handshake at $50006000 uses DACK", dack_strobes - t0, 1);
+    t0 = dack_strobes; scsi_drq = 1; rd_byte(32'h50006000, 100); scsi_drq = 0;
+    check(dack_strobes == t0 + 1, "SCSI handshake at $50006000 uses DACK (DRQ up: row 5 gives nothing without it)", dack_strobes - t0, 1);
     t0 = scsi_strobes; rd_byte(32'h50010040, 100); check(scsi_strobes == t0 + 1 && rd[15:8] == 8'h2C, "SCSI at $50010040 register A6-A4 = 4", rd[15:8], 8'h2C);
     t0 = dack_strobes; rd_byte(32'h50012000, 100); check(dack_strobes == t0 + 1, "SCSI pseudo-DMA at $50012000 uses DACK", dack_strobes - t0, 1);
     t0 = asc_strobes;  rd_byte(32'h50014005, 100); check(asc_strobes == t0 + 1 && rd[15:8] == 8'hA5, "ASC at $50014005", rd[15:8], 8'hA5);

@@ -1446,7 +1446,20 @@ Proposed work, cheap and decisive first:
    including the 5/6/7-clock accesses, the pixel-560 acknowledge and the
    20.14 ms fill. The pixel/line numbering of 2.9 was off by one and is
    corrected there and in 2.12.
-7. Next: the GLUE RTL against 2.11, bench first.
+7. ~~Next: the GLUE RTL against 2.11, bench first.~~ **Done 2026-09-26:
+   `rtl/se30_glue.v`, `sim/glue/tb_se30_glue.v` (86 checks pass under
+   iverilog; `sim/glue/run.sh`).** Bench first (`6d085c0`, failing), then
+   the RTL; the two decisions the bench forced are 2.13. Held to: the
+   cycle counts of every row of 2.11.3, the 12-32 VIA envelope, the SCC
+   hold-off, the DRQ handshake, UI6's three-phase timeout to the pixel,
+   the bank rule, overlay, the byte-lane and bus-sizing rules, the
+   interrupt encoder, refresh and C3M. Three bench-model corrections were
+   needed on the way (the ROM model's slice, the slot model's own `$FE`
+   decode, DRQ up for the handshake decode check); no cell of 2.11 moved.
+   Open, as before: the SCC's own wait count (built as one), E's duty,
+   the A17 = 1 windows.
+8. Next: cut the MacLC tree and write the ASC, SWIM, SCC and SCSI sections
+   from their documentation (Daniel's ordering: "1 then 2").
 
 ## 2.9 The PALs, named and read
 
@@ -2128,6 +2141,74 @@ ms**, which is the number 2.11 row 15 needed. The RTL (`rtl/se30_video.v`)
 implements this machine state for state, and the bench's test 11 holds
 it to the 5/6/7 clocks, the pixel-560 acknowledge, the transfer in a
 blank line, and the fill time within 0.3%.
+
+## 2.13 The GLUE RTL: two decisions the bench made, and their conventions
+
+Recorded 2026-09-26, from writing `sim/glue/tb_se30_glue.v` (2.8 item 7).
+Neither decision is in 2.11, which is the 68030's view of the board; both
+are about the difference between that view and the bus the core's CPU
+actually presents.
+
+**1. GLUE is written to the TG68K wrapper's bus, not the 68030's pins.**
+The kernel (1.12) has a 16-bit data bus and moves a 32-bit operand as two
+16-bit beats; the wrapper (`tg68k.v`, ours) presents a 68000-shaped bus:
+`A31-A0`, `D15-D0`, `AS*`, `UDS*`/`LDS*`, `R/W*`, `FC2-0`, `DTACK*`,
+`VPA*`, `BERR`, `IPL2-0`, plus one flag, `lw`, that the wrapper raises on
+both beats of a longword. There is no `SIZ1-0`, no `DSACK1-0` encoding, no
+port-width negotiation. So the 68030's dynamic bus sizing (2.11.1: every
+I/O device is an 8-bit port on `D31-D24` and the processor splits a word
+or longword into byte cycles itself) has to be done by GLUE, because the
+kernel cannot: **for an 8-bit port, GLUE runs one device cycle per byte
+of the beat, high byte (`UDS*`, `D15-D8`) first at address A, then the
+low byte (`LDS*`) at A+1.** A longword move to a VIA is still four device
+cycles (2.11.7 item 3), two per beat. Devices sit on `D15-D8` as they sit
+on `D31-D24` in the real machine; on a single-byte beat GLUE returns the
+byte on both lanes, so the wrapper finds it on whichever lane its size
+and `A0` select. The RAM and ROM ports are 16-bit word ports with byte
+enables, one beat per access.
+
+**2. RAM and ROM: a word or byte beat is 4 clocks; the two beats of a
+longword total 4.** Row 1's one-wait-state 32-bit access is four clocks
+for four bytes, 15.67 MB/s; two 4-clock beats would halve that. So a beat
+flagged `lw` acknowledges as soon as the memory does, two clocks, and the
+pair costs what the real access costs; a word or byte beat is the same
+access padded to the 68030's count. The 2-clock beat requires a memory
+port that acknowledges one clock after the request - the guarantee the
+donor cores' SDRAM slot scheme gives (`MacPlus.sv`'s `cpuBusControl`, the
+`dtack_en` idiom of 1.4) - and the RTL follows the acknowledge rather than
+assuming it, so a slower port costs clocks, never data.
+
+**Conventions fixed by the bench**, so they are written down once:
+
+- *Cycle count*: from the first clock in which `AS*` is low to the clock
+  in which `DTACK*` is first low, inclusive, plus one for S4/S5. A
+  one-wait-state 68030 cycle reads as 4; the shortest possible beat as 2.
+  The wrapper latches read data the clock after `DTACK*` and negates
+  `AS*` in the same clock; GLUE releases `DTACK*`, `BERR` and `VPA*` with
+  `AS*` combinationally (UM Table 7-8: negate within a clock of `AS*`).
+- *`HSYNC*`* for the UI6 timeout is the video RTL's own: a 704-clock
+  line, low 288 clocks from pixel 535 (2.12).
+- *`E`* is `C16M/20` with a **10 : 10 duty cycle assumed** (row 3 leaves
+  the duty open; the 68000's was 6 : 4). Only the frequency is
+  load-bearing; a VIA access is timed from `E`'s edges either way.
+- *RAM port*: a 26-bit flat word address, bank B packed immediately after
+  bank A at the `RAMSIZ` boundary (2.11.2) - up to 128MB, which is what
+  GLUE decodes, although the ROM can use 8MB (1.5).
+- *SCC hold-off*: a timer loaded when an SCC cycle releases its select;
+  the next SCC select is held off until it expires, whatever accessed the
+  bus in between. Measured strobe-to-previous-select it is 35 clocks
+  (2.23 us) against the *Guide*'s 2.2.
+- *Refresh*: a pulse every 244 clocks at fixed phase; a RAM request that
+  arrives in the four clocks after it waits, so the stall is at most one
+  access (row 17). The core's SDRAM does its own refresh; the pulse is
+  the pacing GLUE would have imposed.
+- *I/O windows with `A17` = 1* (`$50020000`-`$5003FFFF` and mirrors) get
+  nothing - a bus error. Figure 3-6 lists only the `A17` = 0 windows and
+  the ROM addresses nothing there; **open** whether the real GLUE mirrors
+  them.
+- *Interrupt acknowledge* is decoded on `A17-A16` = 11 with FC = 7, the
+  bits GLUE has (2.11.2); everything else in CPU space gets no answer
+  and no timeout (1.4 item 4, 2.11.4).
 
 ## Appendix - where the sources are
 
