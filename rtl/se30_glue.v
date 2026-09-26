@@ -77,6 +77,11 @@ module se30_glue (
   output  [2:0] ipl_n,
 
   // RAM: 32-bit port
+  // the address decode without AS*, for the SDRAM controller's early
+  // start on the 68030's ECS (plan 3.2): RAM or ROM, and which of them
+  output        mem_early,
+  output        rom_early,
+
   output        ram_req,
   output        ram_we,
   output [24:0] ram_addr,              // longword address, flat over both banks (128MB)
@@ -201,6 +206,8 @@ module se30_glue (
   wire ref_busy = (refcnt < REF_WINDOW);
   assign ram_req = !cpu_as_n && d_ram && !mem_done && !ref_busy;
   assign rom_req = !cpu_as_n && d_rom && cpu_rw_n && !mem_done;
+  assign mem_early = d_mem;
+  assign rom_early = d_rom;
   wire mem_ack = ram_ack || rom_ack || (active && d_rom && !cpu_rw_n);   // a ROM write: acknowledged, no effect
 
   always @(posedge clk or negedge reset_n)

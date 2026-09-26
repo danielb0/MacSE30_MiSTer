@@ -2977,18 +2977,73 @@ work; the same chips: `AS4C32M16SB-7` on the 64/128 MB modules,
 | **3 x = 94.0032 MHz** | 10.64 ns | 12 | ACT 0, READ 2, CL3: D0 5, D1 6, capture 6.5/7.5, present 8 | 3-4 | 7.1 ns |
 | 4 x = 125.3376 MHz | 7.98 ns | 16 | ACT 0, READ 3, CL3: D0 6, D1 7, capture 7.5/8.5, present 9 | 6 | 4.5 ns |
 
-**Decision: 3 x, 94.0032 MHz, CL3, burst 2.** It closes the budget with
+**Decision: 3 x, 94.0032 MHz, burst 2.** It closes the budget with
 margin and keeps a 7 ns read eye; 4 x buys three more clocks at the cost
 of a 4.5 ns eye, the fit-sensitive class MacLC fought at 65 MHz with a
-15 ns one. `tRCD`, `tRP` (20 ns) are 2 clocks, `tRAS` min (42 ns) 4,
-`tRC` (60 ns) 6, `tRFC` 7; back-to-back 68030 RAM cycles are 24 clocks
-apart, so a refresh (7 clocks) fits between two of them and the
-controller's refresh never has to stall a request - a design goal the
-bench holds (3.6). The datasheets of the two parts are to be fetched and
-read before the controller is written; the numbers above are MacLC's
-transcriptions and the JEDEC standard values, and the plan says so. CL2
-at 94 MHz is inside both parts' ratings as far as those numbers go and
-would save a clock; it is a datasheet decision, not taken here.
+15 ns one. Back-to-back 68030 RAM cycles are 24 clocks apart, so a
+refresh fits between two of them and the controller's refresh never has
+to stall a request - a design goal the bench holds (3.6).
+
+**The datasheets, read 2026-09-26** (Winbond `W9825G6KH` rev. A04, Mar
+2017, and Alliance `AS4C32M16SB` rev. 1.4, June 2024, both in
+`C:\temp\Mac\SE30\Docs`; the controller is written to the worse of the
+two at every row, in clocks of 10.64 ns):
+
+| parameter | W9825G6KH-6 | AS4C32M16SB-7 | design | clocks |
+|---|---|---|---|---|
+| `tCK` min at CL2 / CL3 | 7.5 / 6 ns | 10 / 7 ns | **CL2 at 10.64 ns is legal for both** | - |
+| `tRCD` | 15 ns | 21 ns | 21 | 2 (21.28) |
+| `tRP` | 15 ns | 21 ns | 21 | 2 |
+| `tRAS` min | 42 ns | 42 ns | 42 | 4 |
+| `tRC` (ACTIVE to ACTIVE, same bank) | 60 ns | 63 ns | 63 | 6 |
+| `tRFC` (refresh to next command) | `tRC`, 60 ns | 63 ns | 63 | 6 |
+| `tMRD` / `tRSC` | 2 `tCK` | 14 ns | 14 | 2 |
+| `tWR` | 2 `tCK` | 14 ns | 14 | 2 |
+| `tAC` max at CL2 / CL3 | 6 / 5 ns | 6 / 5.4 ns | 6.0 | - |
+| `tOH` min | 3 ns | 2.5 ns | 2.5 | - |
+| `tDS`, `tAS`, `tCMS` / `tIS` | 1.5 ns | 1.5 ns | 1.5 | - |
+| `tDH`, `tAH`, `tCMH` / `tIH` | 0.8 ns | 0.8 ns | 0.8 | - |
+| refresh | 8192 cycles / 64 ms | 8192 / 64 ms, `tREFI` 7.8 us | one AUTO REFRESH per 7.8125 us | 734 |
+| power-up | 200 us pause, PRECHARGE ALL, MRS, **8** AUTO REFRESH (before or after MRS) | 200 us, PRECHARGE ALL, MRS, **>= 2** AUTO REFRESH | 200 us, PRECHARGE ALL, 8 refreshes, MRS | - |
+| organisation | 4 banks x 8192 rows x **512** columns (`A0-A8`) | 4 x 8192 x **1024** (`A0-A9`) | 4 x 8192 x 512, row on `A0-A12`, column on `A0-A8`, `A10` = auto-precharge | 32 MB |
+| mode register | `A9` write burst (0 = burst), `A8-A7` = 00, `A6-A4` CL (010 = 2), `A3` = 0 sequential, `A2-A0` burst length (001 = 2) | the same | `$0021`: CL2, sequential, BL2, burst writes | - |
+
+So the read of 3.2's table runs: ACTIVE at clock 1 (the S0 address is
+sampled one clock after the C16M edge that makes it valid), READ at 3,
+CL2 gives the first word after the chip's edge at 5.5 and the second at
+6.5; captured on the FPGA's falling edges at 6.5 and 7.5 (each word is
+valid from `tAC` 6.0 ns after its launch edge to `tOH` 2.5 ns after the
+next: a 7.1 ns eye, the capture edge inside it by 4.6 ns of setup and
+2.5 ns of hold), re-timed at 7.5 and 8.5, presented with the acknowledge
+at 9 - three clocks before GLUE's sampling edge at 12. The eye figures
+apply because `SDRAM_CLK` is the inverted `clk_mem` (MacLC's
+`altddio_out`), so the chip's rising edges are the FPGA's falling ones;
+the sdc constraints are MacLC's 2026-09-12 set with the same chip numbers.
+A write issues WRITE at clock 4, once `AS*` has confirmed the cycle, with
+the first word and its `DQM` from `be[3:2]`, the second word at 5.
+A read is issued speculatively at 3 - a RAM read has no side effect and
+auto-precharge closes the row - which is what makes the budget close.
+
+**What the bench decided (`sim/sdram/`, 165 checks, 2026-09-26; the
+controller is `rtl/se30_sdram.v`, the chip model ours,
+`sim/sdram/sdram_model.v`, written from the two datasheets because
+Micron's carries no redistribution terms).** Three things the first run
+found: (1) the start must act on the clock it is registered, not a clock
+later through a pending flag, or the two clocks in hand become one; (2)
+after an aborted cycle - a start with no `AS*` - the next cycle's start
+must open its row directly from the holding state, or it is acknowledged a
+clock late; a write with no request five clocks after its ACTIVE is
+treated as aborted and its row precharged (`tRAS` met), and a request that
+GLUE's refresh window has delayed then re-opens the row from idle, so a
+write in that window costs one C16M more than a read there; (3) refresh
+cannot simply go when due, because due can fall in the last clocks before
+a back-to-back start: from 6.4 us it takes the idle window right after a
+cycle (clocks 10-17 from that cycle's start, where it completes before the
+next start needs the chip), from 7.45 us it goes at the first idle clock,
+and only at 10.9 us does it outrank a start. Under 100 us of back-to-back
+cycles the longest interval was 6.6 us and no cycle waited. The
+acknowledge is a level held while the request is up; a read's data waits
+in the controller for a late request or is discarded by the next start.
 
 The PLL is written by hand as the MiSTer cores' `pll_0002.v` shape - an
 `altera_pll` instance with `fractional_vco_multiplier("true")` and the two
@@ -3205,12 +3260,15 @@ desktop (ADB).
    inherited, endings checked per file.
 3. **`rtl/pll/`**: the hand-written `altera_pll` wrapper, 31.3344 and
    94.0032 MHz, and its qip.
-4. **`rtl/se30_video.v`**: `c16_en`; the declaration ROM as a BRAM with a
-   write port; `sim/video` green.
-5. **`rtl/tg68k/tg68k.v`**: `ecs` (the 68030's `ECS*`, asserted for S0);
-   `sim/system` green and unchanged in its counts.
-6. **`rtl/se30_sdram.v`** and `sim/sdram/` (3.3, 3.6 item 2), datasheets
-   read first.
+4. ~~**`rtl/se30_video.v`**: `c16_en`; the declaration ROM as a BRAM with a
+   write port; `sim/video` green.~~ **Done 2026-09-26** (44 checks).
+5. ~~**`rtl/tg68k/tg68k.v`**: `ecs` (the 68030's `ECS*`, asserted for S0);
+   `sim/system` green and unchanged in its counts.~~ **Done 2026-09-26**
+   (23 checks, the same 240 cycles); GLUE gained `mem_early`/`rom_early`,
+   its decode without `AS*`, for the start (91 checks unchanged).
+6. ~~**`rtl/se30_sdram.v`** and `sim/sdram/` (3.3, 3.6 item 2), datasheets
+   read first.~~ **Done 2026-09-26**: both datasheets read (the table in
+   3.2), CL2 taken, 165 checks; the bench's three findings are in 3.2.
 7. **`rtl/se30_machine.v`**, **`MacSE30.sv`**, `MacSE30.sdc`, `files.qip`,
    `rtl/dbg_probes.sv`.
 8. **`sim/machine/`** (3.6 item 3): first fetch, first I/O access, the
