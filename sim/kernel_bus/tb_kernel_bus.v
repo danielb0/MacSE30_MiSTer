@@ -80,13 +80,16 @@ module tb_kernel_bus;
   wire        dev8  = (PORT == 8) && (addr_out[31:8] == 24'h20);
 `endif
   wire [1:0]  dsack = dev8 ? 2'b10 : 2'b00;
+  // the interrupt: level 1 from the program's write to $3080 until the
+  // handler's write to $3084 (a device's request and its clearing)
+  reg  [2:0]  ipl = 3'b111;
 
   TG68KdotC_Kernel #(
     .SR_Read(2), .VBR_Stackframe(1), .extAddr_Mode(1), .MUL_Hardware(1), .BarrelShifter(2),
     .DATA_WIDTH(DW)
   ) dut (
     .clk(clk), .nReset(nReset), .clkena_in(1'b1), .beat_valid(1'b1),
-    .data_in(data_in), .dsack(dsack), .IPL(3'b111), .IPL_autovector(1'b1), .berr(1'b0), .CPU(2'b10),
+    .data_in(data_in), .dsack(dsack), .IPL(ipl), .IPL_autovector(1'b1), .berr(1'b0), .CPU(2'b10),
     .addr_out(addr_out), .data_write(data_write), .siz(siz), .nWr(nWr), .nUDS(nUDS), .nLDS(nLDS),
     .busstate(busstate), .FC(FC),
     .pmmu_walker_ack(1'b0), .pmmu_walker_data(32'd0), .pmmu_walker_berr(1'b0),
@@ -152,7 +155,7 @@ module tb_kernel_bus;
       end
       $fclose(fd);
       fd = $fopen("stop_at.txt", "r");
-      r = $fscanf(fd, "%h", stop_at);
+      r = $fscanf(fd, "%h %d", stop_at, nwords);
       $fclose(fd);
     end
   endtask
@@ -191,8 +194,8 @@ module tb_kernel_bus;
     if (tail == 0) done <= 1;
     if (busstate == 2'b10 || busstate == 2'b11) begin
       if (beats >= nexp) begin
-        fails = fails + 1;
-        $display("FAIL beat %0d: unexpected  addr %08x siz %b uds %b lds %b wr %b data %08x mask %b", beats, addr_out, siz, nUDS, nLDS, !nWr, data_write, dbg_memmask);
+        // past the operand section: the control-flow beats are not in
+        // the stream; their results are checked in the slots
       end else begin
         ok = (addr_out == e_addr[beats]) && (siz == e_siz[beats]) && ((!nWr) == e_wr[beats]) && (dbg_memmask == e_mask[beats]);
         if (PORT == 16) ok = ok && (nUDS == !e_lanes[beats][3]) && (nLDS == !e_lanes[beats][2]);
@@ -210,6 +213,8 @@ module tb_kernel_bus;
         end
       end
       beats = beats + 1;
+      if (busstate == 2'b11 && !nWr && addr_out == 32'h3080) ipl = 3'b110;
+      if (busstate == 2'b11 && !nWr && addr_out == 32'h3084) ipl = 3'b111;
       if (busstate == 2'b11 && !nWr) begin
         if (PORT == 16) begin
           if (!nUDS) mem[addr_out[16:1]][15:8] = data_write[15:8];
@@ -228,25 +233,27 @@ module tb_kernel_bus;
   end
 
   // ---------------------------------------------------------------- run
-  integer i, k, nwords; reg [31:0] v, want;
+  integer i, k; integer nwords; reg [31:0] v, want;
   initial begin
     $readmemh("program.hex", mem);
     load_expect;
-    nwords = (stop_at + 4 - 32'h1000) / 2;
+
     $display("---- %0d expected beats, STOP at %08x", nexp, stop_at);
     repeat (20) @(posedge clk);
     nReset = 1;
     i = 0;
     while (!done && i < 200000) begin @(posedge clk); i = i + 1; end
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks (%0d beats seen)", i, beats); end
-    if (beats != nexp) begin fails = fails + 1; $display("FAIL: %0d beats seen, %0d expected", beats, nexp); end
+    if (beats < nexp) begin fails = fails + 1; $display("FAIL: %0d beats seen, %0d expected in the operand section", beats, nexp); end
     else pass = pass + 1;
     // result slots: byte reads give ...04 (upper bytes from the previous
     // D1), word 0304, long 01020304; D1 starts at 0, so the byte slots hold
     // 00000004, then 00000304, then 01020304 for every size after
-    for (k = 0; k < 12; k = k + 1) begin
+    for (k = 0; k < 17; k = k + 1) begin
       v = {mem[(32'h3000 + 4*k) >> 1], mem[((32'h3000 + 4*k) >> 1) + 1]};
-      want = (k < 4) ? 32'h00000004 : (k < 8) ? 32'h00000304 : 32'h01020304;
+      want = (k < 4) ? 32'h00000004 : (k < 8) ? 32'h00000304 : (k < 12) ? 32'h01020304 :
+             (k == 12) ? 32'hAAAA5555 : (k == 13) ? 32'h00000000 : (k == 14) ? 32'hF0F0F0F0 :
+             (k == 15) ? 32'h00005EC7 : 32'h000001E7;
       if (v === want) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL slot %0d: %08x, expected %08x", k, v, want); end
     end

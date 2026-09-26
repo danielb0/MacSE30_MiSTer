@@ -15,6 +15,13 @@ THE PROGRAM
     16-bit field at bit offset 4 (three bytes) and a 32-bit one (five
     bytes), each followed by a BFEXTU of the same field.  Then STOP.
 
+    After the operands, control flow - a subroutine, a loop, a forward
+    branch, TRAP #0 and a level-1 interrupt that the bench raises when the
+    program writes IRQ_RAISE and drops when the handler writes IRQ_CLEAR -
+    leaving D2..D6 in slots 12..16.  Its beats are not in expect.txt (the
+    stack frames' order is the kernel's business); the bench checks the
+    slots and the fetch rule.
+
     Instruction fetches are not in expect.txt: the 16-bit kernel fetches
     words and the 030 contract is an aligned long (1.14); the bench skips
     busstate=00 beats.  The reset SSP read is a data beat and is included;
@@ -38,6 +45,8 @@ D0 = [0x01, 0x02, 0x03, 0x04]
 BASE = 0x2000
 RESULT = 0x3000
 ORG = 0x1000
+IRQ_RAISE = 0x3080      # a write here makes the bench raise a level-1 interrupt
+IRQ_CLEAR = 0x3084      # a write here (by the handler) drops it
 
 
 def load_oracle(path):
@@ -115,8 +124,36 @@ def build(bf5=True):
         p.access("bf5 ins w +%d" % off, "bf5", a, "w")
         p.emit(0xE9D0, 0x1100)                                     # BFEXTU (A0){4:32},D1
         p.access("bf5 ext r +%d" % off, "bf5", a, "r")
+    # control flow (not in the beat stream; checked by its results and the
+    # fetch rule): a subroutine, a loop, a forward branch, a trap, an
+    # interrupt.  D2..D6 land in slots 12..16.
+    p.emit(0x46FC, 0x2000)                                         # MOVE #$2000,SR: interrupts on
+    bsr_at = ORG + 2 * len(p.words)
+    p.emit(0x6100, 0x0000)                                         # BSR.W sub (displacement patched below)
+    p.emit(0x23C2, 0x0000, RESULT + 48)                            # MOVE.L D2,(slot 12).L
+    p.emit(0x7603)                                                 # MOVEQ #3,D3
+    p.emit(0x5383, 0x66FC)                                         # loop: SUBQ.L #1,D3; BNE.S loop
+    p.emit(0x23C3, 0x0000, RESULT + 52)                            # MOVE.L D3,(slot 13).L
+    p.emit(0x6002, 0x4E71)                                         # BRA.S over; NOP
+    p.emit(0x283C, 0xF0F0, 0xF0F0)                                 # MOVE.L #$F0F0F0F0,D4
+    p.emit(0x23C4, 0x0000, RESULT + 56)                            # MOVE.L D4,(slot 14).L
+    p.emit(0x4E40)                                                 # TRAP #0
+    p.emit(0x23C5, 0x0000, RESULT + 60)                            # MOVE.L D5,(slot 15).L
+    p.emit(0x7C00)                                                 # MOVEQ #0,D6
+    p.emit(0x23C6, 0x0000, IRQ_RAISE)                              # MOVE.L D6,(raise).L: the bench raises IRQ
+    p.emit(0x4A86, 0x67FC)                                         # wait: TST.L D6; BEQ.S wait
+    p.emit(0x23C6, 0x0000, RESULT + 64)                            # MOVE.L D6,(slot 16).L
     stop_at = ORG + 2 * len(p.words)
     p.emit(0x4E72, 0x2700)                                         # STOP #$2700
+    sub_at = ORG + 2 * len(p.words)
+    p.emit(0x243C, 0xAAAA, 0x5555, 0x4E75)                         # sub: MOVE.L #$AAAA5555,D2; RTS
+    trap_at = ORG + 2 * len(p.words)
+    p.emit(0x2A3C, 0x0000, 0x5EC7, 0x4E73)                         # trap: MOVE.L #$5EC7,D5; RTE
+    irq_at = ORG + 2 * len(p.words)
+    p.emit(0x2C3C, 0x0000, 0x01E7)                                 # irq: MOVE.L #$1E7,D6
+    p.emit(0x23C6, 0x0000, IRQ_CLEAR, 0x4E73)                      #      MOVE.L D6,(clear).L; RTE
+    p.words[(bsr_at - ORG) // 2 + 1] = (sub_at - (bsr_at + 2)) & 0xFFFF
+    p.vectors = {0x80: trap_at, 0x64: irq_at}                      # TRAP #0, autovector level 1
     return p, stop_at
 
 
@@ -214,6 +251,8 @@ def main():
     mem = [0x4E71] * 65536                                          # NOPs
     mem[0], mem[1] = 0x0000, 0x0800                                 # SSP = $800
     mem[2], mem[3] = 0x0000, ORG                                    # PC
+    for v, a in p.vectors.items():
+        mem[v // 2], mem[v // 2 + 1] = a >> 16, a & 0xFFFF
     for i, w in enumerate(p.words):
         mem[ORG // 2 + i] = w
     for i in range(0x100):                                          # data area: $FF, so a
@@ -226,7 +265,7 @@ def main():
         for line in expected_beats(p, oracle, args.port, args.code8):
             f.write(line + "\n")
     with open(os.path.join(HERE, "stop_at.txt"), "w", newline="\n") as f:
-        f.write("%08x\n" % stop_at)
+        f.write("%08x\n%d\n" % (stop_at, len(p.words)))            # and the program's words, handlers included
     n = sum(1 for _ in open(os.path.join(HERE, "expect.txt"))) - 1
     print("program: %d words, STOP at $%X, %d accesses, %d expected beats at port %d" % (len(p.words), stop_at, len(p.accesses), n, args.port))
 

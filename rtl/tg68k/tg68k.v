@@ -25,10 +25,14 @@
 //   are the wrapper's own long cycles at the physical address, FC = 5,
 //   in the beats the port needs.
 //
-//   Interrupts: GLUE's IPL to the kernel; AVEC is grounded on the board,
-//   so every acknowledge autovectors - the kernel does it internally and
-//   no acknowledge cycle reaches the bus, which is what GLUE sees on the
-//   real board (UI6 keeps AS* from the system for FC = 7).
+//   CPU space (FC = 7): an interrupt acknowledge (A19-A16 = $F) is
+//   terminated here as the grounded AVEC pin terminates it on the board -
+//   the kernel autovectors (IPL_autovector) and the cycle's data is
+//   unused; GLUE sees the cycle and ignores it, as UI6 keeps AS* from
+//   the system.  Any other CPU-space cycle is the coprocessor interface,
+//   which nothing answers until the 68882 exists (plan 1.9 item 7): it is
+//   bus-errored here, which is what makes an F-line instruction trap to
+//   its emulator vector instead of hanging the processor.
 //
 //   Not here yet: the 68030's caches (plan 1.15 item 9); internal beats
 //   (no bus access) advance once per C16M clock.
@@ -116,6 +120,8 @@ module tg68k (
                        (walk_done == 2) ? {w_r0, w_r1, w_r0, w_r1} : {w_r0, w_r0, w_r1, w_r0};
   wire [31:0] eff_dout = wsel ? w_dout : k_dout;
 
+  wire        cpu_space = (eff_fc == 3'd7);
+  wire        iack      = cpu_space && (eff_addr[19:16] == 4'hF);
   reg   [2:0] s;                       // 0 idle (S0), 2 after S1, 3 S3/wait, 4 after S4, 5 after S5
   reg         as_n_r, ds_n_r;
   reg  [31:0] din_r;
@@ -172,13 +178,19 @@ module tg68k (
                 end
           3'd3: begin                                                      // S3 and the wait states
                   ds_n_r <= 0;
-                  if (berr) begin
+                  if (cpu_space) begin                                       // AVEC, or no coprocessor
+                    if (iack) begin dsack_r <= 2'b00; s <= 3'd4; end
+                    else begin
+                      as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1; ack_berr <= 1;
+                      if (!walk) berr_hold <= 1;
+                    end
+                  end else if (berr) begin
                     as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1; ack_berr <= 1;
                     dsack_r <= dsack_n; if (!walk) berr_hold <= 1;
                   end else if (dsack_n != 2'b11) s <= 3'd4;
                 end
           3'd5: begin                                                      // S5: latch at the end of S4
-                  din_r <= cpu_din; dsack_r <= dsack_n;
+                  din_r <= cpu_din; if (!cpu_space) dsack_r <= dsack_n;
                   as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1;
                   if (berr) begin ack_berr <= 1; if (!walk) berr_hold <= 1; end
                 end

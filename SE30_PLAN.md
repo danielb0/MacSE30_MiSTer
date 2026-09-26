@@ -1204,6 +1204,23 @@ existing one taught the 030's width rules.
    cycles. The seam 1.7 called unmeasured is measured: nothing between
    the beats. Passed at the first run.
 
+   *The cheap half of 2d, the same day (owner's ruling: extend our own
+   benches now, port the corpora after first boot).* The bench program
+   gained control flow after its operands: a subroutine call and return,
+   a counted loop, a forward branch, `TRAP #0` with a handler and `RTE`,
+   and a level-1 interrupt the bench raises when the program writes a
+   marker and drops when the handler clears it, five more result slots.
+   The kernel bench passes on all three ports with it, and the system
+   bench with the interrupt raised through GLUE's `IPL`. It found one
+   thing: **the kernel runs the interrupt-acknowledge bus cycle even
+   when autovectoring internally**, so the wrapper terminates it as the
+   board's grounded `AVEC` does (a 3-clock cycle, its data unused), and
+   bus-errors any other CPU-space cycle - the coprocessor interface,
+   which nothing answers until the 68882 exists (1.9 item 7), and which
+   is how an F-line instruction traps instead of hanging. The system
+   bench now meters that cycle separately: 240 cycles, 239 at the
+   Guide's 4 but three refresh stalls, the acknowledge at 3.
+
 **Cost.** Item 2 touches the kernel's central sequencing, not a corner:
 weeks, not days, with the corpus as the safety net. The alternative -
 first boot on the 16-bit scaffolding, then convert - would cut the MacLC
