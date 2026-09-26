@@ -51,7 +51,7 @@ module tg68k (
   input         reset_n,
 
   // the 68030 bus
-  output        ecs,                   // ECS*, active high here: S0 of a cycle that may follow
+  output        ecs,                   // ECS*, active high here: S0 of a cycle that may follow, the new address on the bus
   output [31:0] cpu_addr,
   output        cpu_as_n,
   output        cpu_ds_n,
@@ -135,9 +135,14 @@ module tg68k (
   // and AS* follows at S1 unless the cycle is aborted.  Here: the S0
   // half-clock, when a request is waiting and the state machine is idle;
   // the memory controller starts its row access on it and qualifies with
-  // AS* (plan 3.2).  The kernel's request only appears at a phi1 edge and
-  // is taken at the following phi2, so this is exactly one clk wide.
-  assign ecs      = (s == 3'd0) && eff_req;
+  // AS* (plan 3.2).  Not while the previous cycle's acknowledge is still
+  // pending: from S5 to the phi1 that acknowledges the kernel, the kernel
+  // still presents the request just completed, and an ECS there would carry
+  // the old address (the machine bench found this: the second of two
+  // back-to-back fetches came back with the first one's data).  The
+  // kernel's new request appears at that phi1 and is taken at the following
+  // phi2, so this is exactly one clk wide, and nothing during reset.
+  assign ecs      = reset_n && (s == 3'd0) && eff_req && !ack_pending;
   assign cpu_addr = eff_addr;
   assign cpu_as_n = as_n_r;
   assign cpu_ds_n = ds_n_r;

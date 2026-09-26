@@ -53,6 +53,9 @@ module sdram_model (
 
   // ------------------------------------------------------ the array
   reg [15:0] mem [0:(1<<24)-1];        // {bank, row[12:0], col[8:0]}
+  parameter PRELOAD_HEX  = "";         // an image to load before the run (the ROM, for the machine bench)
+  parameter PRELOAD_WORD = 0;          // at this word address
+  initial if (PRELOAD_HEX != "") $readmemh(PRELOAD_HEX, mem, PRELOAD_WORD);
 
   // ------------------------------------------------------- the state
   reg        open_r [0:3];             // a row is open in the bank

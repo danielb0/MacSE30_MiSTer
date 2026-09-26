@@ -3240,7 +3240,8 @@ desktop (ADB).
   now) has to make absent addresses fail that test the way the board's
   do, and what the ROM's sizing code tolerates is read from the ROM
   (1.11's tooling), not guessed. Open until then.
-- **ModelSim's limits** on the full machine (1.10): measured at rung 3.
+- ~~**ModelSim's limits** on the full machine (1.10): measured at rung 3.~~
+  Measured: 9 s for 215 us of the whole machine (3.8 item 8). Closed.
 - **The declaration BRAM's write port** changes `se30_video`'s internal
   ROM; the video bench keeps the preload, the machine bench loads it the
   hardware way.
@@ -3269,11 +3270,40 @@ desktop (ADB).
 6. ~~**`rtl/se30_sdram.v`** and `sim/sdram/` (3.3, 3.6 item 2), datasheets
    read first.~~ **Done 2026-09-26**: both datasheets read (the table in
    3.2), CL2 taken, 165 checks; the bench's three findings are in 3.2.
-7. **`rtl/se30_machine.v`**, **`MacSE30.sv`**, `MacSE30.sdc`, `files.qip`,
-   `rtl/dbg_probes.sv`.
-8. **`sim/machine/`** (3.6 item 3): first fetch, first I/O access, the
-   ModelSim measurement.
-9. Elaboration (3.6 item 4). **Then stop and ask** before the compile.
+7. ~~**`rtl/se30_machine.v`**, **`MacSE30.sv`**, `MacSE30.sdc`, `files.qip`,
+   `rtl/dbg_probes.sv`.~~ **Done 2026-09-26.**
+8. ~~**`sim/machine/`** (3.6 item 3): first fetch, first I/O access, the
+   ModelSim measurement.~~ **Done 2026-09-26 - and it found the section's
+   one real bug.** The ROM runs from reset: the vector reads at `$0` and
+   `$4` in supervisor program space (FC 6, UM 4.2: "the reset vector ...
+   is located in supervisor program space"), the fetch at `$40800028`,
+   and 71 cycles later the first I/O access: a **write to `$50F00600`**,
+   VIA1's DDRA (RS = 3 on A12-A9) - the ROM setting the direction of the
+   port that carries `OVERLAY`, which is where 2.11.6 said it would go and
+   where Section 4 begins. Every memory cycle was 4 clocks bar one in
+   GLUE's refresh window. **The bug:** the wrapper's first `ECS` asserted
+   whenever it was idle with a request pending, which includes the window
+   from S5 to the kernel's acknowledge, where the kernel still presents
+   the request just completed - so the controller opened a speculative
+   read at the *old* address and the second of two back-to-back fetches
+   came back with the first one's data (the PC read at `$4` returned the
+   checksum at `$0`). The 68030 asserts `ECS` only at S0 with the new
+   address; the wrapper now does too (`!ack_pending`, and never in
+   reset). No other bench could have seen it: `sim/system` does not use
+   `ECS`, `sim/sdram` drove it correctly by construction. **Kernel quirk
+   recorded:** TG68K prefetches the long at `$8` between the PC read and
+   the first fetch at the new PC, one 4-clock cycle a 68030 does not run
+   at reset; harmless, noted for 1.9 item 8's timing audit. **The ModelSim
+   measurement (1.10):** the whole machine - kernel, PMMU, wrapper, GLUE,
+   video, the controller and the chip model with a 32 MB array - runs 215
+   us of simulated time (the SDRAM's 200 us power-up included) in 9 s of
+   wall clock. The Starter Edition's limits are not a problem at this
+   altitude.
+9. ~~Elaboration (3.6 item 4).~~ **Done 2026-09-26: 0 errors, 85 warnings
+   (the baseline; not yet read for what is ours), 1 min 37 s.** Quartus
+   rewrites `MacSE30.qsf` with the framework's pin assignments inlined on
+   every run; the short form is kept in git and the rewrite reverted.
+   **Next: stop and ask before the compile** (3.6 item 5).
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
