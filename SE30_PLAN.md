@@ -23,11 +23,19 @@ kernel-alone bench of 1.13 item 3 runs on it - the 16-bit kernel already
 matches the manual for every CPU operand; the five-byte bit field is the
 first failing test of item 2.
 
+**Revision 2026-09-26, later.** 1.13 is complete: the kernel has the
+68030's bus (1.15's steps 2a-2c), GLUE is re-cut to 2.11.1 and the two
+are benched together (`sim/system/`). **Section 3 is new**: the tree -
+framework, clocks, the SDRAM controller and map, the ROM images, the
+top and the machine module, and the bring-up ladder to the first fetch -
+written before the cut, which is its item 2.
+
 **This document is being composed in sections, each one following its own
 research pass.** Section 1 settles the CPU and the PMMU, because that was
 the only open question capable of making the project impossible. **Section
 2 (GLUE, the address map, RAM, clocks, video) was opened 2026-09-25 as a
-first cut** with its own open-items list in 2.8. Nothing about the ASC, the
+first cut** with its own open-items list in 2.8, and is complete. **Section 3
+(the tree) was opened 2026-09-26.** Nothing about the ASC, the
 SWIM, the SCC, SCSI or power should be inferred from what is written here -
 those sections do not exist yet, and the facts they need have not been
 read.
@@ -2048,7 +2056,8 @@ Proposed work, cheap and decisive first:
 8. Next: **first the kernel's 32-bit bus (1.13), then** cut the MacLC tree
    and write the ASC, SWIM, SCC and SCSI sections from their documentation
    (Daniel's ordering of 2026-09-26: no 16-bit workaround; the tree is cut
-   once, on the real bus).
+   once, on the real bus). **1.13 done the same day; the tree cut is
+   Section 3, written 2026-09-26 (3.8 is its work list).**
 
 ## 2.9 The PALs, named and read
 
@@ -2836,6 +2845,382 @@ assuming it, so a slower port costs clocks, never data.
 - *Interrupt acknowledge* is decoded on `A17-A16` = 11 with FC = 7, the
   bits GLUE has (2.11.2); everything else in CPU space gets no answer
   and no timeout (1.4 item 4, 2.11.4).
+
+# Section 3 - The tree: the framework, the clocks, the memory and the top
+
+Opened 2026-09-26, after 1.13 closed (the kernel has the 68030's bus and
+GLUE answers it, `sim/system/` green). This is 2.8 item 8's first half -
+"cut the MacLC tree" - written down before a file moves
+(`plan-doc-before-implementation`). The peripheral sections that follow it
+(VIAs, ASC, SWIM, SCC, SCSI, ADB/RTC, power) are still unwritten and
+nothing here infers them.
+
+The section's job is narrow: get the CPU, GLUE and video that already pass
+their benches onto the DE10-Nano, in the MiSTer framework, with a real
+SDRAM behind GLUE's memory ports and the real ROM in it, to the point where
+the first instructions fetch. What it settles: where every inherited file
+comes from, the clock plan, the SDRAM controller's contract and the memory
+map, how the two ROM images arrive, what the top and the machine module
+are, and the bring-up ladder.
+
+## 3.1 What the cut is, and where each piece comes from
+
+**"Cut the MacLC tree" does not mean copy `MacLC_MiSTer` and edit it.** The
+survey (2026-09-26, this section) found that what the SE/30 can take from
+the LC's shell is its *framework* - which is not the LC's at all but the
+MiSTer template's - its build flow, and a handful of lessons its top
+encodes. The LC's own logic (the V8 decode in `addrController_top.v` /
+`dataController_top.sv`, the 16-bit SDRAM controller, the PLL, the Egret,
+the 020 wrapper) is either the wrong machine or the wrong bus. The
+peripherals the plan expects to lift (`via6522.sv`, `asc.sv`, `swim.v`,
+`scc.v`, `scsi.v`/`ncr5380.sv`) are real candidates, but each one is
+assessed against its documentation in its own section
+(`feedback-se30-specs-from-documentation`) and copied then, byte-exact,
+with its source hash recorded there. So the cut is:
+
+| what | from | how |
+|---|---|---|
+| `sys/` - the MiSTer framework, whole directory | `MiSTer-devel/Template_MiSTer@69b8a2a` (2026-07-16) | byte-exact, line endings as they are. **Never edited** (MacLC's `CLAUDE.md` law, learned there 2026-07-17: a night of framework edits produced STA-met builds with dead video); updated only wholesale from the template, as one revertible commit |
+| project files: `MacSE30.qpf`, `MacSE30.qsf`, `MacSE30.sdc`, `MacSE30.srf`, `files.qip`, `clean.bat`, `.gitignore` | the template's `Template.*` at the same commit | renamed and edited: the qsf keeps the template's global settings and `source sys/sys.tcl` (device and pins come from the framework, not inline as MacLC's older qsf carries them); `LAST_QUARTUS_VERSION` is MacLC's "17.0.2 Lite Edition"; the sdc is the template's two lines plus ours (3.2). `jtag.cdf` is Quartus's own and gitignored (`*.cdf`), as in the template |
+| `.gitattributes` | MacLC's idea | pins the three project files Quartus rewrites with CRLF on every compile (`.qpf`, `.qsf`, `.sdc`) to `eol=lf`, and nothing else - a broad pattern would renormalise inherited blobs |
+| build flow: `scripts/build_only.sh`, `scripts/setup_env.sh`, `scripts/local.env.sample` | `MiSTer-devel/MacLC_MiSTer@045f896` | byte-exact bar the sample's core section (`RBF_NAME`, the seed paths), which is the documented porting edit. `045f896` is the upstream tip and carries Daniel's stabilisation work (checked 2026-09-26: the local clone, `origin` `danielb0/MacLC_MiSTer` and `upstream` `MiSTer-devel/MacLC_MiSTer` are at the same commit) |
+| the shell's lessons: hold the machine in reset until `boot0.rom` has been streamed (`rom_loaded`); never feed the CPU's RESET instruction back into the system reset (the ROM executes RESET during boot - an infinite reset loop); release the HPS download on the memory controller's own acknowledge, not on a slot edge | `MacLC.sv` | re-implemented in `MacSE30.sv`, not copied - the LC's shell is 3,010 lines of another machine |
+
+**Not taken, and why.** `rtl/sdram.v` (Harbaum's, with Daniel's demand-start
+and download-port work): a 16-bit-data, 24-bit-word-address, one-word-per-
+access controller built around a floppy-window slot scheme; the SE/30 needs
+a 32-bit port with byte enables and the acknowledge budget of 3.3 - a new
+controller, with MacLC's file kept as the reference for the DE10-Nano's
+SDRAM and for its read-capture lesson (3.2). `rtl/pll*`: 65/32.5 MHz.
+`rtl/tg68k/`: the old pin (1.12). `verilator/`: 1.10. `rtl/egret*`: the
+LC's system controller; the SE/30's ADB is the VIA shift register and the
+transceiver (`MacPlus_MiSTer/rtl/adb.sv`), later. `rtl/pds/`, `cd_audio.sv`,
+the MT32-pi wiring, the HUD: later or never.
+
+**Line endings by provenance** (`scripted-edits-mangle-line-endings`). The
+donors are mixed and stay mixed: in the template `Template.sv`,
+`Template.qsf`, `files.qip`, `clean.bat`, `sys/sys_top.sdc` and
+`sys/sys.tcl` are CRLF while `sys_top.v`, `hps_io.sv`, `ascal.vhd` and
+`Template.sdc` are LF; in MacLC `swim.v`, `floppy.v` and `pll.v` are CRLF
+and the rest LF. An inherited file keeps what it came with; a file we write
+is LF; a file we rename-and-edit from the template (the qsf, `clean.bat`)
+keeps the template's endings unless `.gitattributes` says otherwise. The
+check is `tr -cd '\r' | wc -c` per file, never `grep -c`.
+
+**Why this template commit and not the tip.** The template's tip on
+2026-09-26 is `3ea1134` (2026-08-26); between `69b8a2a` and it the scaler's
+output handshake was rewritten twice and partly reverted (`0874acd`,
+`54ac838`, `f38ab86`, `baaeff6`). `69b8a2a`'s `sys_top.v` and `ascal.vhd`
+are byte-identical to what `MacPlus_MiSTer` runs on Daniel's board today,
+so they are proven with his Main. The delta MacPlus and MacLC carry in
+`hps_io.sv` is one commit older than `69b8a2a` (`3dcffc4`, the upload fix);
+we take the template's. The newer template is a wholesale update to take
+later, on its own, when there is a booting machine to A/B it against.
+
+**Attribution.** The core is Daniel's own (the 2026-09-22 decision in the
+project note); the README credits the lineage - the MiSTer framework by
+Sorgelig, the MacLC and MacPlus cores whose files are lifted (Dani Sarfati,
+Sorgelig, the Plus Too project), TG68K (Tobias Gubener) and its 68030 work
+(apolkosnik) - and the licence is GPL-2-or-later for the core with the
+kernel's LGPL-3 as its headers say (1.12).
+
+## 3.2 Clocks
+
+**One PLL, ours.** The board has one oscillator, `Y2` at 31.3344 MHz
+(2.5), and the core's clock is that oscillator: `clk_sys` = **31.3344 MHz**
+= 2 x `C16M`, which is what the wrapper already runs on (`tg68k.v`: the
+68030's states are half-clocks of `C16M`, marked by `phi1`/`phi2`). GLUE
+takes `c16_en = phi1`; the video (2.8 item 5's deferred `cep`) takes the
+same enable and becomes a pixel every other clock, so `CLK_VIDEO` =
+`clk_sys` and `CE_PIXEL` = `phi1`: 704 x 370 pixels at 15.6672 MHz,
+60.15 Hz, the *Guide*'s numbers unchanged. `E`, `C3M` and refresh are
+GLUE's divisions of `C16M` as 2.11 has them. Nothing in the machine runs
+on any other clock.
+
+**The SDRAM clock is an integer multiple of `clk_sys` from the same PLL**,
+so the two are related clocks that STA times exactly, with no multicycle
+guesses across them - the lesson MacLC paid for (its `MacLC.sdc` "Phase C"
+block: a multicycle credit across the clk_sys -> clk_64 hand-off hid a
+6.7 ns violation that corrupted memory and bombed the guest). Which
+multiple is set by the RAM cycle's budget:
+
+The contract GLUE holds (2.13's conventions, `sim/system/`): the 68030
+puts the address on the bus at S0 and asserts `AS*` at S1, half a clock
+later; GLUE sees `AS*` at the next `C16M` edge, one clock after S0, and
+requests the memory port; the port acknowledges **with its data one `C16M`
+later**, two clocks after S0; GLUE asserts `DSACK*` in that clock and the
+processor latches the data at the end of S4 and finishes the cycle at S5 -
+four clocks, the *Guide*'s one wait state. So the SDRAM has **127.7 ns
+from address-valid at S0 to data at GLUE**, provided it starts at S0. It
+cannot start from GLUE's request - that leaves 63.8 ns, which no SDRAM
+read fits - so the controller starts speculatively **from the address at
+S0**, exactly as the 68030 offers it: `ECS*` (external cycle start, UM
+5.6.2 and 7.1.1: "the earliest indication that the processor is
+initiating a bus cycle ... ECS can be used to initiate various timing
+sequences that are eventually qualified with AS") is a real pin the
+wrapper can present, and RAM/ROM is decided by `A31-A28` and `OVERLAY`
+(2.11.2), which need no `AS*`. A cycle the processor starts and does not
+run (7.1.1: "in the case of an internal cache hit, an ATC miss, or an MMU
+fault, a bus cycle may be aborted after ECS has been asserted") costs the
+controller an ACTIVE it precharges after `tRAS`, and nothing else.
+
+A 32-bit read on the 16-bit part is ACTIVE, `tRCD` (20 ns), READ with
+auto-precharge, CAS latency, two data words (burst length 2), then the
+capture register and its retiming stage - the two falling-edge stages
+MacLC found necessary to make the read eye fit-invariant (its 2026-09-12
+work; the same chips: `AS4C32M16SB-7` on the 64/128 MB modules,
+`W9825G6KH-6` on the 32 MB, `tAC` 6.0 ns at CL2, `tOH` 2.5 ns):
+
+| SDRAM clock | period | clocks in 127.7 ns | read: data at GLUE | spare | read eye (`tCK` - `tAC` + `tOH`) |
+|---|---|---|---|---|---|
+| 2 x = 62.6688 MHz | 15.96 ns | 8 | ACT 0, READ 2, CL2: D0 4, D1 5, capture 5.5/6.5, present 7 - the second word lands at 8-9 | none | 12.5 ns |
+| **3 x = 94.0032 MHz** | 10.64 ns | 12 | ACT 0, READ 2, CL3: D0 5, D1 6, capture 6.5/7.5, present 8 | 3-4 | 7.1 ns |
+| 4 x = 125.3376 MHz | 7.98 ns | 16 | ACT 0, READ 3, CL3: D0 6, D1 7, capture 7.5/8.5, present 9 | 6 | 4.5 ns |
+
+**Decision: 3 x, 94.0032 MHz, CL3, burst 2.** It closes the budget with
+margin and keeps a 7 ns read eye; 4 x buys three more clocks at the cost
+of a 4.5 ns eye, the fit-sensitive class MacLC fought at 65 MHz with a
+15 ns one. `tRCD`, `tRP` (20 ns) are 2 clocks, `tRAS` min (42 ns) 4,
+`tRC` (60 ns) 6, `tRFC` 7; back-to-back 68030 RAM cycles are 24 clocks
+apart, so a refresh (7 clocks) fits between two of them and the
+controller's refresh never has to stall a request - a design goal the
+bench holds (3.6). The datasheets of the two parts are to be fetched and
+read before the controller is written; the numbers above are MacLC's
+transcriptions and the JEDEC standard values, and the plan says so. CL2
+at 94 MHz is inside both parts' ratings as far as those numbers go and
+would save a clock; it is a datasheet decision, not taken here.
+
+The PLL is written by hand as the MiSTer cores' `pll_0002.v` shape - an
+`altera_pll` instance with `fractional_vco_multiplier("true")` and the two
+output frequencies as strings; Quartus computes M, N and the counters -
+because there is no GUI in the loop and the file is 60 lines. VCO
+940.032 MHz (x30 / x10) is inside Cyclone V's 600-1600 MHz range.
+`derive_pll_clocks` in the template's sdc picks both clocks up.
+
+**The kernel's timing credit.** MacLC closes its kernel at 32.5 MHz with a
+two-period multicycle on kernel-internal paths, on the argument that the
+kernel only advances on `clkena` pulses at least two `clk_sys` apart. The
+same argument holds here - the wrapper advances the kernel at most once
+per `C16M`, two `clk_sys` - and the same caution: MacLC's SDC records four
+months of "STA met, hardware corrupt, differs per seed" that turned out to
+be a structural combinational loop *in MacLC's own kernel edit*
+(`42ae7a6`, the cmp.l fix), invisible to STA under the credit. Our kernel
+is upstream's `c3e8a0d` plus 1.15's beat engine; the first compile checks
+for Quartus warning 332125/332081 before any credit is applied, and the
+credit goes in `MacSE30.sdc` with the argument written next to it.
+
+## 3.3 Memory: the SDRAM controller and the map
+
+**Geometry.** The controller addresses the module as 4 banks x 8192 rows
+x 512 columns x 16 bits = 16M words = 32 MB, the subset every MiSTer SDRAM
+module (32, 64, 128 MB) presents identically; refresh is one AUTO REFRESH
+per 7.8 us (8192 rows in 64 ms). MacLC's controller uses 12 row bits
+(16 MB); we use 13 because the SE/30's RAM alone is 8 MB.
+
+**The map, in 16-bit SDRAM words:**
+
+| words | bytes | what |
+|---|---|---|
+| `$000000-$3FFFFF` | 8 MB | RAM - the stock SE/30's maximum (1.5, `se30-32bit-dirty-rom-8mb`). GLUE's `ram_addr` is a 25-bit longword address over 128 MB (2.13); the controller takes what the installed size needs and the rest is 3.7's open item |
+| `$400000-$41FFFF` | 256 KB | ROM, `boot0.rom`, written by the HPS download at core start. GLUE's `rom_addr` is a 16-bit longword address (the image repeats through `$4xxxxxxx`, 2.2) |
+| `$420000-$7FFFFF` | | free |
+| `$800000-` | 16 MB up | reserved for disk images (the SWIM and SCSI sections) |
+
+The 8 KB declaration ROM is **not** in SDRAM: the video reads it per slot
+access at its own pace and it fits in seven M10Ks, so it is a BRAM in the
+machine, written by the download of `boot1.rom` (3.4) and read by
+`se30_video`, whose internal `$readmemh` array becomes that BRAM with a
+write port (the simulation preload stays).
+
+**Ports.** One CPU port, 32-bit with four byte enables, serving GLUE's RAM
+and ROM ports through a mux in the machine (a cycle is one or the other):
+`start` (the S0 speculative start, from `ECS*` and the RAM/ROM decode),
+`req` (GLUE's `ram_req`/`rom_req`, the confirmation), `we`, longword
+address, `be[3:0]`, `wdata`, `rdata`, `ack` - **`ack` means "the data is
+on `rdata` now"** (a read) or "the write is posted" (a write), and GLUE's
+one-clock-after-request contract is what it is held to. One download
+port, 16-bit words, the HPS's `ioctl` handshake (request held until the
+controller's own acknowledge, MacLC's lesson). The floppy loader and
+committer ports come with the SWIM section, on MacLC's pattern (a level
+request with values frozen by the requester until the level acknowledge,
+never touching the CPU's `ack`). Refresh is the controller's own,
+scheduled into the idle clocks between cycles (3.2); GLUE's `ram_refresh`
+pulse (row 17) is the pacing the real GLUE imposed and stays what it was
+in the bench - a stall window - not a command to the controller. Write
+data lanes: word 0 (the lower address) is `D31-D16`, word 1 `D15-D0`;
+`be[3:2]` mask word 0's DQM, `be[1:0]` word 1's. Init is JEDEC's: 100 us
+of NOPs after the clock starts, PRECHARGE ALL, eight AUTO REFRESH, LOAD
+MODE (MacLC's ladder, whose comment records the cold-load flakiness the
+short sequence caused).
+
+**The walker.** The PMMU's table-search reads and writes are ordinary bus
+cycles of the wrapper (1.4 item 2, `tg68k.v`), so they go through GLUE and
+this port like any other and get the same acknowledge-with-data. The
+IIvi's special case - a walk read that had to wait for real SDRAM data
+because every other access took a fast slot-start acknowledge - does not
+arise: nothing here acknowledges before the data.
+
+## 3.4 The ROM images and the download
+
+Two images, neither in the repo (Apple's; `.gitignore` already covers the
+simulation copies), supplied by the user in the core's folder as
+`boot0.rom` and `boot1.rom`:
+
+| file | what | size | identity |
+|---|---|---|---|
+| `boot0.rom` | the SE/30 ROM (shared with the II FDHD, IIx, IIcx) | 256 KB | checksum `$97221136` at offset 0 (1.11) |
+| `boot1.rom` | the video declaration ROM, Apple 341-0650 | 8 KB | CRC32 `b74c3463` (2.10) |
+
+Main sends `bootN.rom` as one download each, with `ioctl_index = N << 6`
+(`user_io.cpp:1638-1642`; MacPlus decodes `dio_index[7:6]` as the slot,
+MacLC gates on `dio_index == 0`). So `boot0` arrives with index `$00`,
+`boot1` with `$40`. The words come 16-bit, byte 0 in the low half
+(`hps_io` `WIDE=1`), so the shell swaps into big-endian words and writes
+`boot0` to SDRAM words `$400000 + ioctl_addr[18:1]` and `boot1` to the
+declaration BRAM at `ioctl_addr[12:0]`.
+
+**Reset.** The machine is held in reset from configuration until `boot0`
+has been seen (`rom_loaded`, MacLC's latch: without it the CPU runs
+whatever the previous core left at the ROM window), while any download is
+in progress, while the PLL is unlocked, and on the framework's `RESET`,
+the OSD reset and the user button. `boot1` is optional to the reset
+logic: without it the ROM's slot manager finds no card and the screen
+stays dark, but the machine boots - the download of 8 KB ends
+milliseconds after `boot0`'s, long before the ROM's slot scan. The CPU's
+RESET instruction (`reset_out_n`) resets the peripherals and never the
+CPU or the system reset (2.11.6: `RESET*` is shared by the VIAs, SWIM and
+53C80; the CPU is its source when it executes RESET).
+
+## 3.5 The top and the machine module
+
+Two modules, on purpose:
+
+- **`MacSE30.sv`, module `emu`** - the framework shell, written from the
+  template's `Template.sv`: the PLL, `hps_io`, the reset logic, the two
+  downloads and the SDRAM controller (the SDRAM pins are the shell's),
+  and the framework outputs. `CONF_STR` starts minimal - the core name,
+  aspect ratio, reset, the build date - and grows with the peripheral
+  sections (disk images, memory size, serial). Video: `VGA_R/G/B` =
+  `{8{~vidout}}` (`se30_video`'s `vidout` is 1 = black), `VGA_DE` =
+  `~(hblank | vblank)`, syncs from the video RTL, `CLK_VIDEO`/`CE_PIXEL`
+  as 3.2. **Aspect: 256:171**, the 512 x 342 image at square pixels, as
+  MacPlus has it (MacLC's 4:3 is the LC's monitors; its note that 256:171
+  overflows V-Integer on 5:4 panels is a scaler-menu matter and is kept
+  in mind, not acted on). Audio silent until the ASC section; UART and
+  the user port parked at the template's defaults. `LED_USER` = a download
+  in progress, later disk activity.
+- **`rtl/se30_machine.v`** - the logic board: the wrapper, GLUE, the
+  video, and in their sections the VIAs, ASC, SWIM, SCC, SCSI, ADB and
+  RTC. Its ports are the memory port to the controller, the declaration
+  BRAM's write port, video out, later audio and the peripherals'
+  host-side ports (keyboard, mouse, disk images, serial), `clk`, `phi1`,
+  `phi2`, `reset_n`.
+
+The split exists for 1.10's sake: the machine module is what the
+full-system bench instantiates - with our SDRAM controller and a
+behavioural SDRAM model and the real ROM image, under ModelSim (the kernel
+is VHDL; mixed-language is proven, 1.10 item 1) - without `hps_io`, the
+scaler or anything the framework owns, none of which simulates and none
+of which is ours. It is the same seam the MacPlus ladder factors out of
+`dataController_top.sv`, at the altitude where it matters here.
+
+A probe deck (`rtl/dbg_probes.sv`, ours, under a define) exposes to
+SignalTap/ISSP what the bring-up needs read back over JTAG, which is the
+one hardware access permitted (`feedback_merge_compile_gate`): the fetch
+address, the last `AS*` address and FC, cycle and bus-error counters,
+`halted`.
+
+## 3.6 The bring-up ladder and its benches
+
+Cheapest first, each rung a gate for the next; the first three need no
+permission, the fourth always does (`macplus-core-conventions`):
+
+1. **The existing benches stay green** after the RTL changes this section
+   makes - `sim/glue`, `sim/video` (with `c16_en` and the BRAM write
+   port), `sim/system` (with `ecs`), `sim/kernel_bus` and
+   `sim/kernel_upstream` untouched.
+2. **`sim/sdram/`, iverilog**: `rtl/se30_sdram.v` against a behavioural
+   SDRAM model - Micron's `mt48lc16m16a2` Verilog model if its terms
+   allow it in the repo, otherwise ours from the datasheet - holding: the
+   4-clock RAM cycle from an S0 start, back to back, with the data on
+   `rdata` at the acknowledge; every byte-enable pattern of Table 7-7 on
+   writes; an aborted start (ECS without AS) leaves the next cycle intact;
+   refresh meets 7.8 us and never delays a request in the back-to-back
+   pattern; the download port interleaves with CPU cycles without loss;
+   the init ladder's command sequence and its 100 us.
+3. **`sim/machine/`, ModelSim**: the machine module, the controller, the
+   SDRAM model and the ROM image, from reset: (a) the first fetch is the
+   reset vector from ROM through the overlay - `SP` from `$00000000`,
+   `PC` from `$00000004`, then the first instruction at the ROM's reset
+   PC (2.2: `$4080002A` in the ROM's own table); (b) the ROM runs until
+   its first I/O access (a VIA, by 2.11.6's start-up: the ROM clears
+   `OVERLAY`), which is reported and is where Section 4 begins. This is
+   also the measurement 1.10 asked for: the Starter Edition's wall-clock
+   on the full machine, so the instance-limit question gets a number.
+4. **`quartus_map --analysis_and_elaboration MacSE30`**: 0 errors; the
+   warning count is the baseline to record.
+5. **Full compile - ask first, every time.** STA met with the constraints
+   of 3.2; no 332125/332081; the fit recorded against 1.6's table.
+6. **Hardware - Daniel flashes, always.** The probes say the CPU fetched
+   from ROM, ran, and stopped where the machine bench said it would.
+
+Then each peripheral section repeats rungs 1, 4, 5, 6 with its own bench
+at rung 2 and the machine bench extended at rung 3, and the ROM gets one
+step further each time: the VIAs and RAM sizing (the mirror rule's
+acceptance test, 2.11.6), the boot chime (ASC), the disk (SWIM, SCSI), the
+desktop (ADB).
+
+## 3.7 Risks and open items
+
+- **The SDRAM read eye at 94 MHz** and the S0 speculative start are the
+  section's engineering risk; the bench of 3.6 item 2 catches logic, not
+  I/O timing - the sdc constraints (MacLC's 2026-09-12 set, re-derived for
+  the new period) and the first fit's STA are the only evidence before
+  hardware. Fallback if the budget proves short: 4 x (3.2's table), then
+  the split acknowledge (DSACK from a promise, data by the end of S4, a
+  further 1.5 clocks) - a workaround, listed as one.
+- **How an empty RAM bank reads.** The ROM sizes RAM by writing and reading
+  bank boundaries (2.11.6); on the board an unpopulated SIMM socket reads
+  a floating bus. The core's installed size (an OSD option later, 8 MB
+  now) has to make absent addresses fail that test the way the board's
+  do, and what the ROM's sizing code tolerates is read from the ROM
+  (1.11's tooling), not guessed. Open until then.
+- **ModelSim's limits** on the full machine (1.10): measured at rung 3.
+- **The declaration BRAM's write port** changes `se30_video`'s internal
+  ROM; the video bench keeps the preload, the machine bench loads it the
+  hardware way.
+- **Template drift.** `69b8a2a` is a deliberate pin (3.1); the newer
+  template is a later wholesale update, A/B'd on hardware.
+- **The 030 caches** are still absent (1.15 item 9); the ROM's start-up
+  will exercise `CACR` and the kernel must take it. Not this section's.
+- **The Memory option, the 1-5 MB configurations and 16 MB SIMMs** wait
+  on the empty-bank question and are not in the first cut.
+
+## 3.8 The work
+
+1. ~~Write this section.~~ **Done 2026-09-26.**
+2. **The cut**: `sys/` from `Template_MiSTer@69b8a2a`; the project files
+   and `.gitignore`/`.gitattributes` (3.1); the build scripts from
+   `MacLC_MiSTer@045f896`; the README's attribution. Byte-exact where
+   inherited, endings checked per file.
+3. **`rtl/pll/`**: the hand-written `altera_pll` wrapper, 31.3344 and
+   94.0032 MHz, and its qip.
+4. **`rtl/se30_video.v`**: `c16_en`; the declaration ROM as a BRAM with a
+   write port; `sim/video` green.
+5. **`rtl/tg68k/tg68k.v`**: `ecs` (the 68030's `ECS*`, asserted for S0);
+   `sim/system` green and unchanged in its counts.
+6. **`rtl/se30_sdram.v`** and `sim/sdram/` (3.3, 3.6 item 2), datasheets
+   read first.
+7. **`rtl/se30_machine.v`**, **`MacSE30.sv`**, `MacSE30.sdc`, `files.qip`,
+   `rtl/dbg_probes.sv`.
+8. **`sim/machine/`** (3.6 item 3): first fetch, first I/O access, the
+   ModelSim measurement.
+9. Elaboration (3.6 item 4). **Then stop and ask** before the compile.
+
+Then Section 4, the VIAs, documentation first: Apple's VIA cell
+specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
+(2.7), and only then the donor `via6522.sv` (MacLC) and `via6522.vhd`
+(MacPlus, Gideon's) assessed against them.
 
 ## Appendix - where the sources are
 
