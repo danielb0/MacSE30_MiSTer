@@ -419,6 +419,7 @@ substantially broken recently. Open at the time of reading:
 | `mmu.library` $B000 access fault, photographed on hardware | **open**; needs a full integration test |
 | `tb_cpu_wrapper_pmmu` scenarios 3-4, `tb_pmmu_comprehensive` F6 `fault_fc`, two older frame-format tests | pre-existing failures; the suite is **not green** |
 | L1 cache | force-disabled by BUG #454, re-enabled 2026-07-24, **hardware soak still pending** |
+| **16-bit external data bus** (2.13). The kernel moves a longword as two 16-bit beats; the real 68030 moves it in one 32-bit cycle. GLUE hides the cost for RAM and ROM (a beat flagged `lw` is 2 clocks, so the pair is the real 4) and the 8-bit peripherals never had a 32-bit path; instruction fetch is where it is most exposed, since the 68030 fetches longwords and the kernel fetches words | **open, measure**: the gap the wrapper leaves between the two beats is unmeasured until the CPU and GLUE are simulated together (1.10); if it is nonzero, longword RAM traffic is slower than the *Guide*'s 15.67 MB/s by that gap. Added 2026-09-26; the work is 1.9 item 8 |
 
 **Host obligations the contract in 1.4 does not yet carry.**
 
@@ -553,6 +554,32 @@ are closed by the survey, one is reframed.
    errata sheets, and establish which 68882 mask the SE/30 shipped with
    (the IIcx BOM is the nearest paper). Bit-identity to silicon is not
    claimed unless captures from a real 68882 exist to claim it against.
+8. **CPU cycle fidelity - raised 2026-09-26, gated after first boot, measure
+   before deciding.** TG68K is not cycle-identical to a 68030 and no open
+   core is (1.9 above: the field is one author's line plus an MMU-less
+   core; the cycle-exact 68000, fx68k, rests on a microcode recovery that
+   has no public 68030 counterpart). The rule is the same as the 68882's:
+   documented behaviour is the spec, the *MC68030 UM* section 11
+   (instruction execution timing) and section 6 (the on-chip caches), and
+   emulators are cross-checks. In order of value for cost:
+   1. **Measure the beat gap** (1.7): in the CPU-plus-GLUE simulation, the
+      clocks between the two `lw` beats of a longword RAM access. Zero is
+      the real machine; anything else is the number to report.
+   2. **A 32-bit bus mode for the kernel.** The one change that would
+      remove the deviation at its source: a strap beside `CPU="10"`, the
+      two-beat sequencer replaced by one 32-bit beat, the walker's port
+      and every host's DTACK glue following. It is a kernel change, so
+      per 1.12 it goes **upstream first and never into a fork**; scope
+      it only after item 1 says the cost is real.
+   3. **An instruction-timing audit**: run the cputest corpus (1.10) with
+      a cycle counter and tabulate against UM section 11, so the size of
+      the gap is known per instruction class before anyone proposes to
+      close it. The result is a table in this section, not a rewrite.
+   4. **The cache**: hold `TG68K_Cache_030` to UM section 6 - 256-byte
+      direct-mapped instruction and data caches, the `CI` and `CACR`
+      rules 1.11 and 2.11.1 already depend on - in the same corpus.
+   A cycle-exact rewrite of the execution unit is out of scope: it is a
+   new CPU core, and there is nothing to write it from but the manual.
 
 **Answered from the code, not by a build.** Item 5 previously also asked
 whether the IIvi runs 24-bit or 32-bit, because danifunker said "I think this
