@@ -529,7 +529,8 @@ are closed by the survey, one is reframed.
 3. ~~**Diff danifunker's kernel against `030_mmu2`**~~ **Done 2026-09-25 -
    1.12.** The kernel is byte-identical to upstream's tip; the Mac-specific
    set is the wrapper `tg68k.v` plus one silicon-adjudicated ALU hunk and
-   one area workaround. Adopt the IIvi's sync rule: never fork the kernel.
+   one area workaround. ~~Adopt the IIvi's sync rule: never fork the
+   kernel.~~ **Not adopted - owner's decision 2026-09-26, see 1.12.**
 4. **Enumerate our bus masters** against the RMC obligation in 1.7 and design
    the arbitration. Promoted from a check to design work.
 5. **Reproduce the IIvi's claim**: build their core, boot it, confirm the
@@ -541,8 +542,8 @@ are closed by the survey, one is reframed.
    after first boot.** The SE/30 shipped one as standard (*Guide* 2e Table
    3-6), so the finished core has one; the ROM boots without it, so it is
    not on the first-boot critical path. Sequence: merge the `030_mmu2_fpu2`
-   FPU forward onto the audited kernel - **upstream first**, per the sync
-   rule in 1.12, since it is the same author's code; re-enable the
+   FPU forward onto the audited kernel - ~~upstream first, per the sync
+   rule in 1.12~~ **in this tree, tested here** (1.12's decision); re-enable the
    transcendentals; verify under ModelSim against the MC68881/68882 User's
    Manual and an independent corpus (WinUAE's `cputest` covers the 6888x),
    with MAME/WinUAE as cross-checks only; then a Quartus fit, which is the
@@ -568,9 +569,9 @@ are closed by the survey, one is reframed.
    2. **A 32-bit bus mode for the kernel.** The one change that would
       remove the deviation at its source: a strap beside `CPU="10"`, the
       two-beat sequencer replaced by one 32-bit beat, the walker's port
-      and every host's DTACK glue following. It is a kernel change, so
-      per 1.12 it goes **upstream first and never into a fork**; scope
-      it only after item 1 says the cost is real.
+      and the wrapper's DTACK glue following. It is a kernel change, made
+      **in this tree and verified here** against the corpus (1.12's
+      decision); scope it only after item 1 says the cost is real.
    3. **An instruction-timing audit**: run the cputest corpus (1.10) with
       a cycle counter and tabulate against UM section 11, so the size of
       the gap is known per instruction class before anyone proposes to
@@ -985,9 +986,24 @@ changes** - the same commit says the new kernel "drops the LCII in-kernel
 walk-hold latch gates for a wrapper-side contract (their `cpu_wrapper.v`),
 which `tg68k.v` now implements". So 1.7's "at least two kernels, diverged,
 neither a superset" was true when danifunker wrote his post and is false
-now. The IIvi's own `CLAUDE.md` states the rule they arrived at, and it is
-the rule we should adopt verbatim: **kernel fixes land upstream first and
-are re-copied; never fork the kernel; the bus wrapper is ours.**
+now. The IIvi's own `CLAUDE.md` states the rule they arrived at: kernel
+fixes land upstream first and are re-copied; never fork the kernel; the
+bus wrapper is ours. This section first recommended adopting it verbatim.
+
+**DECIDED 2026-09-26 (owner): not adopted.** In Daniel's words: "This is
+an independent core. We should do the testing ourselves and not be
+dependent on other developers. If, once we have it working, we can
+benefit other cores, then that is the time to share code." So: **the
+kernel in this tree is ours to change**; every kernel change is verified
+here, against the cputest corpus and the silicon captures (1.10), by us;
+upstream is a source to read and to diff against, never a gate; and
+sharing is a decision taken after the core works, not before. What
+survives from the IIvi's practice is the engineering, not the rule: keep
+the kernel's delta from `030_mmu2@c3e8a0d` small and listed (the table
+below is that list), so a later re-sync or a contribution back is a
+mechanical diff. The bus wrapper remains the home of everything
+Mac-specific because that is the cleaner design, not because the kernel
+is off limits.
 
 **The whole local delta is two hunks.**
 
