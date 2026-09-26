@@ -1232,8 +1232,9 @@ system is the CPU's `LAS*` **suppressed when FC=7** (`/AS* = /LAS* * (/FC0 +
 /FC1 + /FC2)`) - the FC=7 rule of 1.4 exists in hardware, so CPU-space
 cycles never reach GLUE; `IRQ*(6)`, the slot-`$E` interrupt, is
 `VSYNC*` gated by `VSYNCEN*` (VIA1 PB6) and latched; `BERR*` is on pin 12
-with `LAS*` in its term - **the OE handling of that pin is not yet
-understood and is an open item.**
+with `LAS*` in its term - ~~the OE handling of that pin is not yet
+understood and is an open item~~ read in 2.9 item 4 and timed in 2.11.4:
+a bus-cycle timeout of 18.4-63.3 us, phase-locked to `HSYNC*`.
 
 ## 2.6 Video: the pseudo-slot
 
@@ -1388,11 +1389,15 @@ already records for the walker.
 
 ## 2.8 What Section 2 does not settle, and the work
 
-Not settled: GLUE's internal timing (there is no source; it is a contract);
-the I/O block's exact mirror rule ("wraps eight times", 2.2); ~~the
-declaration ROM's contents and where to get an image~~ (read, 2.10); the `BERR*` term on
-UI6; sheet 9; and everything on sheets 6-8 (SWIM, SCSI, SCC, ASC, power),
-which are later sections. Settled since the first cut, from the *Guide*'s
+Not settled: ~~GLUE's internal timing (there is no source; it is a
+contract)~~ (written as a contract with envelopes, 2.11; the open cells
+there are the VIA alignment, the SCC's own wait-state count, the SCSI
+handshake timeout and the `C3M` pattern); ~~the I/O block's exact mirror
+rule ("wraps eight times", 2.2)~~ (a rule chosen and its residual risk
+stated, 2.11.2); ~~the declaration ROM's contents and where to get an
+image~~ (read, 2.10); ~~the `BERR*` term on UI6~~ (2.11.4); sheet 9; and
+everything on sheets 6-8 (SWIM, SCSI, SCC, ASC, power), which are later
+sections. Settled since the first cut, from the *Guide*'s
 page images (poppler under WSL renders the JBIG2 pages): Figure 3-6's I/O
 rows, the interrupt levels and autovectoring, the VIA bit tables, the
 RAM-size bits and bank rule, and the VBL's origin in VIA2 T1.
@@ -1412,12 +1417,15 @@ Proposed work, cheap and decisive first:
    `scripts/se30_declrom.py` reads it. It settles the interrupt latch, the
    `$FEE0xxxx` screen address, the `$40` row offset and PA6's polarity,
    and hands 2.8 item 5 its bench oracles.
-4. **Write the GLUE specification** as a table of cycles: for each region,
-   the select, the width, the wait states, the DSACK behaviour, and the
-   bus-error timeout - the document the RTL and 1.10's benches are both
-   written against.
+4. ~~**Write the GLUE specification** as a table of cycles: for each
+   region, the select, the width, the wait states, the DSACK behaviour,
+   and the bus-error timeout~~ **Done 2026-09-26 - 2.11.** Seventeen
+   rows, the bus-error window corrected to 18.4-63.3 us, the cache-inhibit
+   finding (no `CIIN` on the board; the PMMU tables do it), and a bench
+   list in 2.11.7.
 5. Only then: the video PALs as RTL, from the named equations, benched
-   against the *Guide*'s line and frame counts (704 x 370 at 15.6672 MHz).
+   against the *Guide*'s line and frame counts (704 x 370 at 15.6672 MHz),
+   and now also extracting row 15's cycle count for 2.11.
 
 ## 2.9 The PALs, named and read
 
@@ -1632,7 +1640,9 @@ determines VRAM access speed.
 4. **`BERR*` is a bus-cycle timeout clocked by `HSYNC*`.** Two internal
    flip-flops watch `HSYNC*` while `LAS*` is asserted; `BERR*` is driven
    low once the cycle has seen `HSYNC*` high, then low, then high again -
-   **between one and two line times, ~45-90 us, with no acknowledge.**
+   ~~between one and two line times, ~45-90 us~~ **between 18.4 and 63.3
+   us after `AS*`, with no acknowledge (re-timed in 2.11.4: the first
+   phase may already be satisfied when the cycle starts).**
    This is what turns "no DSACK" in Figure 3-6 into a bus error, for slot
    space and the PDS as well as for GLUE's own undecoded ranges (GLUE's
    `BERRN` is a second source on the same net).
@@ -1743,6 +1753,297 @@ space: the Slot Manager walks down from `$FEFFFFFF`, and with the ROM's
 A0-A12 on the bus and A16 = 1 selecting it, the 8KB appears at
 `$FEFFE000`-`$FEFFFFFF` and at every 8KB mirror below within the A16 = 1
 half - MAME's `$FEFFE000` is the top one.
+
+## 2.11 The GLUE specification: a table of cycles
+
+Done 2026-09-26 (2.8 item 4). This is the contract the GLUE RTL and 1.10's
+benches are both written to. GLUE has no internal documentation (2.3), so
+every number here is either (a) Apple's, from the *Guide* - the wait-state
+text under Figure 3-6 (p. 133-134), the GLUE function list (p. 112-113),
+the SCSI handshaking section (ch. 11, p. 393), the RAM access rate (ch. 5),
+the PDS tables (ch. 14, Tables 14-5 to 14-7); (b) Motorola's, from the
+MC68030 UM 3ed, section 7 (bus operation: Table 7-1, 7.3.1, 7.3.3, Table
+7-8) and 5.7 (cache inhibit); (c) the schematic's, from the redraw's
+netlist checked against the scan (2.1); (d) the ROM's own tables; or (e) a
+timing read from Bolle's UI6 (2.9, behaviour only). Where a number is not
+in any of those it is marked **open** and given an envelope the bench can
+hold the RTL to, rather than a value invented to fill the cell.
+
+### 2.11.1 The bus, as the 68030 defines it
+
+The clock is `C16M`, 15.6672 MHz, **63.83 ns per clock**. Every cycle on
+this board is an *asynchronous* 68030 cycle terminated by `DSACK`: `STERM*`
+and `CBACK*` are pulled up (RP8, sheet 8) and reach only the PDS (Table
+14-5), so nothing on the logic board ever terminates a cycle synchronously
+or bursts. The UM's rules that the contract rests on (7.3.1, Table 7-1,
+Table 7-8):
+
+- A cycle is states S0-S5, **three clocks with no wait state**. `AS*` and
+  `DS*` assert in S1. `DSACK` must be recognised by the falling edge that
+  ends S2 (setup #47A) for the cycle to finish at S5; otherwise the
+  processor inserts wait states, sampling `DSACK` on every falling edge.
+  **One wait state is one clock**: a one-wait-state cycle is four clocks
+  (255.3 ns), two wait states five (319.2 ns).
+- Read data is latched at the end of S4; on a write the processor holds
+  data through S5. The device must negate `DSACK` and release data within
+  about one clock of `AS*`/`DS*` negating, or the next cycle terminates
+  early.
+- `DSACK1 DSACK0` = `H L` says **8-bit port, data on D31-D24**; `L L` says
+  32-bit. The processor breaks a longword to an 8-bit port into four
+  cycles itself (dynamic bus sizing, 7.2.1); the device never sees the
+  operand size. Every I/O device on the board is on `D(31:24)` (netlist:
+  both VIAs, the SCC, the 53C80, the SWIM, the VRAM port and the
+  declaration ROM) and gets `DSACK0*` only; RAM, ROM and the FPU are
+  32-bit and get both.
+- `BERR*` asserted instead of, with, or after `DSACK` (and `HALT*`
+  negated) terminates the cycle with a bus error exception (Table 7-8
+  cases 3-4). `HALT*` is pulled up and reaches only the PDS, so the board
+  never retries a cycle.
+- A read-modify-write (TAS, CAS, and **every MMU table-search access**,
+  7.3.3) is two ordinary `AS*` cycles with `RMC*` held between them
+  (Figure 7-30: `AS*` negates between the read and the write). `RMC*` is
+  pulled up and goes only to the PDS; GLUE does not see it and needs no
+  special case.
+- `CIIN*` is pulled up (RP8) and goes nowhere else - not to GLUE, not to
+  the PDS (it is absent from Table 14-5, which lists `/CIOUT`, `/CBREQ`,
+  `/CBACK` and `/STERM`). **The SE/30 never inhibits caching in hardware.**
+  What keeps VIA, SCSI and SCC reads out of the data cache is the ROM's
+  PMMU tables (1.11, re-read for this): the 32-bit table sets `CI` on
+  every 256MB from `$50000000` up, the 24-bit table sets it on `$F00000`
+  (I/O) and on `$900000`-`$E00000` (the slots, including the video), and
+  RAM and ROM are cacheable in both. **For the core:** the CPU's cache
+  must honour the descriptor `CI` bit (the 68030 does this internally;
+  `CIOUT*` is its report of it), and nothing in GLUE drives `CIIN`.
+  A core whose cache ignored `CI` would cache VIA reads and hang the ADB
+  and RTC polling loops.
+- Interrupt acknowledge: `AVEC` is grounded (sheet 1), and UI6 suppresses
+  `AS*` for FC=7 (2.9), so the acknowledge cycle autovectors at its
+  earliest and no device sees it (2.7).
+
+### 2.11.2 The address decode
+
+What GLUE can see (2.3, pin list): `A31-A24`, `A22`, `A20`, `A17-A13`,
+`A1-A0`, `FC2-FC0`, `SIZ1-SIZ0`, `R/W`, `AS*`, `DS*`, `OVERLAY`,
+`RAMSIZ1-0`. Not `A23`, `A21`, `A19`, `A18`, nor anything from `A12` down
+to `A2`. Two consequences fall straight out of that list:
+
+- **The RAM bank boundary.** *Guide* Table 4-10 puts the boundary between
+  bank A and bank B at the size of bank A: 1MB, 4MB, 16MB or 64MB for
+  `RAMSIZ` = 00, 01, 10, 11 (256 Kbit, 1 Mbit, 4 Mbit, 16 Mbit ICs, four
+  SIMMs of eight per bank). Those four boundaries are address bits `A20`,
+  `A22`, `A24`, `A26` - exactly the even bits GLUE has and the odd ones
+  (`A21`, `A23`) it lacks. The ROM's own size table (1.11: `01 02 04 05
+  08 10 11 14 20 40 41 44 50 80` MB) is every sum of two banks drawn from
+  {0, 1, 4, 16, 64} MB, which confirms the bank sizes. (MAME's
+  `via2_out_a` places bank B at 1, 2, 8 and 32 MB; that disagrees with
+  both the *Guide* and the ROM's table and is not used.)
+- **The I/O decode is on `A17-A13`** and cannot distinguish anything
+  finer than `$2000`; the devices use the low bits themselves (VIAs
+  `RS3-0` = `A12-A9`; SWIM `A3-A0` = `A12-A9`; SCC `D/C`, `A/B` = `A2`,
+  `A1`; 53C80 `A2-A0` = `A6-A4`). Within `$50000000-$50FFFFFF` the bits
+  `A23`, `A21`, `A19`, `A18` are physically ignored, so the 128KB device
+  block repeats at least 16 times in the 16MB. **Whether `A22` and `A20`
+  take part is open**, but they cannot be required to be zero: the
+  24-bit map needs `$50F0xxxx`-`$50F1xxxx` (`A23-A20` = 1111) to decode,
+  and the 32-bit map needs `$5000xxxx`-`$5001xxxx` (all zero). The
+  figure's "presently wraps eight times" cannot be reproduced from the
+  pins either way. **Rule for the RTL:** decode I/O on `A31-A24` = `$50`
+  and `A17-A13`, ignoring `A23-A18`. It serves every address the ROM
+  uses - the `$50xxxxxx` constants in the ROM (start-up code and machine
+  tables, ROM offsets `$00BC`-`$07B6`, plus a few register offsets in the
+  drivers) are `$50F00000`, `$50F02000`, `$50F04000`, `$50F06000`,
+  `$50F08000`, `$50F10000`, `$50F12000`, `$50F14000`, `$50F16000`,
+  `$50F18000`, `$50F1C000` and offsets inside those windows, nothing
+  outside them - and it is the most permissive rule the pins allow. Residual risk: the real GLUE may bus-error some mirror
+  this rule accepts; no software is known to depend on that.
+
+The regions, in the order the CPU's address bits select them
+(*Guide* Figure 3-6 and Table 3-8; 2.2):
+
+| region | select | condition |
+|---|---|---|
+| RAM | `RASA`/`RASB`, `CASxx`, `RCMUX` | `A31-A30` = 00 and `OVERLAY` = 0. Bank A below the `RAMSIZ` boundary, bank B above it; bits above the two banks are ignored ("contents repeat through the unused space", *Guide* ch. 5) |
+| ROM | `ROMN` | `A31-A28` = `$4`, or `A31-A30` = 00 with `OVERLAY` = 1 ("the RAM cannot be addressed at all" under overlay, *Guide* ch. 3). The 256KB image repeats through the whole `$4` space: GLUE has no `A18`, `A19`, `A21`, `A23` and the ROM sees `A17-A2` |
+| I/O | one of the selects below | `A31-A24` = `$50`, then `A17-A13` |
+| FPU | `FPUN` | FC = 7 and `A17` = 1, `A16` = 0, `A15-A13` = 001 (CPU-space type `0010` on `A19-A16` is coprocessor communication, UM 7.4; the *Guide* says "A19-A16 plus the function codes, and the coprocessor ID on A15-A13"; GLUE lacks `A19-A18`, so it can only test `A17-A16`, which still separates it from the interrupt acknowledge's `1111` and the breakpoint's `0000`) |
+| slot space | `NUBUSN` | `A31-A29` >= 011, i.e. `$60000000`-`$FFFFFFFF` (Table 14-7: "indicates address in the memory range $60000000 to $FFFFFFFF ... active when the CPU addresses the built-in video display"). GLUE gives no `DSACK` here; the video PALs or a PDS card do |
+| everything else | nothing | `$51000000-$5FFFFFFF` and `$50008000-$5000FFFF`: no select, no `DSACK` |
+
+### 2.11.3 The cycles
+
+Clocks are `C16M` periods from S0 of the cycle, assuming the device's own
+timing fits the wait states Apple states, which it must since Apple chose
+them. "Envelope" means the bench asserts the cycle ends inside the range
+and the exact value is open.
+
+| # | region | select | width | DSACK | wait states | clocks | source |
+|---|---|---|---|---|---|---|---|
+| 1 | RAM read/write | `RASx`, `CASLL/LM/UM/UU` per byte lane, `RCMUX` | 32 | both, GLUE | **1** | **4** | *Guide* p. 134 note: "each access of RAM or ROM involves one wait state ... in contrast to the Macintosh II, in which there are two". Cross-check: the *Guide*'s "average RAM access rate" figures are 15.67 MB/s for the SE/30 and 12.53 MB/s for the II, which are exactly 4 bytes every 4 and every 5 clocks at 15.6672 MHz |
+| 2 | ROM read | `ROMN` | 32 | both, GLUE | 1 | 4 | same note. Writes: no source says; treat as a normal cycle with `DSACK` and no effect, which is what a ROM does |
+| 3 | VIA1 `$50000000`, VIA2 `$50002000` | `VIA1CSN`, `VIA2CSN` | 8 | `DSACK0*`, GLUE, **E-synchronous** | variable | **envelope 12-32** | Figure 3-6 "special"; "the VIAs are MC6800-compatible peripheral devices that require synchronous communication with the MC68030". Detail below |
+| 4 | SCC `$50004000` | `SCCENN` + `SCCRDN`/`SCCWRN` from `R/W` | 8 | `DSACK0*`, GLUE | **open** (>= 1) | >= 4, **plus the hold-off** | Figure 3-6 "special"; "the SCC requires 2.2 us between accesses for its internal lines to stabilize; in the case of back-to-back accesses to the SCC, the GLUE holds off the second access for that amount of time". 2.2 us = **34.5 clocks** from the end of the previous SCC cycle to the start of the next select |
+| 5 | SCSI handshake `$50006000` | `SCSIDACKN` | 8 | `DSACK0*`, GLUE, **held until `SCSIDRQ`** | until DRQ | until DRQ, else `BERR` | Figure 3-6 "special"; *Guide* ch. 11: the general logic "does not complete each byte transfer until the SCSI controller's DRQ line goes high", and "if the read or write operation over the SCSI bus is not completed within certain time (different for different machines), the general logic IC asserts a bus error". The time is not given for the SE/30: **open**, bounded by 2.11.4 |
+| 6 | expansion `$50008000-$5000FFFF` | none | - | **none** | - | timeout -> `BERR` | Figure 3-6 "Expansion address space (No DSACKx)" |
+| 7 | SCSI `$50010000` | `SCSIN` + `IORN`/`IOWN` | 8 | `DSACK0*`, GLUE | 1 | 4 | Figure 3-6; "one wait state for SWIM accesses and for SCSI accesses that do not involve hardware handshaking" |
+| 8 | SCSI pseudo-DMA `$50012000` | `SCSIDACKN` + `IORN`/`IOWN` | 8 | `DSACK0*`, GLUE | 1 | 4 | Figure 3-6 "SCSI (pseudo-DMA)", one wait state: the 53C80's DMA data path (`/DACK` instead of `/CS`) without the DRQ wait |
+| 9 | ASC `$50014000` | `SNDN` | 8 | `DSACK0*`, GLUE | **2 read, 1 write** | **5 read, 4 write** | Figure 3-6; "two wait states for reads from the ASC and one for writes" |
+| 10 | SWIM `$50016000` | `IWMN` | 8 | `DSACK0*`, GLUE | 1 | 4 | Figure 3-6 |
+| 11 | expansion `$50018000-$5001FFFF` | none on the board | - | `DSACK0*`, GLUE | 1 | 4 | Figure 3-6 "Expansion address space (One wait state)" - GLUE acknowledges an 8-bit port that is not there; reads return the floating bus |
+| 12 | `$50020000-$50FFFFFF` | as 3-11 | | | | | mirrors, per 2.11.2 |
+| 13 | `$51000000-$5FFFFFFF` | none | - | none | - | timeout -> `BERR` | Figure 3-6 "Undecoded address space (No DSACKx)" |
+| 14 | FPU, FC = 7 | `FPUN` | 32 | **both, from the 68882** (its `DSACK0/1` pins are on the bus, sheet 1) | the FPU's | the FPU's | GLUE only decodes; "the FPU communicates directly with the main processor without further intervention of the memory management unit or GLUE IC". UI6 suppresses `AS*` for FC = 7, so GLUE's acknowledge and timeout logic never see the cycle - and neither does the bus-error timeout (2.11.4) |
+| 15 | slot `$E` video `$FE000000-$FEFFFFFF` | `NUBUSN`, then UE7/UE6 | 8 | `DSACK0*`, **from UE6** | UE7's state machine | **open until 2.8 item 5** | 2.6, 2.9; the count is what sets VRAM speed and the PrimaryInit fill time (2.10) |
+| 16 | PDS pseudo-slots `$F9`-`$FB`, and `$60000000`-`$F8FFFFFF`, `$FC`-`$FD`, `$FF` | `NUBUSN` | card's | card's, or none | card's | timeout -> `BERR` when empty | Figure 3-6, Table 3-9: "an access to any address range to which no device is assigned results in a bus error" |
+| 17 | RAM, ROM in any of the above during a refresh | | | | +1 RAM cycle at most | | *Guide* ch. 5: "except for memory refresh, which takes one access cycle every 15.6 us, the main processors in those computers have uninterrupted access to RAM". 15.6 us = **244 clocks**; 256 rows in 4 ms |
+
+**The VIA cycle (row 3).** `E` is 783.36 kHz = `C16M/20`, period 1.2766
+us (20 clocks); the *Guide* gives its frequency and nothing about its duty
+cycle (**open**; the 68000's E was 6 low : 4 high, and a 10 : 10 split is
+the other candidate). A 65C22 is a Phi2 device: `CS`, `RS` and `R/W` must
+be valid before the rising edge of `E`, read data is valid a part of a
+phase after that edge, and write data is latched at the falling edge. So a
+VIA access waits for the next `E`-high phase in which the select can be
+presented, and `DSACK0*` is timed so the processor latches read data at,
+or just after, the falling edge of `E` that ends that phase. The length of
+the cycle therefore depends on where `AS*` fell within the `E` period:
+about one `E` phase at best, one full period plus a phase at worst - **12
+to 32 clocks** as an envelope. There is no SE/30 source for the exact
+state machine. The nearest Apple document is the VIA Cell spec of Nov 1989
+(the ASIC re-implementation of the same 6522 contract, "synchronized to
+the internal C783K clock in order to make operation identical to the 6523
+VIA which is required for some time-critical software"), whose own bus
+timing is **CS to DSACK low 590-1870 ns = 9.25 to 29.25 C16M cycles** (its
+spec 6). That is the envelope above to within the sync stages; it is
+Apple's design of the mechanism, not the SE/30's chip, and is cited as a
+cross-check only. The bench holds the RTL inside the envelope and, more
+importantly, checks that the VIA's timers count `E` correctly (the
+60.15 Hz VBL and the ADB timeouts depend on that, 2.6, 2.7) - which
+depends only on `E`'s frequency, not on the access alignment.
+
+**The SCC cycle (row 4).** Two mechanisms: the access itself (an 8530 read
+or write strobe of at least one wait state; the *Guide* gives no count -
+open, bench to >= 4 clocks) and the **2.2 us recovery**. The recovery is a
+timer that starts when an SCC cycle ends and, while running, holds the
+next SCC select and its `DSACK0*` off. Only SCC-to-SCC back-to-back
+accesses are delayed; a VIA or RAM access in between is not. The SCC's own
+PCLK is `C3M`, 3.672 MHz: not an integer division of 15.6672 (the ratio is
+exactly **15/64**, or 15/128 of `C32M`), so GLUE makes it as an averaged
+clock. **How is open**; the MacLC core's `v8_clocks.sv` makes its 3.672
+MHz the same way (a phase accumulator) and is the engineering precedent,
+not evidence of GLUE's pattern. `SYNC3M`, the SCC's channel-A `RTxC`, is
+`C3M` gated or selected under VIA1 PA3 `vSync` ("1 = synchronous modem
+support, channel A", Table 4-5) - the exact function belongs to the SCC
+section.
+
+**The SCSI cycles (rows 5, 7, 8).** Three windows, one chip. `$50010000`
+is the 53C80's register file through `/CS` with `/IOR`/`/IOW` from `R/W`
+and `DS*`. `$50012000` and `$50006000` both assert `/DACK` instead - the
+DMA data register - and differ only in that `$50006000` makes GLUE wait
+for `DRQ` before `DSACK0*`, with a bus error if `DRQ` never comes, and
+`$50012000` does not wait. The *Guide* (ch. 11) describes the CPU doing
+longword moves through the 8-bit port, four `DSACK0`-terminated byte
+cycles per longword, each held by the handshake, and gives the resulting
+rate as about 1.4 MB/s for blind transfers - a figure the bench can
+reproduce with a target that raises `DRQ` immediately. `DRQ` also goes to
+VIA2 CA2 and `IRQ` to VIA2 CB2 (2.7). MAME maps `$50006000` and
+`$50012000` to the same handler; the *Guide* distinguishes them and so
+does this table.
+
+### 2.11.4 The bus-error timeout, from UI6
+
+2.9 item 4 read the mechanism; here is its timing, corrected. UI6 (clock
+`C32M`) has two internal flip-flops, `nc14` and `nc15`, both cleared while
+`LAS*` is negated. While `LAS*` is asserted: the first sets when `HSYNC*`
+is **high**; the second sets when the first is set and `HSYNC*` is
+**low**; and `BERR*` is driven low when both are set, `HSYNC*` is high
+again, and `AS*` (the system strobe, i.e. FC != 7) is asserted. The cycle
+must therefore witness `HSYNC*` high, then low, then high - three
+successive phases of the horizontal drive, whose period is one line
+(44.93 us) with `HSYNC*` low for 288 pixels (18.38 us) and high for 416
+(26.55 us) (2.9). Counting from `AS*`:
+
+| `AS*` falls ... | wait for high | wait for low | wait for high | `BERR*` after |
+|---|---|---|---|---|
+| just before `HSYNC*` falls | 0 | ~0 | 18.38 us | **18.4 us (min)** |
+| just after `HSYNC*` rises | 0 | 26.55 | 18.38 | 44.9 us |
+| just after `HSYNC*` falls | 18.38 | 26.55 | 18.38 | **63.3 us (max)** |
+
+So **a cycle with no acknowledge is bus-errored between 18.4 and 63.3 us
+after `AS*`** - 288 to 992 clocks - not the "one to two line times,
+45-90 us" that 2.9 first said; that reading missed that the first phase
+can already be satisfied when the cycle begins. The timeout is
+phase-locked to the video, so it is not a constant; the bench asserts the
+window, not a value. Two corollaries: coprocessor cycles (FC = 7) cannot
+time out, because `AS*` is in the enable term; and the video PALs' own
+cycles are timed off the same `HSYNC*`, so a slot-`$E` access that UE7
+never acknowledges dies inside this window like any other. GLUE's `BERRN`
+is a second driver of the same net for "a transfer that fails to complete"
+(2.3) - the SCSI handshake timeout of row 5 is the case the *Guide* names.
+Its value is **open**; if GLUE is faster than UI6 for some region, the
+core's single timeout is the slow one and software sees only a later
+exception. The 68030 requires `BERR*` to be negated after `AS*` negates
+(Table 7-8 text), which the `AS*` term guarantees.
+
+### 2.11.5 Interrupts
+
+GLUE's encoder (*Guide* Table 3-4, the II's; the SE/30 pin list has every
+input it names): `VIAIRQ1N` -> level 1, `VIAIRQ2N` -> 2, `SCCIRQN` -> 4,
+`PWRIRQN` -> 6 (pulled up on the SE/30, RP8; "early Macintosh II only"),
+`NMIN` -> 7; `IPL2-0N` carry the highest asserted level and nothing else,
+all autovectored (2.7). The six `SLTIRQxN` are ORed to `SLTIRQN` = VIA2
+`CA1`, and are also readable on VIA2 `PA5-0`; on this board `SLTIRQ6N` is
+UI6's latched `VSYNC*` (2.9, 2.10) and `SLTIRQ1-3N` come from the PDS
+(Table 14-7). Levels are level-sensitive: the encoder follows its inputs
+combinationally, and the sources (VIA `IRQ`, SCC `INT`) hold until
+serviced.
+
+### 2.11.6 Reset, overlay and RAM sizing at start-up
+
+`RESET*` is pulled up (RP7) and shared by the CPU, FPU, VIAs, SWIM and
+53C80 (the 8530 has no reset pin); its driver is on sheet 7 (the switch)
+and in the power section, later. At reset a 65C22's `DDRA` is zero, so
+`OVERLAY` (VIA1 PA4) is undriven and must read high for **overlay to be
+on** and the reset vector at `$00000000` to come from ROM (2.2); the
+*Guide* says only that the ROM "switches ... by setting low the Overlay
+signal", and neither `OVERLAY` nor `RAMSIZ` has an external pull-up (sheet 8's
+packs RP7-RP9 checked), so the high state is the 65C22's own undriven
+port-A level - the mechanism the Plus and SE overlay bits rely on too.
+**The core's VIA model must read an undriven port-A output bit as 1.**
+The ROM clears PA4 to switch the map. VIA2 PA7-PA6 (`RAMSIZ`) start the
+same way, so GLUE starts with 64MB banks until the ROM sizes bank A and
+writes the bits; the ROM's sizing probes RAM for aliases, which is where the mirror
+rule of 2.11.2 is tested for real - **the ROM reporting the installed
+size correctly is the acceptance test for that rule.**
+
+### 2.11.7 What the benches hold the RTL to
+
+From this section, in the order 1.10's benches will want them:
+
+1. Cycle lengths in clocks, per row of the table: RAM 4, ROM 4, ASC 5
+   read / 4 write, SWIM 4, SCSI 4, expansion-with-DSACK 4; the VIA
+   envelope 12-32 with `E` = `C16M/20`; SCC >= 4 and the 34.5-clock
+   hold-off between consecutive SCC cycles only.
+2. `DSACK` encoding per row: `DSACK0*` alone for every I/O device, both
+   for RAM and ROM, none from GLUE for the FPU, slot space or the
+   no-DSACK regions.
+3. Data lane: I/O reads and writes on `D(31:24)` only; a longword move to
+   a VIA is four cycles.
+4. The bus-error window: `BERR*` within 18.4-63.3 us of `AS*` for rows 6,
+   13, 16 and for row 5 without `DRQ`; never for FC = 7.
+5. SCSI handshake: `DSACK0*` follows `DRQ`; the *Guide*'s ~1.4 MB/s blind
+   rate with an instant target.
+6. Decode: every address in the ROM's base-address table (2.11.2) reaches
+   the device Figure 3-6 puts there, in both the 24-bit and the 32-bit
+   map; `$FEE08040` reaches VRAM (2.10).
+7. The RAM bank rule: bank B starts at 1, 4, 16 or 64 MB by `RAMSIZ`; the
+   ROM's sizing pass reports the configured size.
+8. Overlay: with `OVERLAY` high, reads at `$00000000` return ROM and no
+   `RAS` is issued; after the ROM clears it, RAM.
+9. Refresh: one RAM-cycle stall at most every 244 clocks, never a
+   corrupted access.
+10. Cache: no cycle asserts `CIIN`; the CPU-side check is that a VIA
+    register read is never served from the data cache (a `CI` descriptor
+    test, in the PMMU bench of 1.10).
 
 ## Appendix - where the sources are
 
