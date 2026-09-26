@@ -10,6 +10,13 @@ not parse).
 `run.sh` disassembles Bolle's six JEDECs (read-only, CC-BY-NC-SA; not in
 this repo) with these names and the GAL polarity bits applied.
 
+`palsim.py` runs the four video PALs (UG7, UG6, UE7, UE6) plus the two
+LS393 counters clock by clock from those equations, drives a 68030-shaped
+slot-E cycle into them, and prints the line/frame cross-checks, the
+wait-state histogram by start phase, state traces, and the back-to-back
+write rate. `SE30_PLAN.md` 2.12 is the reading; `rtl/se30_video.v` is
+written to it. Takes about a minute.
+
 Conventions in the output:
 
 - `X := ...` registered output, `X = ...` combinatorial. A leading `/`

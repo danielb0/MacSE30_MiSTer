@@ -1434,17 +1434,19 @@ Proposed work, cheap and decisive first:
    `HSYNC*` 288 from 536, `VSYNC*` 4 from 344, row 1 first and PA6 = 1 the
    upper 32KB, black blanking, `DSACK0*` only during an access, the ROM
    half byte-exact and mirrored, the `IRQ6*` latch's whole cycle, and
-   PrimaryInit's 43,776-byte fill. **Still open, as a parameter
-   (`SLOT_ACK`): the slot access length - the RTL acknowledges on the
-   third clock and the bench prints 5 clocks per access, 16.8 ms for the
-   fill; row 15 of 2.11 takes the real number when UE7 is read.** The
-   frame length is the `V_TOTAL` parameter (370), so the 372 question is
-   one number in the DUT. Not yet done: a `cep` enable for running at a
-   core clock above `C16M`, and the GLUE-side decode (A23-A17 ignored,
-   2.10 item 2), which belongs with GLUE.
-6. Next: read UE7/UE6 as a state machine (a small equation simulator over
-   Bolle's JEDECs, behaviour only) to close `SLOT_ACK`; then the GLUE RTL
-   against 2.11.
+   PrimaryInit's 43,776-byte fill. The frame length is the `V_TOTAL`
+   parameter (370), so the 372 question is one number in the DUT. Not
+   yet done: a `cep` enable for running at a core clock above `C16M`, and
+   the GLUE-side decode (A23-A17 ignored, 2.10 item 2), which belongs
+   with GLUE.
+6. ~~Read UE7/UE6 as a state machine (a small equation simulator over
+   Bolle's JEDECs, behaviour only) to close the slot access length~~
+   **Done 2026-09-26 - 2.12, `scripts/se30_pals/palsim.py`.** The RTL now
+   carries UE7's machine state for state; the bench has 44 checks
+   including the 5/6/7-clock accesses, the pixel-560 acknowledge and the
+   20.14 ms fill. The pixel/line numbering of 2.9 was off by one and is
+   corrected there and in 2.12.
+7. Next: the GLUE RTL against 2.11, bench first.
 
 ## 2.9 The PALs, named and read
 
@@ -1502,7 +1504,7 @@ timing measured by simulating the named equations pixel by pixel:
 |---|---|---|
 | pixels per line | 704 | 704 (512 + 192) |
 | bytes fetched per active line | 64 | 512 pixels |
-| `HSYNC*` low | 288 px from pixel 536 | not given |
+| `HSYNC*` low | 288 px from pixel ~~536~~ 535 (numbering fixed in 2.12) | not given |
 
 **Vertical timing - UG6 with the UF8 counter.** UG6's internal Q1-Q3 form a
 mod-8 pixel phase; `VIDTIME` is *vertical-active AND phase 2* - one pulse
@@ -1513,8 +1515,8 @@ decodes of the line-pair count `VADR`. `VIDOUT` is `SERVID` registered
 
 | | measured | *Guide* 12 |
 |---|---|---|
-| active lines | 342 (line pairs 1-171) | 342 |
-| `VSYNC*` | low 4 lines, from line 344 | not given |
+| active lines | 342 (~~line pairs 1-171~~ lines 1-342 on 2.12's numbering) | 342 |
+| `VSYNC*` | low 4 lines, from line ~~344~~ 343 (2.12) | not given |
 | **lines per frame** | **372** (`LCTRRST` at pair 186) | **370** |
 | frame rate | 59.82 Hz | 60.15 Hz |
 
@@ -1613,8 +1615,8 @@ decision to reweigh the tiers, and it is Daniel's, not the plan's.
    pins Trammell Hudson tapped on his SE). 16.62 ms / 60.15 Hz is 370;
    16.71 ms / 59.82 Hz is 372. A second, easier reading on the same
    probe: the gap from `VSYNC*`'s falling edge to the first line of video.
-   In this reading active video ends at line 343, `VSYNC*` falls at 344
-   and the next frame's video starts at line 374, so the whole 30-line
+   In this reading (2.12's numbering) active video ends at line 342, `VSYNC*` falls at 343
+   and the next frame's video starts at line 373, so the whole 30-line
    blanking sits after the `VSYNC*` edge: **1.35 ms means 372, 1.26 ms
    (28 lines - Trammell's SE figure exactly) means 370.** Take the period
    as well, since the gap alone assumes the trailing gap is zero. Record
@@ -1642,9 +1644,11 @@ CAS) and `VIDMUX*` (address mux select) per state; and `DSACK0*`, driven
 **only while an access is in progress** (its output enable is an internal
 "access active" term) and asserted at a fixed state - the "special
 `/DSACK0`" of Figure 3-6 for the video, done in a PAL rather than in GLUE.
-The exact cycle count from `AS*` to `DSACK0*` is not extracted here; it
+~~The exact cycle count from `AS*` to `DSACK0*` is not extracted here; it
 will be, by simulation, when the video RTL is written, and it is what
-determines VRAM access speed.
+determines VRAM access speed.~~ Extracted in 2.12 by running the
+equations: 5, 6 or 7 clocks, up to 27 across the once-per-line row
+transfer.
 
 **UI6 - CPU-side glue, four functions.**
 
@@ -1911,7 +1915,7 @@ and the exact value is open.
 | 12 | `$50020000-$50FFFFFF` | as 3-11 | | | | | mirrors, per 2.11.2 |
 | 13 | `$51000000-$5FFFFFFF` | none | - | none | - | timeout -> `BERR` | Figure 3-6 "Undecoded address space (No DSACKx)" |
 | 14 | FPU, FC = 7 | `FPUN` | 32 | **both, from the 68882** (its `DSACK0/1` pins are on the bus, sheet 1) | the FPU's | the FPU's | GLUE only decodes; "the FPU communicates directly with the main processor without further intervention of the memory management unit or GLUE IC". UI6 suppresses `AS*` for FC = 7, so GLUE's acknowledge and timeout logic never see the cycle - and neither does the bus-error timeout (2.11.4) |
-| 15 | slot `$E` video `$FE000000-$FEFFFFFF` | `NUBUSN`, then UE7/UE6 | 8 | `DSACK0*`, **from UE6** | UE7's state machine | **open until 2.8 item 5** | 2.6, 2.9; the count is what sets VRAM speed and the PrimaryInit fill time (2.10) |
+| 15 | slot `$E` video `$FE000000-$FEFFFFFF` | `NUBUSN`, then UE7/UE6 | 8 | `DSACK0*`, **from UE6**, one clock wide | 2 or 3 isolated, 4 back-to-back, up to 24 during the once-per-line row transfer | **5, 6, 7; up to 27** | **read 2.12** by running the PALs; the fill of 2.10 takes 20.14 ms |
 | 16 | PDS pseudo-slots `$F9`-`$FB`, and `$60000000`-`$F8FFFFFF`, `$FC`-`$FD`, `$FF` | `NUBUSN` | card's | card's, or none | card's | timeout -> `BERR` when empty | Figure 3-6, Table 3-9: "an access to any address range to which no device is assigned results in a bus error" |
 | 17 | RAM, ROM in any of the above during a refresh | | | | +1 RAM cycle at most | | *Guide* ch. 5: "except for memory refresh, which takes one access cycle every 15.6 us, the main processors in those computers have uninterrupted access to RAM". 15.6 us = **244 clocks**; 256 rows in 4 ms |
 
@@ -2063,6 +2067,67 @@ From this section, in the order 1.10's benches will want them:
 10. Cache: no cycle asserts `CIIN`; the CPU-side check is that a VIA
     register read is never served from the data cache (a `CI` descriptor
     test, in the PMMU bench of 1.10).
+
+## 2.12 The slot-E access, read by running the PALs
+
+Done 2026-09-26 (2.8 item 6). `scripts/se30_pals/palsim.py` compiles the
+equations `jedec_dis.py` recovers from Bolle's UG7, UG6, UE7 and UE6 into
+a clock-by-clock simulation - the three registered parts on the pixel
+clock with feedback from their own pins, UE6 combinatorial to a fixpoint
+in both halves of the clock (its `VIDMUX*` uses `C16M` as a level), the
+two LS393 counters on the falling edges of `C2M` and `TWOLINE` with their
+asynchronous clears - and drives a 68030-shaped slot cycle into it:
+address from S0, `NUBUS*` at the falling edge starting S1, `DSACK0*`
+sampled at each following falling edge, negation at the edge starting S5.
+It is behaviour read from a rewrite (1.6); the RTL is written to the
+numbers, not the equations.
+
+**Numbering, fixed here for everything that follows.** Pixel 0 is the
+clock after `HCTRRST` is high; line 0 is the first full line after
+`LCTRRST` fires (it is a decode of the pair counter and fires inside a
+line). On that convention the run gives: 704 clocks per line; **`HSYNC*`
+low 288 clocks from pixel 535**; **lines 1-342 active** (`VIDTIME` pulses
+88 times per active line, at pixels 5, 13, ...); **`VSYNC*` low four
+lines from line 343**; 372 lines per frame from Bolle's UG6. 2.9's 536,
+344 and "lines 2-343" came from an earlier one-off script whose pixel
+origin was one later; the structure is identical and the RTL and bench now
+use these figures. The 370-versus-372 question is unchanged.
+
+**UE7, as the CPU sees it.** A five-bit machine that idles by alternating
+between two states every clock. A request is taken only from one of
+them; from there it runs four more states and `DSACK0*` is low during
+**one clock, the third after the request was taken**, which the 68030
+samples at that clock's falling edge. So:
+
+| access | clocks | wait states |
+|---|---|---|
+| isolated, request lands on the taking state | **5** | 2 |
+| isolated, request lands on the other | **6** | 3 |
+| back-to-back (the 68030's next AS* one clock after the last) | **7** | 4 - the machine passes through both idle states before it can take again |
+| request during the row transfer (below) | 7 to **27** | up to 24 |
+
+Read and write, VRAM and declaration ROM, active and blank lines: the
+same table. Data enable on a read is asserted for the two clocks ending
+with the `DSACK0*` clock; the VRAM strobe and the write strobe span three
+clocks around it.
+
+**The row transfer.** Once per line, when `HSYNC*` falls, the machine
+leaves the idle loop (from the non-taking state, so one clock later on
+alternate lines) and runs a fixed **21-clock** sequence - the VRAMs'
+serial-register load for the next line, `VID/V` low for 20 of them -
+during which requests wait; an access already in flight finishes first
+and delays it. On exit a waiting request is taken through one extra
+state, so **every request made during the window is acknowledged in the
+same clock: pixel 560**, whether it arrived at 535 or at 556. The window
+is 21 clocks, odd, which is why the idle alternation's phase flips every
+line. It runs in blank lines too.
+
+**What it costs.** Back-to-back writes across active lines average
+**7.21 clocks**; PrimaryInit's 43,776-byte grey fill (2.10) takes **20.14
+ms**, which is the number 2.11 row 15 needed. The RTL (`rtl/se30_video.v`)
+implements this machine state for state, and the bench's test 11 holds
+it to the 5/6/7 clocks, the pixel-560 acknowledge, the transfer in a
+blank line, and the fill time within 0.3%.
 
 ## Appendix - where the sources are
 

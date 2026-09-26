@@ -8,9 +8,9 @@
 //
 //     1. 704 pixel clocks per line                       Guide 12
 //     2. 370 lines per frame, 342 of them active, each
-//        fetching 64 bytes; active lines are 2..343       Guide 12; 2.9
-//     3. HSYNC* low 288 clocks from pixel 536             2.9 (UG7 read)
-//     4. VSYNC* low 4 lines from line 344                 2.9 (UG6 read)
+//        fetching 64 bytes; active lines are 1..342       Guide 12; 2.12
+//     3. HSYNC* low 288 clocks from pixel 535             2.12 (UG7 run)
+//     4. VSYNC* low 4 lines from line 343                 2.12 (UG6 run)
 //     5. VRAM through the slot port: the first active
 //        line shows row 1 (offset $40) of the page PA6
 //        selects, PA6 = 1 being the upper 32KB; MSB
@@ -27,10 +27,15 @@
 //        then the first, second and last active lines
 //        show the right rows                              2.10
 //
-//   The slot access length (AS* to DSACK0*) is MEASURED and printed, not
-//   asserted: plan 2.11 row 15 is open until UE7's state machine is read.
-//   The only bound applied is that it completes well inside the bus-error
-//   window (18.4 us = 288 clocks, plan 2.11.4).
+//    11. the slot access, as UE7 does it (plan 2.12): 6 or 7
+//        clocks alternating with the idle phase; a request
+//        at pixel 535 waits for the row transfer and is
+//        acknowledged at pixel 560; at 556 it takes 7, at
+//        557 6; the same in a blank line                  2.12 (UE7/UE6 run)
+//
+//   Cycle length here is counted from the clock sel is first seen to the
+//   clock after the one in which DSACK0* is sampled, plus the release
+//   clock: a 2-wait-state cycle reads as 6.
 //
 // THE 370/372 QUESTION
 //   The DUT is built to the Guide's 370 (parameter V_TOTAL).  Plan 2.9
@@ -66,11 +71,11 @@ module tb_se30_video;
   localparam H_ACTIVE     = 512;
   localparam V_TOTAL      = 370;
   localparam V_ACTIVE     = 342;
-  localparam FIRST_ACTIVE = 2;                   // lines 0 and 1 are blank (2.9: active pairs 1..171)
-  localparam LAST_ACTIVE  = FIRST_ACTIVE + V_ACTIVE - 1;   // 343
-  localparam HSYNC_START  = 536;
+  localparam FIRST_ACTIVE = 1;                   // line 0 is blank (2.12: pixel 0 = clock after HCTRRST, line 0 = first full line after LCTRRST)
+  localparam LAST_ACTIVE  = FIRST_ACTIVE + V_ACTIVE - 1;   // 342
+  localparam HSYNC_START  = 535;
   localparam HSYNC_LEN    = 288;
-  localparam VSYNC_START  = 344;
+  localparam VSYNC_START  = 343;
   localparam VSYNC_LEN    = 4;
   localparam BERR_MIN_CLK = 288;                 // 18.4 us, the earliest UI6 bus error (2.11.4)
 
@@ -127,8 +132,35 @@ module tb_se30_video;
   task wait_line(input integer n); begin while (line != n) @(posedge clk); end endtask
 
   // ------------------------------------------------------------ CPU port
-  integer cyc_len, cyc_min = 1000000, cyc_max = 0, cyc_n = 0;
+  integer cyc_len, cyc_min = 1000000, cyc_max = 0, cyc_n = 0, dsack_px;
   reg cyc_timeout = 0;
+
+  // Chained writes with the 68030's back-to-back timing: the next cycle's
+  // address and data replace the last one's at the edge after DSACK0* was
+  // sampled, with sel and AS* held, so the DUT sees the new request one
+  // clock earlier than cpu_cycle's release-then-assert would give.  Rows
+  // alternate $AA/$55 like PrimaryInit's fill.  ack_gap[i] is the clocks
+  // between DSACK0* of write i-1 and write i.
+  integer ack_gap [0:7];
+  task cpu_burst(input [16:0] base, input integer count, output integer clocks);
+    integer i, t, last;
+    begin
+      @(posedge clk);
+      sel <= 1; as_n <= 0; ds_n <= 0; rw <= 0; addr <= base; din <= 8'hAA;
+      t = 0; last = 0;
+      for (i = 0; i < count; i = i + 1) begin
+        @(posedge clk); t = t + 1;
+        while (dsack0_n) begin @(posedge clk); t = t + 1; end
+        if (i < 8) ack_gap[i] = t - last;
+        last = t;
+        @(posedge clk); t = t + 1;      // the 68030 latches / the DUT writes; then the next request
+        if (i < count - 1) begin addr <= base + i + 1; din <= (((i + 1) / 64) % 2) ? 8'h55 : 8'hAA; end
+        else begin sel <= 0; as_n <= 1; ds_n <= 1; end
+      end
+      @(posedge clk); t = t + 1;
+      clocks = t;
+    end
+  endtask
 
   task cpu_cycle(input is_read, input [16:0] a, input [7:0] d, output [7:0] q);
     integer n;
@@ -139,6 +171,7 @@ module tb_se30_video;
       @(posedge clk);
       while (dsack0_n && n < 4000) begin n = n + 1; @(posedge clk); end
       if (n >= 4000) cyc_timeout = 1;
+      dsack_px = px;                    // the pixel in which DSACK0* was sampled low
       q = dout;                         // the 68030 latches at the end of S4: one clock after DSACK
       @(posedge clk);
       q = dout;
@@ -156,6 +189,15 @@ module tb_se30_video;
   endtask
   task cpu_read(input [16:0] a, output [7:0] q);
     begin cpu_cycle(1, a, 8'h00, q); end
+  endtask
+
+  // A read whose sel is first seen by the DUT during pixel s of the
+  // current line (px tracks the DUT's horizontal count).
+  task slot_at(input integer s, output [7:0] q);
+    begin
+      while (px != s - 2) @(posedge clk);
+      cpu_cycle(1, 17'h00000, 8'h00, q);
+    end
   endtask
 
   // DSACK0* must never be low outside an access (test 7).
@@ -260,7 +302,7 @@ module tb_se30_video;
     check(q == 8'h7E, "read back page 1 row 1 byte 1 (want $7E)", q, 8'h7E);
     check(!cyc_timeout, "every slot cycle acknowledged", cyc_timeout, 0);
     check(cyc_max < BERR_MIN_CLK, "slot cycle inside the bus-error window (clocks)", cyc_max, BERR_MIN_CLK);
-    $display("info slot cycles so far: %0d, AS* to end %0d..%0d clocks (plan 2.11 row 15: measured, not asserted)", cyc_n, cyc_min, cyc_max);
+    $display("info slot cycles so far: %0d, %0d..%0d clocks each (test 11 checks the timing at known phases)", cyc_n, cyc_min, cyc_max);
 
     page = 1;
     wait_lctrrst;
@@ -327,13 +369,11 @@ module tb_se30_video;
 
     // ---- 10. PrimaryInit's grey fill
     $display("---- 10. PrimaryInit: 43,776 byte writes, rows AA/55, both pages");
-    t0 = $time;
-    cyc_min = 1000000; cyc_max = 0; cyc_n = 0;
-    for (n = 0; n < 2; n = n + 1)
-      for (i = 0; i < 342 * 64; i = i + 1)
-        cpu_write((n == 0 ? 17'h08040 : 17'h00040) + i, ((i / 64) % 2) ? 8'h55 : 8'hAA);
-    $display("info fill: %0d cycles, %0d..%0d clocks each, %0d us total", cyc_n, cyc_min, cyc_max, ($time - t0) / 1000);
-    check(!cyc_timeout, "every fill cycle acknowledged", cyc_timeout, 0);
+    cpu_burst(17'h08040, 342 * 64, lo);
+    cpu_burst(17'h00040, 342 * 64, hi);
+    n = lo + hi;
+    $display("info fill: 43776 chained writes in %0d clocks, %0d us (the PAL run, plan 2.12: 7.21 clocks per write, 20.14 ms)", n, n * 64 / 1000);
+    check(n > 314600 && n < 316500, "fill takes 7.21 clocks per write, within 0.3%", n, 315537);
     page = 1;
     wait_lctrrst;
     // the fill's first row (VRAM row 1, offset $40) is $AA, then they alternate
@@ -346,6 +386,31 @@ module tb_se30_video;
     capture_line(LAST_ACTIVE);
     want = row_pixels(8'h55, 8'h55);
     check(cap[0:H_ACTIVE-1] == want, "last active line is fill row 341 = $55", cap[0:15], want[0:15]);
+
+    // ---- 11. the slot access timing, as UE7 does it
+    $display("---- 11. slot access: 6/7 clocks alternating; the row transfer at pixel 535 answers at 560");
+    wait_lctrrst; wait_line(100);
+    slot_at(100, q); lo = cyc_len;
+    slot_at(120, q); hi = cyc_len;
+    check((lo == 6 && hi == 7) || (lo == 7 && hi == 6), "even/odd start, one of each of 6 and 7 clocks", lo * 10 + hi, 67);
+    slot_at(121, q);
+    check(cyc_len == lo, "start 21 clocks later: same as start 100", cyc_len, lo);
+    slot_at(535, q);
+    check(cyc_len == 28, "request at pixel 535: waits for the transfer, 28 clocks", cyc_len, 28);
+    check(dsack_px == 560, "and DSACK0* comes in pixel 560", dsack_px, 560);
+    wait_line(101);
+    slot_at(556, q);
+    check(cyc_len == 7, "request at pixel 556: 7 clocks", cyc_len, 7);
+    wait_line(102);
+    slot_at(557, q);
+    check(cyc_len == 6, "request at pixel 557: 6 clocks", cyc_len, 6);
+    wait_line(350);
+    slot_at(535, q);
+    check(cyc_len == 28, "blank line, pixel 535: the transfer runs there too, 28 clocks", cyc_len, 28);
+    wait_line(351);
+    while (px != 300) @(posedge clk);
+    cpu_burst(17'h00100, 4, n);
+    check(ack_gap[1] == 7 && ack_gap[2] == 7 && ack_gap[3] == 7, "chained writes: DSACK0* every 7 clocks", ack_gap[1] * 100 + ack_gap[2] * 10 + ack_gap[3], 777);
 
     // ---- verdict
     if (fails == 0) $display("==== PASS: %0d checks, the SE/30 video holds to the Guide and the declaration ROM", checks);
