@@ -736,6 +736,31 @@ architecture logic of TG68KdotC_Kernel is
 	signal lane_in				: std_logic_vector(31 downto 0);	-- bus_in with this beat's first lane at the top
 	signal first_lane			: integer range 0 to 3;
 	signal port_room			: integer range 1 to 4;			-- bytes to the port's boundary
+	signal lane_raw				: std_logic_vector(31 downto 0);
+	-- The fetch unit (SE30_PLAN.md 1.15 item 8, step 2c): in the 32-bit shape an
+	-- instruction fetch is the aligned long at PC, one bus beat on a 32-bit
+	-- port, two on 16, four on 8 (UM Table 7-6, instruction row). The core
+	-- still asks for one word at a time and sees one acknowledge per word:
+	-- from the holding register when the long is already there (no bus
+	-- cycle: busstate "01"), else on the last beat of the long's fetch.
+	signal clkena_core			: std_logic;					-- the core's acknowledge
+	signal busstate_raw			: std_logic_vector(1 downto 0);
+	signal fetch_hit			: std_logic;					-- the word is in the holding register
+	signal fetch_bus			: std_logic;					-- this beat fetches the aligned long
+	signal fetch_ok				: std_logic;					-- the core may take this acknowledge
+	signal fetch_done			: integer range 0 to 4;			-- bytes of the long already in fetch_buf
+	signal fetch_n				: integer range 0 to 4;			-- bytes this bus beat brings
+	signal fetch_room			: integer range 1 to 4;
+	signal fetch_first			: integer range 0 to 3;
+	signal fetch_a10			: std_logic_vector(1 downto 0);	-- the beat's A1A0: fetch_done
+	signal fetch_lane			: std_logic_vector(31 downto 0);
+	signal fetch_buf			: std_logic_vector(31 downto 0);
+	signal fetch_long			: std_logic_vector(31 downto 0);	-- the long as of this beat
+	signal fetch_word			: std_logic_vector(15 downto 0);	-- the word the core asked for
+	signal hold_valid			: std_logic;
+	signal hold_addr			: std_logic_vector(31 downto 2);
+	signal hold_data			: std_logic_vector(31 downto 0);
+	signal addr_xlat			: std_logic_vector(31 downto 0);
 	signal oddout				: std_logic;
 	signal set_oddout			: std_logic;
 	signal PCbase				: std_logic;
@@ -1044,7 +1069,7 @@ BEGIN
   pmmu_pload_req  <= '1' when set(pmmu_pload) = '1' else '0';
 
   -- BUG #19 FIX: Make pmmu_reg_we_d and pmmu_reg_re_d combinational (not sequential)
-  -- Sequential signals with clkena gating caused missed writes when clkena_in wasn't '1' every cycle
+  -- Sequential signals with clkena gating caused missed writes when clkena_core wasn't '1' every cycle
   -- Now these signals follow exec() directly, like pmmu_ptest_req/pflush_req/pload_req
   -- BUG #29 FIX: Critical timing issue - write enable vs data latch mismatch!
   -- Originally used exec() only to avoid register addressing timing races.
@@ -1399,7 +1424,7 @@ ALU: TG68K_ALU
 			moves_direction <= '0';
 			moves_reg <= "0000";
 		elsif rising_edge(clk) then
-			if clkena_in = '1' then
+			if clkena_core = '1' then
 				-- BUG #318 FIX: Latch MOVES extension word fields when first entering moves0.
 				-- At this point, brief still has the MOVES extension word ($xxxx).
 				-- For indexed/absolute EA modes, brief gets overwritten later with the
@@ -1549,7 +1574,7 @@ ALU: TG68K_ALU
 			if nReset = '0' then
 				moves_writeback_pending <= '0';
 			elsif rising_edge(clk) then
-				if clkena_in = '1' then
+				if clkena_core = '1' then
 					-- Set when moves1 schedules a memory->CPU MOVES (dr=0)
 					-- BUG #318 FIX: Use latched moves_direction instead of brief(11)
 					if micro_state = moves1 and moves_direction = '0' then
@@ -1575,7 +1600,7 @@ ALU: TG68K_ALU
 			if nReset = '0' then
 				moves_d16_phase <= '0';
 			elsif rising_edge(clk) then
-				if clkena_in = '1' then
+				if clkena_core = '1' then
 					if micro_state /= moves0 then
 						moves_d16_phase <= '0';
 					elsif opcode(5 downto 3) = "101" OR opcode(5 downto 3) = "110" then
@@ -1642,8 +1667,82 @@ ALU: TG68K_ALU
 	                                     micro_state = berr8 OR micro_state = trap3 OR
 	                                     (interrupt = '1' AND (trap_berr = '1' OR trap_mmu_berr = '1'))
 	                           ELSE '0';
-	busstate <= "01" WHEN (state="00" AND TG68_PC(0)='1') OR pmmu_busy='1' OR (mmu_restart_pending='1' AND mmu_restart_soft='0')
+	busstate_raw <= "01" WHEN (state="00" AND TG68_PC(0)='1') OR pmmu_busy='1' OR (mmu_restart_pending='1' AND mmu_restart_soft='0')
 	                      OR (state="00" AND berr_stack_fetch_squash='1') ELSE state;
+	busstate <= "01" WHEN fetch_hit='1' ELSE busstate_raw;	-- a held word needs no bus cycle
+	clkena_core <= clkena_in AND fetch_ok;
+
+	g_fetch16: IF DATA_WIDTH /= 32 GENERATE
+		fetch_hit <= '0'; fetch_bus <= '0'; fetch_ok <= '1';
+		fetch_word <= (OTHERS => '0'); fetch_a10 <= "00";
+	END GENERATE;
+	g_fetch32: IF DATA_WIDTH = 32 GENERATE
+		fetch_hit <= '1' WHEN busstate_raw = "00" AND hold_valid = '1' AND hold_addr = addr(31 downto 2) ELSE '0';
+		fetch_bus <= '1' WHEN busstate_raw = "00" AND fetch_hit = '0' ELSE '0';
+		fetch_a10 <= "00" WHEN fetch_done = 0 ELSE "01" WHEN fetch_done = 1 ELSE "10" WHEN fetch_done = 2 ELSE "11";
+		-- the port's room and first lane at the long's next byte (as port_room)
+		PROCESS (fetch_a10, dsack)
+		BEGIN
+			IF dsack = "10" THEN
+				fetch_room <= 1; fetch_first <= 0;
+			ELSIF dsack /= "01" THEN
+				fetch_room <= 4 - conv_integer(fetch_a10); fetch_first <= conv_integer(fetch_a10);
+			ELSIF fetch_a10(0)='1' THEN
+				fetch_room <= 1; fetch_first <= 1;
+			ELSE
+				fetch_room <= 2; fetch_first <= 0;
+			END IF;
+		END PROCESS;
+		fetch_n <= 4 - fetch_done WHEN fetch_room > 4 - fetch_done ELSE fetch_room;
+		fetch_lane <= bus_in WHEN fetch_first = 0 ELSE
+		              bus_in(23 downto 0) & X"00" WHEN fetch_first = 1 ELSE
+		              bus_in(15 downto 0) & X"0000" WHEN fetch_first = 2 ELSE
+		              bus_in(7 downto 0) & X"000000";
+		-- the long with this beat's bytes placed at fetch_done
+		PROCESS (fetch_buf, fetch_lane, fetch_done, fetch_n)
+			VARIABLE v : std_logic_vector(31 downto 0);
+		BEGIN
+			v := fetch_buf;
+			FOR k IN 0 TO 3 LOOP
+				IF k >= fetch_done AND k < fetch_done + fetch_n THEN
+					v(31-8*k downto 24-8*k) := fetch_lane(31-8*(k-fetch_done) downto 24-8*(k-fetch_done));
+				END IF;
+			END LOOP;
+			fetch_long <= v;
+		END PROCESS;
+		fetch_word <= hold_data(31 downto 16) WHEN fetch_hit = '1' AND addr(1) = '0' ELSE
+		              hold_data(15 downto 0)  WHEN fetch_hit = '1' ELSE
+		              fetch_long(31 downto 16) WHEN addr(1) = '0' ELSE
+		              fetch_long(15 downto 0);
+		-- the core takes the acknowledge unless the long has more beats to come;
+		-- a force-released beat (beat_valid low) always goes through, as today
+		fetch_ok <= '0' WHEN fetch_bus = '1' AND beat_valid = '1' AND fetch_done + fetch_n < 4 ELSE '1';
+		PROCESS (clk)
+		BEGIN
+			IF rising_edge(clk) THEN
+				IF Reset = '1' THEN
+					hold_valid <= '0'; fetch_done <= 0; fetch_buf <= (OTHERS => '0');
+					hold_addr <= (OTHERS => '0'); hold_data <= (OTHERS => '0');
+				ELSIF clkena_in = '1' THEN
+					IF fetch_bus = '1' AND beat_valid = '1' THEN
+						IF fetch_done + fetch_n >= 4 THEN
+							fetch_done <= 0;
+							hold_valid <= '1'; hold_addr <= addr(31 downto 2); hold_data <= fetch_long;
+						ELSE
+							fetch_done <= fetch_done + fetch_n; fetch_buf <= fetch_long;
+						END IF;
+					ELSE
+						fetch_done <= 0;		-- a hit, a data beat or a released beat ends any sequence
+					END IF;
+					-- a write into the held long invalidates it (the 68030's own holding
+					-- register is not snooped either; this is the cheap safe side)
+					IF state = "11" AND addr(31 downto 2) = hold_addr THEN
+						hold_valid <= '0';
+					END IF;
+				END IF;
+			END IF;
+		END PROCESS;
+	END GENERATE;
 	nResetOut <= '0' WHEN exec(opcRESET)='1' ELSE '1';
 	
 
@@ -1684,12 +1783,12 @@ ALU: TG68K_ALU
 		VARIABLE room, cyc, n : integer range 0 to 5;
 	BEGIN
 		room := port_room;
-		-- An instruction fetch is one word a beat until 1.15 step 2c (the
-		-- aligned-long prefetch with a holding register): the fetch pipeline
-		-- advances the PC by two and reads its word from data_read(15:0) on
-		-- every fetch beat, so a wider port must not deliver more. (Code on an
-		-- 8-bit port is not supported before 2c; the SE/30 has none.)
-		IF state = "00" AND room > 2 THEN room := 2; END IF;
+		-- An instruction fetch is one word a beat to the core: the fetch
+		-- pipeline advances the PC by two and reads its word from
+		-- data_read(15:0) on every fetch beat. The bus side of a fetch - the
+		-- aligned long, in the beats the port needs - is the fetch unit's
+		-- (1.15 item 8), which hands the core its word with one acknowledge.
+		IF state = "00" THEN room := 2; END IF;
 		cyc := beat_rem;
 		IF op5_now='1' AND beat_rem > 1 THEN cyc := beat_rem - 1; END IF;
 		n := beat_rem;
@@ -1707,12 +1806,17 @@ ALU: TG68K_ALU
 		bus_in <= data_in & X"0000";
 		data_write <= bus_out(31 downto 16);
 	END GENERATE;
-	lane_in <= bus_in WHEN first_lane = 0 ELSE
-	           bus_in(23 downto 0) & X"00" WHEN first_lane = 1 ELSE
-	           bus_in(15 downto 0) & X"0000" WHEN first_lane = 2 ELSE
-	           bus_in(7 downto 0) & X"000000";
+	lane_raw <= bus_in WHEN first_lane = 0 ELSE
+	            bus_in(23 downto 0) & X"00" WHEN first_lane = 1 ELSE
+	            bus_in(15 downto 0) & X"0000" WHEN first_lane = 2 ELSE
+	            bus_in(7 downto 0) & X"000000";
+	lane_in <= fetch_word & X"0000" WHEN DATA_WIDTH = 32 AND state = "00" ELSE lane_raw;
 	byte_in <= lane_in(31 downto 24);
-	siz <= "01" WHEN beat_rem = 1 ELSE "10" WHEN beat_rem = 2 ELSE "11" WHEN beat_rem = 3 ELSE "00";
+	siz <= "01" WHEN fetch_bus = '1' AND fetch_done = 3 ELSE
+	       "10" WHEN fetch_bus = '1' AND fetch_done = 2 ELSE
+	       "11" WHEN fetch_bus = '1' AND fetch_done = 1 ELSE
+	       "00" WHEN fetch_bus = '1' ELSE					-- the long's bytes still to come
+	       "01" WHEN beat_rem = 1 ELSE "10" WHEN beat_rem = 2 ELSE "11" WHEN beat_rem = 3 ELSE "00";
 	memmaskmux(2 downto 0) <= memmask(2 downto 0) WHEN addr(0)='1' ELSE memmask(1 downto 0) & '1';
 	memmaskmux(3) <= '1' WHEN beat_n = beat_rem ELSE '0';
 	-- the strobe pair as a 16-bit bus would show it - nUDS/nLDS in the 16-bit
@@ -1729,9 +1833,9 @@ ALU: TG68K_ALU
 	-- A force-released final directPC beat is not a completed longword. Keep
 	-- every final-datum consumer (PC, A7, rot_cnt, micro-state) stopped until
 	-- the retry receives a real ack.
-	clkena_lw <= '1' WHEN clkena_in='1' AND memmaskmux(3)='1' AND pmmu_busy='0' AND
+	clkena_lw <= '1' WHEN clkena_core='1' AND memmaskmux(3)='1' AND pmmu_busy='0' AND
 	                       directpc_retry_hold='0' ELSE '0';
-	-- A parasitic instruction-side fault can release clkena_in while an RTE/RTS
+	-- A parasitic instruction-side fault can release clkena_core while an RTE/RTS
 	-- data longword is in flight. That release is not a memory ack:
 	-- hold memmask/state so the same stack word retries. Do not hold the pop's
 	-- own data fault or an external/walker bus error; those must dispatch.
@@ -1851,7 +1955,7 @@ ALU: TG68K_ALU
 			syncReset <= "0000";
 			Reset <= '1'; 
 	  	ELSIF rising_edge(clk) THEN
-			IF clkena_in='1' THEN
+			IF clkena_core='1' THEN
 				syncReset <= syncReset(2 downto 0)&'1';
 				Reset <= NOT syncReset(3);	
 			END IF;
@@ -2030,9 +2134,9 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 			END IF;	
 			IF Reset='1' THEN
 				last_data_read <= (OTHERS => '0');
-			ELSIF clkena_in='1' THEN
+			ELSIF clkena_core='1' THEN
 				-- beat_valid: a clkena edge released by a PMMU fault is a
-				-- FORCE-COMPLETED beat (cpu_wrapper unblocks clkena_in on
+				-- FORCE-COMPLETED beat (cpu_wrapper unblocks clkena_core on
 				-- pmmu_fault so the exception can dispatch) carrying stale
 				-- bus garbage. The wrapper's beat_valid is the TRUE ready-ack
 				-- qualifier: hold the stream latches on invalid beats. This
@@ -2063,14 +2167,14 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 	END PROCESS;
 
 	-- RTE format word latch: Capture the format/vector word during rte3->rte4 transition.
-	-- clkena_in is also asserted when a PMMU fault force-completes a bus cycle, so
+	-- clkena_core is also asserted when a PMMU fault force-completes a bus cycle, so
 	-- only a real accepted beat (or an explicit DIB substitution) may update it.
 	PROCESS (clk)
 	BEGIN
 		IF rising_edge(clk) THEN
 			IF Reset='1' THEN
 				rte_format_word <= (others => '0');
-			ELSIF clkena_in='1' THEN
+			ELSIF clkena_core='1' THEN
 				IF micro_state = rte3 AND next_micro_state = rte4 THEN
 					IF dib_sub_hit='1' THEN
 						rte_format_word <= dib_sub_data(15 downto 0);
@@ -2168,7 +2272,7 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				bus_beat_poisoned <= '0';
 				bus_datum_dirty <= '0';
 				ea_to_pc_datum_invalid <= '0';
-			ELSIF clkena_in='1' THEN
+			ELSIF clkena_core='1' THEN
 				-- Clear when the machine ENTERS exception microcode (the
 				-- abandoned datum's instruction is preempted; the vector
 				-- fetch and frame pops must not be blocked) or at the
@@ -3216,11 +3320,11 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 	BEGIN
 		
 		IF rising_edge(clk) THEN
-			-- BUG FIX: Use clkena_in instead of clkena_lw for trap_vector updates
+			-- BUG FIX: Use clkena_core instead of clkena_lw for trap_vector updates
 			-- During RTE format error detection, clkena_lw may be '0' (memmaskmux(3)='0')
 			-- which prevented trap_format_error from updating trap_vector properly.
 			-- This caused exception 8 (privilege) instead of exception 14 (format error).
-			IF clkena_in='1' THEN
+			IF clkena_core='1' THEN
 				trap_vector(31 downto 10) <= (others => '0');
 				IF trap_illegal='1' THEN
 					trap_vector(9 downto 0) <= "00" & X"10";
@@ -3334,7 +3438,7 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 		END IF;	 
 		
 		IF rising_edge(clk) THEN
-			IF clkena_in='1' THEN
+			IF clkena_core='1' THEN
 				-- the operand's start address: its first beat is the one after a beat
 				-- that strobed nothing (memread reset at operand start). Not "no LDS":
 				-- since 1.15 a byte beat at an even address can sit mid-operand (the
@@ -3484,7 +3588,7 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 						   (pmmu_brief(14 downto 10)="10010" OR pmmu_brief(14 downto 10)="10011") THEN
 							-- READ direction: LO word bus read is initiated by HI handler (setstate="10").
 							-- During HI longword bus cycle, mem_addsub ELSIF contaminates delta_rega
-							-- with the second-word address (EA+2) on clkena_in edges where memmaskmux(3)='0'.
+							-- with the second-word address (EA+2) on clkena_core edges where memmaskmux(3)='0'.
 							-- Correct the LO address to EA+4 by adding 2 to the contaminated addr.
 							memaddr_delta_rega <= addr + 2;
 							use_base <= '0';
@@ -3946,7 +4050,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						trace_pending_group2 <= '0';
 			ELSE
 --				IPL_nr <= NOT IPL;
-				IF clkena_in='1' THEN
+				IF clkena_core='1' THEN
 					IF NOT (state = "00" AND pmmu_busy = '1') AND directpc_retry_hold='0' THEN
 						-- consumed by the beat's width (1.15 item 4); a beat that moved
 						-- nothing shifts a word, as it always did
@@ -4047,7 +4151,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						TG68_PC <= TG68_PC_add;
 					END IF;
 
-					-- BUG #53 FIX: Move extension word capture to clkena_in block (1-stage pipeline)
+					-- BUG #53 FIX: Move extension word capture to clkena_core block (1-stage pipeline)
 					-- Previously in clkena_lw block, which never executed for PMOVE memory EA modes!
 					-- PMOVE memory EA sets memmask="100111" → clkena_lw='0' → brief never captured
 					-- beat_valid/opc_buf_valid gating: an extension word from a
@@ -4110,7 +4214,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- getbrief='1' in moves0 which loads brief from data_read at rising edge.
 					-- The old phase 1 code is no longer needed.
 
-					-- BUG #289 FIX: F-Line context capture must be in clkena_in block!
+					-- BUG #289 FIX: F-Line context capture must be in clkena_core block!
 					-- The clkena_lw block doesn't execute for PMOVE memory EA (memmask="100111").
 					-- By the time clkena_lw='1', brief has advanced to next instruction (NOP).
 					-- Fix: Capture fline context from same source as brief, at same time.
@@ -4141,7 +4245,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						fline_opcode_pc <= TG68_PC;
 					END IF;
 
-					-- BUG #355 FIX: Move PMMU/Dn mode context logic to clkena_in block!
+					-- BUG #355 FIX: Move PMMU/Dn mode context logic to clkena_core block!
 					-- This logic was in clkena_lw, but PMU memory EA modes often skip clkena_lw.
 					IF micro_state = pmove_decode THEN
 						IF fline_context_valid = '1' THEN
@@ -4176,9 +4280,9 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						pmove_dn_regnum <= pmove_dn_regnum + "001";
 					END IF;
 
-					-- BUG #356 FIX: Clear F-line context in clkena_in block!
+					-- BUG #356 FIX: Clear F-line context in clkena_core block!
 					-- Must use setendOPC from previous cycle (latched as endOPC or seen directly).
-					-- Using setendOPC directly is safe in clkena_in as it's the Combinatorial Retire signal.
+					-- Using setendOPC directly is safe in clkena_core as it's the Combinatorial Retire signal.
 					-- BUG #362 FIX: Removed pmove_dn_lo from exclusion list!
 					-- When setendOPC fires during pmove_dn_lo, the 64-bit Dn transfer IS complete
 					-- (next_micro_state=idle). Keeping fline_context_valid='1' after this caused
@@ -4207,11 +4311,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					END IF;
 
 					-- BUG #389 FIX V2: Clear exec_write_back when PMMU states retire to idle!
-					-- MOVED FROM clkena_lw BLOCK TO clkena_in BLOCK to fix hardware lockup.
+					-- MOVED FROM clkena_lw BLOCK TO clkena_core BLOCK to fix hardware lockup.
 					-- exec_write_back blocks setendOPC (line 2376: exec_write_back='0' OR state="11").
 					-- When pmove_mem_to_mmu_hi/lo retire with setstate="00" and state="10" from EA read,
 					-- exec_write_back='1' blocks setopcode, causing decodeOPC='0' on next instruction.
-					-- CRITICAL: Must execute in clkena_in block! If in clkena_lw block, it only runs
+					-- CRITICAL: Must execute in clkena_core block! If in clkena_lw block, it only runs
 					-- when memmaskmux(3)='1'. PMMU retirement may have memmaskmux(3)='0', causing
 					-- clkena_lw='0', so the clear never executes → permanent lockup on hardware.
 					IF (micro_state=pmove_mem_to_mmu_hi OR micro_state=pmove_mem_to_mmu_lo) AND
@@ -4861,7 +4965,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						exec_write_back <= '0';
 					ELSIF setstate="10" AND setaddrvalue='0' AND write_back='1' THEN
 						exec_write_back <= '1';
-					-- BUG #389 FIX V2: PMMU retirement clearing moved to clkena_in block (line 2584)
+					-- BUG #389 FIX V2: PMMU retirement clearing moved to clkena_core block (line 2584)
 					-- to ensure it executes regardless of memmaskmux(3) state.
 					END IF;	
 					-- BUG #391 FIX: Exempt RTE frame unwinding from set_rot_cnt idle override.
@@ -4870,7 +4974,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 				-- read) while counting down. Without the exemption, rte5 never reads
 				-- the extra frame data for Format $9/$A/$B, leaving SP wrong on return.
 				IF directpc_retry_hold='1' THEN
-						-- clkena_in was released without a data ack; preserve the
+						-- clkena_core was released without a data ack; preserve the
 						-- current stack read until it is accepted.
 					NULL;
 				ELSIF (state="10" AND addrvalue='0' AND write_back='1' AND setstate/="10") OR (set_rot_cnt/="000001" AND next_micro_state /= rte5 AND next_micro_state /= berr_fill) OR (stop='1' AND interrupt='0') OR set_exec(opcCHK)='1' THEN
@@ -4952,7 +5056,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					ELSIF setstate(1)='1' OR (ea_only='1' AND set(get_ea_now)='1') THEN
 						Suppress_Base <= '0';
 					END IF;
-					-- BUG #53 FIX: Extension word capture moved to clkena_in block (line 1482)
+					-- BUG #53 FIX: Extension word capture moved to clkena_core block (line 1482)
 					-- Old code removed from clkena_lw block to prevent multiple drivers
 					-- IF getbrief='1' THEN
 					-- 	IF state(1)='1' THEN
@@ -7615,7 +7719,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				-- refactor (Phase 3), which will naturally eliminate several of the
 				-- confounding timing interactions.
 				-- synthesis translate_on
-				-- BUG #228: Flag management moved to clkena_in block (see above line ~1953)
+				-- BUG #228: Flag management moved to clkena_core block (see above line ~1953)
 				-- BUG #154 FIX: Acknowledge MMU config error when trap is taken
 				-- This clears mmu_config_error in PMMU to prevent infinite exception loop
 				if trap_mmu_config='1' and trapd='0' then
@@ -10149,7 +10253,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
         pmmu_reg_fd_d   <= '0';
         -- BUG #199 FIX: Initialize pmove_ea_latched
         pmove_ea_latched <= (others => '0');
-      elsif clkena_in='1' then
+      elsif clkena_core='1' then
         -- BUG #19 FIX: pmmu_reg_we_d and pmmu_reg_re_d are combinational, don't drive them here
         -- Clear PMMU control signals by default (single-cycle pulses)
         -- pmmu_reg_we_d   <= '0';  -- REMOVED - combinational signal
@@ -10210,8 +10314,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
               -- For CRP/SRP choose part: HIGH word first, LOW word second
               -- BUG #188 FIX: Use next_micro_state for early setup (same fix as READ path)
               if (pmmu_brief(14 downto 10) = "10010") or (pmmu_brief(14 downto 10) = "10011") then
-                -- BUG #389 V2 FIX: Gate reg_part_d on clkena_lw, not just clkena_in.
-                -- This process runs on clkena_in='1', but during bus wait states (clkena_lw='0'),
+                -- BUG #389 V2 FIX: Gate reg_part_d on clkena_lw, not just clkena_core.
+                -- This process runs on clkena_core='1', but during bus wait states (clkena_lw='0'),
                 -- next_micro_state already shows the NEXT transition (e.g., pmove_mem_to_mmu_lo),
                 -- causing reg_part_d to be prematurely overwritten to '0' before the PMMU write
                 -- (which requires clkena_lw='1') can read the correct '1' value.
@@ -10308,8 +10412,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
         -- during pmove_mem_to_mmu_hi and writes to CRP_L instead of CRP_H.
         -- Fix: Set reg_part_d based on next_micro_state one cycle early.
         -- This runs AFTER the pmmu_wr/rd blocks, so last-assignment-wins overrides them.
-        -- CRITICAL: Must gate on clkena_lw='1', NOT just clkena_in='1'!
-        -- During bus wait states (clkena_in='1', clkena_lw='0'), next_micro_state already
+        -- CRITICAL: Must gate on clkena_lw='1', NOT just clkena_core='1'!
+        -- During bus wait states (clkena_core='1', clkena_lw='0'), next_micro_state already
         -- shows the NEXT transition (e.g., pmove_mem_to_mmu_lo), which would prematurely
         -- overwrite reg_part_d to '0' before the PMMU write fires (requires clkena_lw='1').
         if clkena_lw='1' then
@@ -10421,7 +10525,10 @@ PROCESS (sndOPC, movem_mux)
 	END PROCESS;
 
 -- MC68030 address routing: direct when MMU disabled, translated when enabled
-addr_out <= pmmu_addr_log_int when pmmu_tc_en = '0' else pmmu_addr_phys_int;
+addr_xlat <= pmmu_addr_log_int when pmmu_tc_en = '0' else pmmu_addr_phys_int;
+-- a long fetch walks the aligned long: the translated address with the
+-- long's next byte in A1A0 (same page, so the translation of addr serves)
+addr_out <= addr_xlat(31 downto 2) & fetch_a10 when fetch_bus = '1' else addr_xlat;
 
 -- Format Error debug latch: captures key state when trap_format_error fires
 -- Once latched, holds until reset so hardware debug can read it
@@ -10627,7 +10734,7 @@ BEGIN
 				       severity note;
 			END IF;
 		END IF;
-		IF clkena_in = '1' AND (micro_state = berr_fill OR micro_state = berr1 OR micro_state = berr2 OR
+		IF clkena_core = '1' AND (micro_state = berr_fill OR micro_state = berr1 OR micro_state = berr2 OR
 		                        micro_state = berr3 OR micro_state = berr4 OR micro_state = berr5 OR
 		                        micro_state = berr6 OR micro_state = berr7 OR micro_state = berr8) THEN
 			report "BERRPUSH: addr=" & integer'image(conv_integer(memaddr(15 downto 0))) &

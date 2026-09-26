@@ -25,6 +25,15 @@
 //   In the 32-bit shape there are no strobes: the contract is the address,
 //   SIZ, and the bytes on the lanes the port takes (UM Table 7-7), which
 //   is what the device model stores and the bench checks.
+//   CODE8=1 with PORT=8 puts the code on the 8-bit device too.
+//
+//   Fetches in the 32-bit shape (plan 1.15 step 2c) are checked against
+//   Table 7-6's instruction row rather than the stream: every bus fetch is
+//   the aligned long - it starts at A1A0 = 00 with SIZ = 00 and walks the
+//   long in the beats the port needs (one, two or four) with SIZ counting
+//   down - and the holding register must serve the other word, so the
+//   number of longs fetched is well under the number of words the program
+//   holds.
 //
 // THE DRIVER
 //   As upstream's own kernel benches do it: clkena_in held high, a 64K-word
@@ -65,7 +74,11 @@ module tb_kernel_bus;
   // PORT 8: the operand area $2000-$20FF is the 8-bit device; code, vectors
   // and result slots are 32-bit memory (as on the SE/30; the kernel fetches
   // a word a beat until 1.15 step 2c)
+`ifdef CODE8
+  wire        dev8  = (PORT == 8);
+`else
   wire        dev8  = (PORT == 8) && (addr_out[31:8] == 24'h20);
+`endif
   wire [1:0]  dsack = dev8 ? 2'b10 : 2'b00;
 
   TG68KdotC_Kernel #(
@@ -149,13 +162,31 @@ module tb_kernel_bus;
   // data beats have run, so seeing it fetched is not the end: run on for
   // 100 clocks after it (a STOPped kernel makes no beats).
   reg done = 0, ok; integer tail = -1;
+  // the fetch checker (32-bit shape): the aligned long, walked by the port
+  integer f_consumed = 0, f_longs = 0, f_beats = 0; reg [31:0] f_start;
+  wire [2:0] f_room = dev8 ? 3'd1 : (3'd4 - addr_out[1:0]);
+  always @(negedge clk) if (nReset && !done && PORT != 16 && busstate == 2'b00) begin
+    f_beats = f_beats + 1;
+    if (f_consumed == 0) begin
+      f_start = addr_out;
+      if (addr_out[1:0] != 2'b00 || siz != 2'b00) begin
+        fails = fails + 1;
+        $display("FAIL fetch: a long fetch must start at A1A0 = 00 with SIZ = 00; got addr %08x siz %b", addr_out, siz);
+      end
+    end else if (addr_out != f_start + f_consumed || siz_n != 4 - f_consumed) begin
+      fails = fails + 1;
+      $display("FAIL fetch: expected addr %08x siz %0d, got addr %08x siz %0d", f_start + f_consumed, 4 - f_consumed, addr_out, siz_n);
+    end
+    f_consumed = f_consumed + ((f_room < 4 - f_consumed) ? f_room : 4 - f_consumed);
+    if (f_consumed >= 4) begin f_consumed = 0; f_longs = f_longs + 1; end
+  end
   always @(negedge clk) if (nReset && !done) begin
 `ifdef TRACE
     if (busstate != 2'b01)
       $display("t=%0t bs=%b addr=%08x siz=%b wr=%b din=%0h dout=%0h mask=%b dr=%08x ldr=%08x opc=%04x",
                $time, busstate, addr_out, siz, !nWr, data_in, data_write, dbg_memmask, dbg_dr, dbg_ldr, dbg_opc);
 `endif
-    if (busstate == 2'b00 && addr_out == stop_at && tail < 0) tail = 100;
+    if (busstate == 2'b00 && addr_out[31:2] == stop_at[31:2] && tail < 0) tail = 100;
     if (tail > 0) tail = tail - 1;
     if (tail == 0) done <= 1;
     if (busstate == 2'b10 || busstate == 2'b11) begin
@@ -197,10 +228,11 @@ module tb_kernel_bus;
   end
 
   // ---------------------------------------------------------------- run
-  integer i, k; reg [31:0] v, want;
+  integer i, k, nwords; reg [31:0] v, want;
   initial begin
     $readmemh("program.hex", mem);
     load_expect;
+    nwords = (stop_at + 4 - 32'h1000) / 2;
     $display("---- %0d expected beats, STOP at %08x", nexp, stop_at);
     repeat (20) @(posedge clk);
     nReset = 1;
@@ -217,6 +249,14 @@ module tb_kernel_bus;
       want = (k < 4) ? 32'h00000004 : (k < 8) ? 32'h00000304 : 32'h01020304;
       if (v === want) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL slot %0d: %08x, expected %08x", k, v, want); end
+    end
+    if (PORT != 16) begin
+      // the holding register: each long serves two words, so the longs
+      // fetched are about half the words the program holds (a few more for
+      // vectors and the prefetch past STOP); without it they would be as many
+      if (f_consumed == 0 && f_longs * 3 < nwords * 2) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL fetch: %0d long fetches (%0d beats) for %0d program words - the holding register is not serving", f_longs, f_beats, nwords); end
+      $display("---- fetches: %0d longs in %0d bus beats for %0d program words", f_longs, f_beats, nwords);
     end
     if (fails == 0) $display("==== PASS: %0d checks, %0d beats - the kernel's beats match UM 7.2's table on a %0d-bit port", pass, beats, PORT);
     else if (fails == fails_bf5) $display("==== FAIL: %0d failures, all in the five-byte bit fields (the kernel's one operand cycle against 1.14's two); %0d passes, %0d beats", fails, pass, beats);

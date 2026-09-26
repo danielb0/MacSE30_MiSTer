@@ -137,7 +137,7 @@ def kernel16_masks(beats):
     return out
 
 
-def expected_beats(p, oracle, port):
+def expected_beats(p, oracle, port, code8=False):
     """One line per beat: label cat addr siz lanes rw b0 b1 b2 b3 mask.
     cat is 'bf5' for a five-byte bit field row, else '-'; siz the SIZ1 SIZ0
     the kernel must drive; lanes the four lanes the port takes, as 0/1 for
@@ -151,7 +151,9 @@ def expected_beats(p, oracle, port):
     # (the SE/30's own arrangement - code never runs from an 8-bit port, and
     # the kernel fetches a word a beat until 1.15 step 2c)
     def port_of(addr):
-        return 8 if port == 8 and (addr >> 8) == (BASE >> 8) else (32 if port == 8 else port)
+        if port == 8 and not code8:
+            return 8 if (addr >> 8) == (BASE >> 8) else 32
+        return port
     for b, m in zip(oracle[("long", 0, port_of(0))], _masks(oracle[("long", 0, port_of(0))], port)):
         lines.append(("reset SSP", "-", _consumed(b, oracle[("long", 0, port_of(0))]), b, "r", None, m))
     for label, case, a, dirn, data in p.accesses:
@@ -201,6 +203,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=16)
     ap.add_argument("--oracle", default=os.path.join(HERE, "beats.txt"))
+    ap.add_argument("--code8", action="store_true", help="with --port 8: everything on the 8-bit device, code included")
     ap.add_argument("--no-bf5", action="store_true",
                     help="leave out the five-byte bit fields (the 16-bit kernel does them as one "
                          "operand cycle, 1+2+2 beats at odd offsets; the adopted contract is two, 1.14)")
@@ -220,7 +223,7 @@ def main():
             f.write("%04x\n" % w)
     with open(os.path.join(HERE, "expect.txt"), "w", newline="\n") as f:
         f.write("# expected beats for port %d; STOP at %08x; made by gen_program.py from %s\n" % (args.port, stop_at, os.path.basename(args.oracle)))
-        for line in expected_beats(p, oracle, args.port):
+        for line in expected_beats(p, oracle, args.port, args.code8):
             f.write(line + "\n")
     with open(os.path.join(HERE, "stop_at.txt"), "w", newline="\n") as f:
         f.write("%08x\n" % stop_at)

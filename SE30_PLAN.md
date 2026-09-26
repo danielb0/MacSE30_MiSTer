@@ -1166,8 +1166,11 @@ existing one taught the 030's width rules.
    Cache fills (7.2.6) and the PMMU walker's port follow the same width.
    **Designed 2026-09-26 - 1.15**, as one engine consuming n bytes a
    beat, in four sub-steps 2a-2d with the 1.14 bench as acceptance.
-   **2a and 2b done the same day**: data operands move at the port's
-   width on 8-, 16- and 32-bit ports; the prefetch (2c) is next.
+   **2a, 2b and 2c done the same day: the kernel has the 68030's bus** -
+   data operands at the port's width on 8-, 16- and 32-bit ports, the
+   prefetch as the aligned long with a holding register. 2d (breadth)
+   and item 3's corpus remain; item 4 (the wrapper and GLUE) is next
+   to build.
 3. **Verify** under ModelSim (1.10): the beat table of item 1 as a bench
    on the kernel alone, then the cputest 030 corpus and the silicon
    captures in both shapes - identical architectural results, and the
@@ -1561,16 +1564,40 @@ made to follow n:
   acknowledge clock. The wrapper presents `dsack` with `clkena_in` and
   latches address, `FC`, `SIZ` and data at the start of its cycle, as
   the 68030 holds them from S0/S1.
-- **2c - the prefetch**: item 8. Acceptance: the bench's fetch beats
-  checked against the `instr` rows at all three widths.
+- ~~**2c - the prefetch**: item 8. Acceptance: the bench's fetch beats
+  checked against the `instr` rows at all three widths.~~ **Done
+  2026-09-26.** A **fetch unit** between the pins and the core, in the
+  32-bit shape only. The core still asks for one word at the PC and
+  sees one acknowledge per word; the unit answers from a **holding
+  register** when it holds that long (no bus cycle: `busstate = "01"`,
+  the wrapper's one-clock internal beat), else it runs the bus beats of
+  the aligned long - `A1A0 = 00`, `SIZ = 00`, then the long's next
+  byte and the bytes remaining, one beat on a 32-bit port, two on 16,
+  four on 8 - accumulating it, and acknowledges the core only on the
+  last beat (`clkena_core = clkena_in AND fetch_ok`; the core's 37
+  uses of the acknowledge now read `clkena_core`, the unit alone reads
+  the pin). The core's fetch beat stays a word; its data comes from the
+  unit (`lane_in` on a fetch). The long fetched goes to the holding
+  register with its address; a write into that long invalidates it, as
+  does reset. Not covered: an MMU remap under a held long (the 68030's
+  own holding register is logical-tagged and not snooped either).
+  **The bench passes on every arrangement**: 16-bit 145 checks; 32-bit
+  110 checks, 96 data beats, **81 long fetches in 81 bus beats for 157
+  program words**; 8-bit with code in 32-bit memory 179 checks; all on
+  the 8-bit device (`CODE8=1`) 218 checks, 204 data beats, 81 longs in
+  324 beats. The bench checks every bus fetch against Table 7-6's
+  instruction row - start at `A1A0 = 00` with `SIZ = 00`, walk the long
+  in the port's beats with `SIZ` counting down - and that the longs
+  fetched are well under the words the program holds, which is the
+  holding register serving. Upstream's 17 benches: verdicts unchanged.
+  Item 2 of 1.13 is complete: the kernel has the 68030's bus.
 - **2d - breadth**: upstream's suite in both shapes through the runner;
   the cputest corpus; the silicon rows replayed (the IIvi's harness is
   Verilator under WSL, so a bench of ours reads its captures).
 
 **Cost, revised.** The central change is items 1-6, one afternoon's
-VHDL (it was: 2a landed the day it was designed, 130 lines in the
-kernel, 7 in the ALU) and a week of watching the 57 + 94 sites behave
-through the suite;
+VHDL (it was: 2a, 2b and 2c all landed the day this was designed) and
+a week of watching the 57 + 94 sites behave through the suite;
 2b is small once 2a holds; 2c is the one genuinely new piece of
 sequencing. Weeks in total, as 1.13 said - but most of the risk sits in
 2a, which is testable today.
