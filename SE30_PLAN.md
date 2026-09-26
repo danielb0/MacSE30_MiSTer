@@ -419,7 +419,7 @@ substantially broken recently. Open at the time of reading:
 | `mmu.library` $B000 access fault, photographed on hardware | **open**; needs a full integration test |
 | `tb_cpu_wrapper_pmmu` scenarios 3-4, `tb_pmmu_comprehensive` F6 `fault_fc`, two older frame-format tests | pre-existing failures; the suite is **not green** |
 | L1 cache | force-disabled by BUG #454, re-enabled 2026-07-24, **hardware soak still pending** |
-| **16-bit external data bus** (2.13). The kernel moves a longword as two 16-bit beats; the real 68030 moves it in one 32-bit cycle. GLUE hides the cost for RAM and ROM (a beat flagged `lw` is 2 clocks, so the pair is the real 4) and the 8-bit peripherals never had a 32-bit path; instruction fetch is where it is most exposed, since the 68030 fetches longwords and the kernel fetches words | **open, measure**: the gap the wrapper leaves between the two beats is unmeasured until the CPU and GLUE are simulated together (1.10); if it is nonzero, longword RAM traffic is slower than the *Guide*'s 15.67 MB/s by that gap. Added 2026-09-26; the work is 1.9 item 8 |
+| **16-bit external data bus** (2.13). The kernel moves a longword as two 16-bit beats; the real 68030 moves it in one 32-bit cycle. GLUE hides the cost for RAM and ROM (a beat flagged `lw` is 2 clocks, so the pair is the real 4) and the 8-bit peripherals never had a 32-bit path; instruction fetch is where it is most exposed, since the 68030 fetches longwords and the kernel fetches words | **open, measure**: the gap the wrapper leaves between the two beats is unmeasured until the CPU and GLUE are simulated together (1.10); if it is nonzero, longword RAM traffic is slower than the *Guide*'s 15.67 MB/s by that gap. Added 2026-09-26. **Decided the same day: fixed in the kernel, not worked around - 1.13** |
 
 **Host obligations the contract in 1.4 does not yet carry.**
 
@@ -563,15 +563,12 @@ are closed by the survey, one is reframed.
    documented behaviour is the spec, the *MC68030 UM* section 11
    (instruction execution timing) and section 6 (the on-chip caches), and
    emulators are cross-checks. In order of value for cost:
-   1. **Measure the beat gap** (1.7): in the CPU-plus-GLUE simulation, the
-      clocks between the two `lw` beats of a longword RAM access. Zero is
-      the real machine; anything else is the number to report.
-   2. **A 32-bit bus mode for the kernel.** The one change that would
-      remove the deviation at its source: a strap beside `CPU="10"`, the
-      two-beat sequencer replaced by one 32-bit beat, the walker's port
-      and the wrapper's DTACK glue following. It is a kernel change, made
-      **in this tree and verified here** against the corpus (1.12's
-      decision); scope it only after item 1 says the cost is real.
+   1. ~~**Measure the beat gap**~~ and ~~**a 32-bit bus mode for the
+      kernel**, scoped only if the gap is real~~ - **superseded the same
+      day: the 32-bit bus is decided and scoped as 1.13, on the path to
+      first boot, not gated behind a measurement.** What remains here is
+      the timing that is not the bus's:
+   2. (merged into 1.13)
    3. **An instruction-timing audit**: run the cputest corpus (1.10) with
       a cycle counter and tabulate against UM section 11, so the size of
       the gap is known per instruction class before anyone proposes to
@@ -1093,6 +1090,88 @@ machine work, not enhancement.
 kernel, ALU, PMMU and FPU headers all say **LGPL-3 or later** - TG68K.C's
 original licence. Same family throughout; no combination problem.
 
+## 1.13 The 32-bit bus: decided, and what the job is
+
+**Decided 2026-09-26 (owner).** The kernel's 16-bit external data bus
+(1.7) is not to be worked around in GLUE; it is to be fixed in the
+kernel. Daniel: a cycle-exact 68030 is not currently possible for lack of
+documentation, but "I see no reason to use workarounds such as a 16-bit
+bus when this is a well-defined job and will allow the other parts of the
+core to be more authentic." So the 32-bit port with the 68030's dynamic
+bus sizing is **base-machine work, on the path to first boot**, and 2.13's
+two decisions - GLUE on the 16-bit wrapper bus doing the sizing itself,
+and the 2 + 2 longword - are **interim scaffolding** that the GLUE
+rewrite of item 4 below retires. This is the first kernel change under
+1.12's decision: made here, verified here.
+
+**What is well defined.** The bus side is entirely specified: *MC68030 UM*
+7.2.1 (dynamic bus sizing: `SIZ1-0` Table 7-2, the address offset `A1-A0`
+Table 7-3, the `DSACK` codes Table 7-1, what the port must drive on a read
+Table 7-4, and the internal-to-external multiplexer Table 7-5, which says
+for every size, offset and port width which bytes ride which lanes), 7.2.2
+(misaligned operands, Figures 7-9 to 7-13), 7.2.3 (Table 7-6: the number
+of bus cycles per operand by alignment and port size), Table 7-7 (the
+byte write enables a 32-bit port derives from `SIZ` and `A1-A0`, Figure
+7-18), and 7.2.5 (the 030 differs from the 020 only for cachable
+accesses; 7.2.6 cache filling). Every cycle count 2.11 holds GLUE to
+assumes this CPU behaviour.
+
+**What the kernel does today, read from `TG68KdotC_Kernel.vhd` (10,509
+lines, `030_mmu2@c3e8a0d`).** Operand size and alignment are one six-bit
+byte mask, `memmask`, set per access from size and `A1-A0` (`set_memmask`,
+the table at ~5096: `101111` byte, `100111` word, `100011`/`100001`/
+`100000` the misaligned and long cases) and **consumed two bytes per
+beat**: on every `clkena_in` edge `memmask <= memmask(3 downto 0) & "11"`
+(~3830) and `memread` records what came in. `nUDS`/`nLDS` are the top two
+bits of the mask (`memmaskmux`, ~1630-1635); read data is assembled from a
+32-bit shift-in of previous beats' `data_in` plus the current one
+(`data_read`, `last_data_in`, ~1904-1950); write data is a 16-bit slice of
+a 48-bit `data_write_mux` chosen by the mask (~2296-2325), a lone byte
+duplicated on both halves. `long_start`/`long_done` are derived from the
+same mask and feed the ALU, so the beat sequence is interleaved with the
+microcode's address arithmetic (post-increment across the halves, ~2280).
+The mask, `long_*` and `data_in` are touched on 137 lines of the kernel
+and 33 in the ALU, PMMU and cache files; `longword` is exported for the
+Minimig's SDRAM burst and the IIvi wrapper passes it through. So: **the
+design is already a byte-mask sequencer, which is the right shape for the
+030's rules - the job is to consume the mask by the port width the
+`DSACK` pair reports (1, 2 or 4 bytes a beat) instead of always 2, widen
+the data paths, and derive `SIZ`, `A1-A0` and the lane multiplexer of
+Table 7-5 from it.** It is not a new bus unit bolted on; it is the
+existing one taught the 030's width rules.
+
+**The job, in order.**
+
+1. **Read** 7.2 in full and write the beat contract as a table: for each
+   (size, `A1-A0`, port width) the number of beats, the bytes of each
+   beat and their lanes (Tables 7-5, 7-6, 7-7), and the `memmask`
+   consumption that produces it. That table is the bench oracle and it
+   exists before any VHDL changes.
+2. **The kernel**: a third bus shape selected by a generic beside
+   `CPU="10"` - `data_in`/`data_write` 32 bits, `SIZ1-0` and `A1-A0` out,
+   `DSACK1-0` in (or the wrapper's equivalent), mask consumption by the
+   acknowledged width, the read assembly and write multiplexer per Table
+   7-5, `long_start`/`long_done` meaning "first/last beat of the operand"
+   as now. The 16-bit shape stays selectable so the corpus runs both.
+   Cache fills (7.2.6) and the PMMU walker's port follow the same width.
+3. **Verify** under ModelSim (1.10): the beat table of item 1 as a bench
+   on the kernel alone, then the cputest 030 corpus and the silicon
+   captures in both shapes - identical architectural results, and the
+   beat counts of Table 7-6 in the 32-bit shape.
+4. **The wrapper and GLUE**: `tg68k.v` presents the 68030 bus; GLUE is
+   re-cut to 2.11.1 verbatim - `DSACK0*` alone for 8-bit ports, both for
+   RAM and ROM, the CPU splitting operands itself - which removes the byte
+   sequencer and the `lw` fast path from `rtl/se30_glue.v` and leaves the
+   decode, the timings, the VIA and SCC machines, UI6, refresh and the
+   encoder as they are. The bench's cycle counts do not change; its bus
+   model does.
+
+**Cost.** Item 2 touches the kernel's central sequencing, not a corner:
+weeks, not days, with the corpus as the safety net. The alternative -
+first boot on the 16-bit scaffolding, then convert - would cut the MacLC
+tree and write the wrapper twice, so the order is: this section, then the
+tree cut (2.8 item 8), then the peripherals.
+
 ---
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
@@ -1501,8 +1580,10 @@ Proposed work, cheap and decisive first:
    decode, DRQ up for the handshake decode check); no cell of 2.11 moved.
    Open, as before: the SCC's own wait count (built as one), E's duty,
    the A17 = 1 windows.
-8. Next: cut the MacLC tree and write the ASC, SWIM, SCC and SCSI sections
-   from their documentation (Daniel's ordering: "1 then 2").
+8. Next: **first the kernel's 32-bit bus (1.13), then** cut the MacLC tree
+   and write the ASC, SWIM, SCC and SCSI sections from their documentation
+   (Daniel's ordering of 2026-09-26: no 16-bit workaround; the tree is cut
+   once, on the real bus).
 
 ## 2.9 The PALs, named and read
 
@@ -2191,6 +2272,14 @@ Recorded 2026-09-26, from writing `sim/glue/tb_se30_glue.v` (2.8 item 7).
 Neither decision is in 2.11, which is the 68030's view of the board; both
 are about the difference between that view and the bus the core's CPU
 actually presents.
+
+**INTERIM - superseded the same day by 1.13 (owner's decision).** The
+kernel gets a 32-bit port with the 68030's own dynamic bus sizing, and
+GLUE is then re-cut to 2.11.1 verbatim (1.13 item 4): the byte sequencer
+of decision 1 and the 2 + 2 beat of decision 2 go; the decode, the
+timings, the VIA, SCC, UI6, refresh and interrupt logic, and the bench's
+cycle counts stay. The text below is kept as the record of what the
+committed RTL does until then.
 
 **1. GLUE is written to the TG68K wrapper's bus, not the 68030's pins.**
 The kernel (1.12) has a 16-bit data bus and moves a 32-bit operand as two
