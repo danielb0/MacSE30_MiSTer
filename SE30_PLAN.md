@@ -15,6 +15,10 @@ is withdrawn (its premise was a 68040 fact), 1.8's first bullet is answered,
 and 1.5's claim that 24-bit mode is the PMMU's work now rests on the ROM's
 own tables rather than on another project's prose.
 
+**Revision 2026-09-26.** 1.13 item 1 is done: **1.14 is new** and records
+UM 7.2 as one rule, checked against its four tables, with the kernel's
+byte mask read against it; the oracle for the kernel's 32-bit bus exists.
+
 **This document is being composed in sections, each one following its own
 research pass.** Section 1 settles the CPU and the PMMU, because that was
 the only open question capable of making the project impossible. **Section
@@ -1142,11 +1146,13 @@ existing one taught the 030's width rules.
 
 **The job, in order.**
 
-1. **Read** 7.2 in full and write the beat contract as a table: for each
+1. ~~**Read** 7.2 in full and write the beat contract as a table: for each
    (size, `A1-A0`, port width) the number of beats, the bytes of each
    beat and their lanes (Tables 7-5, 7-6, 7-7), and the `memmask`
    consumption that produces it. That table is the bench oracle and it
-   exists before any VHDL changes.
+   exists before any VHDL changes.~~ **Done 2026-09-26 - 1.14.**
+   `scripts/se30_bus_beats.py` holds the four tables and the rule;
+   `sim/kernel_bus/beats.txt` is the oracle, 142 beats over 63 cases.
 2. **The kernel**: a third bus shape selected by a generic beside
    `CPU="10"` - `data_in`/`data_write` 32 bits, `SIZ1-0` and `A1-A0` out,
    `DSACK1-0` in (or the wrapper's equivalent), mask consumption by the
@@ -1171,6 +1177,154 @@ weeks, not days, with the corpus as the safety net. The alternative -
 first boot on the 16-bit scaffolding, then convert - would cut the MacLC
 tree and write the wrapper twice, so the order is: this section, then the
 tree cut (2.8 item 8), then the peripherals.
+
+## 1.14 The beat table: MC68030 UM 7.2, run
+
+Done 2026-09-26 (1.13 item 1). Read: 7.2 in full - 7.2.1 dynamic bus
+sizing with Tables 7-1 to 7-5 and Figures 7-3 to 7-8, 7.2.2 misaligned
+operands with Figures 7-9 to 7-17, 7.2.3 Table 7-6, 7.2.4 Table 7-7 and
+Figure 7-18, 7.2.5 (the 030 differs from the 020 only for cachable
+accesses), 7.2.6 and 7.2.7 (cache fills); 6.1.3 for what a cachable read
+demands of a port; the note to 11.6.14 for bit fields spanning five
+bytes. Tables 7-4, 7-5 and 7-6 were confirmed against the page images
+because the PDF's text layer garbles them. Everything below is from the
+manual; nothing from an emulator or another core.
+
+**The rule, and that it is the whole of it.** A beat moves the most the
+port can take from the current address to the port's own boundary,
+
+> n = min(bytes remaining, port width in bytes - (A mod port width)),
+
+the next beat starts n bytes on, `SIZ1-0` reports what remains (Table
+7-2: 01 one, 10 two, 11 three, 00 four), `A1-A0` the current offset, and
+the port names its width on `DSACK1-0` (Table 7-1: `HL` 8-bit, `LH`
+16-bit, `LL` 32-bit). The lanes a port takes are, from the top lane
+`D31:24` = 0: a 32-bit port lanes `A1A0` onward, a 16-bit port lane `A0`
+onward within `D31:16`, an 8-bit port lane 0 only. `scripts/se30_bus_beats.py`
+holds Tables 7-4, 7-5, 7-6 and 7-7 transcribed literally and runs the
+rule against all of them - 151 table entries, every one reproduced: Table
+7-6's cycle counts, Table 7-7's lane enables, the `OPn` positions of
+Table 7-4, and that every lane Table 7-7 says a port reads carries the
+byte Table 7-5 drives there - plus the manual's five worked examples
+(Figures 7-5, 7-7, 7-9, 7-12, 7-15). So the four tables are one rule,
+and the kernel implements the rule, not the tables.
+
+**Table 7-6, the counts (32:16:8-bit port):**
+
+| operand | A1A0 = 00 | 01 | 10 | 11 |
+|---|---|---|---|---|
+| instruction prefetch | 1:2:4 | - | - | - |
+| byte | 1:1:1 | 1:1:1 | 1:1:1 | 1:1:1 |
+| word | 1:1:2 | 1:2:2 | 1:1:2 | 2:2:2 |
+| long | 1:2:4 | 2:3:4 | 2:2:4 | 2:3:4 |
+
+Every cycle count in 2.11 that involves an operand wider than its port
+rests on this row: a longword to a VIA is four beats, a word two.
+
+**Table 7-5, what the processor drives on a write - verbatim, because the
+kernel will drive exactly this.** `OP0` is the most significant byte of a
+long, `OP3` the least; a word is `OP2 OP3`, a byte `OP3` (Figure 7-3).
+The processor always drives all four lanes (7.1.4); the starred bytes are
+"output but never used".
+
+| SIZ | A1A0 | D31:24 | D23:16 | D15:8 | D7:0 |
+|---|---|---|---|---|---|
+| byte 01 | xx | OP3 | OP3 | OP3 | OP3 |
+| word 10 | x0 | OP2 | OP3 | OP2 | OP3 |
+| word 10 | x1 | OP2 | OP2 | OP3 | OP2 |
+| 3-byte 11 | 00 | OP1 | OP2 | OP3 | OP0* |
+| 3-byte 11 | 01 | OP1 | OP1 | OP2 | OP3 |
+| 3-byte 11 | 10 | OP1 | OP2 | OP1 | OP2 |
+| 3-byte 11 | 11 | OP1 | OP1 | OP2* | OP1 |
+| long 00 | 00 | OP0 | OP1 | OP2 | OP3 |
+| long 00 | 01 | OP0 | OP0 | OP1 | OP2 |
+| long 00 | 10 | OP0 | OP1 | OP0 | OP1 |
+| long 00 | 11 | OP0 | OP0 | OP1* | OP0 |
+
+Within the lanes a port reads, this is the rule above (the byte at
+`A+k` on lane `A1A0+k` for a 32-bit port, `A0+k` for a 16-bit port, lane
+0 for an 8-bit port); outside them it is replication, so that a 16- or
+8-bit port finds its bytes on `D31:16` / `D31:24` whatever the offset.
+On a read the same lanes carry the operand bytes in (Table 7-4); the
+bytes Table 7-4 marks `PRn`/`Nn` are don't-cares for an uncached read.
+Table 7-7's enables (which GLUE will derive for RAM, Figure 7-18) are
+the lane rule for the port's width.
+
+**The kernel's mask, read against this.** `memmask` is one bit per byte
+of the operand, active low, counted from its address `A`: **bit 4 is the
+byte at `A`, bit 3 at `A+1`, ... bit 0 at `A+4`; bit 5 (`A-1`) is never
+used and starts at 1.** That is what the `memmaskmux` line means -
+`memmask when addr(0)='1' else memmask(4 downto 0)&'1'`: a word beat's
+strobes are the two bytes of the word containing `A`, so an even `A`
+shifts the window up one; the `nUDS`/`nLDS` pair is then bits 5:4 for
+either parity. The operand masks - `101111` byte, `100111` word,
+`100001` long, `100011` and `100000` for bit fields of three and five
+bytes - are this mapping exactly. Today every beat consumes two bits
+(`memmask <= memmask(3 downto 0)&"11"`) because every beat is a word,
+and "last beat" is `memmaskmux(3)`, "no byte in the next word", known
+before the beat starts. The 030 contract is the same mask consumed by
+the width the port answers:
+
+> `memmask <= memmask(5-n downto 0) & ones(n)`, n from `DSACK`; the
+> operand is done when bits 4:0 are all ones; `SIZ` = min(zeros in bits
+> 4:0, 4).
+
+The consumed byte shifts into bit 5, so a finished operand reads
+`011111` - the kernel's own comment at the longword mask gives its
+sequence as `100001 -> 000111 -> 011111`, and the oracle's `mask'`
+column reproduces it for a long to a 16-bit port.
+
+**What this fixes for item 2, the kernel change:**
+
+- *The last beat is known only at acknowledge.* A long at `A1A0 = 00` is
+  one beat if the port is 32-bit and two if 16-bit. So `clkena_lw`,
+  `long_done` and everything that keys on `memmaskmux(3)` - the address
+  arithmetic's zero-delta guards, the PMOVE and RTE frame sequencing
+  (137 lines, 1.13) - move from "mask says more follows" to "mask after
+  this acknowledge says nothing follows". That is the substantive part
+  of the job.
+- *`memmaskmux`'s parity shift becomes the lane multiplexer.* On the
+  030 bus there are no byte strobes; `SIZ`, `A1-A0` and Table 7-5's
+  drive pattern replace `nUDS`/`nLDS` and the 16-bit `data_write` slice,
+  and the read assembly takes lanes `A1A0`.. (or `A0`.. on `D31:16`,
+  or lane 0) by the acknowledged width instead of `last_data_in`'s
+  16-bit shift-in.
+- *The instruction prefetch is an aligned longword* (Table 7-6's
+  footnote; 6.1.1: "the word selected by address bit A1 is supplied to
+  the instruction pipe"). The kernel fetches a word per opcode beat
+  today (`100111` at PC). The bus contract is the long at `PC & ~3`,
+  1:2:4 beats; how the kernel holds the other word is its cache-holding
+  register's business, not the bus's.
+- *A five-byte bit field is two operand cycles* (11.6.14's note: "may
+  span 5 bytes that require two operand cycles"). The manual does not
+  say which comes first; the oracle takes the long at `A` then the byte
+  at `A+4` and says so - **an assumption, not 7.2**. The mask
+  `100000` consumed by width would instead merge the long's tail with
+  the fifth byte into one beat where the offset allows (`A1A0 = 01`: 3
+  + 2 rather than 3 + 1 + 1). Item 2 splits it as two cycles.
+- *A three-byte operand start* (`SIZ = 11` on a first beat) occurs only
+  for bit fields; 7.2 defines the beat the same way and the oracle
+  carries it.
+- *Cachable reads are a separate rule* (7.2.5, 7.2.7, 6.1.3): the port
+  must supply its full width regardless of `SIZ` and `A1-A0`, and a
+  misaligned operand fills both cache entries it spans (Figure 6-8's
+  order for an 8-bit port: b6 b7 b4 b5, then the next long). On this
+  board every 8-bit port is cache-inhibited by the ROM's PMMU tables
+  (2.11.1) and RAM and ROM are 32-bit, so **a cachable read here is
+  always whole aligned longs, one beat each**; the oracle's rows are the
+  uncached and write cases, which is what 7.2 specifies. The kernel's
+  cache fill follows the same width (1.13 item 2) and is benched in item
+  3 against RAM's port only.
+
+**The oracle.** `sim/kernel_bus/beats.txt`, one line per beat: case,
+operand offset, port; the `SIZ` and `A1-A0` driven, the bytes and lanes
+moved, Table 7-5's four lanes with the beat's own byte names, the
+`DSACK` pair, and `memmask` before and after. 63 cases - the prefetch
+and the byte, word, long, three- and five-byte operands at every offset
+to every port - 142 beats. The kernel bench of item 3 reads it; nothing
+in it is derived from the kernel. `python scripts/se30_bus_beats.py
+check` is the self-test, `emit` regenerates the file, `md` prints it for
+reading.
 
 ---
 

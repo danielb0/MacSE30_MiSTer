@@ -1,0 +1,171 @@
+# The 68030's bus beats - MC68030 UM 7.2, run by scripts/se30_bus_beats.py.
+# SE30_PLAN.md 1.14.  Regenerate: python scripts/se30_bus_beats.py emit sim/kernel_bus/beats.txt
+#
+# One line per beat.  Columns:
+#   case   byte/word/long: a CPU operand; 3byte: a bit field in 3 bytes;
+#          bf5: a 32-bit bit field spanning 5 bytes, two operand cycles
+#          (UM 11.6.14 note; long at A then byte at A+4 - order assumed);
+#          instr: an instruction prefetch, always a long at A1A0=00
+#   A1A0   the operand's address offset in its longword
+#   port   the port width the device answers on DSACK, 32 / 16 / 8
+#   oc     operand cycle (0, or 1 for bf5's second)
+#   beat   this beat's number within the operand cycle, of `of`
+#   SIZ    SIZ1 SIZ0 driven: bytes remaining, Table 7-2 (00 = four)
+#   A1A0'  A1 A0 driven on this beat
+#   n      bytes the port takes on this beat
+#   bytes  which bytes, in address order: OPn as UM Fig 7-3 (OP3 is the
+#          least significant), Fn for a bit field's bytes
+#   lanes  the lanes they ride: 0 = D31:24, 1 = D23:16, 2 = D15:8, 3 = D7:0
+#          (Table 7-7 for the port; Table 7-4 on a read, Table 7-5 on a write)
+#   drive  what the processor puts on lanes 0-3 on a write, Table 7-5 verbatim
+#          (* = output but never used)
+#   DSACK  DSACK1 DSACK0 the port asserts, Table 7-1
+#   mask   the kernel's memmask before the beat: bit 4 = byte A, bit 3 = A+1,
+#          ... bit 0 = A+4, active low; bit 5 always 1
+#   mask'  after the beat: mask(5-n:0) & n ones - bit 5 then holds the byte
+#          just consumed, as the kernel's own shift leaves it
+#   last   1 on the operand cycle's final beat: mask' bits 4..0 all ones
+#
+case   A1A0  port  oc  beat  of  SIZ  A1A0'  n  bytes            lanes    drive             DSACK  mask    mask'   last
+instr  0     32    0   1     1   00   0      4  OP0+OP1+OP2+OP3  0+1+2+3  OP0 OP1 OP2 OP3   LL     100001  011111  1
+instr  0     16    0   1     2   00   0      2  OP0+OP1          0+1      OP0 OP1 OP2 OP3   LH     100001  000111  0
+instr  0     16    0   2     2   10   2      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LH     000111  011111  1
+instr  0     8     0   1     4   00   0      1  OP0              0        OP0 OP1 OP2 OP3   HL     100001  000011  0
+instr  0     8     0   2     4   11   1      1  OP1              0        OP1 OP1 OP2 OP3   HL     000011  000111  0
+instr  0     8     0   3     4   10   2      1  OP2              0        OP2 OP3 OP2 OP3   HL     000111  001111  0
+instr  0     8     0   4     4   01   3      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+byte   0     32    0   1     1   01   0      1  OP3              0        OP3 OP3 OP3 OP3   LL     101111  011111  1
+byte   0     16    0   1     1   01   0      1  OP3              0        OP3 OP3 OP3 OP3   LH     101111  011111  1
+byte   0     8     0   1     1   01   0      1  OP3              0        OP3 OP3 OP3 OP3   HL     101111  011111  1
+byte   1     32    0   1     1   01   1      1  OP3              1        OP3 OP3 OP3 OP3   LL     101111  011111  1
+byte   1     16    0   1     1   01   1      1  OP3              1        OP3 OP3 OP3 OP3   LH     101111  011111  1
+byte   1     8     0   1     1   01   1      1  OP3              0        OP3 OP3 OP3 OP3   HL     101111  011111  1
+byte   2     32    0   1     1   01   2      1  OP3              2        OP3 OP3 OP3 OP3   LL     101111  011111  1
+byte   2     16    0   1     1   01   2      1  OP3              0        OP3 OP3 OP3 OP3   LH     101111  011111  1
+byte   2     8     0   1     1   01   2      1  OP3              0        OP3 OP3 OP3 OP3   HL     101111  011111  1
+byte   3     32    0   1     1   01   3      1  OP3              3        OP3 OP3 OP3 OP3   LL     101111  011111  1
+byte   3     16    0   1     1   01   3      1  OP3              1        OP3 OP3 OP3 OP3   LH     101111  011111  1
+byte   3     8     0   1     1   01   3      1  OP3              0        OP3 OP3 OP3 OP3   HL     101111  011111  1
+word   0     32    0   1     1   10   0      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LL     100111  011111  1
+word   0     16    0   1     1   10   0      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LH     100111  011111  1
+word   0     8     0   1     2   10   0      1  OP2              0        OP2 OP3 OP2 OP3   HL     100111  001111  0
+word   0     8     0   2     2   01   1      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+word   1     32    0   1     1   10   1      2  OP2+OP3          1+2      OP2 OP2 OP3 OP2   LL     100111  011111  1
+word   1     16    0   1     2   10   1      1  OP2              1        OP2 OP2 OP3 OP2   LH     100111  001111  0
+word   1     16    0   2     2   01   2      1  OP3              0        OP3 OP3 OP3 OP3   LH     001111  011111  1
+word   1     8     0   1     2   10   1      1  OP2              0        OP2 OP2 OP3 OP2   HL     100111  001111  0
+word   1     8     0   2     2   01   2      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+word   2     32    0   1     1   10   2      2  OP2+OP3          2+3      OP2 OP3 OP2 OP3   LL     100111  011111  1
+word   2     16    0   1     1   10   2      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LH     100111  011111  1
+word   2     8     0   1     2   10   2      1  OP2              0        OP2 OP3 OP2 OP3   HL     100111  001111  0
+word   2     8     0   2     2   01   3      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+word   3     32    0   1     2   10   3      1  OP2              3        OP2 OP2 OP3 OP2   LL     100111  001111  0
+word   3     32    0   2     2   01   0      1  OP3              0        OP3 OP3 OP3 OP3   LL     001111  011111  1
+word   3     16    0   1     2   10   3      1  OP2              1        OP2 OP2 OP3 OP2   LH     100111  001111  0
+word   3     16    0   2     2   01   0      1  OP3              0        OP3 OP3 OP3 OP3   LH     001111  011111  1
+word   3     8     0   1     2   10   3      1  OP2              0        OP2 OP2 OP3 OP2   HL     100111  001111  0
+word   3     8     0   2     2   01   0      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+long   0     32    0   1     1   00   0      4  OP0+OP1+OP2+OP3  0+1+2+3  OP0 OP1 OP2 OP3   LL     100001  011111  1
+long   0     16    0   1     2   00   0      2  OP0+OP1          0+1      OP0 OP1 OP2 OP3   LH     100001  000111  0
+long   0     16    0   2     2   10   2      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LH     000111  011111  1
+long   0     8     0   1     4   00   0      1  OP0              0        OP0 OP1 OP2 OP3   HL     100001  000011  0
+long   0     8     0   2     4   11   1      1  OP1              0        OP1 OP1 OP2 OP3   HL     000011  000111  0
+long   0     8     0   3     4   10   2      1  OP2              0        OP2 OP3 OP2 OP3   HL     000111  001111  0
+long   0     8     0   4     4   01   3      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+long   1     32    0   1     2   00   1      3  OP0+OP1+OP2      1+2+3    OP0 OP0 OP1 OP2   LL     100001  001111  0
+long   1     32    0   2     2   01   0      1  OP3              0        OP3 OP3 OP3 OP3   LL     001111  011111  1
+long   1     16    0   1     3   00   1      1  OP0              1        OP0 OP0 OP1 OP2   LH     100001  000011  0
+long   1     16    0   2     3   11   2      2  OP1+OP2          0+1      OP1 OP2 OP1 OP2   LH     000011  001111  0
+long   1     16    0   3     3   01   0      1  OP3              0        OP3 OP3 OP3 OP3   LH     001111  011111  1
+long   1     8     0   1     4   00   1      1  OP0              0        OP0 OP0 OP1 OP2   HL     100001  000011  0
+long   1     8     0   2     4   11   2      1  OP1              0        OP1 OP2 OP1 OP2   HL     000011  000111  0
+long   1     8     0   3     4   10   3      1  OP2              0        OP2 OP2 OP3 OP2   HL     000111  001111  0
+long   1     8     0   4     4   01   0      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+long   2     32    0   1     2   00   2      2  OP0+OP1          2+3      OP0 OP1 OP0 OP1   LL     100001  000111  0
+long   2     32    0   2     2   10   0      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LL     000111  011111  1
+long   2     16    0   1     2   00   2      2  OP0+OP1          0+1      OP0 OP1 OP0 OP1   LH     100001  000111  0
+long   2     16    0   2     2   10   0      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LH     000111  011111  1
+long   2     8     0   1     4   00   2      1  OP0              0        OP0 OP1 OP0 OP1   HL     100001  000011  0
+long   2     8     0   2     4   11   3      1  OP1              0        OP1 OP1 OP2* OP1  HL     000011  000111  0
+long   2     8     0   3     4   10   0      1  OP2              0        OP2 OP3 OP2 OP3   HL     000111  001111  0
+long   2     8     0   4     4   01   1      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+long   3     32    0   1     2   00   3      1  OP0              3        OP0 OP0 OP1* OP0  LL     100001  000011  0
+long   3     32    0   2     2   11   0      3  OP1+OP2+OP3      0+1+2    OP1 OP2 OP3 OP0*  LL     000011  011111  1
+long   3     16    0   1     3   00   3      1  OP0              1        OP0 OP0 OP1* OP0  LH     100001  000011  0
+long   3     16    0   2     3   11   0      2  OP1+OP2          0+1      OP1 OP2 OP3 OP0*  LH     000011  001111  0
+long   3     16    0   3     3   01   2      1  OP3              0        OP3 OP3 OP3 OP3   LH     001111  011111  1
+long   3     8     0   1     4   00   3      1  OP0              0        OP0 OP0 OP1* OP0  HL     100001  000011  0
+long   3     8     0   2     4   11   0      1  OP1              0        OP1 OP2 OP3 OP0*  HL     000011  000111  0
+long   3     8     0   3     4   10   1      1  OP2              0        OP2 OP2 OP3 OP2   HL     000111  001111  0
+long   3     8     0   4     4   01   2      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+3byte  0     32    0   1     1   11   0      3  OP1+OP2+OP3      0+1+2    OP1 OP2 OP3 OP0*  LL     100011  011111  1
+3byte  0     16    0   1     2   11   0      2  OP1+OP2          0+1      OP1 OP2 OP3 OP0*  LH     100011  001111  0
+3byte  0     16    0   2     2   01   2      1  OP3              0        OP3 OP3 OP3 OP3   LH     001111  011111  1
+3byte  0     8     0   1     3   11   0      1  OP1              0        OP1 OP2 OP3 OP0*  HL     100011  000111  0
+3byte  0     8     0   2     3   10   1      1  OP2              0        OP2 OP2 OP3 OP2   HL     000111  001111  0
+3byte  0     8     0   3     3   01   2      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+3byte  1     32    0   1     1   11   1      3  OP1+OP2+OP3      1+2+3    OP1 OP1 OP2 OP3   LL     100011  011111  1
+3byte  1     16    0   1     2   11   1      1  OP1              1        OP1 OP1 OP2 OP3   LH     100011  000111  0
+3byte  1     16    0   2     2   10   2      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LH     000111  011111  1
+3byte  1     8     0   1     3   11   1      1  OP1              0        OP1 OP1 OP2 OP3   HL     100011  000111  0
+3byte  1     8     0   2     3   10   2      1  OP2              0        OP2 OP3 OP2 OP3   HL     000111  001111  0
+3byte  1     8     0   3     3   01   3      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+3byte  2     32    0   1     2   11   2      2  OP1+OP2          2+3      OP1 OP2 OP1 OP2   LL     100011  001111  0
+3byte  2     32    0   2     2   01   0      1  OP3              0        OP3 OP3 OP3 OP3   LL     001111  011111  1
+3byte  2     16    0   1     2   11   2      2  OP1+OP2          0+1      OP1 OP2 OP1 OP2   LH     100011  001111  0
+3byte  2     16    0   2     2   01   0      1  OP3              0        OP3 OP3 OP3 OP3   LH     001111  011111  1
+3byte  2     8     0   1     3   11   2      1  OP1              0        OP1 OP2 OP1 OP2   HL     100011  000111  0
+3byte  2     8     0   2     3   10   3      1  OP2              0        OP2 OP2 OP3 OP2   HL     000111  001111  0
+3byte  2     8     0   3     3   01   0      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+3byte  3     32    0   1     2   11   3      1  OP1              3        OP1 OP1 OP2* OP1  LL     100011  000111  0
+3byte  3     32    0   2     2   10   0      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LL     000111  011111  1
+3byte  3     16    0   1     2   11   3      1  OP1              1        OP1 OP1 OP2* OP1  LH     100011  000111  0
+3byte  3     16    0   2     2   10   0      2  OP2+OP3          0+1      OP2 OP3 OP2 OP3   LH     000111  011111  1
+3byte  3     8     0   1     3   11   3      1  OP1              0        OP1 OP1 OP2* OP1  HL     100011  000111  0
+3byte  3     8     0   2     3   10   0      1  OP2              0        OP2 OP3 OP2 OP3   HL     000111  001111  0
+3byte  3     8     0   3     3   01   1      1  OP3              0        OP3 OP3 OP3 OP3   HL     001111  011111  1
+bf5    0     32    0   1     1   00   0      4  F0+F1+F2+F3      0+1+2+3  F0 F1 F2 F3       LL     100001  011111  1
+bf5    0     32    1   1     1   01   0      1  F4               0        F4 F4 F4 F4       LL     101111  011111  1
+bf5    0     16    0   1     2   00   0      2  F0+F1            0+1      F0 F1 F2 F3       LH     100001  000111  0
+bf5    0     16    0   2     2   10   2      2  F2+F3            0+1      F2 F3 F2 F3       LH     000111  011111  1
+bf5    0     16    1   1     1   01   0      1  F4               0        F4 F4 F4 F4       LH     101111  011111  1
+bf5    0     8     0   1     4   00   0      1  F0               0        F0 F1 F2 F3       HL     100001  000011  0
+bf5    0     8     0   2     4   11   1      1  F1               0        F1 F1 F2 F3       HL     000011  000111  0
+bf5    0     8     0   3     4   10   2      1  F2               0        F2 F3 F2 F3       HL     000111  001111  0
+bf5    0     8     0   4     4   01   3      1  F3               0        F3 F3 F3 F3       HL     001111  011111  1
+bf5    0     8     1   1     1   01   0      1  F4               0        F4 F4 F4 F4       HL     101111  011111  1
+bf5    1     32    0   1     2   00   1      3  F0+F1+F2         1+2+3    F0 F0 F1 F2       LL     100001  001111  0
+bf5    1     32    0   2     2   01   0      1  F3               0        F3 F3 F3 F3       LL     001111  011111  1
+bf5    1     32    1   1     1   01   1      1  F4               1        F4 F4 F4 F4       LL     101111  011111  1
+bf5    1     16    0   1     3   00   1      1  F0               1        F0 F0 F1 F2       LH     100001  000011  0
+bf5    1     16    0   2     3   11   2      2  F1+F2            0+1      F1 F2 F1 F2       LH     000011  001111  0
+bf5    1     16    0   3     3   01   0      1  F3               0        F3 F3 F3 F3       LH     001111  011111  1
+bf5    1     16    1   1     1   01   1      1  F4               1        F4 F4 F4 F4       LH     101111  011111  1
+bf5    1     8     0   1     4   00   1      1  F0               0        F0 F0 F1 F2       HL     100001  000011  0
+bf5    1     8     0   2     4   11   2      1  F1               0        F1 F2 F1 F2       HL     000011  000111  0
+bf5    1     8     0   3     4   10   3      1  F2               0        F2 F2 F3 F2       HL     000111  001111  0
+bf5    1     8     0   4     4   01   0      1  F3               0        F3 F3 F3 F3       HL     001111  011111  1
+bf5    1     8     1   1     1   01   1      1  F4               0        F4 F4 F4 F4       HL     101111  011111  1
+bf5    2     32    0   1     2   00   2      2  F0+F1            2+3      F0 F1 F0 F1       LL     100001  000111  0
+bf5    2     32    0   2     2   10   0      2  F2+F3            0+1      F2 F3 F2 F3       LL     000111  011111  1
+bf5    2     32    1   1     1   01   2      1  F4               2        F4 F4 F4 F4       LL     101111  011111  1
+bf5    2     16    0   1     2   00   2      2  F0+F1            0+1      F0 F1 F0 F1       LH     100001  000111  0
+bf5    2     16    0   2     2   10   0      2  F2+F3            0+1      F2 F3 F2 F3       LH     000111  011111  1
+bf5    2     16    1   1     1   01   2      1  F4               0        F4 F4 F4 F4       LH     101111  011111  1
+bf5    2     8     0   1     4   00   2      1  F0               0        F0 F1 F0 F1       HL     100001  000011  0
+bf5    2     8     0   2     4   11   3      1  F1               0        F1 F1 F2* F1      HL     000011  000111  0
+bf5    2     8     0   3     4   10   0      1  F2               0        F2 F3 F2 F3       HL     000111  001111  0
+bf5    2     8     0   4     4   01   1      1  F3               0        F3 F3 F3 F3       HL     001111  011111  1
+bf5    2     8     1   1     1   01   2      1  F4               0        F4 F4 F4 F4       HL     101111  011111  1
+bf5    3     32    0   1     2   00   3      1  F0               3        F0 F0 F1* F0      LL     100001  000011  0
+bf5    3     32    0   2     2   11   0      3  F1+F2+F3         0+1+2    F1 F2 F3 OP0*     LL     000011  011111  1
+bf5    3     32    1   1     1   01   3      1  F4               3        F4 F4 F4 F4       LL     101111  011111  1
+bf5    3     16    0   1     3   00   3      1  F0               1        F0 F0 F1* F0      LH     100001  000011  0
+bf5    3     16    0   2     3   11   0      2  F1+F2            0+1      F1 F2 F3 OP0*     LH     000011  001111  0
+bf5    3     16    0   3     3   01   2      1  F3               0        F3 F3 F3 F3       LH     001111  011111  1
+bf5    3     16    1   1     1   01   3      1  F4               1        F4 F4 F4 F4       LH     101111  011111  1
+bf5    3     8     0   1     4   00   3      1  F0               0        F0 F0 F1* F0      HL     100001  000011  0
+bf5    3     8     0   2     4   11   0      1  F1               0        F1 F2 F3 OP0*     HL     000011  000111  0
+bf5    3     8     0   3     4   10   1      1  F2               0        F2 F2 F3 F2       HL     000111  001111  0
+bf5    3     8     0   4     4   01   2      1  F3               0        F3 F3 F3 F3       HL     001111  011111  1
+bf5    3     8     1   1     1   01   3      1  F4               0        F4 F4 F4 F4       HL     101111  011111  1
