@@ -2,14 +2,17 @@
 
 Imported 2026-09-26 for SE30_PLAN.md 1.13 (the kernel's 32-bit bus). The
 kernel is ours to change (plan 1.12, owner's decision); this file records
-where it came from so the delta stays listed.
+where it came from so the delta stays listed. **The delta since the import
+is plan 1.15's beat engine** (steps 2a, 2b); the import commit is
+`8366903`, so `git diff 8366903 -- rtl/tg68k` shows exactly what we changed.
 
 | file | from | as taken |
 |---|---|---|
 | `TG68K_Pack.vhd` | `apolkosnik/Minimig-AGA_MiSTer@030_mmu2`, tip `c3e8a0d` (2026-07-25) | byte-identical, LF |
-| `TG68K_ALU.vhd` | the same, **plus the one hunk the plan says to take**: `danifunker/MacIIvi_MiSTer@498eb34` (2026-08-15), the DIVU divide-by-zero CCR correction adjudicated on a Macintosh IIcx capture (plan 1.12's table) | LF; 20 changed lines against upstream |
+| `TG68K_ALU.vhd` | the same, **plus the one hunk the plan says to take**: `danifunker/MacIIvi_MiSTer@498eb34` (2026-08-15), the DIVU divide-by-zero CCR correction adjudicated on a Macintosh IIcx capture (plan 1.12's table) | LF; 20 changed lines against upstream, **plus the `beat_step` input of plan 1.15** |
 | `TG68K_PMMU_030.vhd` | upstream `c3e8a0d` | byte-identical; `ATC_ENTRIES` stays 22 (the IIvi's 22 -> 8 is an area workaround the plan declines) |
-| `TG68KdotC_Kernel.vhd` | upstream `c3e8a0d` | byte-identical, LF |
+| `TG68KdotC_Kernel.vhd` | upstream `c3e8a0d` | LF; **our change: the beat engine of plan 1.15** - n bytes a beat, the 32-bit shape by the `DATA_WIDTH` generic with `dsack` in and `siz` out. `git diff 8366903 -- rtl/tg68k` is the whole delta from the import |
+| `TG68K_Pack.vhd` (again) | | the ALU component gained `beat_step` |
 | `TG68K_Cache_030.vhd` | upstream `c3e8a0d` | byte-identical, CRLF as upstream has it |
 
 Not taken: `TG68K.vhd` (upstream's Amiga top; the Mac bus wrapper is

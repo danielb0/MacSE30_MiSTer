@@ -1166,6 +1166,8 @@ existing one taught the 030's width rules.
    Cache fills (7.2.6) and the PMMU walker's port follow the same width.
    **Designed 2026-09-26 - 1.15**, as one engine consuming n bytes a
    beat, in four sub-steps 2a-2d with the 1.14 bench as acceptance.
+   **2a and 2b done the same day**: data operands move at the port's
+   width on 8-, 16- and 32-bit ports; the prefetch (2c) is next.
 3. **Verify** under ModelSim (1.10): the beat table of item 1 as a bench
    on the kernel alone, then the cputest 030 corpus and the silicon
    captures in both shapes - identical architectural results, and the
@@ -1523,9 +1525,42 @@ made to follow n:
     WinUAE model those two benches encode (UM: N, Z, V *undefined* on
     divide by zero). Confirmed by running both with upstream's ALU under
     our kernel: pass. The engine change itself regresses nothing there.
-- **2b - the 32-bit port**: item 7 and the width rule of item 2 for
+- ~~**2b - the 32-bit port**: item 7 and the width rule of item 2 for
   data operands. Acceptance: the bench at `PORT=32` and `PORT=8`, data
-  beats; `PORT=16` unchanged.
+  beats; `PORT=16` unchanged.~~ **Done 2026-09-26.** `DATA_WIDTH` (16
+  today, 32) sizes `data_in`/`data_write`; `dsack(1:0)` in, as the
+  pins read in the acknowledge clock (`"10"` 8-bit, `"01"` 16-bit,
+  `"00"` 32-bit, `"11"` taken as 32); `siz(1:0)` out. The port's room
+  and first lane come from `dsack` and `A1A0` (Tables 7-1, 7-4, 7-7);
+  the read assembly takes n bytes from the lanes; the write drives all
+  four lanes as Table 7-5 says for `SIZ` and `A1A0`, the same pattern
+  whatever the port answers, since the processor cannot know the width
+  before `DSACK`. **The bench passes on all three ports**: 16 (145
+  checks, 132 beats), 32 (109 checks, 96 beats), 8 (178 checks, 165
+  beats); upstream's 17 benches unchanged from 2a. Two more things
+  learned:
+  - **the fetch pipeline is "one beat, one word"** - it advances the PC
+    by two and reads its word from `data_read(15:0)` on every fetch
+    beat - so a 32-bit port delivering a long extension word in one
+    beat handed it the wrong word. Until 2c, fetch beats are capped at
+    a word in the 32-bit shape (`room := 2` when `state = "00"`), and
+    code on an 8-bit port is unsupported (the SE/30 has none: ROM and
+    RAM are 32-bit). The `PORT=8` bench is arranged as the machine is,
+    code in 32-bit memory and the operand area the 8-bit device.
+  - **the sign extension used the strobe history as the operand's
+    size** ("first beat" or "an odd word's two single-byte beats"),
+    true on a 16-bit port only: a long in one 4-byte beat, or in four
+    1-byte beats at an odd offset, came back as a word. The size is
+    now latched at the operand's first beat (`op_size`). The second
+    proxy of the kind 2a found.
+
+  *A contract for the wrapper (item 4):* the kernel's `SIZ`, address
+  and write lanes depend only on the operand and the address, so they
+  are stable through a cycle; what depends on `dsack` (the mask shift,
+  the address step, `clkena_lw`, `memmaskmux(3)`) commits in the
+  acknowledge clock. The wrapper presents `dsack` with `clkena_in` and
+  latches address, `FC`, `SIZ` and data at the start of its cycle, as
+  the 68030 holds them from S0/S1.
 - **2c - the prefetch**: item 8. Acceptance: the bench's fetch beats
   checked against the `instr` rows at all three widths.
 - **2d - breadth**: upstream's suite in both shapes through the runner;

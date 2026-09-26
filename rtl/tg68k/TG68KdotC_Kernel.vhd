@@ -114,7 +114,9 @@ entity TG68KdotC_Kernel is
 		BitField : integer := 2;			--0=>no,			1=>yes,				2=>switchable with CPU(1) 
 		
 		BarrelShifter : integer := 1;		--0=>no,			1=>yes,				2=>switchable with CPU(1)  
-		MUL_Hardware : integer := 1		--0=>no,			1=>yes,  
+		MUL_Hardware : integer := 1;	--0=>no,			1=>yes,  
+		DATA_WIDTH : integer := 16		--16=>the 68000-shaped bus (two bytes a beat); 32=>the 68030's,
+											--   dynamic bus sizing by DSACK (SE30_PLAN.md 1.15)
 		);
 	port(clk						: in std_logic;
 		nReset					: in std_logic;			--low active
@@ -127,13 +129,19 @@ entity TG68KdotC_Kernel is
 		-- Defaults to '1' so instantiations without a wrapper qualifier keep
 		-- the historical behavior.
 		beat_valid				: in std_logic:='1';
-		data_in					: in std_logic_vector(15 downto 0);
+		data_in					: in std_logic_vector(DATA_WIDTH-1 downto 0);
+		-- 68030 bus (DATA_WIDTH=32): the port's width, as the DSACK1/DSACK0 pins read
+		-- in the clock clkena_in acknowledges the beat - "10" 8-bit, "01" 16-bit,
+		-- "00" 32-bit ("11", no acknowledge yet, is taken as 32-bit). Ignored
+		-- by the 16-bit shape.
+		dsack						: in std_logic_vector(1 downto 0):="00";
 		IPL						: in std_logic_vector(2 downto 0):="111";
 		IPL_autovector			: in std_logic:='0';
 		berr						: in std_logic:='0';					-- only 68000 Stackpointer dummy
 		CPU						: in std_logic_vector(1 downto 0);  -- 00->68000  01->68010  10->68030 (with PMMU)
 		addr_out					: out std_logic_vector(31 downto 0);
-		data_write				: out std_logic_vector(15 downto 0);
+		data_write				: out std_logic_vector(DATA_WIDTH-1 downto 0);
+		siz						: out std_logic_vector(1 downto 0);	-- SIZ1 SIZ0: bytes remaining, UM Table 7-2
 		nWr						: out std_logic;
 		nUDS						: out std_logic;
 		nLDS						: out std_logic;
@@ -721,7 +729,13 @@ architecture logic of TG68KdotC_Kernel is
 	signal beat_step			: std_logic_vector(2 downto 0);
 	signal op5					: std_logic;
 	signal op5_now				: std_logic;
+	signal op_size				: integer range 0 to 5;			-- the operand's bytes, latched at its first beat
 	signal byte_in				: std_logic_vector(7 downto 0);
+	signal bus_in				: std_logic_vector(31 downto 0);	-- the data bus, lane 0 = D31:24
+	signal bus_out				: std_logic_vector(31 downto 0);
+	signal lane_in				: std_logic_vector(31 downto 0);	-- bus_in with this beat's first lane at the top
+	signal first_lane			: integer range 0 to 3;
+	signal port_room			: integer range 1 to 4;			-- bytes to the port's boundary
 	signal oddout				: std_logic;
 	signal set_oddout			: std_logic;
 	signal PCbase				: std_logic;
@@ -1649,10 +1663,33 @@ ALU: TG68K_ALU
 	            2 WHEN memmask(3)='0' ELSE
 	            1 WHEN memmask(4)='0' ELSE 0;
 	op5_now <= '1' WHEN memmask="100000" OR op5='1' ELSE '0';
-	PROCESS (beat_rem, op5_now, addr)
+	-- The port: how many bytes it can take from this address, and which lane
+	-- the first of them rides. The 16-bit shape is a 16-bit port on lanes 0-1;
+	-- the 32-bit shape reads the width from dsack (UM Table 7-1) and the lanes
+	-- from the address (Tables 7-4, 7-7): a 32-bit port from lane A1A0, a
+	-- 16-bit port from lane A0, an 8-bit port lane 0 only.
+	PROCESS (addr, dsack)
+	BEGIN
+		IF DATA_WIDTH = 32 AND dsack = "10" THEN
+			port_room <= 1; first_lane <= 0;
+		ELSIF DATA_WIDTH = 32 AND dsack /= "01" THEN
+			port_room <= 4 - conv_integer(addr(1 downto 0)); first_lane <= conv_integer(addr(1 downto 0));
+		ELSIF addr(0)='1' THEN
+			port_room <= 1; first_lane <= 1;
+		ELSE
+			port_room <= 2; first_lane <= 0;
+		END IF;
+	END PROCESS;
+	PROCESS (beat_rem, op5_now, port_room, state)
 		VARIABLE room, cyc, n : integer range 0 to 5;
 	BEGIN
-		IF addr(0)='1' THEN room := 1; ELSE room := 2; END IF;
+		room := port_room;
+		-- An instruction fetch is one word a beat until 1.15 step 2c (the
+		-- aligned-long prefetch with a holding register): the fetch pipeline
+		-- advances the PC by two and reads its word from data_read(15:0) on
+		-- every fetch beat, so a wider port must not deliver more. (Code on an
+		-- 8-bit port is not supported before 2c; the SE/30 has none.)
+		IF state = "00" AND room > 2 THEN room := 2; END IF;
 		cyc := beat_rem;
 		IF op5_now='1' AND beat_rem > 1 THEN cyc := beat_rem - 1; END IF;
 		n := beat_rem;
@@ -1662,11 +1699,27 @@ ALU: TG68K_ALU
 	END PROCESS;
 	beat_step <= "001" WHEN beat_n = 1 ELSE "010" WHEN beat_n = 2 ELSE
 	             "011" WHEN beat_n = 3 ELSE "100" WHEN beat_n = 4 ELSE "000";
-	byte_in <= data_in(7 downto 0) WHEN addr(0)='1' ELSE data_in(15 downto 8);
+	g_bus32: IF DATA_WIDTH = 32 GENERATE
+		bus_in <= data_in;
+		data_write <= bus_out;
+	END GENERATE;
+	g_bus16: IF DATA_WIDTH /= 32 GENERATE
+		bus_in <= data_in & X"0000";
+		data_write <= bus_out(31 downto 16);
+	END GENERATE;
+	lane_in <= bus_in WHEN first_lane = 0 ELSE
+	           bus_in(23 downto 0) & X"00" WHEN first_lane = 1 ELSE
+	           bus_in(15 downto 0) & X"0000" WHEN first_lane = 2 ELSE
+	           bus_in(7 downto 0) & X"000000";
+	byte_in <= lane_in(31 downto 24);
+	siz <= "01" WHEN beat_rem = 1 ELSE "10" WHEN beat_rem = 2 ELSE "11" WHEN beat_rem = 3 ELSE "00";
 	memmaskmux(2 downto 0) <= memmask(2 downto 0) WHEN addr(0)='1' ELSE memmask(1 downto 0) & '1';
 	memmaskmux(3) <= '1' WHEN beat_n = beat_rem ELSE '0';
+	-- the strobe pair as a 16-bit bus would show it - nUDS/nLDS in the 16-bit
+	-- shape, and memread's record of "a single byte at an odd/even address"
+	-- in both (the sign extension and the first-beat test read it)
 	memmaskmux(5 downto 4) <= "11" WHEN beat_n = 0 ELSE
-	                          "00" WHEN beat_n = 2 ELSE
+	                          "00" WHEN beat_n >= 2 ELSE
 	                          "10" WHEN addr(0)='1' ELSE "01";
 	-- BUG #428 FIX: Gate bus strobes with pmmu_fault to prevent faulting writes from
 	-- reaching the bus. With the busy='0' override during fault (PMMU fix), UDS/LDS
@@ -1941,18 +1994,22 @@ ALU: TG68K_ALU
 		END CASE;
 	END PROCESS;
 
-PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, memread, memmask, data_read, dib_sub_hit, dib_sub_data, beat_n, byte_in)
+PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, memread, memmask, data_read, dib_sub_hit, dib_sub_data, beat_n, byte_in, lane_in, bus_in, beat_rem, op_size)
 	BEGIN
 		-- this beat's bytes appended to what earlier beats brought (1.15 item 5);
 		-- a beat that moves nothing keeps the old word-wide stream timing
 		CASE beat_n IS
-			WHEN 1 => data_read <= last_data_in(23 downto 0)&byte_in;
-			WHEN 2 => data_read <= last_data_in(15 downto 0)&data_in;
-			WHEN OTHERS => data_read <= last_data_in(23 downto 0)&data_in(15 downto 8);
+			WHEN 1 => data_read <= last_data_in(23 downto 0)&lane_in(31 downto 24);
+			WHEN 2 => data_read <= last_data_in(15 downto 0)&lane_in(31 downto 16);
+			WHEN 3 => data_read <= last_data_in(7 downto 0)&lane_in(31 downto 8);
+			WHEN 4 => data_read <= lane_in;
+			WHEN OTHERS => data_read <= last_data_in(23 downto 0)&bus_in(31 downto 24);
 		END CASE;
-		-- a single-beat operand (the previous beat strobed nothing: the operand's
-		-- first), or the two single-byte beats of a word at an odd address
-		IF memread(1 downto 0)="11" OR (memread(1 downto 0)="10" AND memmaskmux(4)='1')THEN
+		-- a byte or word operand is sign-extended: its size is beat_rem on its
+		-- first beat (the previous beat strobed nothing) and op_size after.
+		-- (Before 1.15 the strobe history stood in for the size: "first beat"
+		-- or "an odd word's two single-byte beats" - true on a 16-bit port only.)
+		IF (memread(1 downto 0)="11" AND beat_rem <= 2) OR (memread(1 downto 0)/="11" AND op_size <= 2) THEN
 			data_read(31 downto 16) <= (OTHERS=>data_read(15));
 		END IF;
 		-- DIB substitution: the armed one-shot supplies the software-completed
@@ -1964,11 +2021,12 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 		IF rising_edge(clk) THEN	
 			IF clkena_lw='1' AND state="10" THEN
 				-- the fifth byte of a bit field: the one the 32-bit stream overflows
-				IF beat_n = 2 THEN
-					bf_ext_in <= last_data_in(23 downto 16);
-				ELSE
-					bf_ext_in <= last_data_in(31 downto 24);
-				END IF;
+				CASE beat_n IS
+					WHEN 2 => bf_ext_in <= last_data_in(23 downto 16);
+					WHEN 3 => bf_ext_in <= last_data_in(15 downto 8);
+					WHEN 4 => bf_ext_in <= last_data_in(7 downto 0);
+					WHEN OTHERS => bf_ext_in <= last_data_in(31 downto 24);
+				END CASE;
 			END IF;	
 			IF Reset='1' THEN
 				last_data_read <= (OTHERS => '0');
@@ -1987,14 +2045,16 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 						IF state(1)='0' AND memmask(1)='0' THEN
 							last_data_read(31 downto 16) <= last_opc_read;
 						ELSIF state(1)='0' OR memread(1)='1' THEN
-							last_data_read(31 downto 16) <= (OTHERS=>data_in(15));
+							last_data_read(31 downto 16) <= (OTHERS=>lane_in(31));
 						END IF;
 					END IF;
-					IF beat_n = 1 THEN
-						last_data_in <= last_data_in(23 downto 0)&byte_in;
-					ELSE
-						last_data_in <= last_data_in(15 downto 0)&data_in(15 downto 0);
-					END IF;
+					CASE beat_n IS
+						WHEN 1 => last_data_in <= last_data_in(23 downto 0)&lane_in(31 downto 24);
+						WHEN 3 => last_data_in <= last_data_in(7 downto 0)&lane_in(31 downto 8);
+						WHEN 4 => last_data_in <= lane_in;
+						WHEN 2 => last_data_in <= last_data_in(15 downto 0)&lane_in(31 downto 16);
+						WHEN OTHERS => last_data_in <= last_data_in(15 downto 0)&bus_in(31 downto 16);
+					END CASE;
 				END IF;
 			END IF;
 		END IF;
@@ -2015,7 +2075,7 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 					IF dib_sub_hit='1' THEN
 						rte_format_word <= dib_sub_data(15 downto 0);
 					ELSIF beat_valid='1' THEN
-						rte_format_word <= data_in;
+						rte_format_word <= lane_in(31 downto 16);
 					END IF;
 				END IF;
 			END IF;
@@ -2312,11 +2372,11 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 		END IF;
 	END PROCESS;
 
-	PROCESS (long_start, reg_QB, data_write_tmp, exec, data_read, beat_rem, beat_n, bf_ext_out,
+	PROCESS (long_start, reg_QB, data_write_tmp, exec, data_read, beat_rem, bf_ext_out, addr,
 			 data_write_muxin, memmask,
 			 moves_bus_pending, moves_direction, moves_reg, addsub_q, opcode)
 		VARIABLE op_bytes : std_logic_vector(39 downto 0);
-		VARIABLE b0, b1 : std_logic_vector(7 downto 0);
+		VARIABLE r0, r1, r2, r3 : std_logic_vector(7 downto 0);
 	BEGIN
 		-- MC68030 Bus Error Frame: data_write_muxin uses data_write_tmp (default path).
 		-- berr state data is loaded into data_write_tmp in the sequential process
@@ -2345,24 +2405,38 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 		
 		-- The operand as bytes, most significant first: the bit-field extension
 		-- byte, then the value; an operand of k bytes is the low k of the five,
-		-- and this beat drives the beat_n of them that start 5-beat_rem from the
-		-- top (1.15 item 6). A 16-bit port takes the first on D15:8 and the
-		-- second on D7:0; a lone byte rides both halves.
+		-- and r0..r3 are the ones still to go, from 5-beat_rem (1.15 item 6).
+		-- The four lanes carry them as UM Table 7-5 says for SIZ (the bytes
+		-- remaining, at most four) and A1A0 - the same pattern for every port
+		-- width, since the processor cannot know the width before DSACK; a
+		-- 16-bit port takes lanes 0-1, an 8-bit port lane 0. The lanes the
+		-- table marks "output but never used" carry what it shows.
 		op_bytes := bf_ext_out & data_write_muxin;
 		CASE beat_rem IS
-			WHEN 5 => b0 := op_bytes(39 downto 32); b1 := op_bytes(31 downto 24);
-			WHEN 4 => b0 := op_bytes(31 downto 24); b1 := op_bytes(23 downto 16);
-			WHEN 3 => b0 := op_bytes(23 downto 16); b1 := op_bytes(15 downto 8);
-			WHEN 2 => b0 := op_bytes(15 downto 8);  b1 := op_bytes(7 downto 0);
-			WHEN OTHERS => b0 := op_bytes(7 downto 0); b1 := op_bytes(7 downto 0);
+			WHEN 5 => r0 := op_bytes(39 downto 32); r1 := op_bytes(31 downto 24); r2 := op_bytes(23 downto 16); r3 := op_bytes(15 downto 8);
+			WHEN 4 => r0 := op_bytes(31 downto 24); r1 := op_bytes(23 downto 16); r2 := op_bytes(15 downto 8);  r3 := op_bytes(7 downto 0);
+			WHEN 3 => r0 := op_bytes(23 downto 16); r1 := op_bytes(15 downto 8);  r2 := op_bytes(7 downto 0);   r3 := op_bytes(23 downto 16);
+			WHEN 2 => r0 := op_bytes(15 downto 8);  r1 := op_bytes(7 downto 0);   r2 := op_bytes(15 downto 8);  r3 := op_bytes(7 downto 0);
+			WHEN OTHERS => r0 := op_bytes(7 downto 0); r1 := r0; r2 := r0; r3 := r0;
 		END CASE;
-		IF beat_n = 2 THEN
-			data_write <= b0 & b1;
+		IF beat_rem = 1 THEN
+			bus_out <= r0 & r0 & r0 & r0;						-- byte: OP3 on every lane
+		ELSIF beat_rem = 2 THEN
+			IF addr(0)='0' THEN
+				bus_out <= r0 & r1 & r0 & r1;					-- word, A0=0: OP2 OP3 OP2 OP3
+			ELSE
+				bus_out <= r0 & r0 & r1 & r0;					-- word, A0=1: OP2 OP2 OP3 OP2
+			END IF;
 		ELSE
-			data_write <= b0 & b0;
+			CASE addr(1 downto 0) IS							-- three bytes and a long share a shape
+				WHEN "00" => bus_out <= r0 & r1 & r2 & r3;		-- OP0 OP1 OP2 OP3 / OP1 OP2 OP3 OP0*
+				WHEN "01" => bus_out <= r0 & r0 & r1 & r2;		-- OP0 OP0 OP1 OP2 / OP1 OP1 OP2 OP3
+				WHEN "10" => bus_out <= r0 & r1 & r0 & r1;		-- OP0 OP1 OP0 OP1 / OP1 OP2 OP1 OP2
+				WHEN OTHERS => bus_out <= r0 & r0 & r1 & r0;	-- OP0 OP0 OP1* OP0 / OP1 OP1 OP2* OP1
+			END CASE;
 		END IF;
 		IF exec(mem_byte)='1' THEN	--movep
-			data_write <= data_write_tmp(15 downto 8) & data_write_tmp(15 downto 8);
+			bus_out <= data_write_tmp(15 downto 8) & data_write_tmp(15 downto 8) & data_write_tmp(15 downto 8) & data_write_tmp(15 downto 8);
 		END IF;
 	END PROCESS;
 	
@@ -3854,6 +3928,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					berr_external_addr <= (others => '0');
 					memmask <= "111111";
 					op5 <= '0';
+					op_size <= 0;
 					exec_write_back <= '0';
 					-- BUG #70 SIMPLIFICATION: Simple 2-signal initialization
 					pmove_dn_regnum <= (others => '0');
@@ -3885,6 +3960,9 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							op5 <= '0';
 						ELSIF memmask="100000" THEN
 							op5 <= '1';
+						END IF;
+						IF memread(1 downto 0)="11" THEN
+							op_size <= beat_rem;
 						END IF;
 						memread <= memread(1 downto 0)&memmaskmux(5 downto 4);
 					END IF;
@@ -3987,7 +4065,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							-- live bus word so PMOVE/PFLUSH/PTEST/PLOAD decode sees the real
 							-- extension instead of reusing the opcode.
 							IF beat_valid='1' THEN
-								brief <= data_in;
+								brief <= lane_in(31 downto 16);
 							END IF;
 						ELSIF state(1)='1' THEN
 							IF opc_buf_valid='1' THEN
@@ -4049,7 +4127,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							-- it here while brief rejects it leaves a stale selector/command
 							-- live across exception entry and into the next F-line instruction.
 						IF clkena_lw='0' THEN
-							fline_brief_latch <= data_in;
+							fline_brief_latch <= lane_in(31 downto 16);
 						ELSIF state(1)='1' THEN
 							fline_brief_latch <= last_opc_read(15 downto 0);
 						ELSE

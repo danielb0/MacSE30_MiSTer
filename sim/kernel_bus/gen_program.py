@@ -138,39 +138,40 @@ def kernel16_masks(beats):
 
 
 def expected_beats(p, oracle, port):
-    """One line per beat: label cat addr nuds nlds rw hi lo mask.
-    cat is 'bf5' for a five-byte bit field row, else '-'.  hi/lo are the
-    bytes expected on lanes 0/1 (D15:8 / D7:0 of the 16-bit kernel bus) on
-    a write, or 'xx' when not checked.  On a 16-bit port the mask column
-    is in the kernel's own convention (kernel16_masks)."""
+    """One line per beat: label cat addr siz lanes rw b0 b1 b2 b3 mask.
+    cat is 'bf5' for a five-byte bit field row, else '-'; siz the SIZ1 SIZ0
+    the kernel must drive; lanes the four lanes the port takes, as 0/1 for
+    lanes 0..3 (0 = D31:24); b0..b3 the bytes expected on those lanes on a
+    write, or 'xx' when not checked."""
     lines = []
     # the reset SSP at 0 is a long data read; the PC at 4 the kernel reads in
     # its fetch state (busstate 00), which the bench does not check
-    for b, m in zip(oracle[("long", 0, port)], _masks(oracle[("long", 0, port)], port)):
-        lines.append(("reset SSP", "-", _consumed(b, oracle[("long", 0, port)]), b, "r", None, m))
+    # the device at each address: with --port 8 only the operand area is
+    # the 8-bit device; code, vectors and result slots stay in 32-bit memory
+    # (the SE/30's own arrangement - code never runs from an 8-bit port, and
+    # the kernel fetches a word a beat until 1.15 step 2c)
+    def port_of(addr):
+        return 8 if port == 8 and (addr >> 8) == (BASE >> 8) else (32 if port == 8 else port)
+    for b, m in zip(oracle[("long", 0, port_of(0))], _masks(oracle[("long", 0, port_of(0))], port)):
+        lines.append(("reset SSP", "-", _consumed(b, oracle[("long", 0, port_of(0))]), b, "r", None, m))
     for label, case, a, dirn, data in p.accesses:
-        beats = oracle[(case, a & 3, port)]
+        beats = oracle[(case, a & 3, port_of(a))]
         consumed = 0
         for b, m in zip(beats, _masks(beats, port)):
             lines.append((label, "bf5" if case == "bf5" else "-", a + consumed, b, dirn, data, m))
             consumed += b["n"]
     out = []
     for label, cat, addr, b, dirn, data, mask in lines:
-        nuds = "0" if 0 in b["lanes"] else "1"
-        nlds = "0" if 1 in b["lanes"] else "1"
-        hi = lo = "xx"
+        lanes = "".join("1" if k in b["lanes"] else "0" for k in range(4))
+        bytes_ = ["xx"] * 4
         if dirn == "w" and data is not None:
-            names = b["bytes"]
             # OPn -> data byte: OP(4-size+i) is data[i]
             first = 4 - len(data)
-            for name, lane in zip(names, b["lanes"]):
+            for name, lane in zip(b["bytes"], b["lanes"]):
                 if name.startswith("OP"):
-                    v = data[int(name[2:]) - first]
-                    if lane == 0:
-                        hi = "%02x" % v
-                    elif lane == 1:
-                        lo = "%02x" % v
-        out.append("%-16s %-3s %08x %s %s %s %s %s %s" % (label.replace(" ", "_"), cat, addr, nuds, nlds, dirn, hi, lo, mask))
+                    bytes_[lane] = "%02x" % data[int(name[2:]) - first]
+        out.append("%-16s %-3s %08x %s %s %s %s %s %s %s %s" % (
+            label.replace(" ", "_"), cat, addr, b["siz"], lanes, dirn, bytes_[0], bytes_[1], bytes_[2], bytes_[3], mask))
     return out
 
 
