@@ -1,2 +1,52 @@
+db
+greybox_tmp
+incremental_db
+output_files
+simulation
+hc_output
+scaler
+hps_isw_handoff
+vip
+*_sim
+.qsys_edit
+PLLJ_PLLSPE_INFO.txt
+*.bak
+*.orig
+*.rej
+*.qdf
+*.rpt
+*.smsg
+*.summary
+*.done
+*.jdi
+*.pin
+*.sof
+*.qws
+*.ppf
+*.ddb
+build_id.v
+c5_pin_model_dump.txt
+*.sopcinfo
+*.csv
+*.f
+*.cmp
+*.sip
+*.spd
+*.bsf
+*~
+*.xml
+*_netlist
+*.cdf
+**/.DS_Store
+
+# python tooling
 __pycache__/
 *.pyc
+
+# local/personal build environment (Quartus path, MiSTer host, ssh key) - never committed
+scripts/local.env
+
+# Apple's ROM images are never in the repo (SE30_PLAN.md 3.4); the benches
+# load local copies
+*.rom
+*.ROM
