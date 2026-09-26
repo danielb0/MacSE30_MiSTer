@@ -2723,6 +2723,25 @@ port's flat address (now a longword address), the SCC hold-off, refresh,
 the `A17` = 1 windows and the acknowledge decode. The text below is
 kept as the record of the interim RTL (`86169e7`).
 
+**And one clock found, the same day.** The bench's count - "AS* low to
+the acknowledge inclusive, plus one for S4/S5" - understated the
+68030's cycle by a clock: the processor asserts `AS*` at S1, half a
+clock after S0, so GLUE first sees it a full clock in, and a cycle the
+bench called 4 was 5 in 68030 states, two wait states, not the Guide's
+one. That is the gap 1.7's row said was unmeasured until the CPU and
+GLUE met. The bench now counts the cycle as the processor runs it (S0
+to S5 in C16M clocks), and GLUE acknowledges a clock earlier: memory on
+the port's acknowledge itself, a fixed-latency device from the clock
+`AS*` is first seen, and a device's read byte passed through
+combinationally for the processor to latch at the end of S4 (a clock
+after it takes `DSACK*`), since a registered capture in the
+acknowledge clock is what the old count had been paying for. A write's
+strobe does not wait for `DS*`: the write data is valid from S2, the
+clock GLUE first sees `AS*`. RAM, ROM, SWIM, SCSI, the DMA port and the
+expansion window are 4 clocks, the ASC 5/4, as 2.11.3 says; the VIA
+envelope, E-bound, reads 12-34 true clocks (it was 11-32 on the old
+count); the slot's 5/6/7 of 2.12 were true clocks already. 91 checks.
+
 **1. GLUE is written to the TG68K wrapper's bus, not the 68030's pins.**
 The kernel (1.12) has a 16-bit data bus and moves a 32-bit operand as two
 16-bit beats; the wrapper (`tg68k.v`, ours) presents a 68000-shaped bus:

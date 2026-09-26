@@ -18,7 +18,7 @@
 //        ASC 5 read / 4 write; SCC >= 4 plus a 34-clock hold-off
 //        between consecutive SCC cycles only; SCSI handshake waits
 //        for DRQ; a VIA cycle spans one E-high phase and lands in
-//        the 12..32 envelope; E is C16M/20                              rows 3-5, 7-11
+//        the 12..34 envelope; E is C16M/20                              rows 3-5, 7-11
 //     6. ports: RAM and ROM answer DSACK "00" (32-bit); every device
 //        answers DSACK0* alone (8-bit) with its byte on D31-D24, one
 //        device cycle per bus cycle - the processor issues the byte
@@ -35,13 +35,15 @@
 //
 // THE BUS
 //   The 68030's (plan 2.11.1): a 32-bit address, AS*, DS*, R/W*, FC,
-//   SIZ1-0, 32-bit data, DSACK1*/DSACK0*, BERR, IPL.  A cycle here is
-//   counted from the first C16M clock in which AS* is low to the clock in
-//   which DSACK* is first low, inclusive, plus one for S4/S5: a one-wait-
-//   state 68030 cycle reads as 4.  DS* goes with AS* on a read and one
-//   clock after it on a write, as the processor drives it (UM 7.1.5); the
-//   write data is on all four lanes as Table 7-5 places it; the bench
-//   negates AS* in the clock after DSACK*.
+//   SIZ1-0, 32-bit data, DSACK1*/DSACK0*, BERR, IPL.  A cycle is counted
+//   as the 68030 runs it, S0 to S5 in C16M clocks: the S0/S1 clock (AS*
+//   asserted at S1, so GLUE first sees it a clock later), the clocks from
+//   then to DSACK* inclusive (the processor takes DSACK* at the falling
+//   edge of the clock it appears in), and the S4/S5 clock - so a
+//   one-wait-state cycle is 4.  DS* goes with AS* on a read and one clock
+//   after it on a write, as the processor drives it (UM 7.1.5); the write
+//   data is on all four lanes as Table 7-5 places it; the bench negates
+//   AS* in the S4/S5 clock.
 //
 //   Devices are modelled here: RAM and ROM as longword arrays that ack in
 //   RAM_ACK_CLK / ROM_ACK_CLK clocks; the VIAs check that their select was
@@ -257,7 +259,9 @@ module tb_se30_glue;
       cpu_ds_n = 0;                                       // and a clock later on a write
       while (dsack_n == 2'b11 && !berr && k < limit) begin k = k + 1; @(posedge clk); #1; end
       port = dsack_n;
-      n = (k >= limit) ? -2 : berr ? 0 : k + 1;
+      // the true 68030 cycle in C16M clocks: the S0/S1 clock before GLUE
+      // first sees AS*, the clocks to DSACK* inclusive, the S4/S5 clock
+      n = (k >= limit) ? -2 : berr ? 0 : k + 2;
       if (n > 0) begin @(posedge clk); #1; rd = cpu_din; end   // the processor latches at the end of S4
       cpu_as_n = 1; cpu_ds_n = 1; cpu_fc = 3'd5;
       @(posedge clk); #1;
@@ -379,8 +383,8 @@ module tb_se30_glue;
       if (n < lo) lo = n; if (n > hi) hi = n;
       repeat (k) @(posedge clk);
     end
-    check(lo >= 11 && lo <= 13, "VIA cycle, best phase, 11-13 clocks", lo, 12);
-    check(hi >= 28 && hi <= 32, "VIA cycle, worst phase, 28-32 clocks", hi, 31);
+    check(lo >= 12 && lo <= 14, "VIA cycle, best phase, 12-14 clocks", lo, 13);
+    check(hi >= 30 && hi <= 34, "VIA cycle, worst phase, 30-34 clocks", hi, 33);
     check(via_phase_bad == 0, "every VIA strobe had the select valid through the E-high phase", via_phase_bad, 0);
     check(e_period == 20, "E period 20 clocks (783.36 kHz)", e_period, 20);
 
@@ -427,7 +431,7 @@ module tb_se30_glue;
     check(n == 0, "slot $E with no DSACK0*: bus error", n, 0);
     slot_delay = 3;
     rd_byte(32'hFE000000, 100);
-    check(n >= 5 && n <= 8 && rd[31:24] == 8'h5A && port == 2, "slot $E with DSACK0* after 3 clocks: acknowledged, data on D31-D24", n, 6);
+    check(n >= 5 && n <= 9 && rd[31:24] == 8'h5A && port == 2, "slot $E with DSACK0* after 3 clocks: acknowledged, data on D31-D24", n, 7);
     rd_byte(32'hF9000000, 2000);
     check(n == 0, "pseudo-slot $9 with nothing there: bus error", n, 0);
 

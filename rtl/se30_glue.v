@@ -21,11 +21,13 @@
 //   UI6 keeps AS* from the system for FC = 7, so an interrupt acknowledge
 //   gets no answer from GLUE at all: the processor autovectors.
 //
-// TIMING (plan 2.11.3, counted as the bench counts: AS* low to DSACK*
-// low inclusive, plus one)
-//   RAM, ROM      4 clocks: the request goes out with AS*; the acknowledge
-//                 is followed, not assumed, and padded to the 68030's
-//                 one-wait-state count.
+// TIMING (plan 2.11.3, counted as the 68030 cycle runs: S0 to S5 in C16M
+// clocks; GLUE first sees AS*, asserted at S1, a clock after S0, and the
+// processor takes DSACK* at the falling edge of the clock it appears in,
+// then runs S4/S5 - so a one-wait-state cycle is 4 clocks with DSACK*
+// asserted in the clock after GLUE first sees AS*)
+//   RAM, ROM      4 clocks: the request goes out with AS*; the port's
+//                 acknowledge, a clock later, is the cycle's.
 //   SWIM, SCSI    4 (one wait state), the pseudo-DMA port and the
 //                 acknowledged expansion window the same.
 //   ASC           5 read, 4 write.
@@ -43,8 +45,10 @@
 //                 UI6 asserts BERR once HSYNC* has been seen high, low and
 //                 high again with AS* held (18.4-63.3 us).  FC = 7 cycles
 //                 are never timed out.
-//   A write's device strobe waits for DS*, which the 68030 asserts a
-//   clock after AS* on a write with the data valid; a read's follows AS*.
+//   The 68030's write data is valid from S2, the clock in which GLUE
+//   first sees AS*, so a write's device strobe does not wait for DS*
+//   (which the processor asserts a clock later); DS* is on the bus and
+//   unused by these timings.
 //
 // CLOCKS
 //   E is C16M/20, ten clocks high, ten low (duty OPEN, plan 2.13); C3M is
@@ -178,15 +182,14 @@ module se30_glue (
   wire e_rise_next = (ecnt == 5'd9);
   wire e_fall_next = (ecnt == 5'd19);
 
-  // the device cycle: strobe on clock cap-1, capture on clock cap.  A
-  // write waits for DS* (the data is valid with it).  The SCC's select
-  // rises with its strobe (CE with RD or WR, as an 8530 is driven) once
-  // the hold-off has expired, and its data is taken two clocks later.
+  // the device cycle, counted from the clock AS* is first seen: strobe on
+  // clock cap-1, capture (and the acknowledge) on clock cap.  The SCC's
+  // select rises with its strobe (CE with RD or WR, as an 8530 is driven)
+  // once the hold-off has expired, and its data is taken two clocks later.
   wire [1:0] cap = (d_asc && cpu_rw_n) ? 2'd2 : 2'd1;
-  wire ds_ok = cpu_rw_n || !cpu_ds_n;
-  wire dc_adv = active && ds_ok && (!d_hs || dcnt != 0 || scsi_drq);    // the handshake waits at 0 for DRQ
+  wire dc_adv = !cpu_as_n && (!d_hs || dcnt != 0 || scsi_drq);          // the handshake waits at 0 for DRQ
   wire fixed_port = d_hs || d_scsi || d_dma || d_asc || d_swim || d_exp;
-  wire scc_go  = d_scc && ds_ok && (dcnt == 0) && (scc_hold == 0);
+  wire scc_go  = d_scc && (dcnt == 0) && (scc_hold == 0);
   wire capture = active && ( (fixed_port && dcnt == cap && dc_adv)
                           || (d_scc && dcnt == 2'd2)
                           || (d_via && via_armed && e_fall_next)
@@ -212,19 +215,19 @@ module se30_glue (
         if (!cpu_as_n) begin
           active <= 1; done <= 0; mem_done <= 0; dcnt <= 0; via_armed <= 0;
           if (scc_go) begin dev_strobe <= 1; dcnt <= 1; end
+          if (fixed_port && dc_adv) begin dcnt <= 1; if (cap == 2'd1) dev_strobe <= 1; end
         end
       end else if (cpu_as_n) begin
         active <= 0; done <= 0; mem_done <= 0; dcnt <= 0;
         if (d_scc) scc_hold <= SCC_HOLD;
       end else if (!done) begin
-        // memory: one 32-bit access, padded to the one-wait-state cycle
+        // memory: one 32-bit access; the port's acknowledge is the cycle's
         if (d_mem) begin
           if (mem_ack) begin
-            mem_done <= 1;
+            mem_done <= 1; done <= 1;
             if (ram_ack) din_r <= ram_rdata;
             if (rom_ack) din_r <= rom_rdata;
           end
-          if (mem_done) done <= 1;
         end
         // an 8-bit port: one device cycle, the byte on D31-D24
         if (d_dev) begin
@@ -236,18 +239,18 @@ module se30_glue (
             if (fixed_port && dc_adv && dcnt == cap - 1'b1) dev_strobe <= 1;
           end
           if (d_via) begin
-            if (e_rise_next && ds_ok) via_armed <= 1;
+            if (e_rise_next) via_armed <= 1;
             if (via_armed && ecnt == 5'd18) dev_strobe <= 1;
           end
-          if (capture) begin
-            din_r <= {rbyte, 24'h000000};
-            done <= 1;
-          end
+          if (capture) done <= 1;
         end
       end
     end
 
-  assign cpu_din  = din_r;
+  // a device's byte is on the bus while it is selected; the processor
+  // latches it at the end of S4, a clock after it takes DSACK*.  Memory
+  // data is registered with the port's acknowledge.
+  assign cpu_din  = (active && d_dev) ? {rbyte, 24'h000000} : din_r;
   assign dsack_n  = (!cpu_as_n && done && !berr_r) ? (d_mem ? 2'b00 : 2'b10) : 2'b11;
 
   // selects follow the cycle, as chip selects follow AS*; the slot's drops
