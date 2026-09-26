@@ -18,6 +18,10 @@ own tables rather than on another project's prose.
 **Revision 2026-09-26.** 1.13 item 1 is done: **1.14 is new** and records
 UM 7.2 as one rule, checked against its four tables, with the kernel's
 byte mask read against it; the oracle for the kernel's 32-bit bus exists.
+Later the same day: the kernel is imported (`rtl/tg68k/`), and the
+kernel-alone bench of 1.13 item 3 runs on it - the 16-bit kernel already
+matches the manual for every CPU operand; the five-byte bit field is the
+first failing test of item 2.
 
 **This document is being composed in sections, each one following its own
 research pass.** Section 1 settles the CPU and the PMMU, because that was
@@ -1163,7 +1167,10 @@ existing one taught the 030's width rules.
 3. **Verify** under ModelSim (1.10): the beat table of item 1 as a bench
    on the kernel alone, then the cputest 030 corpus and the silicon
    captures in both shapes - identical architectural results, and the
-   beat counts of Table 7-6 in the 32-bit shape.
+   beat counts of Table 7-6 in the 32-bit shape. **The bench exists
+   (2026-09-26, `sim/kernel_bus/`, 1.14): it passes on the 16-bit shape
+   for everything but the five-byte fields, and is item 2's acceptance
+   test at `PORT=32` and `PORT=8`.** The corpus part remains.
 4. **The wrapper and GLUE**: `tg68k.v` presents the 68030 bus; GLUE is
    re-cut to 2.11.1 verbatim - `DSACK0*` alone for 8-bit ports, both for
    RAM and ROM, the CPU splitting operands itself - which removes the byte
@@ -1272,7 +1279,16 @@ the width the port answers:
 The consumed byte shifts into bit 5, so a finished operand reads
 `011111` - the kernel's own comment at the longword mask gives its
 sequence as `100001 -> 000111 -> 011111`, and the oracle's `mask'`
-column reproduces it for a long to a 16-bit port.
+column reproduces it for a long to a 16-bit port. One nuance, found by
+the bench below: at an **odd** address the kernel's first beat moves one
+byte but its mask still shifts two and its address steps to `A+2`, so
+from then on bit 5 stands for the byte at `addr-1` and `memmaskmux`
+reads it as `nUDS`. The oracle's mask advances by the bytes consumed,
+with bit 4 always the byte at the beat's own address. The two describe
+the same beats and agree on every operand-start mask and every
+even-address beat; they differ by one bit position after an odd first
+beat. The 030 shape adopts the oracle's convention (the address steps by
+n), which is one of the things `memmaskmux` stops doing.
 
 **What this fixes for item 2, the kernel change:**
 
@@ -1294,11 +1310,13 @@ column reproduces it for a long to a 16-bit port.
   the instruction pipe"). The kernel fetches a word per opcode beat
   today (`100111` at PC). The bus contract is the long at `PC & ~3`,
   1:2:4 beats; how the kernel holds the other word is its cache-holding
-  register's business, not the bus's.
+  register's business, not the bus's. **Adopted by the owner
+  2026-09-26: the bus contract is the aligned long.**
 - *A five-byte bit field is two operand cycles* (11.6.14's note: "may
   span 5 bytes that require two operand cycles"). The manual does not
   say which comes first; the oracle takes the long at `A` then the byte
-  at `A+4` and says so - **an assumption, not 7.2**. The mask
+  at `A+4` and says so - **an assumption, not 7.2; adopted by the owner
+  2026-09-26 ("go ahead with whatever you think is better")**. The mask
   `100000` consumed by width would instead merge the long's tail with
   the fifth byte into one beat where the offset allows (`A1A0 = 01`: 3
   + 2 rather than 3 + 1 + 1). Item 2 splits it as two cycles.
@@ -1325,6 +1343,37 @@ to every port - 142 beats. The kernel bench of item 3 reads it; nothing
 in it is derived from the kernel. `python scripts/se30_bus_beats.py
 check` is the self-test, `emit` regenerates the file, `md` prints it for
 reading.
+
+**The bench on the kernel alone, and what it found (2026-09-26, the
+same day).** The kernel is now in the tree: `rtl/tg68k/`, five files
+from `030_mmu2@c3e8a0d` with the one ALU hunk 1.12 says to take, the
+provenance in its README. `sim/kernel_bus/tb_kernel_bus.v` runs it
+under ModelSim as upstream's own kernel benches do - `clkena_in` high, a
+combinational 64K-word memory, one beat a clock - on a program
+`gen_program.py` writes together with the beats it must produce, looked
+up in the oracle: D0 = `$01020304` written and read back as a byte, a
+word and a long at each of the four offsets, each read stored to a
+result slot; three- and five-byte bit fields (`BFINS`/`BFEXTU` at bit
+offset 4, widths 16 and 32) at each offset; the reset SSP read. Every
+data beat is checked for its word address, its strobes, its direction,
+the bytes on the strobed lanes on a write, and `memmask` before the
+beat; the result slots are checked at the end. Fetches are not checked
+(the prefetch contract is the adopted change). Results on the unmodified
+16-bit kernel, the oracle's 16-bit-port rows:
+
+| run | result |
+|---|---|
+| `BF5=0 sim/kernel_bus/run.sh` (everything but the five-byte fields) | **PASS, 103 checks, 90 beats.** The oracle and the kernel agree on every byte, word and long operand at every offset, read and written, on the three-byte fields, and on the reset read - beat counts, addresses, strobes, data, masks. Every result slot holds what was written. |
+| `sim/kernel_bus/run.sh` (with them) | FAIL on exactly the five-byte rows, and six beats short. **The kernel does a five-byte field as one operand cycle**, mask `100000` consumed two bytes a beat: 2+2+1 beats at an even offset, **1+2+2 at an odd one** - where the adopted contract (two operand cycles, long then byte) gives 1+2+1+1. The merge 1.14 predicted from the mask, now observed. This is the first failing test of 1.13 item 2. |
+
+So on a 16-bit port the kernel already does what UM 7.2 says for every
+CPU operand; the change of item 2 is the width (`n` from `DSACK`, the
+lanes of Table 7-5, the aligned-long prefetch) and the five-byte
+split, and this bench with `PORT=32` and `PORT=8` is its acceptance
+test. The corpus part of item 3 (cputest, the silicon captures) is
+separate and still to do; note that the IIvi's silicon harness is
+Verilator under WSL, not ModelSim, so those rows will be replayed
+through a bench of ours.
 
 ---
 
