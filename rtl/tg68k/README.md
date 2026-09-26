@@ -15,8 +15,10 @@ is plan 1.15's beat engine** (steps 2a, 2b, 2c); the import commit is
 | `TG68K_Pack.vhd` (again) | | the ALU component gained `beat_step` |
 | `TG68K_Cache_030.vhd` | upstream `c3e8a0d` | byte-identical, CRLF as upstream has it |
 
-Not taken: `TG68K.vhd` (upstream's Amiga top; the Mac bus wrapper is
-`tg68k.v`, still to be written for this core - plan 1.13 item 4),
+**`tg68k.v` is ours** (2026-09-26, plan 1.13 item 4): the kernel on the
+68030 bus of plan 2.11.1, to GLUE; benched with GLUE in `sim/system/`.
+
+Not taken: `TG68K.vhd` (upstream's Amiga top),
 `TG68K_CacheCtrl_030.vhd` (reference only in the IIvi build), `TG68K.qip`
 (no Quartus project yet). Line endings are as inherited.
 

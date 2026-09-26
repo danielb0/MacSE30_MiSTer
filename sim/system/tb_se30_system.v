@@ -1,0 +1,166 @@
+// tb_se30_system.v - the kernel, the wrapper and GLUE together on the
+// 68030 bus, running the kernel bench's program out of RAM.
+//
+// WHAT THIS PROVES
+//   Plan 1.13 item 4: rtl/tg68k/tg68k.v presents the kernel (32-bit shape,
+//   1.15) as a 68030 on the bus of 2.11.1, and rtl/se30_glue.v answers it.
+//   The program is sim/kernel_bus's (gen_program.py): every byte, word and
+//   long operand at every offset written and read back into result slots,
+//   the bit fields, then STOP.  With the CPU and GLUE simulated together
+//   (the seam 1.7 called unmeasured):
+//
+//     1. the program runs to STOP and every result slot in RAM holds what
+//        was written - the whole path, kernel to wrapper to GLUE to RAM
+//        and back, moves the right bytes on the right lanes;
+//     2. every RAM cycle, fetch or data, is the Guide's one wait state:
+//        4 C16M clocks from S0 to S5, a refresh stall excepted;
+//     3. cycles run back-to-back: no idle clock between one cycle's S5 and
+//        the next's S0 when the kernel has a request waiting.
+//
+// CLOCKING
+//   clk is 2 x C16M (31.3344 MHz); phi1/phi2 mark C16M's edges.  GLUE runs
+//   on clk with c16_en = phi1.  RAM is a 32-bit model that acknowledges a
+//   clock after the request, as the SDRAM slot scheme does (plan 2.13).
+
+`timescale 1ns/1ps
+
+module tb_se30_system;
+
+  reg clk = 0;
+  always #15.9574 clk = ~clk;              // 31.3344 MHz
+  reg phi = 0;
+  always @(posedge clk) phi <= ~phi;
+  wire phi1 = !phi, phi2 = phi;
+  reg reset_n = 0;
+
+  // ------------------------------------------------------------ the bus
+  wire [31:0] cpu_addr, cpu_dout, cpu_din;
+  wire        cpu_as_n, cpu_ds_n, cpu_rw_n, berr, reset_out_n, halted;
+  wire  [2:0] cpu_fc, ipl_n;
+  wire  [1:0] cpu_siz, dsack_n;
+
+  tg68k cpu (
+    .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
+    .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
+    .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .reset_out_n(reset_out_n), .halted(halted));
+
+  // --------------------------------------------------------------- GLUE
+  wire        ram_req, ram_we, ram_refresh, rom_req;
+  wire [24:0] ram_addr;
+  wire  [3:0] ram_be;
+  wire [31:0] ram_wdata;
+  wire [15:0] rom_addr;
+  reg  [31:0] ram_rdata = 0, rom_rdata = 0;
+  reg         ram_ack = 0, rom_ack = 0;
+  wire        via1_sel, via2_sel, scc_sel, scsi_sel, scsi_dack, asc_sel, swim_sel, exp_sel;
+  wire        dev_strobe, dev_rw, e_clk, c3m_en, slot_sel, slot_irq_or_n;
+  wire [12:0] dev_addr;
+  wire  [7:0] dev_wdata;
+  reg         hsync_n = 1;
+
+  se30_glue glue (
+    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc),
+    .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n),
+    .ram_req(ram_req), .ram_we(ram_we), .ram_addr(ram_addr), .ram_be(ram_be), .ram_wdata(ram_wdata),
+    .ram_rdata(ram_rdata), .ram_ack(ram_ack), .ram_refresh(ram_refresh),
+    .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(rom_rdata), .rom_ack(rom_ack),
+    .via1_sel(via1_sel), .via2_sel(via2_sel), .scc_sel(scc_sel), .scsi_sel(scsi_sel), .scsi_dack(scsi_dack),
+    .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
+    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(8'h00), .scsi_drq(1'b0),
+    .e_clk(e_clk), .c3m_en(c3m_en),
+    .slot_sel(slot_sel), .slot_dsack0_n(1'b1), .slot_rdata(8'h00),
+    .via1_irq_n(1'b1), .via2_irq_n(1'b1), .scc_irq_n(1'b1), .nmi_n(1'b1),
+    .slot_irq_n(6'b111111), .slot_irq_or_n(slot_irq_or_n),
+    .overlay(1'b0), .ramsiz(2'b01), .hsync_n(hsync_n));
+
+  // HSYNC* as the video PALs make it (only the UI6 timeout cares)
+  integer px = 0;
+  always @(posedge clk) if (phi1) begin
+    px <= (px == 703) ? 0 : px + 1;
+    hsync_n <= !((px + 1 >= 535) || (px + 1 < 119));
+  end
+
+  // ---------------------------------------------------------- RAM model
+  // 64K words of program image as 32K longs, on GLUE's 32-bit port
+  reg [15:0] img [0:65535];
+  reg [31:0] ram [0:32767];
+  integer i;
+  always @(posedge clk) if (phi1) begin
+    ram_ack <= 0;
+    if (ram_req && !ram_ack) begin
+      if (ram_we) begin
+        if (ram_be[3]) ram[ram_addr[14:0]][31:24] <= ram_wdata[31:24];
+        if (ram_be[2]) ram[ram_addr[14:0]][23:16] <= ram_wdata[23:16];
+        if (ram_be[1]) ram[ram_addr[14:0]][15:8]  <= ram_wdata[15:8];
+        if (ram_be[0]) ram[ram_addr[14:0]][7:0]   <= ram_wdata[7:0];
+      end
+      ram_rdata <= ram[ram_addr[14:0]];
+      ram_ack <= 1;
+    end
+  end
+
+  // ------------------------------------------------------ cycle metering
+  // a cycle's length in C16M clocks: S0 is the clock before AS* asserts,
+  // so it is the phi1 edges seen with AS* low, plus one
+  integer as_clocks = 0, cyc_min = 1000, cyc_max = 0, cycles = 0, fetch_cycles = 0, data_cycles = 0;
+  integer idle_between = 0, gaps = 0, long_cycles = 0;
+  reg as_q = 1; reg [31:0] first_addr; reg [2:0] first_fc;
+  always @(posedge clk) if (phi1) begin
+    if (!cpu_as_n) as_clocks = as_clocks + 1;
+    if (!cpu_as_n && as_q) begin first_addr = cpu_addr; first_fc = cpu_fc; idle_between = 0; end
+    if (cpu_as_n && !as_q) begin
+      cycles = cycles + 1;
+      if (as_clocks + 1 < cyc_min) cyc_min = as_clocks + 1;
+      if (as_clocks + 1 > cyc_max) cyc_max = as_clocks + 1;
+      if (as_clocks + 1 > 4) long_cycles = long_cycles + 1;
+      if (first_fc == 3'd6) fetch_cycles = fetch_cycles + 1; else data_cycles = data_cycles + 1;
+      as_clocks = 0;
+    end
+    if (cpu_as_n && as_q && cpu.k_req) idle_between = idle_between + 1;
+    as_q = cpu_as_n;
+  end
+
+  // ------------------------------------------------------------ the run
+  integer pass = 0, fails = 0, n, kk; reg [31:0] stop_at, v, want; integer fd, r;
+  reg done = 0; integer tail = -1;
+  always @(posedge clk) if (phi1 && reset_n && !done) begin
+    if (!cpu_as_n && cpu_fc == 3'd6 && cpu_addr[31:2] == stop_at[31:2] && tail < 0) tail = 200;
+    if (tail > 0) tail = tail - 1;
+    if (tail == 0) done <= 1;
+  end
+
+  initial begin
+    $readmemh("../kernel_bus/program.hex", img);
+    for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
+    fd = $fopen("../kernel_bus/stop_at.txt", "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
+    repeat (20) @(posedge clk);
+    reset_n = 1;
+    n = 0;
+    while (!done && !halted && n < 400000) begin @(posedge clk); n = n + 1; end
+    if (halted) begin fails = fails + 1; $display("FAIL: the CPU halted (double bus fault) after %0d clocks", n); end
+    if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
+    else pass = pass + 1;
+    // 1. the result slots
+    for (kk = 0; kk < 12; kk = kk + 1) begin
+      v = ram[(32'h3000 + 4*kk) >> 2];
+      want = (kk < 4) ? 32'h00000004 : (kk < 8) ? 32'h00000304 : 32'h01020304;
+      if (v === want) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL slot %0d: %08x, expected %08x", kk, v, want); end
+    end
+    // 2. the cycle lengths
+    $display("---- %0d bus cycles (%0d fetch, %0d data): %0d to %0d C16M clocks, %0d over 4 (refresh stalls); %0d idle clocks with a request waiting",
+             cycles, fetch_cycles, data_cycles, cyc_min, cyc_max, long_cycles, idle_between);
+    if (cyc_min == 4) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the shortest RAM cycle is %0d clocks, expected the Guide's 4", cyc_min); end
+    if (cyc_max <= 8) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the longest RAM cycle is %0d clocks, more than a refresh stall", cyc_max); end
+    if (long_cycles * 20 < cycles) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0d of %0d cycles longer than 4 - more than refresh explains", long_cycles, cycles); end
+    // 3. back-to-back
+    if (idle_between == 0) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0d idle clocks between cycles with a request waiting", idle_between); end
+    if (fails == 0) $display("==== PASS: %0d checks - kernel, wrapper and GLUE run the program on the 68030 bus", pass);
+    else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
+    $finish;
+  end
+
+endmodule

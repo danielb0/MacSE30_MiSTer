@@ -1184,8 +1184,25 @@ existing one taught the 030's width rules.
    sequencer and the `lw` fast path from `rtl/se30_glue.v` and leaves the
    decode, the timings, the VIA and SCC machines, UI6, refresh and the
    encoder as they are. The bench's cycle counts do not change; its bus
-   model does. **GLUE done 2026-09-26** (2.13 records it; 91 checks);
-   **the wrapper is next.**
+   model does. **Both done 2026-09-26.** GLUE: 2.13 records it (91
+   checks, and a clock found). The wrapper: `rtl/tg68k/tg68k.v`, ours,
+   runs the kernel's beats as 68030 cycles on the C16M half-clock grid -
+   `AS*` at S1, `DSACK*` and `BERR` sampled at each falling edge from
+   S3, data latched at the end of S4, strobes negated at S5, the kernel
+   acknowledged at the next S0 so cycles run back-to-back; parks the
+   kernel while the PMMU translates and runs the walker's descriptor
+   accesses as its own long cycles at the physical address (FC = 5, in
+   the beats the port needs); holds a bus error to the kernel until it
+   takes the exception, the IIvi's contract; autovectors internally
+   (`AVEC` is grounded). No caches yet (1.15 item 9), and internal beats
+   advance once per C16M clock. **`sim/system/tb_se30_system.v` is the
+   first bench with the CPU and GLUE together**: the kernel bench's
+   program out of a 32-bit RAM model behind GLUE, 17 checks - the
+   program runs to STOP, every result slot holds what was written, and
+   of 177 bus cycles (82 fetches, 95 data) every one is the Guide's 4
+   clocks but two refresh stalls of up to 8, with no idle clock between
+   cycles. The seam 1.7 called unmeasured is measured: nothing between
+   the beats. Passed at the first run.
 
 **Cost.** Item 2 touches the kernel's central sequencing, not a corner:
 weeks, not days, with the corpus as the safety net. The alternative -
