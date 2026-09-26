@@ -1164,6 +1164,8 @@ existing one taught the 030's width rules.
    7-5, `long_start`/`long_done` meaning "first/last beat of the operand"
    as now. The 16-bit shape stays selectable so the corpus runs both.
    Cache fills (7.2.6) and the PMMU walker's port follow the same width.
+   **Designed 2026-09-26 - 1.15**, as one engine consuming n bytes a
+   beat, in four sub-steps 2a-2d with the 1.14 bench as acceptance.
 3. **Verify** under ModelSim (1.10): the beat table of item 1 as a bench
    on the kernel alone, then the cputest 030 corpus and the silicon
    captures in both shapes - identical architectural results, and the
@@ -1374,6 +1376,136 @@ test. The corpus part of item 3 (cputest, the silicon captures) is
 separate and still to do; note that the IIvi's silicon harness is
 Verilator under WSL, not ModelSim, so those rows will be replayed
 through a bench of ours.
+
+## 1.15 The 32-bit shape: the design, before the VHDL
+
+Written 2026-09-26 from reading the kernel's bus path end to end
+(`TG68KdotC_Kernel.vhd` at `c3e8a0d`, `TG68K_ALU.vhd`), with the bench of
+1.14 as the instrument. This is 1.13 item 2 turned into a change list,
+so that the VHDL is written against a design and not discovered.
+
+**What the kernel's beat engine actually is.** One `clkena_in` edge is
+one acknowledged beat. Around it:
+
+- `memmask` (1.14) names the operand's bytes; it is set at operand
+  start from the size (`101111` byte, `100111` word, `100001` long,
+  `100011`/`100000` bit fields) and shifted two bits at every beat.
+- `memmaskmux` is the **beat descriptor** the rest of the kernel reads:
+  bits 5:4 are this beat's strobes (`nUDS`, `nLDS`), bit 3 is "this is
+  the last beat of the operand". It is `memmask` shifted by the address
+  parity. **57 sites read it, almost all as bit 3**, and `clkena_lw`
+  (`clkena_in AND memmaskmux(3)`) is the "operand complete" edge that
+  94 sites key on: the register file write, the PC redirect of
+  RTS/RTE/JMP, the PMMU register commits, the frame sequencing.
+- `data_read` is the operand assembled so far: previous beats' data in
+  `last_data_in`, this beat's `data_in` appended - 16 bits when `LDS` is
+  active, 8 when only `UDS` is - and sign-extended by `memread`, a
+  two-beat history of the strobes.
+- `data_write` is a 16-bit slice of a 48-bit `data_write_mux` that
+  holds the operand (`data_write_muxin`, plus `bf_ext_out` for a
+  five-byte field) placed by `oddout` and `addr(0)`; the slice is
+  chosen by mask bits, a lone byte replicated on both halves.
+- The address of beat k+1 is `addr + 2`, computed by the ALU: when
+  `long_start` (`NOT memmaskmux(3)`, "more follows") is set its
+  add/subtract operand is 2 (TG68K_ALU ~689) and the sum is latched into
+  `memaddr_delta_rega` at the beat's edge (~3427). On the last beat the
+  same ALU path yields the register post-increment (+1/+2/+4/+8 by
+  size), which is why the two are interleaved.
+- Fetches (`state = "00"`) read a word at `TG68_PC`, which advances by 2
+  a beat (`TG68_PC_add`); `opcode`, `brief`, `rte_format_word` and the
+  F-line brief take the word from `data_read(15 downto 0)` or straight
+  from `data_in`.
+- The PMMU walker (`pmmu_walker_*`, 32-bit) and the caches
+  (`TG68K_Cache_030`, in the wrapper) are outside this engine; the
+  wrapper runs their beats.
+
+**The design: one engine, n bytes a beat.** Every beat consumes n bytes,
+1 to 4, and everything that today assumes "two, at a word address" is
+made to follow n:
+
+1. **`beat_off`**: a new counter, the bytes of the operand cycle consumed
+   so far (0..4), reset at operand start, advanced by n at each
+   acknowledged beat. `rem` = zeros in `memmask(4:0)` (bytes remaining).
+2. **n**, combinational in the beat: the port rule of 1.14, n =
+   min(rem, cycle_rem, width - (addr mod width)), with cycle_rem = 4 -
+   `beat_off` while `beat_off` < 4 and 1 after - **that is the five-byte
+   split**: a field of five bytes is a long at A then a byte at A+4 in
+   both shapes, 3+1+1 at an odd offset where today's engine merges to
+   1+2+2. In the 16-bit shape width is 2 and n needs no input; in the
+   32-bit shape width comes from `DSACK` and n is valid only in the
+   acknowledge cycle, which is also when it is used.
+3. **`memmaskmux` recomputed, same meaning**: bits 5:4 the strobes this
+   beat needs (16-bit: from n and `addr(0)`; 32-bit: kept as the
+   16-bit-equivalent pair for `memread`'s benefit), bit 3 = `(rem = n)`.
+   The 57 readers and `clkena_lw` do not change. `longword` (an Amiga
+   burst hint) keeps `NOT memmaskmux(3)`.
+4. **The mask shifts by n**; the address steps by n. The ALU gets one
+   input, `beat_step` (n), used in place of the constant 2 when
+   `long_start` is set - the ELSE branch at ~689 is reached with
+   `long_start = '1'` only for that step, so this is equivalent today.
+   With the address stepping by n, `memmask` bit 4 is always the byte
+   at the beat's own address and bit 5 is never read: the oracle's
+   convention (1.14's nuance goes away, and `gen_program.py`'s
+   restatement with it).
+5. **Read assembly by n**: `last_data_in <= last_data_in << 8n | the n
+   bytes from the lanes`, lanes being (16-bit) `D15:8` then `D7:0` from
+   `addr(0)`, or (32-bit) lanes `A1A0`.. of a 32-bit port, `A0`.. on
+   `D31:16` of a 16-bit one, `D31:24` of an 8-bit one - Table 7-4's
+   `OPn` positions. `bf_ext_in` (the fifth byte) is the byte that
+   overflows the 32-bit accumulator, in both shapes. `memread` keeps its
+   meaning from the recomputed strobes.
+6. **Write placement by `beat_off`**: the operand as a byte array -
+   `bf_ext_out` then `data_write_muxin`'s low `size` bytes, most
+   significant first - and this beat drives bytes `beat_off ..
+   beat_off+n-1` on the lanes: 16-bit as today (first byte `D15:8`,
+   second `D7:0`, a lone byte on both); 32-bit as Table 7-5 verbatim.
+   The 48-bit `data_write_mux`, `oddout` and `set_oddout` go; `mem_byte`
+   (MOVEP) stays a byte operand.
+7. **The 32-bit shape's ports**, by a generic `DATA_WIDTH` (16 today,
+   32): `data_in`/`data_write` sized by it; `siz(1:0)` out = min(rem,4)
+   encoded per Table 7-2; `dsack(1:0)` in, defaulted so existing
+   instantiations compile; `addr_out(1:0)` is `A1A0` already;
+   `nUDS`/`nLDS` still driven (GLUE derives byte enables from `SIZ` and
+   `A1A0`, Table 7-7, and ignores them). VHDL-93 allows generic-sized
+   ports; upstream's benches instantiate the entity directly with the
+   defaults and keep compiling.
+8. **The prefetch as an aligned long** (32-bit shape): a fetch beat
+   requests the long at `PC AND NOT 3`, `SIZ = 00`; the beat delivers
+   the word at `PC` (lanes by `A1`) to a new `bus_word(15:0)`, which
+   replaces the raw `data_in` at the four fetch consumers and feeds
+   `data_read(15:0)` on fetch beats; the other word and its address go
+   to a **holding register**, and a later fetch whose `PC` matches is
+   served from it with `busstate = "01"` (no bus cycle; the wrapper
+   acknowledges an internal beat in one clock, as it does for every
+   no-access cycle) - the 030's cache holding register, 6.1.1. On an
+   8-bit port the same fetch is four beats, as Table 7-6 says. The
+   16-bit shape keeps its word fetch.
+9. **Not in the kernel**: cache fills and the walker's beats are the
+   wrapper's (1.13 item 4); `TG68K_Cache_030` takes 32-bit fills
+   already.
+
+**The order, each step green on the 1.14 bench before the next:**
+
+- **2a - the engine in the 16-bit shape**: items 1-6 with width fixed
+  at 2. Acceptance: `sim/kernel_bus/run.sh` at `PORT=16` with the
+  five-byte fields in and the oracle's own masks (the restatement
+  removed) - every row, including 1+2+1+1 at the odd offsets; then
+  upstream's regression targets, which need a runner here (their suite
+  is `make`-driven, and there is no `make` on this machine).
+- **2b - the 32-bit port**: item 7 and the width rule of item 2 for
+  data operands. Acceptance: the bench at `PORT=32` and `PORT=8`, data
+  beats; `PORT=16` unchanged.
+- **2c - the prefetch**: item 8. Acceptance: the bench's fetch beats
+  checked against the `instr` rows at all three widths.
+- **2d - breadth**: upstream's suite in both shapes through the runner;
+  the cputest corpus; the silicon rows replayed (the IIvi's harness is
+  Verilator under WSL, so a bench of ours reads its captures).
+
+**Cost, revised.** The central change is items 1-6, one afternoon's
+VHDL and a week of watching the 57 + 94 sites behave through the suite;
+2b is small once 2a holds; 2c is the one genuinely new piece of
+sequencing. Weeks in total, as 1.13 said - but most of the risk sits in
+2a, which is testable today.
 
 ---
 
