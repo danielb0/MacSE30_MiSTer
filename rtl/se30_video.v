@@ -30,7 +30,11 @@
 //   Bolle's UG6 reads as 372 (plan 2.9).
 //
 // TIMING MODEL
-//   Everything runs on clk = C16M, one clock per pixel, as the PALs do.
+//   Everything runs on C16M, one clock per pixel, as the PALs do: clk with
+//   c16_en marking the C16M clocks (in the core clk is 2 x C16M and c16_en
+//   is phi1, plan 3.2; the bench clocks it at C16M with c16_en high).  The
+//   declaration ROM's write port (the boot1.rom download, plan 3.4) is the
+//   one thing on clk alone.  "Clock" below means a C16M clock.
 //   Pixel k of a line is on vidout during the clock in which the
 //   horizontal count is k; hctrrst is high during the last clock of a line
 //   (count 703) and lctrrst during the last clock of a frame.  A byte is
@@ -83,8 +87,14 @@ module se30_video #(
   parameter DECLROM_HEX = "",          // $readmemh image of the 8KB declaration ROM
   parameter V_TOTAL     = 370          // lines per frame (Guide); 372 is plan 2.9's open item
 ) (
-  input         clk,                   // C16M, 15.6672 MHz
+  input         clk,
+  input         c16_en,                // one clk per C16M period (15.6672 MHz)
   input         reset_n,
+
+  // the declaration ROM's load (boot1.rom), on clk
+  input         declrom_we,
+  input  [12:0] declrom_waddr,
+  input   [7:0] declrom_wdata,
 
   // slot $E, 8-bit port on D31-D24
   input         sel,
@@ -128,14 +138,14 @@ module se30_video #(
 
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin hcnt <= 0; vcnt <= 0; end
-    else begin hcnt <= hcnt_next; vcnt <= vcnt_next; end
+    else if (c16_en) begin hcnt <= hcnt_next; vcnt <= vcnt_next; end
 
   wire line_active_next = (vcnt_next >= FIRST_LINE) && (vcnt_next <= LAST_LINE);
 
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       hsync_n <= 1; vsync_n <= 1; hblank <= 1; vblank <= 1;
-    end else begin
+    end else if (c16_en) begin
       hsync_n <= !((hcnt_next >= HSYNC_START) || (hcnt_next < HSYNC_END));
       vsync_n <= !((vcnt_next >= VSYNC_START) && (vcnt_next < VSYNC_END));
       hblank  <= (hcnt_next >= H_ACTIVE);
@@ -161,21 +171,24 @@ module se30_video #(
   reg        fetch;                    // the shifter load strobe, one clock after the read
   reg  [7:0] shreg;
 
-  always @(posedge clk) begin
+  always @(posedge clk) if (c16_en) begin
     scan_q <= vram[scan_addr];
     fetch  <= rd_ok;
   end
 
   always @(posedge clk or negedge reset_n)
     if (!reset_n) shreg <= 8'hFF;
-    else if (fetch) shreg <= scan_q;
-    else shreg <= {shreg[6:0], 1'b1};
+    else if (c16_en) begin
+      if (fetch) shreg <= scan_q;
+      else shreg <= {shreg[6:0], 1'b1};
+    end
 
   assign vidout = shreg[7];
 
   // ------------------------------------------------------------ slot port
   reg  [7:0] declrom [0:8191];
   initial if (DECLROM_HEX != "") $readmemh(DECLROM_HEX, declrom);
+  always @(posedge clk) if (declrom_we) declrom[declrom_waddr] <= declrom_wdata;
 
   wire access = sel && !as_n;
 
@@ -191,7 +204,7 @@ module se30_video #(
 
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin st <= IDLE_A; xfer_done <= 0; end
-    else begin
+    else if (c16_en) begin
       if (hsync_n) xfer_done <= 0;
       case (st)
         IDLE_A:  st <= access ? ACC1 : IDLE_B;
@@ -214,7 +227,7 @@ module se30_video #(
   wire wr_vram = strobe && !ds_n && !rw && !addr[16];
 
   reg  [7:0] cpu_q, rom_q;
-  always @(posedge clk) begin
+  always @(posedge clk) if (c16_en) begin
     if (wr_vram) vram[addr[15:0]] <= din;
     cpu_q <= vram[addr[15:0]];
     rom_q <= declrom[addr[12:0]];
@@ -227,7 +240,7 @@ module se30_video #(
   reg vsync_q;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin irq6_n <= 1; vsync_q <= 1; end
-    else begin
+    else if (c16_en) begin
       vsync_q <= vsync_n;
       if (vsyncen_n)                    irq6_n <= 1;
       else if (!vsync_n && vsync_q)     irq6_n <= 0;

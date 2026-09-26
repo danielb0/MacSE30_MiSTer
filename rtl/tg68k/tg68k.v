@@ -4,7 +4,7 @@
 // WHAT IT DOES
 //   Runs the kernel's beats as 68030 bus cycles, in the processor's own
 //   states on the C16M half-clock grid (UM 7.3.1):
-//     S0  address, FC, SIZ, R/W valid (the kernel's outputs)
+//     S0  address, FC, SIZ, R/W valid (the kernel's outputs); ECS asserted
 //     S1  AS* asserted, DS* with it on a read
 //     S2  write data valid (the kernel drives it from S0)
 //     S3  DS* on a write; DSACK1*/DSACK0* and BERR sampled at the falling
@@ -51,6 +51,7 @@ module tg68k (
   input         reset_n,
 
   // the 68030 bus
+  output        ecs,                   // ECS*, active high here: S0 of a cycle that may follow
   output [31:0] cpu_addr,
   output        cpu_as_n,
   output        cpu_ds_n,
@@ -129,6 +130,14 @@ module tg68k (
   reg         ack_pending, ack_berr;
   reg         berr_hold;
 
+  // ECS (UM 5.6.2, 7.1.1): "the earliest indication that the processor is
+  // initiating a bus cycle" - the address, FC, SIZ and R/W are on the bus
+  // and AS* follows at S1 unless the cycle is aborted.  Here: the S0
+  // half-clock, when a request is waiting and the state machine is idle;
+  // the memory controller starts its row access on it and qualifies with
+  // AS* (plan 3.2).  The kernel's request only appears at a phi1 edge and
+  // is taken at the following phi2, so this is exactly one clk wide.
+  assign ecs      = (s == 3'd0) && eff_req;
   assign cpu_addr = eff_addr;
   assign cpu_as_n = as_n_r;
   assign cpu_ds_n = ds_n_r;

@@ -89,7 +89,8 @@ module tb_se30_video;
   wire        vidout, hsync_n, vsync_n, hblank, vblank, irq6_n;
 
   se30_video #(.DECLROM_HEX("declrom.hex"), .V_TOTAL(V_TOTAL)) uut (
-    .clk(clk), .reset_n(reset_n),
+    .clk(clk), .c16_en(1'b1), .reset_n(reset_n),                // clocked at C16M here
+    .declrom_we(1'b0), .declrom_waddr(13'd0), .declrom_wdata(8'd0),  // the image is preloaded
     .sel(sel), .as_n(as_n), .ds_n(ds_n), .rw(rw), .addr(addr), .din(din),
     .dout(dout), .dsack0_n(dsack0_n),
     .page(page), .vsyncen_n(vsyncen_n),
