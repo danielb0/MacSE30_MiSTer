@@ -18,7 +18,10 @@
 //
 //   The chip is driven to the worse of the W9825G6KH-6 and AS4C32M16SB-7
 //   datasheets at every row (plan 3.2's table), at 94.0032 MHz = 3 x
-//   clk_sys, phase-locked: CL2, burst length 2, sequential, burst writes;
+//   clk_sys, phase-locked: CL2, burst length 2, sequential, SINGLE-LOCATION
+//   WRITES (mode register A9 = 1: a WRITE command writes one word, masked
+//   by DQM on that command's own clock; a longword is two WRITEs a clock
+//   apart, the download's word one) - see THE WRITE below;
 //   tRCD and tRP 2 clocks, tRAS 4, tRC 6, tRFC 6, tMRD 2; one AUTO REFRESH
 //   per 7.8125 us, scheduled into the idle clocks between cycles so it
 //   never costs the CPU a wait state; power-up 200 us of NOP, PRECHARGE
@@ -91,15 +94,34 @@
 //   chip keeping to the datasheet: the capture at 9 took the SECOND word,
 //   the one at 10 the floating bus after the burst (SE30_PLAN.md 3.8 item
 //   15: a reset vector of $002A002A from $4080002A).
-//   A write: WRITE at 6 (cpu_req, AS* having asserted at S1, was sampled
-//   at 5) with the high word and its DQM from be[3:2], the low word at 7;
-//   acknowledged as posted.  Any ACTIVE is followed by eight clocks before
-//   the next ACTIVE or refresh (tRC 63; a write's tWR + tRP well inside).
+//   THE WRITE (plan 3.8 item 18, the board on compile 9, 2026-09-27): WRITE
+//   at 6 (cpu_req, AS* having asserted at S1, was sampled at 5) to the even
+//   column with the high word and DQM from be[3:2], no auto-precharge; a
+//   second WRITE at 7 to the odd column with the low word, DQM from
+//   be[1:0], auto-precharge; acknowledged as posted.  Until compile 9 this
+//   was ONE WRITE of a two-word burst with the second word's DQM on the
+//   clock after the command, and the download's single word was that
+//   burst with its second beat masked - and the board's chip did not mask
+//   it: the peek found every pair of the ROM image holding its odd word
+//   twice (the even word written to both columns, then the odd word
+//   written to both), while the training's two-beat burst, unmasked, read
+//   back right.  The FPGA's side was clean at every corner (DQM at the
+//   pins in the same window as the data and the command) and the RTL
+//   passed its bench (the model masks a beat exactly as the datasheet
+//   says); the chip's behaviour on a masked later beat is what the raw
+//   experiment port below exists to measure.  Single-location writes with
+//   the mask on the command clock are what every working core on this
+//   hardware does (MacPlus, MacLC, MacIIvi, the Quadra 800: Sorgelig's
+//   controller, NO_WRITE_BURST) - the same clocks, the same acknowledge,
+//   the second WRITE where the second beat was.  Any ACTIVE is followed by
+//   eight clocks before the next ACTIVE or refresh (tRC 63; a write's tWR
+//   + tRP well inside).
 //
 // THE TRAINING (S_TRAIN, after the ladder and before ready)
 //   Writes the complementary pair $A5C3, $5A3C to the top two words of the
 //   32 MB (word $FFFFFE: bank 3, row 8191, columns 510-511 - above the RAM
-//   image and the ROM, reserved for this), then reads them back as one
+//   image and the ROM, reserved for this; two WRITEs, as a CPU write
+//   is), then reads them back as one
 //   burst 2^TR_READS_LOG2 times through A and as many through B (65,536
 //   each on the board, 14 ms; the benches set 32), consuming dq_m at the
 //   same clocks a CPU read does, so the test is the operational path, and
@@ -189,9 +211,10 @@ module se30_sdram #(
                    CMD_PRECHARGE = 4'b0010,
                    CMD_REFRESH   = 4'b0001,
                    CMD_LOAD_MODE = 4'b0000;
-  // mode register: A9 = 0 burst writes, A8-A7 = 00, A6-A4 = 010 CL2,
-  // A3 = 0 sequential, A2-A0 = 001 burst length 2
-  localparam [12:0] MODE = 13'h0021;
+  // mode register: A9 = 1 single-location writes (the header's THE WRITE),
+  // A8-A7 = 00, A6-A4 = 010 CL2, A3 = 0 sequential, A2-A0 = 001 burst
+  // length 2 (reads)
+  localparam [12:0] MODE = 13'h0221;
   localparam INIT_PAUSE  = 15'd20000;          // 212.8 us >= the 200 us both datasheets ask
   localparam REF_EARLY   = 10'd600;            // 6.38 us: from here a refresh takes the first idle window after a cycle
   localparam REF_PERIOD  = 10'd700;            // 7.45 us: from here it goes at the first idle clock, inside tREFI's 7.81 us
@@ -378,13 +401,16 @@ module se30_sdram #(
         S_TRAIN: begin
           seq <= seq + 1'b1;
           case (tr_step)
-            2'd0: begin                                             // the pair, one burst write, auto-precharged
+            2'd0: begin                                             // the pair: two WRITEs, the second auto-precharged
               if (seq == 4'd0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
               if (seq == 4'd2) begin
-                cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL};
+                cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b0, 1'b0, TR_COL};
                 dq_out <= TR_W1; sd_dqm <= 2'b00; dq_oe <= 1;
               end
-              if (seq == 4'd3) begin dq_out <= TR_W2; dq_oe <= 1; end
+              if (seq == 4'd3) begin
+                cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL | 9'd1};
+                dq_out <= TR_W2; sd_dqm <= 2'b00; dq_oe <= 1;
+              end
               if (seq == 4'd9) begin tr_step <= 1; seq <= 0; end
             end
             2'd1: begin                                             // a read, the same clocks as S_ACC's
@@ -464,13 +490,15 @@ module se30_sdram #(
               state <= S_DONE;
             end
           end else begin
-            // a write: WRITE once the request has confirmed the cycle;
-            // the row waits open for a late request (GLUE's refresh
-            // window) and is precharged if another start supersedes it
+            // a write: the high word's WRITE once the request has
+            // confirmed the cycle, the low word's the clock after (the
+            // header's THE WRITE); the row waits open for a late request
+            // (GLUE's refresh window) and is precharged if another start
+            // supersedes it
             if (!a_written) begin
               if (seq == 4'd15) seq <= 4'd15;                       // count the wait, saturating
               if (req_q && seq >= 4'd2) begin                       // tRCD met at 2
-                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r};
+                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b0, 1'b0, a_col_r};
                 dq_out <= a_wdata[31:16]; sd_dqm <= ~a_be[3:2]; dq_oe <= 1;
                 a_written <= 1; seq <= 4'd3; cpu_ack <= 1;
                 busy <= 4'd6;                                       // the low word, tWR, tRP: 4.8 from here
@@ -482,7 +510,10 @@ module se30_sdram #(
                 busy <= 4'd2; state <= S_IDLE;
               end
             end else begin
-              if (seq == 4'd3) begin dq_out <= a_wdata[15:0]; sd_dqm <= ~a_be[1:0]; dq_oe <= 1; end
+              if (seq == 4'd3) begin                                // the low word, auto-precharged
+                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r | 9'd1};
+                dq_out <= a_wdata[15:0]; sd_dqm <= ~a_be[1:0]; dq_oe <= 1;
+              end
               if (seq == 4'd4) state <= S_DONE;
             end
           end
@@ -510,16 +541,16 @@ module se30_sdram #(
         end
 
         // ------------------------------------------ a download word
-        // One word: WRITE with the word, the second beat of the burst
-        // masked.  Acknowledged as posted; the level clears with the
-        // request.
+        // One word: one single-location WRITE, auto-precharged (the
+        // header's THE WRITE: until compile 9 this was a two-word burst
+        // with the second beat masked, and the board's chip wrote both).
+        // Acknowledged as posted; the level clears with the request.
         S_DL: begin
           seq <= seq + 1'b1;
           if (seq == 4'd2) begin
             cmd <= CMD_WRITE; sd_ba <= d_bank; sd_addr <= {2'b00, 1'b1, 1'b0, d_col};
             dq_out <= xs_dl_data; sd_dqm <= 2'b00; dq_oe <= 1; dl_ack <= 1;
           end
-          if (seq == 4'd3) begin sd_dqm <= 2'b11; dq_oe <= 1; end
           if (seq == 4'd4) state <= S_IDLE;
         end
 
