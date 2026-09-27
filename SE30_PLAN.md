@@ -4125,6 +4125,31 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       the next the second; the "clocks 3 and 4" row the second word only),
       `dqmtest` byte masks honoured, and the machine past the serial test
       loop - the ROM's byte-write RAM test (`$408032A0-3304`) passing.
+    - **Compile 13 (Daniel's go-ahead, tag `b9e9d6a1`, archived
+      `MacSE30_b9e9d6a1_dqma12.rbf`):** every corner met (worst non-capture
+      path 1.022; the capture as compile 9); `sd_addr[11]`/`[12]` duplicated
+      into the A and DQM output cells. **THE BOARD: THE CHIP SEES THE MASK.**
+      `dqmread`: unmasked `97221136`; clocks 2 and 3 `FFFFFFFF`; clock 2
+      `FFFF1136`; clock 3 `97229722`; clocks 3 and 4 `97229722` - each row as
+      predicted. `dqmtest`: rows 0a-0d (the CPU port's byte enables) and
+      10-13 (single-location mode) all as the datasheet. Rows 5 and 6
+      (burst-write mode, first beat masked) read `5555` where the datasheet
+      column says `AAAA`: the instrument, not the chip - in burst mode the
+      CPU port's pre-write of `AAAA5555` is two WRITEs whose second's own
+      second beat wraps onto the even column on a clock whose A12:11 are 00,
+      writing the bus's `5555` there (the wrap the model taught in item 19);
+      rows 5 and 6 are the only ones that read the even word's old value.
+      **But the machine still ends in the serial test manager** - after a
+      fresh reset, PIFA/PLAS in `$40803200-$40803304`, no halt, no bus
+      error, overlay 0. The code (disassembled): `$40802EDC` is the test
+      manager's command loop, polling the SCC at `$50F04000` for a command
+      (the "*APPLE*" greeting at `$40803288`), entered after a failed
+      start-up test with the failure in D6 and the flags in D7 - the Sad
+      Mac's code, which nothing here can show yet (no video before the
+      test passes; the machine bench stops at its first loop, cycle 9139,
+      with unwritten RAM reading X). So the byte mask was a real fault and
+      is fixed, and a different test fails on the board. **Next: read D6
+      and D7** - the failure code names the test.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
