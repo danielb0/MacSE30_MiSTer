@@ -143,6 +143,31 @@
 //   differs in every bit.  The choice stands until the PLL loses lock -
 //   the machine's resets do not repeat it.
 //
+// THE RAW EXPERIMENT PORT (raw_*, plan 3.8 item 19, 2026-09-27)
+//   An instrument, not a path the machine uses: the JTAG poke (MacSE30.sv,
+//   scripts/read_probes.tcl) drives it while the machine is held in reset,
+//   to measure how the board's chip takes a write mask on the clocks after
+//   a WRITE command - the question compile 9 left (THE WRITE above).  One
+//   request is one experiment, described by raw_ctl:
+//     [15:0]  w0, [31:16] w1   two data words
+//     [39:32] DQM on the clocks 2, 3, 4, 5 after the ACTIVE (2 bits each,
+//             [33:32] = clock 2, the WRITE's own)
+//     [43:40] output enable on those clocks, [47:44] which word each drives
+//             (0 = w0, 1 = w1)
+//     [48]    auto-precharge on the (last) WRITE
+//     [49]    a second WRITE on clock 3, to the odd column (then the first
+//             has no auto-precharge and the second carries [48])
+//     [50]    kind: 0 = ACTIVE, the WRITE at clock 2 to raw_addr's column,
+//             the schedule, and a PRECHARGE at clock 7 unless [48];
+//             1 = PRECHARGE ALL then LOAD MODE with [63:51] as the value -
+//             so an experiment can put the chip in burst-write mode
+//             (A9 = 0) and back
+//   raw_addr is a word address; a read of the words afterwards, through
+//   the CPU port as the peek does it, is the experiment's result.  The
+//   acknowledge is a level held until the request drops, like dl_ack.
+//   The benches drive it against the model, which masks as the datasheet
+//   says, so they prove the instrument's schedule, not the chip.
+//
 // PORTS
 //   cpu_*   the clk_sys-domain signals of the machine, registered here first
 //           (the related-clock path is then a register-to-register hop).
@@ -188,6 +213,12 @@ module se30_sdram #(
   input      [23:0] dl_addr,           // word address
   input      [15:0] dl_data,
   output reg        dl_ack,
+
+  // the raw experiment port (clk_sys domain; the header)
+  input             raw_req,
+  input      [63:0] raw_ctl,
+  input      [23:0] raw_addr,          // word address
+  output reg        raw_ack,
 
   // the chip
   output            sd_clk,
@@ -301,6 +332,9 @@ module se30_sdram #(
   reg [31:0] xs_wdata;
   reg [23:0] xs_dl_addr;
   reg [15:0] xs_dl_data;
+  reg        xs_raw_req;
+  reg [63:0] xs_raw_ctl;
+  reg [23:0] xs_raw_addr;
   always @(posedge clk) begin
     xs_start_evt <= 0;
     if (sample_en) begin
@@ -308,10 +342,20 @@ module se30_sdram #(
       xs_req <= cpu_req; xs_we <= cpu_we;
       xs_addr <= cpu_addr; xs_be <= cpu_be; xs_wdata <= cpu_wdata;
       xs_dl_req <= dl_req; xs_dl_addr <= dl_addr; xs_dl_data <= dl_data;
+      xs_raw_req <= raw_req; xs_raw_ctl <= raw_ctl; xs_raw_addr <= raw_addr;
     end
   end
   wire       start_rise = xs_start_evt;
-  wire       req_q = xs_req, we_q = xs_we, dl_req_q = xs_dl_req;
+  wire       req_q = xs_req, we_q = xs_we, dl_req_q = xs_dl_req, raw_req_q = xs_raw_req;
+  // the experiment's fields (the header)
+  wire [15:0] r_w0 = xs_raw_ctl[15:0], r_w1 = xs_raw_ctl[31:16];
+  wire  [7:0] r_dqm = xs_raw_ctl[39:32];
+  wire  [3:0] r_oe = xs_raw_ctl[43:40], r_sel = xs_raw_ctl[47:44];
+  wire        r_ap = xs_raw_ctl[48], r_second = xs_raw_ctl[49], r_kind = xs_raw_ctl[50];
+  wire [12:0] r_mode = xs_raw_ctl[63:51];
+  wire  [1:0] r_bank = xs_raw_addr[23:22];
+  wire [12:0] r_row  = xs_raw_addr[21:9];
+  wire  [8:0] r_col  = xs_raw_addr[8:0];
 
   // the word address of the access: bank, row, column
   wire [23:0] a_word  = {xs_addr, 1'b0};
@@ -323,9 +367,10 @@ module se30_sdram #(
   wire  [8:0] d_col   = xs_dl_addr[8:0];
 
   // --------------------------------------------------- the sequencer
-  localparam [2:0] S_INIT = 3'd0, S_IDLE = 3'd1, S_ACC = 3'd2, S_DONE = 3'd3, S_DL = 3'd4, S_TRAIN = 3'd5;
+  localparam [2:0] S_INIT = 3'd0, S_IDLE = 3'd1, S_ACC = 3'd2, S_DONE = 3'd3, S_DL = 3'd4, S_TRAIN = 3'd5, S_RAW = 3'd6;
   reg  [2:0] state;
   reg  [3:0] seq;                      // clocks since the ACTIVE
+  wire [1:0] r_k = seq[1:0] - 2'd2;    // the schedule's index on clocks 2..5 of a raw experiment
   reg  [3:0] busy;                     // clocks until the next ACTIVE or refresh may issue
   reg  [9:0] ref_cnt;
   reg        ref_due, ref_early, ref_force;
@@ -356,7 +401,7 @@ module se30_sdram #(
     if (!reset_n) begin
       state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0;
       cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; sd_dqm <= 2'b11; dq_out <= 0; dq_oe <= 0;
-      cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
+      cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; raw_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
       since_start <= 6'd63;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
       cap_sel <= 0; cap_ok <= 2'b00; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
@@ -372,6 +417,7 @@ module se30_sdram #(
       if (start_rise) begin start_pend <= 1; since_start <= 0; end
       else if (since_start != 6'd63) since_start <= since_start + 1'b1;
       if (!dl_req_q) dl_ack <= 0;
+      if (!raw_req_q) raw_ack <= 0;
       if (state != S_INIT) sd_dqm <= 2'b00;
 
       case (state)
@@ -470,6 +516,12 @@ module se30_sdram #(
               cmd <= CMD_ACTIVE; sd_ba <= d_bank; sd_addr <= d_row;
               seq <= 1; busy <= ACT_BUSY;
               state <= S_DL;
+            end else if (raw_req_q && !raw_ack) begin
+              // an experiment (the header): every row is closed here, so
+              // a LOAD MODE may follow a PRECHARGE ALL at once
+              if (r_kind) begin cmd <= CMD_PRECHARGE; sd_addr <= 13'h0400; busy <= 4'd6; end
+              else begin cmd <= CMD_ACTIVE; sd_ba <= r_bank; sd_addr <= r_row; busy <= ACT_BUSY; end
+              seq <= 1; state <= S_RAW;
             end
           end
         end
@@ -552,6 +604,31 @@ module se30_sdram #(
             dq_out <= xs_dl_data; sd_dqm <= 2'b00; dq_oe <= 1; dl_ack <= 1;
           end
           if (seq == 4'd4) state <= S_IDLE;
+        end
+
+        // ------------------------------------- a raw experiment (the header)
+        S_RAW: begin
+          seq <= seq + 1'b1;
+          if (r_kind) begin                                         // PRECHARGE ALL was issued at entry
+            if (seq == 4'd2) begin cmd <= CMD_LOAD_MODE; sd_addr <= r_mode; sd_ba <= 0; end
+            if (seq == 4'd4) begin raw_ack <= 1; state <= S_IDLE; end  // tMRD met by busy
+          end else begin
+            if (seq == 4'd2) begin
+              cmd <= CMD_WRITE; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap && !r_second, 1'b0, r_col};
+            end
+            if (seq == 4'd3 && r_second) begin
+              cmd <= CMD_WRITE; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap, 1'b0, r_col | 9'd1};
+            end
+            if (seq >= 4'd2 && seq <= 4'd5) begin                   // the schedule
+              dq_out <= r_sel[r_k] ? r_w1 : r_w0;
+              sd_dqm <= r_dqm[2 * r_k +: 2];
+              dq_oe  <= r_oe[r_k];
+            end
+            if (seq == 4'd7 && !r_ap) begin                         // tRAS met at 4, tWR after the last data
+              cmd <= CMD_PRECHARGE; sd_ba <= r_bank; sd_addr[10] <= 1'b0; busy <= 4'd3;
+            end
+            if (seq == 4'd9) begin raw_ack <= 1; state <= S_IDLE; end
+          end
         end
 
         default: state <= S_IDLE;

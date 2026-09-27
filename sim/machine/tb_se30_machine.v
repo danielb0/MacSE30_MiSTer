@@ -78,6 +78,7 @@ module tb_se30_machine;
     .cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
     .cpu_be(mem_be), .cpu_wdata(mem_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
     .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),
+    .raw_req(1'b0), .raw_ctl(64'd0), .raw_addr(24'd0), .raw_ack(),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
 

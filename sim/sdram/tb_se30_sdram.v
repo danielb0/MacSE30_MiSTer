@@ -30,7 +30,13 @@
 //     7. refresh: the model sees one AUTO REFRESH inside every 7.8125 us,
 //        and it never costs a CPU cycle a wait state - a 100 us run of
 //        back-to-back cycles is acknowledged at two C16M throughout
-//     8. the model reports no datasheet violation anywhere in the run
+//     8. the raw experiment port (plan 3.8 item 19): its schedule reaches
+//        the chip as written - against the model, which masks as the
+//        datasheet says, a masked later beat stays unwritten in burst-
+//        write mode and is written when unmasked, the two-WRITE form
+//        lands both words, and the LOAD MODE round trip (A9 0 and back)
+//        leaves the CPU port as it was
+//     9. the model reports no datasheet violation anywhere in the run
 //
 // HOW IT DRIVES THE DUT
 //   As the wrapper and GLUE do (plan 3.2's timeline): the address, R/W,
@@ -106,6 +112,10 @@ module tb_se30_sdram;
   reg  [23:0] dl_addr = 0;
   reg  [15:0] dl_data = 0;
   wire        dl_ack;
+  reg         raw_req = 0;
+  reg  [63:0] raw_ctl = 0;
+  reg  [23:0] raw_addr = 0;
+  wire        raw_ack;
 
   wire        sd_clk, sd_cke, sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n;
   wire [12:0] sd_addr;
@@ -118,6 +128,7 @@ module tb_se30_sdram;
     .cpu_start(cpu_start), .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr),
     .cpu_be(cpu_be), .cpu_wdata(cpu_wdata), .cpu_rdata(cpu_rdata), .cpu_ack(cpu_ack),
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
+    .raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
 
@@ -197,6 +208,21 @@ module tb_se30_sdram;
       while (!dl_ack) @(posedge clk_sys);
       #1 dl_req = 0;
       while (dl_ack) @(posedge clk_sys);
+    end
+  endtask
+
+  // a raw experiment (the controller's header): the schedule word and the
+  // word address, the same level handshake as the download's
+  function [63:0] raw_word(input [15:0] w0, input [15:0] w1, input [7:0] dqm, input [3:0] oe,
+                           input [3:0] sel, input ap, input second, input kind, input [12:0] mode);
+    raw_word = {mode, kind, second, ap, sel, oe, dqm, w1, w0};
+  endfunction
+  task raw_op(input [63:0] ctl, input [23:0] a);
+    begin
+      @(posedge clk_sys); #1 raw_ctl = ctl; raw_addr = a; raw_req = 1;
+      while (!raw_ack) @(posedge clk_sys);
+      #1 raw_req = 0;
+      while (raw_ack) @(posedge clk_sys);
     end
   endtask
 
@@ -358,7 +384,43 @@ module tb_se30_sdram;
     $display("      %0d cycles, longest refresh interval %0.1f ns, %0d refreshes so far",
              bus_cycles - cycles_before, chip.max_ref_gap, chip.refreshes);
 
-    // 9. the model's verdict
+    // 9. the raw experiment port (the controller's header).  The schedules
+    // below are compile 9's question put to the model: a single word with
+    // the clock after its WRITE masked (the old download's shape), the same
+    // with that clock unmasked, and the two-WRITE form; in the chip's
+    // single-write mode and, through a raw LOAD MODE, in burst-write mode.
+    $display("---- the raw experiment port");
+    acks_before = acks_late;
+    cpu_write(23'h006000, 4'hF, 32'hAAAA5555, ack);                  // words $00C000/$00C001
+    // single-write mode (as loaded): the masked-beat schedule writes the one word
+    raw_op(raw_word(16'h1234, 16'h0000, 8'b00_00_11_00, 4'b0011, 4'b0000, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
+    cpu_read(23'h006000, rd, ack);
+    check(rd == 32'h12345555, "raw: one WRITE in single-write mode lands one word");
+    // burst-write mode: the model masks the second beat as the datasheet says
+    raw_op(raw_word(16'h0, 16'h0, 8'h0, 4'h0, 4'h0, 1'b0, 1'b0, 1'b1, 13'h0021), 24'h0);
+    raw_op(raw_word(16'h2222, 16'h0000, 8'b00_00_11_00, 4'b0011, 4'b0000, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
+    cpu_read(23'h006000, rd, ack);
+    check(rd == 32'h22225555, "raw: burst-write mode, the second beat masked stays unwritten");
+    raw_op(raw_word(16'h4444, 16'h3333, 8'b00_00_00_00, 4'b0011, 4'b0010, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
+    cpu_read(23'h006000, rd, ack);
+    check(rd == 32'h44443333, "raw: burst-write mode, the second beat unmasked is written with clock 3's word");
+    // (in burst-write mode the second WRITE starts its own burst, whose
+    // second beat wraps to the even column: clock 4 must be masked, as the
+    // model showed when this schedule first left it open)
+    raw_op(raw_word(16'h5566, 16'h7788, 8'b00_11_00_00, 4'b0011, 4'b0010, 1'b1, 1'b1, 1'b0, 13'h0), 24'h00C000);
+    cpu_read(23'h006000, rd, ack);
+    check(rd == 32'h55667788, "raw: two WRITEs land both words (clock 4 masked)");
+    // back to single-write mode; the CPU port and the precharge path
+    raw_op(raw_word(16'h0, 16'h0, 8'h0, 4'h0, 4'h0, 1'b0, 1'b0, 1'b1, 13'h0221), 24'h0);
+    cpu_write(23'h006000, 4'hF, 32'h0BADF00D, ack);
+    cpu_read(23'h006000, rd, ack);
+    check(rd == 32'h0BADF00D, "raw: after the LOAD MODE round trip a CPU write and read are intact");
+    raw_op(raw_word(16'h9999, 16'h0000, 8'b00_00_00_00, 4'b0001, 4'b0000, 1'b0, 1'b0, 1'b0, 13'h0), 24'h00C001);
+    cpu_read(23'h006000, rd, ack);
+    check(rd == 32'h0BAD9999, "raw: an experiment without auto-precharge (the odd word) is precharged by the port");
+    check(acks_late == acks_before, "raw: the experiments left the CPU port on time");
+
+    // 10. the model's verdict
     check(chip.errors == 0, "no datasheet violation in the whole run");
 
     check(acks_late == late_dl + 2, "only the two late-request cycles and the download collisions were late");
