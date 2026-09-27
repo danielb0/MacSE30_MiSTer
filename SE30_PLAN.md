@@ -5655,6 +5655,43 @@ reach, and the board is the verdict either way (5.11 item 4).
    two captures met on setup and hold (A's hold -0.141 at fast -40C, B's
    1.853 there - the two-capture design of 3.8 item 18 doing its job).
    Waiting for the board: `read_probes.tcl`, `PSWM` and the screen.**
+
+   **THE BOARD (compile 15, 2026-09-28): RUNG 1'S JOB IS DONE; THE NEXT
+   STOP IS THE KERNEL'S BUS-FAULT RETURN, NOT THE SWIM.** `PSWM`: IWM mode
+   `$17`, the loop left; the start-up chain went on (`$4080066C`,
+   `$40800532` - three level-1 acknowledges: `TimeDBRA` - VIA1 IER `$03`)
+   and ended in the serial test manager with **D6 = 3, D7 = `$0002000F`**.
+   Read from the ROM, not assumed:
+   - D7 = `$F` is not a start-up test: `$408021D4` is the System Error
+     path when the alert tables (`$2BA`) do not exist yet - D6 =
+     DSErrCode (`$AF0`), D7 = `$F`, into the test manager.
+   - Code 3 is the stub for vector 4: the early vector stubs at
+     `$408020FA + 2n` are `bsr $408020B8`, which recovers n from its
+     return address; vector 4 points at `$408020FE`, n = 3. **An illegal
+     instruction.** The handler saves D0-A7 at `$C30`, SR at `$C74` and
+     **the PC at `$C70`**.
+   - A JTAG peek of `$C30-$C7F` (after the crash recurred - a peek resets
+     the machine, so each peek needs a fresh crash): **PC `$408043F8`**,
+     SR `$2700`, A7 `$0003FF5E`. `$408043F8` is the middle of `move.l
+     (a2), $8.w` (`21D2 0008`): the `$0008` extension word ran as an
+     opcode (ORI.B to An, illegal).
+   - The code there is the Slot Manager's probe of the empty slots
+     (`$408043C4`...): `move.b (a5), d1` at `$408043F4` reads
+     `$F9FFFFFF` (slot 9, then `$A`-`$E`) with vector 2 pointed at
+     `$40804F28`. That handler counts D7 down from 100 (`$64`) and **RTEs,
+     re-running the faulted read**; at 0 it **discards `$5C` = 92 bytes -
+     the MC68030's long bus-fault frame, format `$B`** - builds a format-0
+     frame to the continuation `$40804484` (slot empty, next slot) and
+     RTEs.
+   - Ours resumed at `$408043F8`, four bytes past the faulting
+     instruction. So the kernel's frame for an external `BERR*` on a data
+     read, or its RTE of that frame, is not the 68030's. **This belongs to
+     the kernel (Section 1, `cpu-bus`)**, documentation first: MC68030 UM
+     section 8 (the bus-fault frames, which one a data fault takes, what
+     RTE does with a format `$B` frame - re-run the cycle), then a bench
+     that does what the ROM does (BERR on a data read, RTE 100 times,
+     unwind `$5C`) before any change. The SWIM's rungs 2-3 wait behind
+     it: the `.Sony` Open comes after the Slot Manager.
 6. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
    when rung 1 is on the board, from 5.2.4's sources.
 
