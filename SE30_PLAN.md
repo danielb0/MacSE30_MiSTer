@@ -2530,7 +2530,11 @@ and the exact value is open.
 | 16 | PDS pseudo-slots `$F9`-`$FB`, and `$60000000`-`$F8FFFFFF`, `$FC`-`$FD`, `$FF` | `NUBUSN` | card's | card's, or none | card's | timeout -> `BERR` when empty | Figure 3-6, Table 3-9: "an access to any address range to which no device is assigned results in a bus error" |
 | 17 | RAM, ROM in any of the above during a refresh | | | | +1 RAM cycle at most | | *Guide* ch. 5: "except for memory refresh, which takes one access cycle every 15.6 us, the main processors in those computers have uninterrupted access to RAM". 15.6 us = **244 clocks**; 256 rows in 4 ms |
 
-**The VIA cycle (row 3).** `E` is 783.36 kHz = `C16M/20`, period 1.2766
+**The VIA cycle (row 3).** **Corrected 2026-09-27 by 4.4:** the *Guide*
+(p. 149) says the SE/30's GLUE synchronizes the VIA clock to the access,
+averaging 0.5 us, with E's *average* frequency 783.36 kHz; the envelope
+below is the 68000 machines' scheme and stands only as 4.4's bound.
+`E` is 783.36 kHz = `C16M/20`, period 1.2766
 us (20 clocks); the *Guide* gives its frequency and nothing about its duty
 cycle (**open**; the 68000's E was 6 low : 4 high, and a 10 : 10 split is
 the other candidate). A 65C22 is a Phi2 device: `CS`, `RS` and `R/W` must
@@ -2655,7 +2659,8 @@ From this section, in the order 1.10's benches will want them:
 
 1. Cycle lengths in clocks, per row of the table: RAM 4, ROM 4, ASC 5
    read / 4 write, SWIM 4, SCSI 4, expansion-with-DSACK 4; the VIA
-   envelope 12-32 with `E` = `C16M/20`; SCC >= 4 and the 34.5-clock
+   envelope 12-32 with `E` = `C16M/20` (**7-14 with the mean held, and E
+   re-phased, since 4.4**); SCC >= 4 and the 34.5-clock
    hold-off between consecutive SCC cycles only.
 2. `DSACK` encoding per row: `DSACK0*` alone for every I/O device, both
    for RAM and ROM, none from GLUE for the FPU, slot space or the
@@ -3277,7 +3282,7 @@ Then each peripheral section repeats rungs 1, 4, 5, 6 with its own bench
 at rung 2 and the machine bench extended at rung 3, and the ROM gets one
 step further each time: the VIAs and RAM sizing (the mirror rule's
 acceptance test, 2.11.6), the boot chime (ASC), the disk (SWIM, SCSI), the
-desktop (ADB).
+desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
 
 ## 3.7 Risks and open items
 
@@ -3526,7 +3531,655 @@ desktop (ADB).
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
 (2.7), and only then the donor `via6522.sv` (MacLC) and `via6522.vhd`
-(MacPlus, Gideon's) assessed against them.
+(MacPlus, Gideon's) assessed against them. **Written 2026-09-27.**
+
+# Section 4 - The VIAs
+
+Opened 2026-09-27, after 3.8 item 17 (the ROM's checksum loop ran to its end
+on the board through the SDRAM path; the machine then halted where a
+machine with no VIAs and no writable RAM must). This is the first
+peripheral section, and 3.6's ladder says what it owes: its own bench at
+rung 2, the machine bench extended at rung 3, and the ROM one step further
+on the board - the VIAs and RAM sizing, with the mirror rule's acceptance
+test (2.11.6) inside it. Written before any RTL, documentation first, as
+item 17 asked: Apple's VIA Cell specification, the Rockwell 6522 data sheet,
+the *Guide*'s chapter 4, the schematic, and the ROM itself; the donor VIAs
+(MacLC's `via6522.sv`, MacPlus's `via6522.vhd`, both Gideon Zweijtzer's)
+were read only after those and are cross-checks, not sources
+(`feedback-se30-specs-from-documentation`). Nothing here infers the ASC,
+SWIM, SCC, SCSI, ADB transceiver or RTC; where the ROM's start-up needs a
+level from one of them, 4.7 says what the level is and why.
+
+## 4.1 Sources, and their standing
+
+| source | what it is | standing |
+|---|---|---|
+| *Guide to the Macintosh Family Hardware* 2e, chapter 4 (pp. 148-186) and p. 149's paragraph on VIA timing | the bit tables (4-5, 4-9, 4-10, 4-14, 4-15, 4-18, 4-20 to 4-27), the timers' rate and use, the interrupt lists, and the one sentence anyone has on how GLUE times a VIA access | **primary** |
+| *VIA Cell Preliminary Specification*, Apple IC Technology, 29 Nov 1989 (`VIA_Cell_Preliminary_Specification_Nov1989.pdf`, 25 pp., OCR text in `VIA_Cell.txt`) | Apple's gate-array re-implementation of its own **6523** VIA for later ASICs. Its overview says: "Much of the text of this document is identical to that found in the original 6523 VIA spec. All ways in which the VIA Cell differs from the 6523 VIA have been noted ... by enclosing the descriptions in a box." So the un-boxed text **is the 6523's specification**, and each box says what the 6523 does that the cell dropped | **primary for the 6523**, read with the boxes inverted |
+| Rockwell *R6522 Versatile Interface Adapter* data sheet, Oct 1978 (`R6522_..._Oct1978.pdf`, 6 pp., scanned; page images in `Docs/r6522/`) | the register-select and timer read/write tables, the T1 mode table, the PCR CA2/CB2 mode table, the ACR shift-register mode table, and the NMOS part's timings | **primary for the 6522 baseline** the 6523 is compatible with; its tables fill what the cell spec's boxes only name |
+| `se30.pdf` sheet 4 "VIA1 & VIA2 (65C22), RTC, Apple Desktop Bus" (`se30schems/Apple/SE30_P4.GIF`) | UK12 = VIA1, UK11 = VIA2, both drawn as **65C22** in the 44-pin (PLCC) pinout; every net name of 2.7's table; the RTC (UK4, 32.768 kHz) and the ADB transceiver (UL11, clocked by `C3M`) | **primary for the wiring** |
+| `Mac_IICX_BOM.pdf` line 296 | `338S6523 ... IC,CUSTOM,65C22 VIA,PLCC`, quantity 2 | the IIcx's BOM (a proxy, 2.1), naming the part the schematic draws: Apple's custom 6523 is a 65C22-class part in PLCC |
+| the ROM (`97221136`), disassembled by `scripts/se30_rom_mmu.py dis` | every VIA register the start-up code touches, in what order, and what it expects back | **primary for what the machine must do**; 4.6 |
+| MacLC `rtl/via6522.sv`, MacPlus `rtl/via6522.vhd` | Gideon's 6522, ported and patched by other projects | cross-checks for corner cases the documents leave to the reader; **no line is lifted** (`feedback-independent-core-own-the-kernel`, `never-cite-own-output-as-precedent`) |
+
+What is *not* in hand: a 65C22 or 6523 data sheet with the CMOS part's
+own numbers (bitsavers has no Rockwell R65C22, no VTI, no GTE sheet); the
+1978 sheet is the 1 MHz NMOS part. Where a number below depends on that
+(only the E phase widths in 4.4) it is marked OPEN and bounded by the
+*Guide*'s own figure.
+
+## 4.2 The chip: Apple's 6523, a 65C22
+
+The *Guide* (p. 148): "The classic Macintosh computers use a Rockwell or
+VTI 6522 Versatile Interface Adapter integrated circuit. Other Macintosh
+computers use an Apple custom version of that IC. The Apple custom VIA is
+fully software compatible with the standard Rockwell or VTI 6522 VIA. The
+Macintosh SE/30 and Macintosh II family use two Apple custom VIAs called
+VIA1 and VIA2." The custom part is the **6523** (the cell spec's name for
+it; the IIcx BOM's `338S6523`, "65C22 VIA, PLCC"); the schematic draws
+both as 65C22s. So the SE/30's VIA is a **full 6522** in every feature the
+cell spec's boxes say the cell dropped: CA1/CB1 input latching, the CA2/CB2
+handshake and pulse output modes, Timer 2's PB6 pulse counting, Timer 1's
+PB7 output, all four T1 modes, and the internal shift-register clocks - and
+the cell's un-boxed text is the 6523's own description of the rest. The
+cell spec's overview also says which of those the Macintosh software base
+uses ("all 6523 VIA features which have been used on Macintoshes from the
+SE onward"): the cell kept T1 one-shot and free-run, T2 one-shot, the two
+external-clock shift modes, and the four control lines as edge inputs. The
+SE/30's VIA2 additionally uses T1's PB7 output (4.6: the ROM sets ACR
+`$C0` on VIA2 and the *Guide*'s Table 4-15 names PB7 `v2VBL`, "driven by
+timer T1"), which the cell dropped because the machines it went into
+emulate VIA2 elsewhere.
+
+### 4.2.1 Reset
+
+Cell spec 3.0, un-boxed: `Reset_` "clears all registers ... and
+initializes all state machines. The Shift Register counter is initialized
+but the actual shift register itself is not reset ... The T1 and T2
+counters and latches are also not cleared upon reset. All internal
+registers (ACR, PCR, DDRA, DDRB, ORA, ORB, IER, IFR) are all cleared to 0.
+All chip operations are disabled while Reset_ is low." The only boxed
+difference is the cell clearing the shift register's ninth bit. For the
+RTL: those eight registers reset to `$00`; the shift register and both
+timers' counters and latches have no documented reset value, so they take
+an FPGA power-on value (`$FFFF` for the timers, `$00` for SR - a choice,
+unobservable: the ROM loads every timer before it reads one, 4.6).
+
+**DDRA = 0 at reset is what makes overlay and the box ID work** (2.11.6,
+4.5): every port-A line is an input until the ROM says otherwise, and an
+undriven line reads high.
+
+### 4.2.2 Registers
+
+Cell spec Figure 2 and the R6522 operation summary; `RS3-0` are `A12-A9`
+on the SE/30 (sheet 4: `RS0` = `A(9)` ... `RS3` = `A(12)`), so register n
+is at base + `$200 * n` - the `$50F00000 + $1E00` the ROM uses for ORA is
+register 15. The 8-bit data bus is `D31-D24` (2.11.1; the *Guide* p. 158
+says "upper byte" for the 68000 machines and GLUE puts the SE/30's devices
+on the same lane).
+
+| RS | write | read |
+|---|---|---|
+| 0 | ORB; clears IFR4, and IFR3 unless CB2 is an "independent" input (PCR) | IRB: pins for input bits, ORB for output bits; same flag clears |
+| 1 | ORA; clears IFR1, and IFR0 unless CA2 independent; the CA2 handshake/pulse output responds | IRA; same |
+| 2 | DDRB (1 = output) | DDRB |
+| 3 | DDRA | DDRA |
+| 4 | T1LL (a write to T1CL "is effectively a load to T1LL") | T1CL, the low counter; **clears IFR6** |
+| 5 | T1LH := data, then **both latches into the counter, count starts, IFR6 cleared**, the one-shot re-armed | T1CH |
+| 6 | T1LL | T1LL |
+| 7 | T1LH; clears IFR6; **no** transfer | T1LH |
+| 8 | T2LL | T2CL; **clears IFR5** |
+| 9 | T2CH := data, T2LL into T2CL, count starts, IFR5 cleared, the one-shot re-armed | T2CH |
+| 10 | SR; clears IFR2, resets the shift counter | SR; same |
+| 11 | ACR | ACR |
+| 12 | PCR | PCR |
+| 13 | IFR: each 1 clears that flag; bit 7 ignored | IFR; bit 7 = IRQ (any flag with its enable) |
+| 14 | IER: bit 7 = 1 sets each 1 in bits 6-0, bit 7 = 0 clears them; 0s untouched | IER; **bit 7 reads 1** |
+| 15 | ORA, "no effect on handshake" and no flag clears | IRA, the same |
+
+### 4.2.3 Ports
+
+Cell spec 6.0-6.4 (un-boxed = 6523): a DDR bit of 1 makes the line an
+output driven by the OR flip-flop; **"Upon a write operation to one of the
+ports, data is written into only those port bit positions which have been
+programmed as outputs. Should data be written into bit positions
+corresponding to lines which have been programmed as inputs, the Output
+Register flip-flops will be unaffected."** A read returns the pin for an
+input bit and the OR flip-flop for an output bit (the 6523's only
+ambiguity, per the box, is that a *loaded* output line may read its
+actual level; a model has no loading, so OR it is). That write rule is
+the one place this section has a single documentary source for a
+behaviour software could see; 4.10 records it, and 4.6 shows the ROM's
+sequences do not depend on it either way.
+
+Input latching (ACR0 for A, ACR1 for B; a 6522 feature the cell's box
+says it dropped): with the latch enabled, IRA holds the pins as they were
+at CA1's active edge (IRB at CB1's) until the next such edge; disabled,
+IRA is the live pins. From the R6522 sheet's feature list and T_IL
+("peripheral data valid to CA1 or CB1 active transition"); the mechanism
+is the 6522's and the ROM never enables it (its ACR writes are `$00` and
+`$C0`, 4.6), so it is implemented as stated and benched lightly.
+
+CA1 and CB1 are edge inputs; CA2 and CB2 are edge inputs or outputs by
+PCR (R6522 CA2 table, CB2 the same at bits 7-5):
+
+| PCR 3-1 | CA2 |
+|---|---|
+| 000 | input, negative edge sets IFR0; a read or write of ORA clears it |
+| 001 | independent input, negative edge; ORA access does not clear |
+| 010 | input, positive edge |
+| 011 | independent input, positive edge |
+| 100 | handshake output: low on a read or write of ORA, high on CA1's active edge |
+| 101 | pulse output: low for one E cycle after an ORA access |
+| 110 | manual output, low |
+| 111 | manual output, high |
+
+The SE/30 uses CA2 as an input on both VIAs (RTC 1 Hz; SCSI DRQ) and CB2
+as VIA1's ADB data line under the shift register, VIA2's SCSI IRQ input
+(4.5). The output modes are implemented from the table because the chip
+has them; nothing on this board exercises them.
+
+### 4.2.4 Timers
+
+Both count `E` (the *Guide*, p. 182: "the timer counter is decremented
+once every 1.2766 µs"; cell spec 7.0: "decrements at the C783K clock
+rate").
+
+**T1** (cell spec 7.0-7.2, R6522 tables). Two latches and a 16-bit counter.
+A write to T1CH loads both latches into the counter and starts it; the
+counter decrements once per E cycle; on passing zero it reads `$FFFF`, and
+that is the time-out: IFR6 is set (if armed), and one E cycle later the
+latches are transferred back into the counter, which continues - "T1 is
+always running". In one-shot mode (ACR6 = 0) only the first time-out after
+a T1CH write sets IFR6; in free-run (ACR6 = 1) every time-out does. "Timer
+1 times out N+1 cycles after loading with the value N ... loaded with
+$0003, it will set the interrupt flag 4.5 C783K cycles later" - the half
+is the write landing in the middle of an E cycle. PB7 (ACR7 = 1; the
+R6522 T1 mode table): one-shot gives "a single interrupt and an output
+pulse on PB7 for each T1 load operation", free-run "a square wave output
+on PB7" - PB7 goes low at the T1CH write and high at the time-out in
+one-shot, and inverts at every time-out in free-run. **The ROM sets DDRB7
+itself before using this** (4.6), so whether ACR7 alone would turn PB7
+into an output is unobservable here and DDRB7 governs in the RTL.
+
+**T2** (cell spec 8.0-8.2, R6522 tables). A write-only low latch, a
+16-bit counter. A write to T2CH loads the counter from the latch and the
+data and arms it; the counter decrements per E cycle (ACR5 = 0) or per
+negative edge on PB6 (ACR5 = 1, the pulse-count mode - unusable on the
+SE/30, where PB6 is an output, *Guide* p. 181, but implemented); on
+passing zero it sets IFR5 once, then "simply rolls over from $FFFF to
+$FFFE, and then $FFFD, etc." until re-armed by another T2CH write. Same
+N+1.5 rule.
+
+The *Guide* (p. 182) on who uses what: VIA1 T1 is the Sound Driver /
+Sound Manager's, VIA1 T2 the Disk Driver's (through the Time Manager),
+**VIA2 T1 generates the VBL to VIA1**, VIA2 T2 unused. The ROM's numbers
+are in 4.6.
+
+### 4.2.5 The shift register
+
+Cell spec 9.0-9.3 and Figures 14-15 (the external-clock modes, un-boxed
+detail); the R6522 ACR table for the others. Nine flip-flops: SR[7:0] and
+a ninth, SR[8], that is what CB2 shows when shifting out; "SR[7] is
+shifted into SR[8] upon a shift clock (CB1) active edge. Thus, after
+parallel loading the Shift Register with data, one shift must be done
+before any of the just-loaded data will appear on CB2out", and bit 7 "is
+simultaneously rotated back into bit 0". Shifting out (ACR 4-2 = 111)
+happens on CB1's **falling** edge, shifting in (011) on CB1's **rising**
+edge, bits entering at bit 0. An 8-count modulo counter sets IFR2 after
+eight shifts and does not stop the shifting; reading or writing SR clears
+IFR2 and restarts the count. Mode 000: disabled, SR readable and
+writable, IFR2 never set (but not cleared). The cell's box says the 6523
+sampled CB1 on E's edges - a rate limit the FPGA can ignore, since the
+ADB transceiver's clock is tens of kHz.
+
+The five internal-clock modes (001 in under T2, 010 in under E, 100
+free-running out under T2, 101 out under T2, 110 out under E) exist in
+the 6522 and have one line each in the R6522 table. They are implemented
+to that line - the shift clock is T2's low-byte time-out or E, CB1 is
+driven as the clock output in the out modes, 100 never sets IFR2 - and
+recorded as datasheet-summary only: no Macintosh from the SE on uses
+them (the cell spec's rationale for dropping them), and the bench holds
+them only to the table.
+
+### 4.2.6 Interrupts
+
+Cell spec 10.0 and Figures 9-10, all un-boxed: IFR bits 0-6 are CA2, CA1,
+SR, CB2, CB1, T2, T1; bit 7 = OR of (IFRn AND IERn), not a flag, "the
+value of bit 7 on writes to the IFR has no effect"; IER read gives bit 7
+= 1; `IRQ_` is low while bit 7 is 1. The cell's box: the 6523 sets the
+flags asynchronously and the cell takes up to 210 ns; the RTL sets them
+on the C16M grid, well inside either. To GLUE, `VIAIRQ1*` and `VIAIRQ2*`
+are the level-1 and level-2 requests (2.11.5), held until the flag is
+cleared.
+
+## 4.3 The bit assignments, with 2.7's open cells closed
+
+2.7's table stands. The *Guide*'s tables close what it left to "verify
+on the scan": **VIA2 PB3** (`vFC3`) is "tied low (Macintosh SE/30)" and
+**VIA2 PB6** (`v2SNDEXT`) is "tied low (Macintosh SE/30)" (Table 4-15);
+VIA1 PB6 is `vSyncEnA`, "0 = vertical synchronization interrupt enabled
+(Macintosh SE/30 only)", an output (Table 4-14); VIA1 PA6 is `vPage2`, an
+output on the SE/30 and `CPU.ID1` in on the II/IIx (Table 4-5). The
+consequence for the box ID is in 4.6.
+
+The lines with nothing on the board to drive them - VIA1 PA0-2 and PB7 to
+the PDS, VIA2 PB4-5 (`TM0A*`, `TM1A*`) to the PDS, VIA2 PA0-4 (`IRQ*(1:5)`)
+to the PDS - and the ones whose driver is a later section (VIA1 PA7
+`SCCWREQ*`, PB0 RTC data, PB3 `ADB-INT*`, CA2 `RTC-1HZ`, CB1/CB2 the ADB
+pair; VIA2 CA2 `SCSIDRQ`, CB1 `SNDINT*`, CB2 `SCSIIRQ`) all read the
+levels of 4.7.
+
+## 4.4 The bus: how GLUE times a VIA access - 2.11 row 3 corrected
+
+The *Guide*, p. 149, on the SE/30 and the II family specifically: "the
+general logic circuits synchronize the VIA clock signal with the accesses
+of the main processor so that the main processor can make VIA accesses
+without any delay. As a result, a VIA access for these computers takes an
+average of 0.5 µs as compared to 1.0 µs for the Macintosh SE and classic
+Macintosh. The general logic circuits maintain an average frequency for
+the E clock of 783.36 kHz." And p. 148: the SE/30's GLUE generates "both
+the clock signal to the VIAs and the VIA device-enable signals".
+
+That is not the mechanism 2.11 row 3 built. Row 3 has the access wait for
+the next E-high phase of a free-running E - the 68000 machines' scheme,
+"12 to 32 clocks by alignment", 1.4 µs on average. The *Guide* says the
+SE/30's GLUE moves **E** to the access instead, and gives two numbers
+that constrain any implementation: an access averages **0.5 µs**, and E
+**averages** 783.36 kHz - the word "average" being the admission that E
+is not a clean divider on this machine. There is still no SE/30 source
+for GLUE's state machine (2.11's standing caveat), so what follows is a
+contract that meets both numbers and the 6522's own requirements, marked
+OPEN where a number is chosen.
+
+**The 6522's requirements** (R6522 read/write timing): `CS` and `RS`
+valid before E rises (T_ACR, 180 ns on the NMOS part), read data valid
+T_CDR after the rise, write data latched at the fall (T_DCW before it),
+and a minimum E-high width T_C. The NMOS 1 MHz part needs 470 ns high;
+a 0.5 µs *average access* is only possible with a part rated well above
+that, which the 65C22 pinout and the "65C22" label say this is. **The
+minimum phase width used below, 4 C16M clocks (255 ns), is OPEN**: it is
+what makes the *Guide*'s average come out, and no data sheet in hand
+gives the 6523's figure.
+
+**The contract.** GLUE keeps a free-running **reference** - a 20-clock
+counter, E nominally high for 10 and low for 10 - and the E it actually
+drives is that reference displaced by a bounded phase shift:
+
+1. A VIA access is seen at the clock GLUE first samples `AS*` low with a
+   VIA decode (clock A). The select rises with it (`CS` is up before any E
+   rise that follows).
+2. If E is low at A, having been low for L clocks: E rises at the first
+   clock at or after A+1 by which the low phase has lasted at least 4;
+   stays high for 4 clocks; the device strobe is the last of them; E falls;
+   `DSACK0*` follows the strobe as row 3 has it. If E is high at A, having
+   been high for H clocks: E falls at the first clock by which the high
+   phase has lasted at least 4, then low for 4, then the same 4-clock
+   high phase. Cycle lengths S0 to S5: **7 to 10 clocks when E was low,
+   10 to 14 when it was high**; the mean over a uniform phase is about 9
+   clocks = 0.57 µs, against the *Guide*'s "average of 0.5 µs".
+3. Every forced edge moves E's phase against the reference by up to half a
+   period. GLUE tracks the accumulated shift and works it off **one clock
+   per phase**: after the access, each E phase is 10 clocks plus one if E
+   is ahead of the reference, minus one if behind, until they coincide. No
+   phase is ever shorter than 4 clocks.
+4. **The bound:** a forced edge that would take the accumulated shift
+   beyond half a period is not taken; the access then waits for E's own
+   next edge, as the SE's would. So over any window of 20N clocks E rises
+   N ± 1 times whatever the VIA traffic - the timers' rate is exactly
+   C16M/20 in the long run, which is what "maintain an average frequency
+   of 783.36 kHz" has to mean for the Time Manager to keep time, and the
+   only cost of a saturating VIA polling loop is that its accesses slow to
+   the SE's speed rather than E running fast.
+
+Both VIAs share one E (sheet 4: `E` to both `PH0` pins), so a phase shift
+for VIA1's access is seen by VIA2's timers too, and the bound is what
+keeps VIA2 T1's 60.15 Hz honest.
+
+What this changes: `rtl/se30_glue.v`'s E generator and VIA cycle
+(`ecnt`, `via_armed`, `e_rise_next`, `e_fall_next`), 2.11 row 3's envelope
+(now 7-14 clocks with the mean held, the old 12-32 kept only as the bound
+of item 4), 2.11.7 item 1's "VIA envelope 12-32", and `sim/glue`'s item 5.
+The device strobe and the byte lane are unchanged: one device cycle per
+bus cycle, the byte on `D31-D24`, the strobe on E's last high clock, the
+write latched there and the read captured there.
+
+## 4.5 The wiring, as the RTL sees it
+
+The pin of a port line is the OR flip-flop when its DDR bit is 1 and the
+external driver when it is 0; with no external driver the pin is high
+(the 65C22's undriven level - the mechanism 2.11.6 already relies on for
+`OVERLAY`, and which 4.6 shows the box ID relies on too). The machine
+module computes each pin that way and hands it back to the VIA as its
+input, so a read of an input bit is the pin and a read of an output bit
+is the OR - exactly 4.2.3 - and the consumers of a VIA output (GLUE's
+`OVERLAY` and `RAMSIZ`, the video's `page` and `VSYNCEN*`, VIA1's CA1 from
+VIA2's PB7) read the pin, never the register.
+
+| VIA1 | pin | source / sink |
+|---|---|---|
+| PA7 | in | `SCCWREQ*`: 1 until the SCC section (open-drain, pulled up) |
+| PA6 | out (page) | `ALTVID` to the video: pin, 1 undriven = main buffer (2.10) |
+| PA5 | out | `HDSEL` to the SWIM section |
+| PA4 | out (overlay) | `OVERLAY` to GLUE: pin, 1 undriven = ROM at 0 |
+| PA3 | out | `SYNC` to the SCC section |
+| PA2-0 | in/out | `V1PA0-2` to the PDS: undriven, read 1 |
+| PB7 | in/out | `V1PB7` to the PDS: undriven, read 1 (the *Guide*'s `vSndEnb` "for software compatibility") |
+| PB6 | out | `VSYNCEN*` to the video: pin, 1 undriven = disabled |
+| PB5, PB4 | out | `ADB-ST1`, `ADB-ST0` to the ADB section |
+| PB3 | in | `ADB-INT*`: 1 until the ADB section |
+| PB2, PB1 | out | `RTC-CS*`, `RTC-CLK` to the RTC section |
+| PB0 | in/out | RTC data: 1 until the RTC section |
+| CA1 | in | `VBLK*` = VIA2's PB7 pin |
+| CA2 | in | `RTC-1HZ`: held 1 until the RTC section (no edges, no 1 s interrupt) |
+| CB1 | in | `ADB-SCLK`: 1 until the ADB section |
+| CB2 | in/out | `ADB-DIO`: 1 in until the ADB section |
+| IRQ | out | `VIAIRQ1*` to GLUE, level 1 |
+
+| VIA2 | pin | source / sink |
+|---|---|---|
+| PA7, PA6 | out (ramsiz) | `RAMSIZ(1:0)` to GLUE: pins, 11 undriven |
+| PA5 | in | `IRQ*(6)`: the video's slot-E interrupt latch (2.10, `irq6_n`) |
+| PA4-0 | in | `IRQ*(5:1)` from the PDS: undriven, 1 |
+| PB7 | out | `VBLK*`: T1's output under ACR7, else ORB7; to VIA1 CA1 |
+| PB6 | in | `SNDEXT*`: **tied low** |
+| PB5, PB4 | in | `TM0A*`, `TM1A*` from the PDS: undriven, 1 |
+| PB3 | in | `V2PB3`: **tied low** |
+| PB2 | out | `PWROFF` to the PDS (and the power section) |
+| PB1 | out | `BUSLOCK*` to the PDS |
+| PB0 | out | `CDIS*` to the CPU: the caches (1.15 item 9) - not wired until the caches exist |
+| CA1 | in | `SLOTIRQ*` = GLUE's `slot_irq_or_n` |
+| CA2 | in | `SCSIDRQ`: 0 until the SCSI section (active high) |
+| CB1 | in | `SNDINT*`: 1 until the ASC section |
+| CB2 | in | `SCSIIRQ`: 0 until the SCSI section (active high) |
+| IRQ | out | `VIAIRQ2*` to GLUE, level 2 |
+
+## 4.6 What the ROM does with the VIAs at start-up
+
+Read from the disassembly (`scripts/se30_rom_mmu.py dis`; addresses are
+the ROM's, base `$40800000`; the 24-bit addresses `$50F0xxxx` reach the
+VIAs through 2.11.2's decode). In the order the machine meets them:
+
+1. **The test manager** (`$40802A14`, reached from the reset entry
+   `$4083F856` via `$40800096`): sets its own VBR (`$40802806`), reads
+   `$58000000` (a bus error on this board, taken by its handler) and
+   starts the tests. **First VIA access** (`$40802A52`): VIA1 **DDRA :=
+   `$3D`** (PA5, 4, 3, 2, 0 out; PA6, PA7, PA1 in), then ORA read, bits 4
+   and 3 cleared, written back: **overlay off, `SYNC` low**. This is the
+   `wr $50F00600 3D` / `rd`/`wr $50F01E00` the machine bench logged as
+   cycles 70-93 (3.8 item 8); after it RAM is at `$0`.
+2. `$40802A76`: ORA bit 0 cleared and bit 1 read, then bit 0 set and bit
+   1 read again - a strap test between PA0 and PA1 on the PDS ID lines. With
+   PA1 undriven (reads 1 both times) it takes the normal path. **PA1 must
+   read 1.**
+3. `$40802AB0`: the ROM checksum (3.8 item 17's loop, `$408036EC`), then
+   reads of the SCSI (`$50F10000`) and SWIM (`$50F16000` / `$50F1C000`)
+   windows, whose bytes do not gate anything here.
+4. **RAM sizing prelude** (`$4083F634` -> `$4083F8C8`): VIA2 DDRA read into
+   D0, **DDRA |= `$C0`, ORA |= `$C0`** (`RAMSIZ` = 11: 64 MB banks), 128
+   longword reads at 1 MB steps from `$00000000` (all inside the RAM
+   region, so on this board they alias inside the 8 MB), DDRA restored to
+   D0 (0 - the pins go undriven and still read 11), then the RAM tests
+   proper. The test manager's timing base for the tests (`$40803456`):
+   VIA1 **ACR := 0, IER := `$20`** (T2 disabled), **T2 := `$FFFF`**, then
+   polls IFR bit 5 (`$40803478`).
+5. `$40803502`: the RTC read by bit-banging VIA1 ORB (PB0 data, PB1 clock,
+   PB2 `CS*`) - PRAM's start-up bytes. With PB0 reading 1 (4.7) the bytes
+   come back `$FF`, which the ROM treats as an uninitialised PRAM.
+6. **`RAMSIZ` from the sizing result** (`$408035B2`): VIA2 DDRA |= `$C0`,
+   ORA := (ORA & `$3F`) | the table byte - the bits the *Guide*'s Table
+   4-10 defines, so GLUE's bank rule is set from here on. **This write,
+   and the size the ROM then records, is the acceptance test of 2.11.2's
+   mirror rule** (2.11.6) and of 3.7's empty-bank question.
+7. **The box ID** (`$4083F74A-$4083F79C`): `BTST #6, $50F01E00` (VIA1
+   PA6), then VIA2 DDRB read, **bit 3 cleared** (PB3 made an input), `BTST
+   #3, $50F02000` (PB3), DDRB restored; the index is 2 + 2*PA6 + PB3 into
+   the table at `$4083F79E` = `FF 04 01 00 03 02`. With **PA6 undriven
+   (1) and PB3 tied low (0)** the index is 4 and the box flag is **3**;
+   the II/IIx wiring (`CPU.ID1` low, PB3 not tied) gives index 3 and flag
+   0. So the SE/30 is identified by exactly the two levels 4.3 and 4.5
+   record - a second witness, with `OVERLAY`, that an undriven port-A
+   line reads 1.
+8. **The VIA initialisation** (`$408006F2`, from the main start-up chain at
+   `$4080009A`): VIA1 **ORA(15) := `$01`; DDRA := `$3F`; ORB := `$07`** (the
+   RTC lines idle high, `CS*` off); **DDRB := `$87`** (PB7, PB2-0 out); **IER
+   := `$7F`** (all disabled). VIA2: ORA read as a long and written back
+   (four byte cycles at `$1E00-$1E03`, all register 15); **DDRA := `$C0`;
+   ORB := `$05`** (`CDIS*` high = caches allowed, `PWROFF` high); **DDRB :=
+   `$80`** (PB7 out); **IER := `$7F`**. The ORA-before-DDRA order on VIA1
+   is where 4.2.3's write rule could show: PA0 ends up 0 under the
+   documented rule, 1 under a store-everything rule; PA0 goes to an
+   unread PDS strap, so nothing here sees the difference.
+9. **The VBL** (`$4080074C`): VIA2 **ACR |= `$C0`** (T1 free-run with PB7
+   output), **DDRB bit 7 set**, **T1 := `$196E`** (low byte first, then
+   high - the *Guide*'s "write to the high-order byte last"). `$196E` =
+   6510, so by the N+1 rule the period is 6511 E cycles = 8.312 ms, PB7
+   inverts at every time-out, and VIA1's CA1 sees its active edge every
+   16.62 ms: the *Guide*'s "16.63 ms", 60.15 Hz. Then VIA1 **PCR &= `$F0`**
+   (CA1 and CA2 negative-edge inputs, the CB bits kept) and **IER :=
+   `$83`**: the VBL (bit 1) and the one-second (bit 0) interrupts enabled.
+   From here the machine takes a level-1 interrupt 60 times a second.
+10. **`TimeDBRA`** (`$40800560`): VIA1 **ACR bit 5 cleared** (T2 timed),
+    **T2CH := `$FF`**, **IER := `$A0`** (T2 enabled), the level-1 vector
+    (`$64`) pointed at `$408005A4`, interrupts opened, then **T2LL :=
+    `$0F`, T2CH := `$03`** (783 counts, 1.0 ms) and a `DBRA` loop until the
+    interrupt lands; the handler reads T2CL (clearing IFR5) and stores the
+    loop count at `$D00` - the ROM's measurement of the machine's speed,
+    which the Sony driver's delays use later. The same is done against the
+    SCC window for `TimeSCCDB`. **VIA1 T2 and the level-1 path through
+    GLUE must work by here**, and the number stored depends on E's rate
+    and the CPU's, not on anything else.
+11. Later, and not this section's concern: the interrupt dispatcher
+    (`$40806244`: VIA2 IFR & IER, bit 7 forced, shifted to find the
+    source), the power-off (`$408062EE`: `PWROFF` low), the shift-register
+    ADB transactions, the RTC's clock.
+
+**What the machine bench can reach.** Steps 1-4 happen within a few ms
+of machine time; the RAM tests over 8 MB take of the order of a second,
+and steps 6-10 lie beyond them. ModelSim gives 215 µs in 9 s (3.7), so
+the bench holds steps 1-4 and the start of the RAM tests, and predicts the
+probes there; the rest is the board's (4.9).
+
+**The screen is the board's verdict.** Once RAM is up the ROM draws: the
+Sad Mac with its code if a test fails (the ROM's code table for this test
+manager is at `$4083F8FC`; to be read when a code appears, not guessed),
+the flashing question-mark disk when it finds no boot device. Both go
+through the video of Section 2 and the slot driver 2.10 already benched.
+So the target for rung 6 is a picture - and with the VBL running, a
+question mark that flashes.
+
+## 4.7 The stand-ins: what is not there yet, and how it reads
+
+Each of these is a later section's; here only its idle level, chosen so
+the ROM's start-up sees an absent, not a broken, device:
+
+| line | level | why |
+|---|---|---|
+| VIA1 PA7 `SCCWREQ*` | 1 | open-drain from the 8530, pulled up; no request |
+| VIA1 PB0 RTC data | 1 | open-drain line, pulled up; the ROM reads PRAM as `$FF` and re-initialises it |
+| VIA1 CA2 `RTC-1HZ` | 1, no edges | no one-second interrupt; the clock does not tick (the RTC section) |
+| VIA1 PB3 `ADB-INT*` | 1 | no ADB service request |
+| VIA1 CB1 `ADB-SCLK` | 1, no edges | the transceiver never clocks the shift register: an ADB command times out in the driver |
+| VIA1 CB2 `ADB-DIO` (in) | 1 | idle |
+| VIA2 CA2 `SCSIDRQ` | 0 | no DMA request (active high) |
+| VIA2 CB2 `SCSIIRQ` | 0 | no SCSI interrupt (active high) |
+| VIA2 CB1 `SNDINT*` | 1 | no ASC interrupt |
+| VIA2 PB6, PB3 | 0 | tied low on the board (4.3) |
+| PDS lines (VIA1 PA0-2, PB7; VIA2 PA0-4, PB4-5) | 1 | nothing in the slot |
+| the other devices' bytes (`dev_rdata` for SCC, SCSI, ASC, SWIM) | `$00` | as the machine module has had them since 3.5; a read of a 53C80 or 8530 register as `$00` is what the ROM's probes of step 3 already see |
+
+## 4.8 The RTL
+
+**`rtl/se30_via.v`**, one module, instanced twice - the 6523 of 4.2 as a
+Verilog register file on `clk` with `c16_en`, everything timed from
+GLUE's `e_clk` (the timers count its falling edges; the strobe is its
+last high clock):
+
+```
+module se30_via (
+  input        clk, c16_en, reset_n,
+  input        e_clk,                 // GLUE's E, 4.4
+  // GLUE's device port (2.11.1, 2.13)
+  input        sel,                   // the chip select, follows AS*
+  input        strobe,                // E's last high clock while selected
+  input  [3:0] rs,                    // A12-A9
+  input        rw,                    // 1 = read
+  input  [7:0] wdata,
+  output [7:0] rdata,                 // the register, while selected
+  output       irq_n,
+  // the ports: what the pin reads, what the chip drives, and whether
+  input  [7:0] pa_in,  output [7:0] pa_out, output [7:0] pa_oe,
+  input  [7:0] pb_in,  output [7:0] pb_out, output [7:0] pb_oe,
+  input        ca1,
+  input        ca2_in, output ca2_out, output ca2_oe,
+  input        cb1_in, output cb1_out, output cb1_oe,
+  input        cb2_in, output cb2_out, output cb2_oe);
+```
+
+A write lands at `strobe`; a read's side effects (the flag clears of
+4.2.2, the handshake) land at `strobe` too; `rdata` is combinational from
+the selected register, valid through the E-high phase. `pb_out[7]` is
+T1's output when ACR7 is set. The IRQ is the IFR's bit 7, inverted.
+
+**`rtl/se30_glue.v`**: the E generator and VIA cycle of 4.4; nothing else
+moves.
+
+**`rtl/se30_machine.v`**: the two instances, the pin functions of 4.5
+(`pin = oe ? out : ext`, `ext` the 4.7 level or the real driver), the
+device read mux (`dev_rdata` = VIA1's, VIA2's or `$00` by select), VIA2
+PB7 pin to VIA1 CA1, GLUE's `slot_irq_or_n` to VIA2 CA1 and the video's
+`irq6_n` to VIA2 PA5, the pins to GLUE (`overlay`, `ramsiz`) and to the
+video (`page`, `vsyncen_n`), and the two `IRQ*` to GLUE. The 3.5 tie-offs
+go. `files.qip` gains the file.
+
+**`rtl/dbg_probes.sv`**: one more 32-bit probe, `PVIA`: `{overlay,
+ramsiz[1:0], vsyncen_n, page, via1 IER[6:0], via1 IFR[6:0], via2 IER[6:0],
+via2 IFR[6:0]}` - whether the ROM got as far as clearing overlay, what
+size it set, whether the VBL is armed and firing - and `PIRQ`, a count of
+level-1 interrupt acknowledges (FC = 7 cycles with `A3-A1` = 1), which is
+60 per second if the VBL works and 0 if it does not. Item 17's
+checksum-verdict probe: not added; the screen (4.6) is the verdict.
+
+## 4.9 The benches
+
+Rung 1 first (3.6): `sim/glue`, `sim/video`, `sim/system`, `sim/kernel_bus`,
+`sim/kernel_upstream`, `sim/sdram` unchanged and green, `sim/glue` then
+extended. Then:
+
+**`sim/via/tb_se30_via.v`, iverilog** (rung 2) - the chip alone behind a
+bench-made 10/10 E and GLUE-shaped strobes, held to 4.2:
+
+1. reset: the eight registers `$00`, IER reads `$80`, IFR `$00`, ports all
+   inputs, IRQ high;
+2. ports: DDR gates the pin; a read gives the pin for an input bit and OR
+   for an output bit; a write to an input bit leaves OR unchanged
+   (4.2.3's rule); register 15 is register 1 without the flag clears;
+3. T1 one-shot: written N, IFR6 sets N+1 E cycles (±½) after the T1CH
+   write, once; T1CL read clears it; the latches reload and it keeps
+   counting; T1LH write clears the flag without a transfer;
+4. T1 free-run: IFR6 every N+1 cycles; with ACR7 PB7 inverts at each
+   time-out, and 4.6's `$196E` gives a PB7 edge every 6511 cycles;
+5. T2: one-shot, IFR5 once at N+1, then free roll-over, T2CL read clears;
+   re-armed by T2CH; pulse-count mode on PB6 falling edges;
+6. CA1/CA2/CB1/CB2: the PCR edge selects; IFR set on the active edge;
+   cleared by the port access unless independent; the CA2/CB2 handshake,
+   pulse and manual outputs to the table;
+7. the shift register, external clock: out mode presents SR[8] on CB2,
+   the first shift brings bit 7 out, eight CB1 falling edges send a byte
+   MSB first and rotate it back; in mode takes CB2 on eight CB1 rising
+   edges into bit 0 upward; IFR2 after eight, cleared and re-counted by an
+   SR access; mode 000 never sets IFR2; the internal modes to their one
+   line;
+8. IFR/IER: bit 7 the AND-OR, IFR write clears by 1s, IER set/clear by
+   bit 7, IRQ follows;
+9. input latching (ACR0/1): IRA frozen at CA1's edge while enabled;
+10. the ROM's sequences of 4.6 replayed as register traffic: the overlay
+    write, the box-ID probe with PA6 undriven and PB3 low reading index 4,
+    the VBL programming and its first CA1 edge on the other instance.
+
+**`sim/glue/tb_se30_glue.v`** item 5 rewritten to 4.4: the select is high
+before every E rise that serves an access and through the high phase; the
+access lengths over a sweep of phases sit in 7-14 clocks with a mean of
+8-10; E's phases are never shorter than 4 clocks; E rises 1000 ± 1 times
+in 20,000 clocks with sparse accesses, and again with back-to-back
+accesses (the bound); the strobe is still one device cycle per bus cycle
+with the byte on `D31-D24` (item 6 unchanged).
+
+**`sim/machine/tb_se30_machine.v`, ModelSim** (rung 3), extended past its
+"first I/O access" stop: with the VIAs answering, the ROM (a) writes DDRA
+`$3D` and clears PA4, after which a RAM cycle at a low address issues
+`RAS` (overlay off, held by GLUE's own bench already, now seen from the
+ROM); (b) passes the PA0/PA1 strap test; (c) runs the checksum loop; (d)
+writes `$C0` to VIA2 DDRA and ORA and reads its 128 longwords; (e) enters
+the RAM tests - the first RAM writes and read-backs at `$0`-`$400`. The
+run is bounded at a few ms; the report is the I/O trace and the
+prediction for `PACT`, `PIFA`, `PVIA` at the stop, made from the ROM's
+code path (item 17's lesson), and the check is that no bus error and no
+halt occur before (e). The empty-bank behaviour (3.7) is *observed* here
+first: what the ROM's sizing does on an 8 MB machine whose addresses
+alias above 8 MB.
+
+**The board** (rung 6, Daniel flashes): `PVIA` shows overlay cleared and
+`RAMSIZ` written; `PIRQ` counting at 60 Hz; and the screen - a Sad Mac
+code (read back through `$4083F8FC`) or the flashing question mark.
+
+## 4.10 Risks and open items
+
+- **The E phase widths and the re-phasing mechanism** (4.4) are a contract
+  meeting the *Guide*'s two numbers, not GLUE's design; the 4-clock minimum
+  is OPEN for want of a 6523 data sheet. Every choice is in one place in
+  `se30_glue.v` and one bench item; a real SE/30 on a scope would settle
+  it in an afternoon.
+- **The port write rule** (4.2.3): a write to an input bit does not reach
+  the OR flip-flop, on the strength of the cell spec's un-boxed text. The
+  6522 sheet in hand does not say; if a fuller 6522 description
+  contradicts it, the change is one line and one bench check. The ROM's
+  sequences (4.6 items 1, 4, 6, 8) are insensitive to it.
+- **The ROM's ADB and RTC waits.** With no transceiver and no RTC (4.7),
+  the ADB driver's transactions must time out and the PRAM read must
+  tolerate `$FF`; the Plus's ROM does both (the MacPlus store) and the
+  II-family ROM has the same drivers, but the SE/30 has not been seen to
+  reach the disk icon without them. If the board stops in the ADB
+  initialisation, that is the ADB section brought forward, not a VIA
+  fault; `PIFA` will say which.
+- **The one-second interrupt** is enabled (4.6 item 9) and never fires;
+  the ROM's clock does not advance. Harmless until the RTC section.
+- **The SCSI and SWIM probes** of 4.6 item 3 read `$00` bytes; they gate
+  nothing at start-up, but the boot-device search later reads the 53C80's
+  status and the SWIM's handshake registers, and `$00` there means "bus
+  free" and "no disk" respectively - the search should fall through to the
+  question mark. If instead it spins, the trace says where, and it is the
+  SCSI or SWIM section's first item.
+- **Sad Mac codes** are read from the ROM's table when one appears; none
+  is asserted from memory here.
+- **VIA2 PB0 `CDIS*`** is an output with nowhere to go until the caches
+  exist (1.15 item 9); it is left unconnected and noted.
+- **The empty-bank question** (3.7) is not answered by this section, only
+  observed: the machine bench and the board show what the sizing does with
+  aliasing above 8 MB.
+
+## 4.11 The work
+
+1. Write this section, and mark 2.11 row 3, 2.11.7 item 1 and 3.6's ladder
+   with pointers to 4.4 and 4.9.
+2. **`sim/via/tb_se30_via.v`** and `run.sh` (4.9 items 1-10), failing, then
+   **`rtl/se30_via.v`** to 4.2 until it passes.
+3. **`sim/glue`** item 5 rewritten to 4.4, failing, then the E generator and
+   VIA cycle in **`rtl/se30_glue.v`** until the whole GLUE bench passes.
+4. **`rtl/se30_machine.v`** to 4.8; `files.qip`; `sim/system` and
+   `sim/video` still green.
+5. **`sim/machine`** extended to 4.9's (a)-(e); the prediction recorded
+   here.
+6. **`rtl/dbg_probes.sv`**: `PVIA` and `PIRQ`; `scripts/read_probes.tcl`
+   reads them.
+7. Elaboration; then the compile, **with Daniel's go-ahead**, the ritual of
+   3.6 item 5; the archive.
+8. The board: Daniel flashes; the probes and the screen against the
+   prediction; the reading recorded here. Then the empty-bank and 128 MB
+   items of 3.7 have their first data, and Section 5 is whichever device
+   the ROM stops at.
+
+---
 
 ## Appendix - where the sources are
 
