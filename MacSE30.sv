@@ -101,17 +101,23 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
-// One PLL (rtl/pll, plan 3.2): clk_sys is 2 x C16M = 31.3344 MHz, the
-// board's own oscillator; clk_mem is 3 x clk_sys for the SDRAM, phase-
-// locked.  phi1 and phi2 mark C16M's edges, one clk_sys each, alternating.
+// One PLL (rtl/pll, plan 3.2, 3.8 item 18): clk_sys is 2 x C16M = 31.3344
+// MHz, the board's own oscillator; clk_mem is 3 x clk_sys for the SDRAM,
+// phase-locked; clk_sdc, clk_capa and clk_capb are clk_mem shifted by
+// +1.064, -0.266 and -2.261 ns - the SDRAM chip's clock and the two
+// read-data captures (rtl/se30_sdram.v's header).  phi1 and phi2 mark
+// C16M's edges, one clk_sys each, alternating.
 
-wire clk_sys, clk_mem, pll_locked;
+wire clk_sys, clk_mem, clk_sdc, clk_capa, clk_capb, pll_locked;
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
 	.outclk_0(clk_sys),
 	.outclk_1(clk_mem),
+	.outclk_2(clk_sdc),
+	.outclk_3(clk_capa),
+	.outclk_4(clk_capb),
 	.locked(pll_locked)
 );
 
@@ -181,9 +187,13 @@ end
 
 ///////////////////////   SDRAM   ////////////////////////////////
 // rtl/se30_sdram.v (plan 3.3).  Its reset is the PLL's lock alone: the
-// ladder is content-preserving and the ROM stays in SDRAM across resets.
+// ladder is content-preserving and the ROM stays in SDRAM across resets,
+// and so does the read-capture training's choice (plan 3.8 item 18):
+// cap_sel says which capture it chose, cap_ok which ones passed; both go
+// to the probe deck's PSTA.
 
-wire        sdram_ready;
+wire        sdram_ready, cap_sel;
+wire  [1:0] cap_ok;
 wire        mem_start, mem_req, mem_we, mem_ack;
 wire [22:0] mem_addr;
 wire  [3:0] mem_be;
@@ -191,7 +201,8 @@ wire [31:0] mem_wdata, mem_rdata;
 
 se30_sdram sdram
 (
-	.clk(clk_mem), .phi(phi), .reset_n(pll_locked), .ready(sdram_ready),
+	.clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(pll_locked),
+	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok),
 	.cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
 	.cpu_be(mem_be), .cpu_wdata(mem_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
@@ -245,6 +256,7 @@ dbg_probes probes
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
 	.dsack_n(dbg_dsack_n), .berr(dbg_berr), .halted(dbg_halted), .sdram_ready(sdram_ready),
+	.sdram_cap({cap_sel, ~|cap_ok, cap_ok}),
 	.rom_loaded(rom_loaded), .via_state(dbg_via)
 );
 `endif

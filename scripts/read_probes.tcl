@@ -124,8 +124,11 @@ for {set n 0} {$n < $samples} {incr n} {
 	}
 	if {[have PSTA]} {
 		# {fc[2:0], rw_n, dsack_n[1:0], berr_seen, halted, sdram_ready,
-		#  rom_loaded, reset_n, 5'b0, berr_cnt[15:0]} -- rtl/dbg_probes.sv;
-		# keep the two in step.
+		#  rom_loaded, reset_n, cap_sel, cap_fail, cap_ok[1:0], 1'b0,
+		#  berr_cnt[15:0]} -- rtl/dbg_probes.sv; keep the two in step.
+		# The cap_* bits (plan 3.8 item 18) are the SDRAM read-capture
+		# training's verdict, set once per configuration: builds before
+		# it read them as 0 (capture A, "passed", A and B "failed").
 		set psta [rd PSTA]
 		set fc        [expr {($psta >> 29) & 7}]
 		set rw        [expr {($psta >> 28) & 1}]
@@ -135,12 +138,20 @@ for {set n 0} {$n < $samples} {incr n} {
 		set sdram_rdy [expr {($psta >> 23) & 1}]
 		set rom_ld    [expr {($psta >> 22) & 1}]
 		set reset_n   [expr {($psta >> 21) & 1}]
+		set cap_sel   [expr {($psta >> 20) & 1}]
+		set cap_fail  [expr {($psta >> 19) & 1}]
+		set cap_ok_a  [expr {($psta >> 18) & 1}]
+		set cap_ok_b  [expr {($psta >> 17) & 1}]
 		set berr_cnt  [expr {$psta & 0xFFFF}]
 		set fcname [lindex {"0 (reserved)" "user data" "user program" "3 (reserved)" "4 (reserved)" "super data" "super program" "CPU space"} $fc]
 		puts [format "  PSTA  %08X   last cycle FC=%d %s %s, last DSACK*=%d%d" $psta $fc $fcname \
 			[expr {$rw ? "read" : "write"}] [expr {($dsack >> 1) & 1}] [expr {$dsack & 1}]]
 		puts [format "        reset released=%d  rom loaded=%d  sdram ready=%d  halted=%d  bus error seen=%d  bus errors=%d" \
 			$reset_n $rom_ld $sdram_rdy $halted $berr_seen $berr_cnt]
+		puts [format "        SDRAM read capture: chose %s  (A passed=%d  B passed=%d)%s" \
+			[expr {$cap_sel ? "B (clk_mem, for fast silicon)" : "A (clk_mem + 3.06 ns, for slow silicon)"}] \
+			$cap_ok_a $cap_ok_b \
+			[expr {$cap_fail ? "  *** NEITHER PASSED: reads are not trustworthy ***" : ""}]]
 	}
 	if {[have PVIA]} {
 		# {overlay, ramsiz[1:0], vsyncen_n, via1 ier[6:0], via1 ifr[6:0],

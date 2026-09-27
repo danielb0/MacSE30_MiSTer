@@ -3534,10 +3534,111 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
 18. **The read capture made corner-proof (decided 2026-09-27, the design
     in 4.11 item 8): two phase-shifted capture clocks from the PLL, a
     training read at the end of the power-up ladder choosing between
-    them, multicorner analysis on.** Not started. This is the next
-    session's first work; nothing else moves until the board reads the
-    ROM reliably, and Section 4's result (its VIAs, never yet written on
-    the board) is read only after it.
+    them, multicorner analysis on.** ~~Not started.~~ **Built 2026-09-27;
+    benches green, elaboration clean; the seventh compile needs Daniel's
+    go-ahead.** Nothing else moves until the board reads the ROM
+    reliably, and Section 4's result (its VIAs, never yet written on the
+    board) is read only after it. What was built differs from 4.11 item
+    8's sketch in four places, each forced by a fact found on the way;
+    the sketch stands there with a pointer here.
+
+    - **One I/O-cell register, not two.** A Cyclone V I/O cell has one
+      input clock: two registers on two clocks left the second in the
+      fabric through a feeder (a throwaway fit of the SDRAM pins alone,
+      `iotest` run 1, one minute), and the cell's DDIO atom with
+      `use_clkn` and a second clock on `clkn` is refused outright (Error
+      15890, run 2). So `dq_q` is one cell register whose clock a clock
+      control block selects between the two capture clocks (`altclkctrl`,
+      the PLL outputs on its inputs 2 and 3 - Quartus 15836 - so the
+      select is `{1, cap_sel}`); it packs as the cell's Fast Input
+      Register with that clock (run 3) and STA times it under both. The
+      training switches it, with sixteen clocks of settling.
+    - **The phases come from the experiment, not from compile 6's table.**
+      The table's eye was not the silicon's: compile 6's own capture
+      path (its database, read 2026-09-27 with its own sdc) carries 1.5
+      to 2.5 ns of input delay chain on the SDRAM_DQ pins - D1 settings
+      up to 14 of 15, the data cell 3.9 ns against 1.4 with no chain -
+      the fitter's hold optimiser ("Optimize Hold Timing: All Paths",
+      "Optimize Multi-Corner Timing: On", both already on) tuning a
+      single capture as far as it could go, and -0.128 was as far as it
+      went. That is why the eye sat where the table said and why it
+      would move between compiles. The experiment's clock paths match
+      the core's within 0.1 ns (PLL counter through the clock control to
+      the cell: 4.87 against 4.75 ns; through the DDIO cell to the
+      SDRAM_CLK pin: 8.39 against 8.33), so at chain zero it IS the
+      core's capture timing, and a phase pair costs a minute to test
+      instead of twenty. **The arrangement** (rtl/pll.v): the chip's
+      clock on its own PLL output at +1.064 ns, balancing our outputs'
+      setup and hold at the chip; capture A at -0.266 ns (as +10.372)
+      for slow silicon, capture B at -2.261 (as +8.377) for fast; all in
+      whole VCO-phase steps of 132.98 ps. The slacks at chain zero, run
+      8, the worst SDRAM_DQ pin at each corner:
+
+      | corner | capture A setup / hold | capture B setup / hold | outputs at the chip |
+      |---|---|---|---|
+      | slow 100C | **1.34 / 1.83** | -0.66 / 3.83 | 2.40 / 2.50 |
+      | slow -40C | **1.81 / 1.56** | -0.19 / 3.56 | 2.50 / 2.63 |
+      | fast 100C | 3.86 / 0.41 | **1.86 / 2.40** | 3.30 / 2.94 |
+      | fast -40C | 4.27 / -0.03 | **2.28 / 1.97** | 3.36 / 2.95 |
+
+      At every corner one capture is inside the eye by at least 1.3 ns
+      and the other fails by design; the training tells them apart (a
+      wrong capture cannot return the pair, 4.11 item 8). Separate PLL
+      counters for the chip's clock and the captures cost about 0.35 ns
+      of analysed eye against a shared one (STA applies the PLL's
+      min/max spread between counters); the freedom to place three
+      phases is worth it.
+    - **The transfer into the clk domain takes no credit.** A falling-
+      edge register straight from the cell failed for A by 1.2 ns: the
+      cell-to-fabric path is most of a period at the slow corner (run
+      6). So `dq_q` -> `dq_w` (a full period on the capture clock) ->
+      `dq_m` (clk_mem's falling edge: 5.6 ns from A's edge, 7.6 from
+      B's) -> `cpu_rdata` (half a period), every hop single-cycle and
+      met at every corner (run 8: 3.5, 2.1, 3.1 ns at the slow corner).
+      Any consumer clocked on clk_mem's rising edge would have needed a
+      multicycle with a 2 ns hold check behind it for B. The cost is
+      one clock: the words reach `cpu_rdata` at 7 and 8 after ACTIVE
+      (were 6 and 7), the acknowledge at 8, GLUE samples at 12 with one
+      clock in hand instead of two; the contract (ack at two C16M) is
+      unchanged and the benches hold it.
+    - **The fitter and the flow's STA do not see the capture; the corner
+      script does.** A fitter asked to meet both captures at every
+      corner can meet neither and would chase the pair with the delay
+      chains; so MacSE30.sdc gives the flow a false path on the capture
+      and the two-cycle setup multicycle only when `se30_time_capture`
+      is set, which scripts/sta_corners.tcl does before reading it; the
+      qsf pins `D1_DELAY 0` on SDRAM_DQ (the assignment verified in run
+      8: a 5 shows as chain 5) and has multicorner analysis ON; the two
+      capture clocks are an exclusive clock group, or STA times the
+      phantom crossing between them through `dq_q` (-4.4 ns, run 7).
+      The corner script's verdict is two lines: every SDRAM path but the
+      capture met at every corner, and at every corner at least one
+      capture met. `build_only.sh`'s "timing met" no longer covers the
+      capture at all.
+    - **The training** as sketched, with 32 reads per capture (not 8)
+      and the pair $A5C3 / $5A3C (complementary in every bit, not
+      $3C5A); A when both pass, because a cold board warms and slows,
+      widening A's margin and narrowing B's. `cap_sel`, `cap_fail` and
+      `cap_ok` are PSTA bits 20-17; read_probes.tcl prints them.
+    - **The benches.** sim/sdram: 169 checks at the default pin delays
+      (both captures inside the eye, A chosen; the first CPU read
+      returns the pair), then the training alone at three settings that
+      move the eye - only B inside, only A, neither - each choosing as
+      it must; the bench now delays our outputs to the chip like the
+      clock (OUT_TO_PIN) and the chip's data to the register
+      (DQ_TO_REG), so CLK_TO_PIN no longer collides with the command
+      sampling. sim/machine: 17 checks, the same prediction, 116 s, the
+      training before the machine leaves reset. Both benches make the
+      shifted clocks with transport delays (`<= #d` in an always block):
+      an `assign #d` is inertial and a delay longer than half a period
+      swallowed the capture clock entirely, every read X - an hour
+      found and fixed. Elaboration: 0 errors, 82 warnings, as before.
+    - **The gate:** compile 7 with Daniel's go-ahead, by the ritual;
+      `quartus_sta -t scripts/sta_corners.tcl` on it against the table
+      above (the flow's summary is no longer the capture's verdict); the
+      board: PSTA's capture bits say which capture it chose and which
+      passed - the expectation for this board, which showed hold margin
+      near zero at room temperature on compile 6's single capture, is B.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
@@ -4316,8 +4417,11 @@ or the flashing question mark.
 
    **DECIDED by Daniel, 2026-09-27: the run-time choice between two
    captures, and multicorner analysis ON.** The design, as far as it got
-   before the session closed (nothing implemented yet; 3.8 item 18 is
-   the work):
+   before the session closed (3.8 item 18 is the work, **and records what
+   was built later that day and where it departs from this sketch: one
+   cell register on a clock control block, the phases from a one-minute
+   experiment rather than this table - compile 6's fitter had delay
+   chains on the DQ pins - and a transfer chain with no multicycle**):
 
    - **Two capture clocks, not the input cell's two edges.** The cell's
      rising and falling edges are 5.32 ns apart, and with 4.1-4.7 ns

@@ -1,6 +1,6 @@
 // tb_se30_sdram.v - the SDRAM controller against a behavioural chip, held
 // to GLUE's contract and to the datasheets (SE30_PLAN.md 3.2, 3.3, 3.6
-// item 2).
+// item 2, 3.8 item 18).
 //
 // WHAT THIS PROVES
 //   rtl/se30_sdram.v, on a 94.0032 MHz clock phase-locked to the 31.3344 MHz
@@ -8,6 +8,12 @@
 //   AS4C32M16SB-7, which checks every datasheet interval and the power-up
 //   sequence):
 //
+//     0. the read-capture training (plan 3.8 item 18): `ready` waits for
+//        it; it wrote the pair to the top two words; it chose the capture
+//        the pin delays call for - run.sh runs this bench at four delay
+//        settings, where both captures work (A chosen), only B, only A,
+//        and neither (cap_ok 00, A) - and the first CPU read of the top
+//        longword returns the pair through the capture chosen
 //     1. power-up: the ladder is accepted by the model and `ready` follows
 //     2. a read or a write started at S0 (cpu_start) and confirmed at S1
 //        (cpu_req) is acknowledged with its data at GLUE's sampling edge
@@ -34,21 +40,58 @@
 //   clocks after S0; it then drops the request (mem_done) and the cycle
 //   ends two C16M later.  "ack at N" is the C16M edge, counted from S0, at
 //   which the acknowledge was first seen: 2 is the contract.
+//
+// THE PIN DELAYS (parameters; iverilog -P tb_se30_sdram.NAME=x)
+//   CLK_TO_PIN  the chip's clock reaches its pin this long after the
+//               fabric's edge (the second compile's STA, 2026-09-27: -3.97
+//               ns of clock skew on the read-data paths).  4.0.
+//   OUT_TO_PIN  our command, address, mask and write-data registers reach
+//               the chip this long after our edge, through the same kind
+//               of I/O cell as the clock.  4.0.  Before item 18 the bench
+//               had no output delay, which bounded CLK_TO_PIN at 5.3 (the
+//               chip sampled the next command); now the chip's view of the
+//               commands is fixed and only the read data moves.
+//   DQ_TO_REG   the chip's data reaches the capture register this long
+//               after its pin (the same STA: 2.35 ns of data delay).  2.0.
+//   The model drives data with the datasheet's tAC and tOH and X between,
+//   so a capture outside the eye reads X and the training must reject it.
+//   Where each capture's edge falls in that eye, in the default setting:
+//   A (0.266 ns before clk_mem's edge) 3.2 ns in with 4.5 to spare, B
+//   (2.261 before) 1.2 in with 6.5 to spare - both pass, A chosen.  run.sh's other settings
+//   move the eye until one or both captures fall out of it.  None of this
+//   is the hardware's timing (STA at every corner is; MacSE30.sdc and
+//   scripts/sta_corners.tcl); it is the training's logic under test.
 
 `timescale 1ns/1ps
 
 module tb_se30_sdram;
 
   // ------------------------------------------------------------ clocks
-  // both from one time base: 5.319 ns half-periods, 3:1
+  // all from one time base: 5.319 ns half-periods, 3:1, and the two
+  // phase-shifted copies of clk_mem the PLL makes (rtl/pll.v)
   reg clk_mem = 0;
   always #5.319 clk_mem = ~clk_mem;
   reg clk_sys = 0;
   always #15.957 clk_sys = ~clk_sys;
+  // transport delays (an assign's delay is inertial and would swallow a
+  // 5.3 ns pulse behind a delay longer than that)
+  reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
+  always @(clk_mem) begin
+    clk_sdc  <= #(1.064)  clk_mem;
+    clk_capa <= #(10.372) clk_mem;                     // 0.266 ns before the next clk_mem edge
+    clk_capb <= #(8.377)  clk_mem;                     // 2.261 ns before
+  end
   reg phi = 0;
   always @(posedge clk_sys) phi <= ~phi;
   wire phi1 = !phi;                                // the clk_sys in which C16M rises: S0, S2, S4 begin here
   reg reset_n = 0;
+
+  parameter  real CLK_TO_PIN = 4.0;
+  parameter  real OUT_TO_PIN = 4.0;
+  parameter  real DQ_TO_REG  = 2.0;
+  parameter       EXPECT_OK  = 2'b11;               // the training's expected {A, B} verdict for these delays
+  parameter       EXPECT_SEL = 0;                   // and its expected choice, 0 = A
+  parameter       TRAIN_ONLY = 0;                   // 1: stop after the training checks
 
   // --------------------------------------------------------------- DUT
   reg         cpu_start = 0, cpu_req = 0, cpu_we = 0;
@@ -56,7 +99,8 @@ module tb_se30_sdram;
   reg   [3:0] cpu_be = 4'hF;
   reg  [31:0] cpu_wdata = 0;
   wire [31:0] cpu_rdata;
-  wire        cpu_ack, ready;
+  wire        cpu_ack, ready, cap_sel;
+  wire  [1:0] cap_ok;
   reg         dl_req = 0;
   reg  [23:0] dl_addr = 0;
   reg  [15:0] dl_data = 0;
@@ -65,36 +109,36 @@ module tb_se30_sdram;
   wire        sd_clk, sd_cke, sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n;
   wire [12:0] sd_addr;
   wire  [1:0] sd_ba, sd_dqm;
-  wire [15:0] sd_dq;
+  wire [15:0] sd_dq;                               // the DUT's side of the data pins
 
   se30_sdram dut (
-    .clk(clk_mem), .phi(phi), .reset_n(reset_n), .ready(ready),
+    .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(reset_n),
+    .ready(ready), .cap_sel(cap_sel), .cap_ok(cap_ok),
     .cpu_start(cpu_start), .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr),
     .cpu_be(cpu_be), .cpu_wdata(cpu_wdata), .cpu_rdata(cpu_rdata), .cpu_ack(cpu_ack),
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
 
-  // The chip's clock reaches its pin about 4 ns after the fabric's edge
-  // (the second compile's STA, 2026-09-27: -3.97 ns of clock skew on the
-  // read-data paths).  The controller's read capture is designed around
-  // that (rtl/se30_sdram.v's timeline, MacSE30.sdc): without the delay
-  // the model's data eye [6.0, 13.1] ns after the fabric's falling edge
-  // misses the capture edge at 15.96 ns, and this bench would fail on a
-  // design the hardware runs.  The bench passes for any delay from 2.9 ns
-  // (below it the word is X again by the capture edge: the hold side of
-  // the eye) to 5.3 ns; above that the bound is the bench's, not the
-  // design's: our command and address pins change here with no delay of
-  // their own, so a chip clock delayed past half a period samples the next
-  // clock's command (the hardware's outputs are delayed like its clock,
-  // and MacSE30.sdc's output delays are what check them).
-  parameter  real CLK_TO_PIN = 4.0;                  // iverilog -P tb_se30_sdram.CLK_TO_PIN=x to probe the range
-  wire sd_clk_chip;
+  // ------------------------------------------------ the board's delays
+  // the clock and the outputs to the chip's pins; the data pins split
+  // into the chip's side (dq_chip) and the DUT's (sd_dq), each direction
+  // with its delay
+  wire        sd_clk_chip, cke_c, cs_n_c, ras_n_c, cas_n_c, we_n_c, oe_c;
+  wire [12:0] addr_c;
+  wire  [1:0] ba_c, dqm_c;
+  wire [15:0] dq_out_c, dq_chip;
   assign #(CLK_TO_PIN) sd_clk_chip = sd_clk;
+  assign #(OUT_TO_PIN) {cke_c, cs_n_c, ras_n_c, cas_n_c, we_n_c, addr_c, ba_c, dqm_c} =
+                       {sd_cke, sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n, sd_addr, sd_ba, sd_dqm};
+  assign #(OUT_TO_PIN) oe_c     = dut.dq_oe;
+  assign #(OUT_TO_PIN) dq_out_c = dut.dq_out;
+  assign dq_chip = oe_c ? dq_out_c : 16'hzzzz;
+  assign #(DQ_TO_REG) sd_dq = dut.dq_oe ? 16'hzzzz : dq_chip;
 
   sdram_model chip (
-    .clk(sd_clk_chip), .cke(sd_cke), .cs_n(sd_cs_n), .ras_n(sd_ras_n), .cas_n(sd_cas_n), .we_n(sd_we_n),
-    .ba(sd_ba), .addr(sd_addr), .dqm(sd_dqm), .dq(sd_dq));
+    .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
+    .ba(ba_c), .addr(addr_c), .dqm(dqm_c), .dq(dq_chip));
 
   // ------------------------------------------------------------ scoring
   integer pass = 0, fails = 0;
@@ -137,7 +181,6 @@ module tb_se30_sdram;
       end
     end
   endtask
-
   task cpu_write(input [22:0] a, input [3:0] be, input [31:0] wd, output integer ack_at);
     reg [31:0] dummy;
     begin bus_cycle(1, a, be, wd, 0, 0, dummy, ack_at); end
@@ -160,6 +203,7 @@ module tb_se30_sdram;
   // 12 longword addresses: all four banks (bit 21 and 22 of the longword
   // address are the bank), a row edge (column wrap at 512 words = 256
   // longwords), the RAM top, the ROM base and the last longword of 32 MB
+  // (the training's pair lives there, and is read once before this)
   reg [22:0] addrs [0:11];
   reg [31:0] vals  [0:11];
   integer n;
@@ -177,14 +221,26 @@ module tb_se30_sdram;
   integer  dl_done = 0;
 
   initial begin
-    $display("---- reset and power-up");
+    $display("---- reset, power-up and the read-capture training  (CLK_TO_PIN %0.2f  OUT_TO_PIN %0.2f  DQ_TO_REG %0.2f)",
+             CLK_TO_PIN, OUT_TO_PIN, DQ_TO_REG);
     repeat (5) @(posedge clk_mem); #1 reset_n = 1;
     while (!ready) @(posedge clk_mem);
     t_ready = $realtime;
-    check(t_ready > 200000.0 && t_ready < 260000.0, "ready after the 200 us pause and the ladder");
+    check(t_ready > 200000.0 && t_ready < 260000.0, "ready after the 200 us pause, the ladder and the training");
     check(chip.refreshes == 8, "eight refreshes in the ladder");
-    check(chip.errors == 0, "the ladder is accepted by the model");
-    $display("      ready at %0.1f us", t_ready / 1000.0);
+    check(chip.errors == 0, "the ladder and the training are accepted by the model");
+    check(chip.mem[24'hFFFFFE] == 16'hA5C3 && chip.mem[24'hFFFFFF] == 16'h5A3C, "the training wrote its pair to the top two words");
+    check(cap_ok == EXPECT_OK, "the training's verdict is what these delays call for");
+    check(cap_sel == EXPECT_SEL, "and its choice");
+    $display("      ready at %0.1f us; the training passed A=%0d B=%0d and chose %s", t_ready / 1000.0,
+             cap_ok[1], cap_ok[0], cap_sel ? "B (clk_mem - 2.261 ns)" : "A (clk_mem - 0.266 ns)");
+    if (TRAIN_ONLY) begin
+      if (fails == 0) $display("==== PASS: %0d checks, the training", pass);
+      else $display("==== FAIL: %0d of %0d checks failed", fails, pass + fails);
+      $finish;
+    end
+    cpu_read(23'h7FFFFF, rd, ack);
+    check(rd == 32'hA5C35A3C && ack == 2, "the first CPU read returns the training's pair through the capture chosen");
 
     // 2. writes and reads at the contract's latency
     $display("---- longword writes and reads, all patterns");

@@ -20,7 +20,11 @@
 //   PIFA  the last instruction-fetch address (FC = 6, AS* falling)
 //   PLAS  the last bus-cycle address, any FC
 //   PSTA  {FC, R/W*, DSACK*, berr seen, halted, sdram ready, rom loaded,
-//          reset released, 5'b0, bus-error count[15:0]}
+//          reset released, cap_sel, cap_fail, cap_ok[1:0], 1'b0,
+//          bus-error count[15:0]} - the cap_* bits are the SDRAM read-
+//          capture training's verdict (plan 3.8 item 18): which capture
+//          it chose (0 = A, 1 = B), whether neither passed, which passed
+//          ({A, B})
 //   PACT  the bus-cycle count: is the CPU alive at all?
 // and, since Section 4 (plan 4.8):
 //   PVIA  {overlay, ramsiz[1:0], vsyncen_n, VIA1 IER[6:0], VIA1 IFR[6:0],
@@ -41,6 +45,7 @@ module dbg_probes (
 	input  wire        berr,
 	input  wire        halted,
 	input  wire        sdram_ready,
+	input  wire  [3:0] sdram_cap,          // {cap_sel, cap_fail, cap_ok[1:0]} from se30_sdram
 	input  wire        rom_loaded,
 	input  wire [31:0] via_state          // se30_machine's dbg_via (plan 4.8)
 );
@@ -67,7 +72,7 @@ module dbg_probes (
 		berr_q <= berr;
 	end
 
-	wire [31:0] psta = {fc_r, rw_r, dsack_r, berr_seen, halted, sdram_ready, rom_loaded, reset_n, 5'b0, berr_cnt};
+	wire [31:0] psta = {fc_r, rw_r, dsack_r, berr_seen, halted, sdram_ready, rom_loaded, reset_n, sdram_cap, 1'b0, berr_cnt};
 
 	// which bitstream this is (the header's PBLD)
 	wire [31:0] build_tag_w;

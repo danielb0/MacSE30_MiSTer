@@ -33,7 +33,12 @@
 //
 // CLOCKING
 //   clk_sys 31.3344 MHz and clk_mem 94.0032 MHz from one time base, 3:1,
-//   as the PLL gives them; phi1/phi2 as MacSE30.sv makes them.
+//   and clk_mem's three phase-shifted copies (the chip's clock, the two
+//   read captures),
+//   as the PLL gives them; phi1/phi2 as MacSE30.sv makes them.  The
+//   board's pin delays are sim/sdram/tb_se30_sdram.v's defaults, where
+//   they are explained; the read-capture training runs before the machine
+//   leaves reset, as on the board.
 
 `timescale 1ns/1ps
 
@@ -43,13 +48,22 @@ module tb_se30_machine;
   always #5.319 clk_mem = ~clk_mem;
   reg clk_sys = 0;
   always #15.957 clk_sys = ~clk_sys;
+  // transport delays (an assign's delay is inertial and would swallow a
+  // 5.3 ns pulse behind a delay longer than that)
+  reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
+  always @(clk_mem) begin
+    clk_sdc  <= #(1.064)  clk_mem;
+    clk_capa <= #(10.372) clk_mem;                     // 0.266 ns before the next clk_mem edge
+    clk_capb <= #(8.377)  clk_mem;                     // 2.261 ns before
+  end
   reg phi = 0;
   always @(posedge clk_sys) phi <= ~phi;
   wire phi1 = !phi, phi2 = phi;
   reg sdram_reset_n = 0, reset_n = 0;
 
   // ------------------------------------------------------------ SDRAM
-  wire        ready, mem_start, mem_req, mem_we, mem_ack;
+  wire        ready, cap_sel, mem_start, mem_req, mem_we, mem_ack;
+  wire  [1:0] cap_ok;
   wire [22:0] mem_addr;
   wire  [3:0] mem_be;
   wire [31:0] mem_wdata, mem_rdata;
@@ -59,23 +73,33 @@ module tb_se30_machine;
   wire [15:0] sd_dq;
 
   se30_sdram sdram (
-    .clk(clk_mem), .phi(phi), .reset_n(sdram_reset_n), .ready(ready),
+    .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(sdram_reset_n),
+    .ready(ready), .cap_sel(cap_sel), .cap_ok(cap_ok),
     .cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
     .cpu_be(mem_be), .cpu_wdata(mem_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
     .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
 
-  // the chip's clock reaches its pin about 4 ns after the fabric's edge,
-  // and the controller's read capture is designed around that: see
-  // sim/sdram/tb_se30_sdram.v, which explains the number
-  localparam real CLK_TO_PIN = 4.0;
-  wire sd_clk_chip;
+  // the board's delays, as sim/sdram/tb_se30_sdram.v models them (its
+  // header explains the numbers): the clock and our outputs to the chip's
+  // pins, the chip's data to the capture register
+  localparam real CLK_TO_PIN = 4.0, OUT_TO_PIN = 4.0, DQ_TO_REG = 2.0;
+  wire        sd_clk_chip, cke_c, cs_n_c, ras_n_c, cas_n_c, we_n_c, oe_c;
+  wire [12:0] addr_c;
+  wire  [1:0] ba_c, dqm_c;
+  wire [15:0] dq_out_c, dq_chip;
   assign #(CLK_TO_PIN) sd_clk_chip = sd_clk;
+  assign #(OUT_TO_PIN) {cke_c, cs_n_c, ras_n_c, cas_n_c, we_n_c, addr_c, ba_c, dqm_c} =
+                       {sd_cke, sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n, sd_addr, sd_ba, sd_dqm};
+  assign #(OUT_TO_PIN) oe_c     = sdram.dq_oe;
+  assign #(OUT_TO_PIN) dq_out_c = sdram.dq_out;
+  assign dq_chip = oe_c ? dq_out_c : 16'hzzzz;
+  assign #(DQ_TO_REG) sd_dq = sdram.dq_oe ? 16'hzzzz : dq_chip;
 
   sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'h400000)) chip (
-    .clk(sd_clk_chip), .cke(sd_cke), .cs_n(sd_cs_n), .ras_n(sd_ras_n), .cas_n(sd_cas_n), .we_n(sd_we_n),
-    .ba(sd_ba), .addr(sd_addr), .dqm(sd_dqm), .dq(sd_dq));
+    .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
+    .ba(ba_c), .addr(addr_c), .dqm(dqm_c), .dq(dq_chip));
 
   // ---------------------------------------------------------- machine
   wire        vidout, hsync_n, vsync_n, hblank, vblank;
