@@ -35,10 +35,18 @@ research pass.** Section 1 settles the CPU and the PMMU, because that was
 the only open question capable of making the project impossible. **Section
 2 (GLUE, the address map, RAM, clocks, video) was opened 2026-09-25 as a
 first cut** with its own open-items list in 2.8, and is complete. **Section 3
-(the tree) was opened 2026-09-26.** Nothing about the ASC, the
-SWIM, the SCC, SCSI or power should be inferred from what is written here -
-those sections do not exist yet, and the facts they need have not been
-read.
+(the tree) was opened 2026-09-26**, **Section 4 (the VIAs) 2026-09-27**, and
+**Section 5 (the SWIM and the floppy drives) 2026-09-27**, its rung 1
+designed in full and rungs 2-3 mapped to their sources. Nothing about the
+ASC, the SCC, SCSI, ADB, the RTC or power should be inferred from what is
+written here - those sections do not exist yet, and the facts they need
+have not been read.
+
+**Revision 2026-09-27.** **Section 5 is new**: the SWIM from Apple's
+documents (the 343S0061-A drawing, the chip spec, the User's Reference,
+the ISM spec), the schematic's sheet 6 and the ROM's `.Sony` driver.
+Daniel decided the data path is bit-level, not MacLC's byte-level
+replica, and that the SWIM reaches the board in three rungs.
 
 ## Why this is a new core, not a `mac_model.v` entry
 
@@ -4883,7 +4891,8 @@ or the flashing question mark.
   status and the SWIM's handshake registers, and `$00` there means "bus
   free" and "no disk" respectively - the search should fall through to the
   question mark. If instead it spins, the trace says where, and it is the
-  SCSI or SWIM section's first item.
+  SCSI or SWIM section's first item. **(The SWIM's is Section 5; the board
+  stopped first in its start-up mode-set loop, 3.8 item 23.)**
 - **Sad Mac codes** are read from the ROM's table when one appears; none
   is asserted from memory here.
 - **VIA2 PB0 `CDIS*`** is an output with nowhere to go until the caches
@@ -5055,6 +5064,578 @@ or the flashing question mark.
    - **The gate**: benches green, elaboration, then the compile with
      Daniel's go-ahead, `sta_corners.tcl` on it, the board.
 
+# Section 5 - The SWIM and the floppy drives
+
+Opened 2026-09-27, after 3.8 item 23: compile 14 ran the ROM through its
+RAM tests to the SWIM's mode-set loop at `$408006C0`, where a machine
+without its floppy controller must stop. Written before any RTL,
+documentation first: Apple's SWIM documents, the schematic, and the ROM's
+own start-up code and `.Sony` driver. The donor (MacLC's `swim.v` and
+`floppy.v`) was read after those, as a cross-check.
+
+**Two decisions by Daniel, 2026-09-27, frame the section.**
+
+- **The data path is bit-level.** The IWM's data separator and write
+  shifter, and the ISM's parameter-RAM-driven read and write machines, are
+  modelled from Apple's specifications, and the drive gives them a flux
+  stream built from the disk image. MacLC's floppy is, in its own header's
+  words, a "synchronous 8-bit replica" - a byte-level model, not a
+  bit-level one - and much of its fix history is byte-level re-creations of
+  timing the real chip produces from bit cells. The chip is documented to
+  the clock, so this is `feedback-independent-core-own-the-kernel`'s "no
+  workarounds for well-defined jobs". From MacLC we take the image handling
+  and use its bug history as test cases (5.7).
+- **Three rungs on the board.** Rung 1: both register sets and the
+  internal FDHD drive **with no disk** - the ROM gets past the mode-set loop
+  and its driver finds an empty SuperDrive, which should take the machine
+  to the question-mark disk (or show which of the ADB, RTC and SCSI waits
+  stops it first, 4.10). Rung 2: reading 800K GCR and 1.4MB MFM images.
+  Rung 3: writing. **Only rung 1 is designed here in full.** Rungs 2 and 3
+  have their sources mapped (5.2.4) and are written in detail when they
+  open.
+
+## 5.1 Sources, and their standing
+
+All in `C:\temp\Mac\SE30\Docs\swim`, from bitsavers
+`/pdf/apple/disk/sony/` (the `trailing-edge` mirror), downloaded
+2026-09-27 with Daniel's OK and size-checked against the listing; the
+`.txt` beside each is `pdftotext -layout` output (OCR, so the scanned
+drawings are partly garbled - quote from the page image when a number
+matters).
+
+| source | what it is | standing |
+|---|---|---|
+| **`SWIM_343S0061-A_1988.pdf`** (55 sheets) | Apple drawing 343S0061-A, "IC custom gate array, MFM/GCR disc controller, SWIM 44 pin PLCC", production release: the part's parametrics, then section 6 "supplementary information" - the ISM's theory of operation (6.1-6.4), **its register set (6.5)** and **the IWM's specification (6.6-6.7)** | **primary**; the highest standing we have for the part the SE/30 carries. Section 6 is marked "not to be used for acceptance nor rejection" - it describes, it does not certify |
+| `SWIM_chip_spec_198707.pdf` (3 pp.), "SWIM Chip Specification", 29 Sep 1987 | **the combination logic**: how the IWM and the ISM share the pins, the mode-switch rules, the three extra IWM bits (OVERRIDE, M16/M8, MODIFY) | **primary**, and the only hardware document for the switching |
+| `SWIM_Chip_Users_Ref_198801.pdf` (35 pp.), Rev 1.5, 11 Jan 1988 | Apple's programmer's guide: pinouts, GCR and MFM formats, the IWM state/register tables, the ISM's registers, parameter-RAM arithmetic with a 15.6672 MHz worked example, the address map of both sets, code examples | **primary for behaviour as software sees it**; a software guide, so where it and the hardware documents disagree the hardware documents win (5.10) |
+| `ISM_ASIC_spec_198707.pdf` (56 pp.), rev 4.1, 2 Jul 1987 | the ISM alone, before it was combined: pins, MFM write (FIFO, shift register, CRC, trans-space, pre-compensation), MFM read (half read, correction machine, error correction, post-compensation, data transformation), GCR, time-out, registers | **primary for rungs 2-3's ISM machinery** |
+| `IWM_undoco_features.pdf` (1984) and `Software_control_of_IWM.pdf` (1984) | Apple II-era notes: the write latch's 9-FCLK reload lock after a shift-register load, reads only from bit-clearing locations; the Disk II/IWM soft switches, sync bytes, self-sync | **primary for IWM corners**; written for the Apple II, so only the chip facts carry over |
+| `IOP_SWIM_Driver_ERS_199001.pdf`, `Hand_notes_on_floppy_stuff.pdf`, `Apple_3.5_Drive_Schematic.pdf` | the IIfx's IOP driver ERS; handwritten notes; the 800K drive's schematic (raster) | background; not read for rung 1 |
+| `Apple_drive_command_and_status_codes.pdf` | a modern table of the Sony drives' 16 status and 8 command addresses with Apple's source names (`rNoDriveAdr`, `wMotorOnAdr`, ...), built from a SWIM3 driver | **secondary** - reverse-engineered ("seems", "apparently"). Used only where the ROM confirms it (5.5) |
+| *Guide* 2e, chapter 9 (pp. 329-356) and pp. 80-81 | the drive connectors, the circuit diagrams of the older machines, FCLK = 15.6672 MHz halved "for the 800K drive or the HD20", the SE/30's one internal FDHD and external port | **primary for the machine level**; it disclaims the chips' internals ("This chapter does not contain information about the internal operation of the disk interface ICs") |
+| `se30.pdf` sheet 6 "SWIM & SCSI interface" (`se30schems/Apple/SE30_P6.GIF`) | UJ11 = the SWIM, 44-pin; J8 the internal ribbon, J6 the external DB-19 | **primary for the wiring** (5.3) |
+| The SE/30 ROM, `.Sony` (DRVR header `$4082D72C`) and the start-up code | what the machine actually does with the chip and the drives | **documentation tier** (1.11's rule): it is what the machine ran |
+
+`SWIM_regs.txt` in the same bitsavers directory describes the **SWIM III**
+(Power Macintosh) and is not ours. The same directory holds the 400K
+drive's specification (`699-0285-A`) and Sony drive photographs, not
+fetched.
+
+## 5.2 The chip: an IWM and an ISM in one package
+
+"The SWIM chip is a combination of an IWM and an ISM. It should be
+considered as two separate chips, with minor variations" (chip spec).
+Only one register set is selected at a time; each has its own `/DEV`,
+`/WRREQ`, `RDDATA` and clock logic behind the switch. **There is no R/W
+pin**: the address decides whether an access reads or writes the chip -
+in the IWM set, A0 = 0 reads and A0 = 1 writes (and only when L6 and L7 are
+set, below); in the ISM set, **A3 = 0 writes and A3 = 1 reads** (User's
+Ref p. 4). On the SE/30 A3-A0 are the CPU's A12-A9 (5.3), so a register
+`n` is at offset `n << 9` in the `$50F16000` window.
+
+### 5.2.1 The IWM set
+
+**Eight state latches**, addressed by A3-A1 with A0 as the new value
+(User's Ref p. 10; production 6.7.1), reset to 0 by `/RESET`:
+
+| n | offset | effect | n | offset | effect |
+|---|---|---|---|---|---|
+| 0 | `$0000` | PH0 = 0 | 8 | `$1000` | MotorOn = 0 |
+| 1 | `$0200` | PH0 = 1 | 9 | `$1200` | MotorOn = 1 |
+| 2 | `$0400` | PH1 = 0 | 10 | `$1400` | drive select = 0: `/ENBL1`, internal |
+| 3 | `$0600` | PH1 = 1 | 11 | `$1600` | drive select = 1: `/ENBL2`, external |
+| 4 | `$0800` | PH2 = 0 | 12 | `$1800` | L6 = 0 |
+| 5 | `$0A00` | PH2 = 1 | 13 | `$1A00` | L6 = 1 |
+| 6 | `$0C00` | PH3 = 0 | 14 | `$1C00` | L7 = 0 |
+| 7 | `$0E00` | PH3 = 1 | 15 | `$1E00` | L7 = 1 |
+
+The PHx latches drive the phase pins; drive select picks which `/ENBLx`
+goes low when the (delayed) MotorOn is set. **L7, L6 and MotorOn select
+the register**, and "if an operation occurs that changes the state of one
+of these bits, the new state will select the register to be accessed"
+(User's Ref p. 10) - so the register an access reaches is decided by the
+latches *as that access leaves them*:
+
+| L7 L6 MotorOn | register | |
+|---|---|---|
+| 0 0 0 | read all ones (`$FF`) | |
+| 0 0 1 | read data | |
+| 0 1 x | read status | bit 7 SENSE; bit 6 reserved, reads 0 (the MZ bit, production 6.7.3); bit 5 = an `/ENBLx` is active; bits 4-0 = mode bits 4-0 |
+| 1 0 x | read write-handshake | bit 7 write buffer empty; bit 6 = 1 while writing, 0 after an underrun until L7 is cleared or reset; bits 5-0 read 1 |
+| 1 1 0 | **write mode** (A0 = 1) | reset to 0 |
+| 1 1 1 | write data (A0 = 1) | |
+
+**The mode register** (User's Ref p. 12, production 6.7.2): bit 0 latch
+mode; 1 asynchronous handshake; **2 timer disable** (0: `/ENBLx` held for
+2^23 + 100 FCLK after MotorOn clears); 3 fast (2 µs cell descriptor) /
+slow; **4 the 8 MHz descriptor** (FCLK divided by 8, not 7, for 1 µs
+internal timing); 5 test mode; **6 the ISM select** (5.2.3); 7 reserved.
+"The mode register is not accessible for up to one second when the timer
+is enabled and counting down", because it is selected through the
+*delayed* MotorOn, which the timer holds high: while the timer runs, a
+write at L6 = L7 = 1 reaches the data register instead. At FCLK =
+15.6672 MHz the timer is **2^23 + 100 clocks = 535 ms** (the documents'
+"about 1 second" is at the IWM's original 7-8 MHz); the combination
+logic's M16/M8 bit doubles it (5.2.3).
+
+**The SE/30's clocking.** FCLK is C16M (5.3), twice the IWM's historical
+clock. The *Guide* (p. 345): "during the startup sequence, software sets a
+bit in the SWIM to divide the clock by two when reading and writing to
+the 800K drive". The ROM's start-up value is mode `$17` (5.6 item 1):
+latch, asynchronous, timer disabled, **8 MHz descriptor, slow**. The
+production drawing's paragraph on cell times per mode (6.6: "... in 8M
+and slow mode ... periods, and in 8M and fast mode the cell time will be
+16 periods") is **garbled in the OCR** and is read from the page image
+when rung 2 builds the data separator; rung 1 does not depend on it.
+
+**Reset** (`/RESET` low): all eight latches 0, the mode register 0 (so the
+timer is *enabled* out of reset), the handshake's underrun flag clear.
+
+### 5.2.2 The ISM set
+
+Sixteen registers, A3 the read/write bit (User's Ref pp. 20-26; production
+6.5, which numbers them by A2-A0 with the direction implied):
+
+| write (A3 = 0) | offset | read (A3 = 1) | offset |
+|---|---|---|---|
+| 0 data (FIFO) | `$0000` | 8 data (FIFO) with ACTION; **correction** pair without | `$1000` |
+| 1 mark | `$0200` | 9 mark | `$1200` |
+| 2 CRC with ACTION; **IWM configuration** without | `$0400` | 10 error (clears on read) | `$1400` |
+| 3 parameter RAM, auto-increment | `$0600` | 11 parameter RAM, auto-increment | `$1600` |
+| 4 phases | `$0800` | 12 phases | `$1800` |
+| 5 setup | `$0A00` | 13 setup | `$1A00` |
+| 6 mode, **write zeros** (clears the bits set in the byte) | `$0C00` | 14 status (the mode register) | `$1C00` |
+| 7 mode, **write ones** | `$0E00` | 15 handshake | `$1E00` |
+
+- **Phases** (reset `1111 0000`): bits 7-4 each phase line's direction, 1
+  = output (production 6.5.6: "the phase lines default to outputs on
+  reset"); bits 3-0 the level driven, or read, per line. A read returns
+  the whole byte, direction bits included.
+- **Setup** (reset 0): 0 Q3/HDSEL pin as output; 1 the 3.5SEL pin; 2 GCR;
+  3 FCLK/2; 4 error correction; 5 pulses/transitions (production: "IBM
+  type drive"); 6 bypass trans-space (set for GCR); 7 the MotorOn
+  time-out (1/2 s at 16 MHz). Production 6.5.7: bits 2 and 4 together
+  are a test mode "that should always be avoided".
+- **Mode** (reset 0): 0 clear FIFO (toggle); 1 enable drive 1; 2 enable
+  drive 2; 3 ACTION; 4 write (1) / read; 5 HDSEL; **6 ISM/IWM: "reserved
+  ... will always read back a 1"** in the ISM (production 6.5.9), and
+  clearing it through write zeros returns to the IWM (User's Ref p. 23);
+  7 MotorOn (the enables).
+- **Parameter RAM**: 16 bytes through one register, an auto-incrementing
+  index "set to zero after any access is made to the Mode 0 register
+  (register 6) or the chip is reset" (User's Ref p. 21; production 6.5.5:
+  "any time that a write to the Write Zeroes ($6) location occurs"). Its
+  reset contents are not specified.
+- **Handshake**: 0 mark next; 1 CRC nonzero; 2 RDDATA; **3 SENSE**; 4
+  MotorOn or its timer; 5 an error is latched; 6 two bytes ready/free; 7
+  one or more.
+- **Error** (reset 0; the first error freezes the rest until read): 0
+  underrun/overrun; 1 mark read from the data register; 2 the processor
+  too fast; 3 correction overflow; 4 cell too narrow; 5 too wide; 6
+  unresolved transitions.
+
+**The access rule**: "the time between successive chip accesses must be
+no less than 4 FCLKs (if the Setup register's FCLK/2 bit is 0) or 8 FCLKs"
+(User's Ref p. 13). GLUE's SWIM cycle (2.11.3 row 10) is 4 clocks with
+one wait state, and consecutive CPU bus cycles are further apart than
+that; the bench checks it rather than assuming it (5.9 item 14).
+
+### 5.2.3 The switch between them, and the three extra bits
+
+From the chip spec (the combination logic), confirmed by User's Ref p. 12:
+
+1. **MOTOREN must be low** to switch.
+2. **IWM to ISM**: four consecutive writes to the IWM mode register with
+   data bit 6 = 1, 0, 1, 1. (Our reading of "consecutive": four
+   successive *mode-register writes*; a mode write out of sequence starts
+   the count again. Accesses to other addresses between them are not
+   addressed by any document; the ROM makes none, 5.6.)
+3. **ISM to IWM**: a write to write-zeros with data bit 6 = 1.
+4. "After mode switching from ISM to IWM, the very first command must be
+   a clear L7."
+5. The phase lines keep their levels across a switch ("no glitches").
+6. **Three bits the IWM gains**, written through the ISM's register 2
+   with ACTION low, cleared by `/RESET`: bit 7 OVERRIDE (MotorOn low plus
+   a toggle of the drive select kills the IWM timer), bit 6 M16/M8 (the
+   IWM timer takes twice as long), bit 5 MODIFY (with ASYNC, D7 latched as
+   in port mode).
+
+**One disagreement between the documents.** The chip spec says the ISM's
+phase-direction bits "are not changed by a mode switch. They now control
+the direction of the Phase pins in both the IWM and the ISM mode." The
+User's Ref (p. 4) says that in the IWM set the phase lines "are forced to
+be outputs regardless of how the direction was set". The production
+drawing does not address it. **We follow the chip spec** - the hardware
+document of the combination logic, against a programmer's guide - and
+record it in 5.10. The ROM sets every line to an output (`$F5`-`$F7`,
+5.6 item 3), so nothing it does can tell the two apart.
+
+### 5.2.4 The data path, for rungs 2 and 3 (sources mapped, not yet designed)
+
+- **IWM read**: production 6.6 - "a falling transition within a bit cell
+  window is considered to be a one"; the digital one-shot data recovery,
+  every transition re-establishing the windows; revision B's windowing
+  after a transition (6 FCLK in 8 MHz fast mode, 5 in 7 MHz fast, twice
+  that slow); the shift register filling LSB-first until a one reaches the
+  MSB, then latched into the read data register and cleared; in
+  asynchronous mode the latched byte "cleared 14 FCLK periods (about 2 µs)
+  after a valid data read" (`/DEV` low with D7 = 1 for at least one FCLK).
+  GCR's self-sync (ten-bit sync bytes, a five-byte lock) from `Software
+  control of IWM`.
+- **IWM write**: production 6.6 - asynchronous mode's buffer, the
+  handshake's buffer-empty bit, the underrun that raises `/WRREQ` and
+  clears handshake bit 6; the 9-FCLK reload lock after each shift-register
+  load (`IWM_undoco_features`).
+- **ISM read and write**: the ISM spec's sections 3-5 (FIFO, CRC
+  CCITT-16 from all ones, trans-space encoding, pre-compensation, half
+  read, the correction machine, post-compensation, data transformation,
+  GCR bypass) and the User's Ref's parameter arithmetic (pp. 13-17), whose
+  15.6672 MHz worked example gives the values the ROM's table should hold
+  (5.6 item 5).
+- **The drive's flux**: 800K GCR at 2 µs cells over five speed zones (12
+  down to 8 sectors, User's Ref p. 6); MFM 720K/1.44MB with the index
+  pulse; the SuperDrive's GCR/MFM mode register (5.5).
+
+## 5.3 The wiring (sheet 6, UJ11)
+
+| SWIM pin | net | |
+|---|---|---|
+| `/DEV` (43) | `SWIM*` from GLUE | the chip select; GLUE's `swim_sel` |
+| A0-A3 (37, 40, 41, 42) | `A(9)`-`A(12)` | |
+| D0-D7 (4, 5, 8, 9, 13, 14, 15, 18) | `D(24)`-`D(31)` | the top byte lane: an 8-bit port acknowledged with `DSACK0*` (2.11.3 row 10) |
+| `/RESET` (25) | `RESET*` | shared with the CPU, VIAs and SCSI (2.11.6): the RESET instruction resets it, as it does the VIAs (`via_reset_n` in `se30_machine.v`) |
+| FCLK (26) | `C16M` | 15.6672 MHz |
+| Q3 (27) | `AS*` | the IWM's data-latch clock in systems whose data is not valid at `/DEV`'s rise (User's Ref p. 4); Setup bit 0 is never set by the ROM, so the pin stays an input |
+| SENSE (21) | tied to RDDATA (24) | the drive's status bit and its read data share one line, as on every Sony-drive Mac |
+| PH0-PH3 (35, 32, 36, 31) | `FPH0`-`FPH3` | to J8 pins 2, 4, 6, 8 and through RP10 to J6 |
+| `/ENBL1` (20) | `ENABL1*` | **J8 pin 14: the internal drive** |
+| `/ENBL2` (19) | `ENABL2*` | **J6: the external DB-19** |
+| WRDATA (2), `/WRREQ` (3) | `WR*`, `WRREQ` | to both connectors |
+| HEDSEL (38) | TP3 only | **not the drives' SEL** |
+| 3.5SEL (16), DAT1BYTE (33), `/MOTOEN` (10) | unconnected | |
+
+**The drives' SEL line is `HDSEL` from VIA1 PA5** (sheet 4 via the `(4)`
+off-sheet connector; 4.3's table), to J8 pin 12 and J6. So the
+`{CA1, CA0, SEL, CA2}` drive-register address of 5.5 is set partly
+through the SWIM and partly through VIA1.
+
+## 5.4 The bus
+
+Nothing new: GLUE already decodes the window (`d_swim`, `win == $B`,
+`$50016000-$50018000` and its mirrors), gives it one wait state and
+`DSACK0*` (2.11.3 row 10; `rtl/se30_glue.v`), and presents the device port
+the VIAs use - `swim_sel`, `dev_strobe` (one C16M clock: the device
+latches or must present), `dev_addr[12:9]`, `dev_wdata` (D31-24) and
+`dev_rdata`. The SWIM answers on that port. Because the chip has no R/W
+pin, **its behaviour follows the address, not the CPU's R/W**: a CPU
+write to a read address performs the chip's read (its side effects
+included - a FIFO pop, the error register's clear), and a CPU read of a
+write address performs the chip's write with whatever the data lanes
+hold, which on a read is undefined (5.10). The ROM does the first
+routinely - `move.b #$80, $0C00(a0)` in IWM mode is a PH3-low access
+(5.6 item 4) - and never the second. **A read of an IWM address with A0
+= 1** when L6 and L7 are not both set is neither: the IWM reads only
+"during any operation in which A0 is a zero" (production 6.7.1), so the
+chip does not drive the lanes and the CPU reads whatever they hold. The
+ROM does this constantly (`tst.b $1200(a0)`, MotorOn on) and discards the
+byte; the model returns the register the latches select, and 5.10
+records it as a modelling choice.
+
+## 5.5 The drive: registers, and the empty FDHD of rung 1
+
+The *Guide* gives the drive's pins but not its registers; Apple's own
+description of the Sony drives' registers is not in hand. What we have is
+**the ROM's driver**, which fixes the address encoding and the meaning of
+every register it reads at start-up, and the secondary table, which the
+ROM confirms at every point it reaches.
+
+**The address.** `$4082E0EC` sets CA0 and CA1 high, then takes the
+register number's bits in order: bit 0 -> **CA2** (PH2 at `$0A00`/`$0800`),
+bit 1 -> **SEL** (VIA1 ORA bit 5, `bset`/`bclr #5, $1E00(VIA1)`), bit 2 ->
+**CA0** (cleared at `$0000` if 0), bit 3 -> **CA1** (cleared at `$0400` if
+0). So **the ROM's register number is `{CA1, CA0, SEL, CA2}`**. A read
+(`$4082E12E`) sets L6 and reads status at `$1C00` (bit 7 = SENSE), then
+clears L6; a write (`$4082E150`) pulses PH3 (`$0E00`, two NOPs, `$0C00`)
+with CA2 as the value. With the ISM selected (`$135(a1)` set) the same
+reads go through the ISM's phase register and handshake bit 3
+(`$4082E8E0`, `$4082E916`) - rung 2.
+
+**Status registers** (read; "ROM" = read by the ROM on rung 1's path;
+level = rung 1's internal FDHD with no disk):
+
+| ROM no. | SEL CA2 CA1 CA0 | name (secondary) | meaning | level | evidence |
+|---|---|---|---|---|---|
+| `$0` | 0 000 | `rDirPrevAdr` | step direction, 1 = outward | as last written, 0 at power-up | secondary; power-up chosen |
+| `$4` | 0 001 | `rStepOffAdr` | 1 = no step in progress | 1 | secondary |
+| `$8` | 0 010 | `rMotorOffAdr` | 0 = spindle on | 1 until a motor-on command | secondary |
+| `$C` | 0 011 | `rEjectOnAdr` | eject latch | 0 | **ROM** (VBL task) + secondary |
+| `$1` | 0 100 | `rRdData0Adr` | read data, lower head (selects it) | 1 (no flux) | secondary; level chosen |
+| `$5` | 0 101 | `rMFMDriveAdr` | 1 = SuperDrive (or no drive) | **1** | **ROM** (Open) + secondary |
+| `$9` | 0 110 | `rDoubleSidedAdr` | 1 = double-sided drive | **1** | **ROM** (Open) + secondary |
+| `$D` | 0 111 | `rNoDriveAdr` | 0 = drive present | **0** | **ROM** (Open) + secondary |
+| `$2` | 1 000 | `rNoDiskInPlAdr` | 1 = no disk | **1** | **ROM** (VBL task) + secondary |
+| `$6` | 1 001 | `rNoWrProtectAdr` | 0 = write-protected | 1 | secondary; not read without a disk |
+| `$A` | 1 010 | `rNotTrack0Adr` | 0 = head at track 0 | 0 at power-up | secondary; power-up chosen |
+| `$E` | 1 011 | `rNoTachPulseAdr` | GCR tach (60 per turn) / MFM index | 1 while stopped | secondary |
+| `$3` | 1 100 | `rRdData1Adr` | read data, upper head (selects it) | 1 | secondary; level chosen |
+| `$7` | 1 101 | `rMFMModeOnAdr` | 1 = MFM mode | 0 (GCR) at power-up | secondary; power-up chosen |
+| `$B` | 1 110 | `rNotReadyAdr` | 0 = ready | 1 | secondary |
+| `$F` | 1 111 | `r1MegMediaAdr` / REVISED | 0 = HD medium | **1** | **ROM** (Open) + secondary |
+
+**Commands** (a PH3 pulse; CA2 = the value):
+
+| ROM no. (CA2 = 0 / 1) | SEL CA1 CA0 | command | evidence |
+|---|---|---|---|
+| `$0` / `$1` | 0 00 | direction inward / outward | secondary |
+| `$4` / `$5` | 0 01 | step / (unused) | secondary |
+| `$8` / `$9` | 0 10 | motor on / **off** | **ROM** (`$9`, VBL task) + secondary |
+| `$C` / `$D` | 0 11 | - / eject | secondary |
+| `$2` / `$3` | 1 00 | - / **reset the eject latch** | **ROM** (`$3`, VBL task) + secondary |
+| `$6` / `$7` | 1 01 | MFM / GCR mode | secondary |
+
+**The absent external drive** reads SENSE = 1 for every register: the
+ROM's Open takes a 1 at `$D` as "no drive" and skips it. What makes the
+line read 1 with nothing driving it is not traced on sheet 6 (RP10 is the
+connector's RC network); rung 1 models the level the ROM requires and
+5.10 carries the mechanism as open. The same level is read when no drive
+is enabled at all.
+
+## 5.6 What the ROM does with the SWIM
+
+In the order the machine meets it:
+
+1. **The mode-set loop** (`$408006AA`, from the main start-up chain; the
+   base from `$4080073E`, which always returns Z on this ROM, so
+   **`$50F16000`**): `$1000` MotorOn off, `$1A00` L6 on, read status at
+   `$1C00` (L7 off); loop while bit 5 (an enable active) is set; done when
+   `status & $17 = $17`; else write `$17` at `$1E00` (L7 on: L7 L6 MotorOn
+   = 110, the mode register), read `$1C00` again and loop. Leaves with
+   `$1800` (L6 off). From reset (mode 0, nothing enabled) it takes two
+   passes. **This is where compile 14 stopped** (3.8 item 23).
+2. The test manager's reads of the SWIM windows (4.6 item 3) - no gate.
+3. **The `.Sony` Open** (`$4082D79C`, when the ROM installs its drivers):
+   allocates its variables (pointer at `$134`), installs a VBL task every
+   30 ticks (`$4082E444`), then the **SWIM probe** `$4082E6A2`: drive 1,
+   L7 off, MotorOn off, L6 on, then **`$57`, `$17`, `$57`, `$57` to
+   `$1E00`** (the switch of 5.2.3); in the ISM, **`$F5`, `$F6`, `$F7`
+   written to the phase register (`$0800`) and each read back whole at
+   `$1800`**; all three echoed -> `$134(a1)` = `$FF` (a SWIM); then `$F8`
+   to write-zeros (`$0C00`, bit 6: back to the IWM), **L7 cleared first**
+   (`$1C00`), L6 off (`$1800`), MotorOn **on** (`$1200`). Then for drives 1
+   and 2: select and enable, read `$D` (**present?** - absent: skip), `$9`
+   (sides), `$F`, `$5` (SuperDrive: flags it, and with the SWIM flag
+   marks the drive MFM-capable). An empty internal SuperDrive and an
+   absent external drive pass straight through.
+4. **The VBL task** (`$4082E444`, every 30 ticks): a motor-off countdown
+   that ends in command `$9`; for each installed drive, read `$2` (disk in
+   place) and on a 0 post a disk-inserted event (rung 2); the eject latch
+   at `$C` and its reset `$3`. It ends `move.b #$80, $0C00(a0)` (in IWM
+   mode a PH3-low access) and `$1000` (MotorOn off).
+5. **Rung 2's**: the ISM entry for a disk (`$4082E712`) and the
+   parameter-RAM check (`$4082E7CC`, sixteen reads at `$1600` against a
+   table chosen by drive kind), the IWM configuration write `$C0` at
+   `$0400` and the setup write/readback at `$0A00`/`$1A00`. Read when rung
+   2 opens.
+
+**The machine after rung 1.** Past the loop, the start-up chain goes on
+to the VIA initialisation and the VBL (4.6 items 8-9), `TimeDBRA`, the ADB
+and RTC work, the SCSI probe and the drivers - the risks of 4.10 in order
+- and then the boot search. With an empty internal drive and nothing on
+SCSI, the target is **the flashing question-mark disk**; if the board
+stops earlier, `PIFA` says where and the next section is whichever device
+that is.
+
+## 5.7 The donor: MacLC's `swim.v` and `floppy.v`
+
+Upstream `MacLC_MiSTer` at `045f896`, which includes Daniel's floppy-write
+work (PR #7). Read after 5.1-5.6. Findings:
+
+- **The register semantics agree with the documents** at every point
+  checked: the IWM status byte `{SENSE, 0, enable, mode[4:0]}`; the ISM
+  numbering with A3 as the direction; mode bit 6 reading 1 in the ISM
+  (`ism_mode_reg <= 8'h40` on the switch); write-zeros resetting the
+  parameter index (its comment cites MAME; the User's Ref and production
+  6.5.5 say the same); the phase read `{direction, PH3-0}`.
+- **Its drive register table** (`floppy.v` header, MAME-derived, with
+  "??" where unsure) numbers registers `{CA2, CA1, CA0, SEL}`, a relabelling
+  of the ROM's `{CA1, CA0, SEL, CA2}`; mapped across, it agrees with 5.5.
+- **Its data path is byte-level** ("Synchronous 8-bit replica of 3.5 inch
+  floppy disk drive ... True interface does not have newByteReady"), so by
+  Daniel's decision it is not lifted.
+- **What rung 2 takes from it**: the image handling (DC42 and raw
+  images, the mount-time sniff of sidedness and density, the SD/SDRAM
+  loading), the GCR and MFM track layout knowledge
+  (`floppy_track_encoder.v`: sector interleave, zones), and **its fix
+  history as test cases** - each fix names a behaviour the ROM depends on
+  (the Sony driver polling VIA1 PA7 in every MFM loop, already 1 here
+  (4.7); the ONE handshake sample that decides a field; SWITCHED and the
+  eject latch; the 2:1 interleave behind a copy error), and the bit-level
+  model must pass them by construction, not by special case. Rung 3 adds
+  its SD write-back (`floppy_sd_writer`/committer lineage) on the host
+  side.
+
+## 5.8 The RTL for rung 1
+
+Two modules, Verilog, on `clk` with `c16_en` = FCLK (C16M), each one
+C16M period two `clk` cycles - the half-clock resolution the ISM's
+parameters are specified in (User's Ref p. 15), ready for rung 2.
+
+**`rtl/se30_swim.v`** - the chip:
+
+```
+module se30_swim (
+  input        clk, c16_en, reset_n,
+  // GLUE's device port (5.4); no R/W: the address decides
+  input        sel,                   // /DEV
+  input        strobe,                // the access's one-clock latch point
+  input  [3:0] rs,                    // A12-A9
+  input  [7:0] wdata,                 // D31-24
+  output [7:0] rdata,
+  // the drive side (5.3)
+  output [3:0] ph_out, output [3:0] ph_oe, input [3:0] ph_in,
+  output       enbl1_n, enbl2_n,
+  input        sense,                 // = RDDATA on this board
+  output       wrdata, wrreq_n,
+  output       hdsel,                 // TP3 only
+  output [xx:0] dbg                   // PSWM
+);
+```
+
+- The IWM latches, register select from the latches **as the access
+  leaves them**, the mode register, status, handshake (writing idle:
+  buffer empty 1, bit 6 as 5.2.1), read-all-ones, the read data register
+  (its shift register fed from RDDATA; with no flux it stays 0 - the
+  separator's timing is rung 2's), and the MotorOn timer with its delayed
+  MotorOn in the register select.
+- The ISM registers of 5.2.2 with their resets, the parameter RAM and its
+  index, the error register's read-clear, the FIFO's flags idle (ACTION
+  never set on rung 1's path).
+- The switch of 5.2.3 (the four-write counter, MOTOREN low, write-zeros
+  bit 6 back), the shared phase lines with the ISM's direction bits in
+  force in both sets, the three extra IWM bits.
+- `/ENBLx`: drive select and delayed MotorOn in the IWM; mode bits 7, 1,
+  2 in the ISM.
+
+**`rtl/se30_fdhd.v`** - one Sony FDHD drive, instanced for the internal
+position (the external is absent and costs no instance: its SENSE is the
+pulled-up 1):
+
+```
+module se30_fdhd (
+  input        clk, c16_en, reset_n,
+  input        enbl_n,
+  input  [3:0] ph,                    // CA0, CA1, CA2, LSTRB
+  input        sel,                   // VIA1 PA5
+  output       sense,                 // the addressed register while enabled
+  input        disk_in,               // 0 on rung 1
+  output [xx:0] dbg
+);
+```
+
+The 16 registers of 5.5 and the commands, taken on the **rising edge of
+PH3** while enabled (5.10): direction, step (a track counter 0-79, track 0
+sensed; the step's settle time is rung 2's), motor on/off, eject latch
+and its reset, MFM/GCR mode. `sense` is 1 when not enabled.
+
+**The machine**: `se30_swim` on the device port (`dev_rdata` gains the
+SWIM, the VIAs' convention), reset by `via_reset_n`; `sense` = the enabled
+drive's register or 1; the drive's SEL = `via1_pa_pin[5]` (VIA1's `pa_ext`
+bit 5 stays 1: the pin is an output after the VIA initialisation, and
+undriven before it reads 1 as the other port lines do). A new probe
+**`PSWM`** in `rtl/dbg_probes.sv` and `read_probes.tcl`: the IWM latches
+and mode, the ISM flag, mode and setup, the phases, both enables, SENSE,
+and the drive's motor, track and mode.
+
+## 5.9 The benches
+
+**`sim/swim/`** (iverilog), the chip and the drive together behind a
+device-port driver that replays the ROM's own access sequences:
+
+1. Reset values: latches, IWM mode 0, ISM mode/setup/error 0, phases
+   `$F0`, handshake idle.
+2. The sixteen IWM latch addresses, each setting or clearing its latch,
+   seen on the pins.
+3. The IWM register table: each of the six by {L7, L6, MotorOn}, with the
+   new-state rule (a read at `$1C00` from L7 = 1 reads status, not
+   handshake), and writes only at L6 = L7 = 1 with A0 = 1.
+4. **The mode-set loop of 5.6 item 1**, replayed: it exits with mode `$17`
+   in two passes from reset.
+5. The MotorOn timer: with mode bit 2 = 0, `/ENBLx` held 2^23 + 100 FCLK
+   after MotorOn clears, status bit 5 with it, and a write at L6 = L7 = 1
+   reaching the data register while it runs; with bit 2 = 1, released at
+   once; M16/M8 doubling it.
+6. The switch: `$57/$17/$57/$57` enters the ISM; a wrong fourth write, or
+   MotorOn set, does not; write-zeros bit 6 returns.
+7. The phase register: `$F5/$F6/$F7` read back whole; direction bits
+   honoured in both sets (the chip spec's reading, 5.2.3).
+8. Mode write-zeros/write-ones, bit 6 reading 1, status = mode.
+9. Parameter RAM: sixteen writes and reads auto-incrementing, the index
+   reset by a write-zeros write.
+10. Setup readback; the IWM configuration bits through register 2 with
+    ACTION low.
+11. The drive through the ROM's encoding (`$4082E0EC`/`$4082E12E`): the
+    empty internal FDHD reads `$D` = 0, `$9` = 1, `$5` = 1, `$F` = 1,
+    `$2` = 1, `$C` = 0; the absent external reads 1 at every register.
+12. Drive commands (`$4082E150`'s PH3 pulse): motor on/off (`$8`/`$9`
+    and `$8` reading back), direction and step to and from track 0,
+    eject-latch reset `$3`, MFM/GCR `$6`/`$7`.
+13. **The Open probe of 5.6 item 3, replayed end to end**: all three
+    echoes match, the exit leaves the IWM selected with L7 clear, then
+    Open's drive reads as item 11.
+14. The access rule: consecutive SWIM accesses on GLUE's port are 4 FCLK
+    or more apart (a check in `sim/glue`, where the port's timing lives).
+
+**`sim/machine`**: the bench ends in the RAM tests (3.8 item 23), well
+before the loop. A **bench-only ROM patch that skips the RAM tests** (as
+`run.sh` already shortens the checksum) would let it run through the
+loop and out; it is proposed, not assumed - it trades a patched ROM for
+reach, and the board is the verdict either way (5.11 item 4).
+
+## 5.10 Risks and open items
+
+- **Phase direction in IWM mode**: the chip spec against the User's Ref
+  (5.2.3); we follow the chip spec. Invisible to the ROM; one line to
+  change.
+- **"Four consecutive writes"**: our reading (successive mode-register
+  writes) is not stated in so many words; the ROM's sequence works under
+  any reading.
+- **The absent drive's SENSE level** (5.5): the ROM requires 1; the
+  pull-up is not traced on sheet 6.
+- **Drive levels without ROM evidence** (5.5, "chosen"): power-up
+  direction, head position, GCR mode, the read-data registers' idle.
+  None is read on rung 1's path.
+- **The drive's command edge**: taken on PH3 rising; the ROM's pulse
+  (high, two NOPs, low) works on either edge.
+- **A CPU read of a chip-write address** latches undefined data (5.4).
+  The ROM never does it. **A read of an undriven IWM address** (A0 = 1,
+  not writing) returns floating lanes on the machine; the model returns
+  the selected register. The ROM discards every such byte on rung 1's
+  path.
+- **The IWM's cell-time paragraph** is garbled in the OCR (5.2.1); rung
+  2 reads the page image.
+- **The timer at C16M** is 535 ms, not "about 1 second"; the ROM's mode
+  `$17` disables it at start-up anyway.
+- **The boot beyond the loop** runs into 4.10's risks (ADB, RTC, SCSI
+  probes) before it reaches the SWIM's Open; the board may stop at one of
+  those first.
+
+## 5.11 The work
+
+1. ~~Write this section.~~ **Done 2026-09-27.**
+2. **`sim/swim/`** items 1-13, failing, then **`rtl/se30_swim.v`** and
+   **`rtl/se30_fdhd.v`** to 5.2 and 5.5 until they pass; item 14 in
+   `sim/glue`.
+3. **The machine**: the instances and wiring of 5.8, `dev_rdata`, SENSE,
+   SEL from VIA1 PA5; `PSWM` in the deck and `read_probes.tcl`.
+4. **`sim/machine`**: Daniel's call on the bench-only RAM-test skip
+   (5.9); with it, the bench's prediction moves past `$408006E6`.
+5. Elaboration; then the compile with Daniel's go-ahead, the 3.6 ritual
+   and `sta_corners.tcl`; the board: `PIFA` out of the loop, `PSWM` mode
+   `$17`, then wherever the start-up goes next - the question mark is the
+   target.
+6. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
+   when rung 1 is on the board, from 5.2.4's sources.
+
 ---
 
 ## Appendix - where the sources are
@@ -5090,6 +5671,7 @@ TG68K kernel, ALU, PMMU and FPU headers all say LGPL-3 or later (1.12).
 | **The video declaration ROM** | `C:\temp\Mac\ROMS\MacSE30\se30vrom.uk6` - MAME's `macse30` set (the folder also holds that set's NuBus and PDS card ROMs and a copy of the main ROM). 8KB, CRC32 `b74c3463`, Apple part 341-0650. Read in 2.10 by `scripts/se30_declrom.py` |
 | **`se30.pdf`** in `C:\temp\Mac\SE30\Docs` | **Apple drawing 050-0253-01, the SE/30 main logic board schematic**, 8 of 9 D-size sheets, raster scan. Sheet titles in 2.1. Read by extracting the page images with pypdf/PIL and cropping at full resolution |
 | `github.com/mishimasensei/macse30mlb` | **KiCad redraw of 050-0253-01, MIT.** All 9 sheets plus a pin-matrix sheet, and per-sheet PDF exports with real text. Snapshot at `C:/Git/MiSTer-devel/macse30mlb` (tarball - a filename with a colon defeats `git clone` on NTFS). `scripts/kicad_nets.py` prints pin-to-net tables from its v5 sheets; `ROM+RAM Muxes.kicad_sch` is v6 and is not parsed (UH7 was read from the scan) |
+| **The SWIM documents** (Section 5) | `C:\temp\Mac\SE30\Docs\swim`, from bitsavers `/pdf/apple/disk/sony/` (`trailing-edge` mirror): `SWIM_343S0061-A_1988.pdf` (the production drawing), `SWIM_chip_spec_198707.pdf`, `SWIM_Chip_Users_Ref_198801.pdf`, `ISM_ASIC_spec_198707.pdf`, `IWM_undoco_features.pdf`, `Software_control_of_IWM.pdf`, `IOP_SWIM_Driver_ERS_199001.pdf`, `Hand_notes_on_floppy_stuff.pdf`, `Apple_3.5_Drive_Schematic.pdf`, `Apple_drive_command_and_status_codes.pdf` (secondary), `SWIM_regs.txt` (SWIM III, not ours); `.txt` beside each is `pdftotext -layout`. Standing in 5.1 |
 | Macintosh Repository, item 875 | "Macintosh SE/30 Schematics and Repair": `se30schems.zip` (4.1MB) and `Repair_Macintosh_SE30.zip`. Downloads sit behind an HTML interstitial; not fetched. The redraw's notes point to the same scans' origin at `museo.freaknet.org` (Andreas Kann) |
 
 **Emulators and software references.**
