@@ -3209,11 +3209,21 @@ scaler or anything the framework owns, none of which simulates and none
 of which is ours. It is the same seam the MacPlus ladder factors out of
 `dataController_top.sv`, at the altitude where it matters here.
 
-A probe deck (`rtl/dbg_probes.sv`, ours, under a define) exposes to
-SignalTap/ISSP what the bring-up needs read back over JTAG, which is the
-one hardware access permitted (`feedback_merge_compile_gate`): the fetch
-address, the last `AS*` address and FC, cycle and bus-error counters,
-`halted`.
+A probe deck (`rtl/dbg_probes.sv`, ours, under `USE_DBG_PROBES`, which
+**`MacSE30.qsf` must define** - it did not until 2026-09-27, so compiles
+1-3 carried no probes) exposes to ISSP what the bring-up needs read back
+over JTAG, which is the one hardware access permitted
+(`feedback_merge_compile_gate`): the fetch address, the last `AS*`
+address and FC, cycle and bus-error counters, `halted`, and `PBLD`, the
+bitstream's git SHA. `PBLD` is MacPlus's build-tag practice, ported
+whole: `rtl/build_tag.v` is committed as 0 and stamped from HEAD by
+`scripts/stamp_build_tag.ps1` immediately before a compile;
+`scripts/archive_build.ps1 <label>` copies the fresh `.rbf`/`.sof` to
+`output_files/MacSE30_<sha>_<label>` named by that tag, refusing an
+unstamped tag or a design that moved since it; `scripts/read_probes.tcl`
+reads the deck and prints `bitstream=<sha>` or `UNSTAMPED`, and declares
+absent probes rather than printing zeros. Both PowerShell scripts need
+`-ExecutionPolicy Bypass` on this machine.
 
 ## 3.6 The bring-up ladder and its benches
 
@@ -3245,7 +3255,13 @@ permission, the fourth always does (`macplus-core-conventions`):
 4. **`quartus_map --analysis_and_elaboration MacSE30`**: 0 errors; the
    warning count is the baseline to record.
 5. **Full compile - ask first, every time.** STA met with the constraints
-   of 3.2; no 332125/332081; the fit recorded against 1.6's table.
+   of 3.2; no 332125/332081; the fit recorded against 1.6's table. The
+   ritual is MacPlus's (3.5): `stamp_build_tag.ps1`, then
+   `bash scripts/build_only.sh`, then `archive_build.ps1 <label>` while
+   the tag is still stamped, then `git checkout -- rtl/build_tag.v`
+   (and `MacSE30.qsf` if Quartus rewrote it). A build whose tag was not
+   stamped reads `UNSTAMPED` on `PBLD` and the archive script refuses
+   it.
 6. **Hardware - Daniel flashes, always.** The probes say the CPU fetched
    from ROM, ran, and stopped where the machine bench said it would.
 
@@ -3412,7 +3428,23 @@ desktop (ADB).
     harmless. This RBF is the first fit to flash: **the probe deck should
     read the prediction in item 8** (PIFA in `$408036FC/$40803700/
     $40803704`, PLAS the same, PACT counting, halted 0, bus errors 0).
-    Quartus did not rewrite `MacSE30.qsf` this run.
+    Quartus did not rewrite `MacSE30.qsf` this run. **Archived by hand
+    as `output_files/MacSE30_069d417_dqrise.rbf` / `.sof`** (md5
+    `364645220e5e39f26bddbb25fc6da342`), named by the design commit,
+    which git confirms unchanged to the commits after it; it predates the
+    build tag, so it has no `PBLD`. **And it has no probe deck at all:**
+    `USE_DBG_PROBES` was never defined in `MacSE30.qsf` (found 2026-09-27
+    while porting the archive practice; the fitter report has no probe
+    instance), so this RBF proves the fit and the timing but cannot be
+    read against item 8's prediction.
+13. **The archive practice ported from MacPlus (2026-09-27), and the deck
+    switched on.** `rtl/build_tag.v` + `PBLD` in the deck, `files.qip`,
+    `scripts/stamp_build_tag.ps1`, `scripts/archive_build.ps1`,
+    `scripts/read_probes.tcl` (all three exercised: the refusal, a stamp,
+    a stamped archive), `USE_DBG_PROBES=1` in `MacSE30.qsf`. Synthesis
+    check clean with the deck in. **Next: the fourth compile - the first
+    with the probes and a tag - ask first; then Daniel flashes it and the
+    deck is read against item 8.**
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

@@ -4,6 +4,7 @@ set_global_assignment -name VERILOG_FILE rtl/se30_glue.v
 set_global_assignment -name VERILOG_FILE rtl/se30_video.v
 set_global_assignment -name VERILOG_FILE rtl/se30_sdram.v
 set_global_assignment -name VERILOG_FILE rtl/se30_machine.v
+set_global_assignment -name VERILOG_FILE rtl/build_tag.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/dbg_probes.sv
 set_global_assignment -name SDC_FILE MacSE30.sdc
 set_global_assignment -name SYSTEMVERILOG_FILE MacSE30.sv

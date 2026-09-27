@@ -4,14 +4,19 @@
 // run, and stop where the machine bench said it would?"  A live probe holds
 // the last latched values and is read while the machine sits there, with
 // nothing to trigger in advance - the MacPlus and MacLC practice, and the
-// same primitive and reader (quartus_stp -t scripts/read_probes.tcl, when
-// that script is ported).  Reading over JTAG is the one hardware access the
-// standing rules allow.
+// same primitive and reader (quartus_stp -t scripts/read_probes.tcl).
+// Reading over JTAG is the one hardware access the standing rules allow.
 //
 // FPGA-ONLY: instantiated from MacSE30.sv behind USE_DBG_PROBES (set in
 // MacSE30.qsf), so altsource_probe never reaches a simulator.
 //
-// The deck, four 32-bit probes:
+// The deck, five 32-bit probes:
+//   PBLD  the git SHA of the bitstream: rtl/build_tag.v, stamped from HEAD
+//         by scripts/stamp_build_tag.ps1 before every compile and committed
+//         as 0, so a capture names its build or says UNSTAMPED (MacPlus's
+//         practice: two builds once gave identical captures and nothing
+//         said which was on the board).  scripts/archive_build.ps1 names
+//         the archived .rbf by the same tag.
 //   PIFA  the last instruction-fetch address (FC = 6, AS* falling)
 //   PLAS  the last bus-cycle address, any FC
 //   PSTA  {FC, R/W*, DSACK*, berr seen, halted, sdram ready, rom loaded,
@@ -54,6 +59,15 @@ module dbg_probes (
 	end
 
 	wire [31:0] psta = {fc_r, rw_r, dsack_r, berr_seen, halted, sdram_ready, rom_loaded, reset_n, 5'b0, berr_cnt};
+
+	// which bitstream this is (the header's PBLD)
+	wire [31:0] build_tag_w;
+	build_tag build_tag_inst (.tag(build_tag_w));
+
+	altsource_probe #(
+		.instance_id ("PBLD"), .probe_width (32), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pbld (.probe(build_tag_w), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(
 		.instance_id ("PIFA"), .probe_width (32), .source_width (1),

@@ -73,6 +73,12 @@ set_global_assignment -name SEED 1
 # Disable ALSA audio output to save some resources
 #set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 
+# The bring-up probe deck (rtl/dbg_probes.sv, read with scripts/read_probes.tcl
+# over JTAG): PBLD PIFA PLAS PSTA PACT.  Leave it in until the machine boots;
+# strip it for a release build (SE30_PLAN.md 3.5).  Without this line the deck
+# is not compiled in - compiles 1-3 of 2026-09-27 had no probes.
+set_global_assignment -name VERILOG_MACRO "USE_DBG_PROBES=1"
+
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip
