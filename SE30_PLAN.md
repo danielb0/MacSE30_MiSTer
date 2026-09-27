@@ -3382,8 +3382,26 @@ desktop (ADB).
     `dq_q` and no hold credit; both benches model the 4 ns on the chip's
     clock (the range they pass over is in the bench). SDRAM bench 165
     checks, machine bench 12 with the same probe prediction. The -2.5 ns
-    RBF was not flashed. **Next: the third compile, with Daniel's
-    go-ahead given for it.**
+    RBF was not flashed.
+12. **The third compile, 2026-09-27, with Daniel's go-ahead: 17 min, an
+    RBF produced, fit 44% (18,427 ALMs, 18,725 registers, 22% of the
+    block memory), TIMING MET in every domain.** The read capture
+    `SDRAM_DQ -> dq_q` now times at the 15.95 ns relationship (the
+    multicycle took), +0.91 ns of setup at the slow corner (skew -3.48,
+    the I/O cell's own delay 3.9 ns - the register is in the DDIO input
+    cell, `DDIOINCELL_X32_Y81`), and +3.23 ns of hold on the real 5.32 ns
+    relationship. It is the worst setup path in `clk_mem`; `clk_sys`'s
+    worst is +1.95 (the kernel, still no credit), `sdram_clk`'s outputs
+    +1.75, the framework's HDMI +0.40, worst hold anywhere +0.25 (the
+    framework's). The 332125 4-node kernel loop is still reported and
+    still unattributed. The PMMU's 18061 power-up warnings are closed
+    from the source: the ATC reset value 12 needs an asynchronous set on
+    two bits of each entry, which Cyclone V implements by inverting the
+    register, so those bits power up at the reset value; upstream's code,
+    harmless. This RBF is the first fit to flash: **the probe deck should
+    read the prediction in item 8** (PIFA in `$408036FC/$40803700/
+    $40803704`, PLAS the same, PACT counting, halted 0, bus errors 0).
+    Quartus did not rewrite `MacSE30.qsf` this run.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
