@@ -3690,7 +3690,10 @@ A write to T1CH loads both latches into the counter and starts it; the
 counter decrements once per E cycle; on passing zero it reads `$FFFF`, and
 that is the time-out: IFR6 is set (if armed), and one E cycle later the
 latches are transferred back into the counter, which continues - "T1 is
-always running". In one-shot mode (ACR6 = 0) only the first time-out after
+always running". So the first time-out comes N+1 cycles after the load
+and, in free-run, each following one **N+2** after the last, the cycle
+spent at `$FFFF` included (the bench found this in the text, 4.11 item
+2). In one-shot mode (ACR6 = 0) only the first time-out after
 a T1CH write sets IFR6; in free-run (ACR6 = 1) every time-out does. "Timer
 1 times out N+1 cycles after loading with the value N ... loaded with
 $0003, it will set the interrupt flag 4.5 C783K cycles later" - the half
@@ -3953,9 +3956,10 @@ VIAs through 2.11.2's decode). In the order the machine meets them:
 9. **The VBL** (`$4080074C`): VIA2 **ACR |= `$C0`** (T1 free-run with PB7
    output), **DDRB bit 7 set**, **T1 := `$196E`** (low byte first, then
    high - the *Guide*'s "write to the high-order byte last"). `$196E` =
-   6510, so by the N+1 rule the period is 6511 E cycles = 8.312 ms, PB7
-   inverts at every time-out, and VIA1's CA1 sees its active edge every
-   16.62 ms: the *Guide*'s "16.63 ms", 60.15 Hz. Then VIA1 **PCR &= `$F0`**
+   6510: the first time-out 6511 E cycles after the load, then one every
+   N+2 = 6512 (8.313 ms, 4.2.4); PB7 inverts at each, and VIA1's CA1 sees
+   its active edge every 13024 E cycles = 16.626 ms: the *Guide*'s
+   "16.63 ms", 60.15 Hz. Then VIA1 **PCR &= `$F0`**
    (CA1 and CA2 negative-edge inputs, the CB bits kept) and **IER :=
    `$83`**: the VBL (bit 1) and the one-second (bit 0) interrupts enabled.
    From here the machine takes a level-1 interrupt 60 times a second.
@@ -4077,8 +4081,8 @@ bench-made 10/10 E and GLUE-shaped strobes, held to 4.2:
 3. T1 one-shot: written N, IFR6 sets N+1 E cycles (±½) after the T1CH
    write, once; T1CL read clears it; the latches reload and it keeps
    counting; T1LH write clears the flag without a transfer;
-4. T1 free-run: IFR6 every N+1 cycles; with ACR7 PB7 inverts at each
-   time-out, and 4.6's `$196E` gives a PB7 edge every 6511 cycles;
+4. T1 free-run: IFR6 at N+1 then every N+2 cycles; with ACR7 PB7 inverts
+   at each time-out, and 4.6's `$196E` gives a PB7 edge every 6512 cycles;
 5. T2: one-shot, IFR5 once at N+1, then free roll-over, T2CL read clears;
    re-armed by T2CH; pulse-count mode on PB6 falling edges;
 6. CA1/CA2/CB1/CB2: the PCR edge selects; IFR set on the active edge;

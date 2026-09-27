@@ -13,8 +13,8 @@
 //     3. T1 one-shot: IFR6 N+1 E cycles after the T1CH write, once;
 //        T1CL read clears; the latches reload; T1LH write clears
 //        without a transfer                                           4.2.4
-//     4. T1 free-run: IFR6 every N+1; PB7 inverts at each time-out
-//        under ACR7; $196E gives 6511                                 4.2.4
+//     4. T1 free-run: IFR6 at N+1 then every N+2; PB7 inverts at each
+//        time-out under ACR7; $196E gives 6511 then 6512              4.2.4
 //     5. T2: one-shot IFR5 at N+1 then free roll-over; re-armed by
 //        T2CH; PB6 pulse counting                                     4.2.4
 //     6. CA1/CA2/CB1/CB2: PCR edge selects, port-access clears unless
@@ -25,7 +25,7 @@
 //     8. IFR/IER: bit 7, the 1s-clear and the set/clear write, IRQ     4.2.6
 //     9. input latching under ACR0                                    4.2.3
 //    10. the ROM's sequences: overlay off, the box ID reading index 4,
-//        the VBL from VIA2's T1 to VIA1's CA1 every 13022 E cycles    4.6
+//        the VBL from VIA2's T1 to VIA1's CA1 every 13024 E cycles    4.6
 //
 // THE BUS
 //   GLUE's device port as 2.13 and 4.8 have it: the select rises while E
@@ -176,11 +176,14 @@ module tb_se30_via;
     // ---- 1. reset
     $display("---- 1. reset (4.2.1)");
     lo = 0;
-    for (i = 0; i < 4; i = i + 1) begin rd(0, i); if (q != 0) lo = lo + 1; end
+    for (i = 2; i < 4; i = i + 1) begin rd(0, i); if (q != 0) lo = lo + 1; end
     rd(0, ACR); if (q != 0) lo = lo + 1;
     rd(0, PCR); if (q != 0) lo = lo + 1;
     rd(0, IFR); if (q != 0) lo = lo + 1;
-    check(lo == 0, "ORB ORA DDRB DDRA ACR PCR IFR read $00 after reset", lo, 0);
+    check(lo == 0, "DDRB DDRA ACR PCR IFR read $00 after reset", lo, 0);
+    check(via1.ora == 0 && via1.orb == 0, "ORA and ORB flip-flops $00 after reset", via1.ora, 0);
+    rd(0, ORA); lo = q; rd(0, ORB);
+    check(lo == 8'hFF && q == 8'hFF, "... and, every line an input, the ports read their pins", q, 8'hFF);
     rd(0, IER); check(q == 8'h80, "IER reads $80 after reset (bit 7 always 1)", q, 8'h80);
     check(pa1_oe == 0 && pb1_oe == 0 && pa2_oe == 0 && pb2_oe == 0, "every port line an input", pa1_oe | pb1_oe, 0);
     check(irq1_n == 1 && irq2_n == 1, "IRQ high", irq1_n, 1);
@@ -217,6 +220,7 @@ module tb_se30_via;
     check({b1, b0} <= 16'd100, "the counter reloaded from the latches and is counting", {b1, b0}, 100);
     wr(0, T1CL, 8'd50); wr(0, T1CH, 8'd0);
     falls_until_flag(0, 6, 200); check(n == 51, "T1 = 50: 51 cycles", n, 51);
+    wait_e(3);                                          // past the reload cycle, so the new latch is not what reloads
     wr(0, T1LH, 8'hFF); check(via1.ifr[6] == 0, "writing T1LH clears IFR6", via1.ifr[6], 0);
     rd(0, T1CH);        check(q < 8'hFF, "... without transferring the latch into the counter", q, 0);
     rd(0, T1LH);        check(q == 8'hFF, "T1LH reads the latch", q, 8'hFF);
@@ -227,8 +231,8 @@ module tb_se30_via;
     wr(0, DDRB, 8'h80); wr(0, ACR, 8'hC0);
     wr(0, T1CL, 8'd20); wr(0, T1CH, 8'd0);
     falls_until_flag(0, 6, 100); check(n == 21, "free-run: first IFR6 at N+1 = 21", n, 21);
-    flag_period(0, 6, 100);      check(n == 21, "... and every 21 cycles after", n, 21);
-    pb7_period(0, 100);          check(n == 21, "PB7 inverts every 21 E cycles (a square wave under ACR7)", n, 21);
+    flag_period(0, 6, 100);      check(n == 22, "... and every N+2 = 22 cycles after (one spent at $FFFF)", n, 22);
+    pb7_period(0, 100);          check(n == 22, "PB7 inverts every 22 E cycles (a square wave under ACR7)", n, 22);
     wr(0, IER, 8'hC0);
     falls_until_flag(0, 6, 100); #2 check(irq1_n == 0, "T1 enabled: IRQ low with IFR6 and IER6", irq1_n, 0);
     rd(0, T1CL);        #2 check(irq1_n == 1, "IRQ high once the flag is read away", irq1_n, 1);
@@ -338,7 +342,7 @@ module tb_se30_via;
     wr(0, ACR, 8'h08); rd(0, SR);                       // 010: in under E
     falls_until_flag(0, 2, 40); check(n <= 20, "mode 010: eight bits in under E within 20 cycles", n, 16);
     rd(0, SR);
-    wr(0, T2CL, 8'd4); wr(0, ACR, 8'h14); wr(0, SR, 8'h0F);   // 101: out under T2
+    wr(0, T2CL, 8'd4); wr(0, T2CH, 8'd0); wr(0, ACR, 8'h14); wr(0, SR, 8'h0F);   // 101: out under T2, low byte loaded
     falls_until_flag(0, 2, 200); check(n > 20 && n <= 100, "mode 101: eight bits out under T2 (latch 4), slower than E", n, 80);
     rd(0, SR);
     wr(0, ACR, 8'h10); wr(0, SR, 8'hF0);                // 100: free-running out under T2
@@ -369,6 +373,8 @@ module tb_se30_via;
 
     // ---- 10. the ROM's sequences
     $display("---- 10. the ROM's sequences (4.6)");
+    // the OR flip-flops as the ROM finds them: reset, i.e. zero
+    wr(0, DDRA, 8'hFF); wr(0, ORA, 8'h00); wr(0, DDRA, 8'h00);
     // overlay off: DDRA $3D, ORA read, bits 4 and 3 cleared, written back
     wr(0, DDRA, 8'h3D); rd(0, ORA); b0 = q;
     check(b0 == 8'hC2, "after DDRA $3D the ROM reads ORA as $C2 (inputs high, outputs 0)", b0, 8'hC2);
@@ -392,8 +398,8 @@ module tb_se30_via;
     ca1_from_pb7 = 1;
     wr(0, PCR, 8'h00); wr(0, IER, 8'h83); wr(0, IFR, 8'h7F);
     wr(1, ACR, 8'hC0); wr(1, T1CL, 8'h6E); wr(1, T1CH, 8'h19);
-    pb7_period(1, 8000);         check(n == 6511, "VIA2 PB7 inverts every 6511 E cycles", n, 6511);
-    flag_period(0, 1, 15000);    check(n == 13022, "VIA1 CA1 (VBL) every 13022 E cycles = 2 x 6511: 60.15 Hz", n, 13022);
+    pb7_period(1, 8000);         check(n == 6512, "VIA2 PB7 inverts every N+2 = 6512 E cycles (8.313 ms)", n, 6512);
+    flag_period(0, 1, 15000);    check(n == 13024, "VIA1 CA1 (VBL) every 13024 E cycles = 16.626 ms: 60.15 Hz", n, 13024);
     #2 check(irq1_n == 0, "and VIA1's IRQ is low for it (IER $83)", irq1_n, 0);
     rd(0, ORA); #2 check(irq1_n == 1, "cleared by the ORA read the handler does", irq1_n, 1);
 
