@@ -239,6 +239,7 @@ wire  [1:0] dbg_dsack_n;
 wire        dbg_as_n, dbg_rw_n, dbg_berr, dbg_halted, reset_out_n;
 wire [31:0] dbg_via;
 wire [63:0] dbg_regs;
+wire [63:0] dbg_swim;
 
 se30_machine machine
 (
@@ -250,7 +251,7 @@ se30_machine machine
 	.nmi_n(1'b1),
 	.dbg_addr(dbg_addr), .dbg_fc(dbg_fc), .dbg_as_n(dbg_as_n), .dbg_rw_n(dbg_rw_n),
 	.dbg_dsack_n(dbg_dsack_n), .dbg_berr(dbg_berr), .dbg_halted(dbg_halted), .reset_out_n(reset_out_n),
-	.dbg_via(dbg_via), .dbg_regs(dbg_regs)
+	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_swim(dbg_swim)
 );
 
 ///////////////////////   VIDEO   ////////////////////////////////
@@ -334,7 +335,7 @@ dbg_probes probes
 	.peek_src(pk_src), .peek_data({pk_cnt, pk_data}),
 	.peek_stat({pk_cnt, 2'b0, raw_ack, pk_hold, pk_req_r, pk_st}),
 	.poke_src(pok_src), .raw_src(praw_src),
-	.rom_loaded(rom_loaded), .via_state(dbg_via), .cpu_regs(dbg_regs)
+	.rom_loaded(rom_loaded), .via_state(dbg_via), .cpu_regs(dbg_regs), .swim_state(dbg_swim)
 );
 `else
 assign pk_hold = 1'b0;

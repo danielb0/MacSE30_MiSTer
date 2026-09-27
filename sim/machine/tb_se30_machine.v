@@ -125,7 +125,7 @@ module tb_se30_machine;
     .nmi_n(1'b1),
     .dbg_addr(cpu_addr), .dbg_fc(cpu_fc), .dbg_as_n(cpu_as_n), .dbg_rw_n(cpu_rw_n),
     .dbg_dsack_n(dsack_n), .dbg_berr(berr), .dbg_halted(halted), .reset_out_n(reset_out_n),
-    .dbg_via(), .dbg_regs());
+    .dbg_via(), .dbg_regs(), .dbg_swim());
 
   // -------------------------------------------------- the ROM's vector
   reg [15:0] romw [0:131071];

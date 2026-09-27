@@ -437,6 +437,32 @@ for {set n 0} {$n < $samples} {incr n} {
 		set d7 [expr {$preg & 0xFFFFFFFF}]
 		puts [format "  PREG  D6=%08X  D7=%08X   %s" $d6 $d7 			[expr {$d6 != 0 ? "D6 nonzero: in the test manager, a start-up test's failure code" : "D6 zero"}]]
 	}
+	if {[have PSWM]} {
+		# plan 5.8: {the SWIM's 48 bits, the internal drive's 16} -- see
+		# rtl/dbg_probes.sv for the layout
+		set pswm [rd PSWM]
+		set s  [expr {($pswm >> 16) & 0xFFFFFFFFFFFF}]
+		set d  [expr {$pswm & 0xFFFF}]
+		set ism    [expr {($s >> 47) & 1}]
+		set lat    [expr {($s >> 39) & 0xFF}]
+		set imode  [expr {($s >> 34) & 0x1F}]
+		set mtrd   [expr {($s >> 33) & 1}]
+		set en1    [expr {($s >> 32) & 1}]
+		set en2    [expr {($s >> 31) & 1}]
+		set sense  [expr {($s >> 30) & 1}]
+		set smode  [expr {($s >> 19) & 0xFF}]
+		set setup  [expr {($s >> 11) & 0xFF}]
+		set phdir  [expr {($s >> 7) & 0xF}]
+		puts [format "  PSWM  %016llX   %s  L7=%d L6=%d drive=%d MotorOn=%d PH=%X  IWM mode=%02X%s" $pswm \
+			[expr {$ism ? "ISM" : "IWM"}] [expr {($lat >> 7) & 1}] [expr {($lat >> 6) & 1}] \
+			[expr {($lat >> 5) & 1}] [expr {($lat >> 4) & 1}] [expr {$lat & 0xF}] $imode \
+			[expr {$imode == 0x17 ? " (the ROM's start-up value)" : ""}]]
+		puts [format "        delayed MotorOn=%d /ENBL1=%d /ENBL2=%d SENSE=%d  ISM mode=%02X setup=%02X dirs=%X" \
+			$mtrd $en1 $en2 $sense $smode $setup $phdir]
+		puts [format "        internal drive: motor=%d dir=%d eject latch=%d %s track=%d" \
+			[expr {($d >> 15) & 1}] [expr {($d >> 14) & 1}] [expr {($d >> 13) & 1}] \
+			[expr {(($d >> 12) & 1) ? "MFM" : "GCR"}] [expr {$d & 0x7F}]]
+	}
 	puts ""
 	if {$n + 1 < $samples} { after [expr {int($delay * 1000)}] }
 }
@@ -472,3 +498,8 @@ puts "    flashing question mark (plan 4.6)."
 puts "Since plan 3.8 item 23:"
 puts "  * PREG with PIFA in 40802EDC-40803304: the ROM's serial test manager;"
 puts "    D6 is the failed test's code and D7 its flags (the Sad Mac's numbers)."
+puts "Since Section 5 (the SWIM, rung 1, SE30_PLAN.md 5.6 and 5.11):"
+puts "  * PIFA past 408006E6 and PSWM IWM mode=17: the ROM's mode-set loop is done."
+puts "  * PSWM phase dirs=F with PH=7 left over: the .Sony Open's SWIM probe"
+puts "    ran (\$F5-\$F7 echoed); the drive's motor/track show its commands."
+puts "  * The screen is the target: the flashing question-mark disk."

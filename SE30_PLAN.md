@@ -5582,8 +5582,12 @@ device-port driver that replays the ROM's own access sequences:
 13. **The Open probe of 5.6 item 3, replayed end to end**: all three
     echoes match, the exit leaves the IWM selected with L7 clear, then
     Open's drive reads as item 11.
-14. The access rule: consecutive SWIM accesses on GLUE's port are 4 FCLK
-    or more apart (a check in `sim/glue`, where the port's timing lives).
+14. The access rule: consecutive SWIM accesses are 4 FCLK or more apart
+    (`/DEV` high that long, chip spec rule 5). **Corrected while building:
+    the gap is the CPU's instruction timing as much as GLUE's, so it is a
+    monitor in `sim/machine`, not a `sim/glue` check, and it can only run
+    once that bench reaches the SWIM (5.11 item 4).** The model does not
+    depend on it either way.
 
 **`sim/machine`**: the bench ends in the RAM tests (3.8 item 23), well
 before the loop. A **bench-only ROM patch that skips the RAM tests** (as
@@ -5622,15 +5626,26 @@ reach, and the board is the verdict either way (5.11 item 4).
 ## 5.11 The work
 
 1. ~~Write this section.~~ **Done 2026-09-27.**
-2. **`sim/swim/`** items 1-13, failing, then **`rtl/se30_swim.v`** and
-   **`rtl/se30_fdhd.v`** to 5.2 and 5.5 until they pass; item 14 in
-   `sim/glue`.
-3. **The machine**: the instances and wiring of 5.8, `dev_rdata`, SENSE,
-   SEL from VIA1 PA5; `PSWM` in the deck and `read_probes.tcl`.
+2. ~~**`sim/swim/`** items 1-13, failing, then **`rtl/se30_swim.v`** and
+   **`rtl/se30_fdhd.v`** to 5.2 and 5.5 until they pass.~~ **Done
+   2026-09-27: 92 checks** (the empty stubs fail 59 of them; the rest are
+   levels a do-nothing chip happens to share). Both timers measure exactly
+   2^23 + 100 and twice that FCLK. Two things the bench made concrete: the
+   "MOTOREN must be low" rule for entering the ISM is structural - with
+   the delayed MotorOn up, L6 = L7 = 1 selects the data register, so the
+   four mode writes cannot happen; and leaving the ISM, the ROM's `$F8`
+   clears MotorOn and bit 6 in one write, so MOTOREN is judged as the
+   write leaves it. Item 14 moved to `sim/machine` (5.9).
+3. ~~**The machine**: the instances and wiring of 5.8, `dev_rdata`, SENSE,
+   SEL from VIA1 PA5; `PSWM` in the deck and `read_probes.tcl`.~~ **Done
+   2026-09-27.** The SWIM is reset by `via_reset_n` (the RESET
+   instruction too), the drive by `reset_n` only. `sim/machine` still 17
+   PASS with the same prediction (it ends in the RAM tests, before the
+   loop); elaboration 0 errors, 82 warnings (the count before the SWIM).
 4. **`sim/machine`**: Daniel's call on the bench-only RAM-test skip
    (5.9); with it, the bench's prediction moves past `$408006E6`.
-5. Elaboration; then the compile with Daniel's go-ahead, the 3.6 ritual
-   and `sta_corners.tcl`; the board: `PIFA` out of the loop, `PSWM` mode
+5. Elaboration (done, item 3); then the compile - **Daniel's go-ahead
+   given 2026-09-27** - the 3.6 ritual and `sta_corners.tcl`; the board: `PIFA` out of the loop, `PSWM` mode
    `$17`, then wherever the start-up goes next - the question mark is the
    target.
 6. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13

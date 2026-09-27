@@ -46,6 +46,15 @@
 //         they drop into the serial test manager (its command loop at
 //         $40802EDC sends D6 and D7's low word to the host) - what a Sad
 //         Mac would show, before there is video to show it on
+// and, since plan 5.8 (the SWIM, rung 1):
+//   PSWM  64 bits, registered here on clk: the SWIM's {ISM selected, L7,
+//         L6, drive select, MotorOn, PH3-0, IWM mode[4:0], delayed MotorOn,
+//         /ENBL1, /ENBL2, SENSE, IWM mode bit 5 (test), switch count[1:0],
+//         ISM mode[7:0], ISM
+//         setup[7:0], phase directions[3:0], IWM configuration[2:0], 0000}
+//         and the internal drive's {motor, direction, eject latch, MFM,
+//         disk in, 0000, track[6:0]}: did the ROM's mode-set loop set $17,
+//         did the .Sony Open find the SWIM and an empty SuperDrive
 
 module dbg_probes (
 	input  wire        clk,
@@ -69,7 +78,8 @@ module dbg_probes (
 	output wire [63:0] raw_src,            // PRAW's source: the SDRAM controller's raw experiment schedule word
 	input  wire        rom_loaded,
 	input  wire [31:0] via_state,         // se30_machine's dbg_via (plan 4.8)
-	input  wire [63:0] cpu_regs           // PREG: {D6, D7} from the kernel's register file (plan 3.8 item 23)
+	input  wire [63:0] cpu_regs,          // PREG: {D6, D7} from the kernel's register file (plan 3.8 item 23)
+	input  wire [63:0] swim_state         // PSWM: se30_machine's dbg_swim (plan 5.8)
 );
 
 	reg        as_q = 1;
@@ -129,6 +139,15 @@ module dbg_probes (
 		.instance_id ("PREG"), .probe_width (64), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_preg (.probe(preg_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the SWIM and its drive (the header's PSWM): one register stage
+	reg [63:0] pswm_r = 0;
+	always @(posedge clk) pswm_r <= swim_state;
+
+	altsource_probe #(
+		.instance_id ("PSWM"), .probe_width (64), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pswm (.probe(pswm_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(
 		.instance_id ("PACT"), .probe_width (32), .source_width (1),

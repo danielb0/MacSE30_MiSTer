@@ -1,6 +1,6 @@
-// se30_machine.v - the SE/30's logic board: the CPU, GLUE, the video and
-// the two VIAs today; the ASC, SWIM, SCC, SCSI, ADB and RTC as their
-// sections land (SE30_PLAN.md 3.5, 4.8).
+// se30_machine.v - the SE/30's logic board: the CPU, GLUE, the video, the
+// two VIAs and the SWIM with its internal drive today; the ASC, SCC, SCSI,
+// ADB and RTC as their sections land (SE30_PLAN.md 3.5, 4.8, 5.8).
 //
 // WHAT IT IS
 //   Everything of the machine that is not the MiSTer framework's, behind
@@ -32,11 +32,18 @@
 //   The RESET instruction resets the VIAs, RESET* being shared on the
 //   board (2.11.6).
 //
+// THE SWIM (plan 5.3, 5.8) - rung 1: the register sets and the internal
+//   FDHD with no disk.  The drives' SEL is VIA1 PA5 (HDSEL), not the
+//   SWIM's HEDSEL; SENSE is the internal drive's line, and the absent
+//   external drive's reads 1.  The RESET instruction resets the SWIM as
+//   it does the VIAs; the drive is not on RESET* and sees only power-up.
+//
 // NOT HERE YET - what the VIAs' inputs and the device bus hold until
 //   their sections: the SCC's W/REQ*, the ADB transceiver's interrupt,
 //   clock and data, the RTC's data and 1 Hz, the ASC's and SCSI's
 //   interrupt and DRQ lines, all at their idle levels (plan 4.7); every
-//   other I/O device answers $00 and raises no interrupt.
+//   other I/O device answers $00 and raises no interrupt.  No disk: the
+//   SWIM's data path is rung 2's.
 
 `timescale 1ns/1ps
 
@@ -84,7 +91,8 @@ module se30_machine #(
   output        dbg_halted,
   output        reset_out_n,           // the RESET instruction: the peripherals' reset
   output [31:0] dbg_via,               // {overlay, ramsiz, vsyncen_n, VIA1 IER, IFR, VIA2 IER, IFR} (plan 4.8)
-  output [63:0] dbg_regs               // {D6, D7}: the test manager's failure code and flags (plan 3.8 item 23)
+  output [63:0] dbg_regs,              // {D6, D7}: the test manager's failure code and flags (plan 3.8 item 23)
+  output [63:0] dbg_swim               // {the SWIM's 48, the drive's 16} (plan 5.8)
 );
 
   // ---------------------------------------------------------- the bus
@@ -162,7 +170,7 @@ module se30_machine #(
 
   // ------------------------------------------------------------- VIAs
   wire        via_reset_n = reset_n && reset_out_n;
-  wire  [7:0] via1_rdata, via2_rdata;
+  wire  [7:0] via1_rdata, via2_rdata, swim_rdata;
   wire  [7:0] via1_pa_out, via1_pa_oe, via1_pb_out, via1_pb_oe;
   wire  [7:0] via2_pa_out, via2_pa_oe, via2_pb_out, via2_pb_oe;
   wire  [6:0] via1_ifr, via1_ier, via2_ifr, via2_ier;
@@ -178,7 +186,7 @@ module se30_machine #(
   assign vid_page  = via1_pa_pin[6];
   assign vsyncen_n = via1_pb_pin[6];
   assign ramsiz    = via2_pa_pin[7:6];
-  assign dev_rdata = via1_sel ? via1_rdata : via2_sel ? via2_rdata : 8'h00;
+  assign dev_rdata = via1_sel ? via1_rdata : via2_sel ? via2_rdata : swim_sel ? swim_rdata : 8'h00;
   assign dbg_via   = {overlay, ramsiz, vsyncen_n, via1_ier, via1_ifr, via2_ier, via2_ifr};
 
   se30_via via1 (
@@ -204,6 +212,28 @@ module se30_machine #(
     .cb1_in(1'b1), .cb1_out(), .cb1_oe(),                // SNDINT*: none until the ASC section
     .cb2_in(1'b0), .cb2_out(), .cb2_oe(),                // SCSIIRQ
     .dbg_ifr(via2_ifr), .dbg_ier(via2_ier));
+
+  // ------------------------------------------------------------ SWIM
+  wire  [3:0] swim_ph, swim_ph_oe;
+  wire        enbl1_n, enbl2_n, fdhd_sense;
+  wire [47:0] swim_dbg;
+  wire [15:0] fdhd_dbg;
+  wire  [3:0] swim_ph_pin = (swim_ph_oe & swim_ph) | ~swim_ph_oe;   // a line the ISM makes an input reads its pull-up
+  wire        swim_sense  = fdhd_sense & 1'b1;                      // the external drive is absent: its line reads 1
+  assign dbg_swim = {swim_dbg, fdhd_dbg};
+
+  se30_swim swim (
+    .clk(clk), .c16_en(phi1), .reset_n(via_reset_n),
+    .sel(swim_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .wdata(dev_wdata), .rdata(swim_rdata),
+    .ph_out(swim_ph), .ph_oe(swim_ph_oe), .ph_in(swim_ph_pin),
+    .enbl1_n(enbl1_n), .enbl2_n(enbl2_n), .sense(swim_sense),
+    .wrdata(), .wrreq_n(), .hdsel(),                                // HEDSEL goes to TP3 only
+    .dbg(swim_dbg));
+
+  se30_fdhd fdhd_int (
+    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
+    .sense(fdhd_sense), .disk_in(1'b0), .dbg(fdhd_dbg));
 
   // ------------------------------------------------------------ video
   // slot $E: GLUE's slot select at $FExxxxxx (plan 2.10 item 2: A23-A17
