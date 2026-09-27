@@ -3290,7 +3290,10 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
   section's engineering risk; the bench of 3.6 item 2 catches logic, not
   I/O timing - the sdc constraints (MacLC's 2026-09-12 set, re-derived for
   the new period) and the first fit's STA are the only evidence before
-  hardware. **The first fit met the I/O constraints (+1.7 ns) and failed
+  hardware. **Realised 2026-09-27 (4.11 item 8): the capture has -0.128
+  ns of hold at the fast -40C corner, which the compile flow never
+  analyses (`TIMEQUEST_MULTICORNER_ANALYSIS OFF`, the template's), and
+  the board's reads are a per-boot lottery. The remedy is chosen there.** **The first fit met the I/O constraints (+1.7 ns) and failed
   the `clk_sys -> clk_mem` crossing instead (3.8 item 10; fixed in 3.2).**
   One clock now in hand rather than two. Fallback if a later fit shows
   the 21 ns cone short: 4 x (3.2's table), then the split acknowledge
@@ -4253,15 +4256,56 @@ or the flashing question mark.
    kernel's), the warning sets (one connectivity count differs), the
    controller and download RTL untouched since `2654fae`; the download
    holds the HPS per word until the controller acks, so no init race.
-   Nothing in the Section 4 RTL touches a memory cycle. **So the
-   difference is not one the desk can see, and the next evidence is
-   the board's:** (a) reload the core and read again - the same picture
-   means deterministic, a different one means a power-up or download
-   lottery; (b) re-flash compile 5's archive
-   (`MacSE30_2654faeb_cl2edge.rbf`) - if it no longer runs the checksum
-   loop the environment moved, not the build; (c) then a clean rebuild
-   of the same commit (`rm -rf db incremental_db`) or a seed change,
-   with Daniel's go-ahead, to see whether the fit is the variable.
+   Nothing in the Section 4 RTL touches a memory cycle.
+
+   **The second reading of compile 6, after a core reload: a different
+   picture** - `PACT` 484 and frozen, halted, `PIFA $4EFA4EFC` (a PC made
+   of ROM instruction words), `PLAS $C`, no bus error. So the reads are
+   not wrong deterministically: **the read path is a lottery**, per
+   boot and per access.
+
+   **The cause, found by asking STA about the corners the flow never
+   analysed.** The MiSTer template's qsf (ours too, line 27) sets
+   `TIMEQUEST_MULTICORNER_ANALYSIS OFF`: the compile's STA, and the
+   "timing met" `build_only.sh` prints from its summary, is the **slow
+   100C model only**. At every corner (`scripts/sta_corners.tcl`,
+   written for this):
+
+   | corner | read capture setup | read capture hold |
+   |---|---|---|
+   | slow 100C | +0.906 | +3.232 |
+   | slow -40C | +1.403 | +2.779 |
+   | fast 100C | +4.148 | +0.569 |
+   | fast -40C | +4.829 | **-0.128** |
+
+   **The next word reaches `dq_q` before the capture edge at the fast
+   corner** - which is exactly a burst's second word captured in the
+   first word's place, the `$002A002A` vector of item 15 and of this
+   morning. The 3.9 ns the capture point moves between the slow and fast
+   corners (the SDRAM clock's path out through the DDIO cell and the
+   data's path in through the input cell do not track) leaves an
+   intersection of only 0.78 ns in which a fixed capture edge is valid at
+   every corner; ours sits 0.13 ns outside it, and the real silicon sits
+   near enough that boot conditions and the fractional PLL's jitter
+   decide each read. **Compile 5's 728,640 good cycles were the same
+   margin on a kinder hour; compiles 3-5 were never "timing met" in the
+   sense that matters.** 3.7's first risk, realised. The command and
+   address outputs are fine at every corner (+1.73 setup, +3.64 hold at
+   worst).
+
+   **What follows is Section 3's to fix, and Daniel's to choose** (no
+   compile until then): (a) the honest gate first - `sta_corners.tcl`
+   after every compile, or `TIMEQUEST_MULTICORNER_ANALYSIS ON` in the
+   qsf at the cost of compile time; (b) the capture itself, at 94 MHz:
+   a phase-shifted SDRAM clock from a third PLL output can centre the
+   0.78 ns window but cannot widen it; a run-time choice between two
+   captures (the DDIO input cell's rising- and falling-edge registers,
+   picked once at reset by reading back a pattern written to RAM) is
+   robust to the corner spread and is what the width of the eye at this
+   clock demands; a slower SDRAM clock (5 x C16M = 78.336 MHz is still an
+   integer divide of the VCO) widens the eye to 8.8 ns but breaks the
+   3:1 slot scheme. Section 4's own result stands unread: the VIAs were
+   never written on either boot.
 
 ---
 
