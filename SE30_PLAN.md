@@ -3531,6 +3531,14 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
     better the sum GLUE hands back over the loop) is cheap insurance
     before trusting the SDRAM path with RAM.
 
+18. **The read capture made corner-proof (decided 2026-09-27, the design
+    in 4.11 item 8): two phase-shifted capture clocks from the PLL, a
+    training read at the end of the power-up ladder choosing between
+    them, multicorner analysis on.** Not started. This is the next
+    session's first work; nothing else moves until the board reads the
+    ROM reliably, and Section 4's result (its VIAs, never yet written on
+    the board) is read only after it.
+
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
 (2.7), and only then the donor `via6522.sv` (MacLC) and `via6522.vhd`
@@ -4299,13 +4307,61 @@ or the flashing question mark.
    qsf at the cost of compile time; (b) the capture itself, at 94 MHz:
    a phase-shifted SDRAM clock from a third PLL output can centre the
    0.78 ns window but cannot widen it; a run-time choice between two
-   captures (the DDIO input cell's rising- and falling-edge registers,
-   picked once at reset by reading back a pattern written to RAM) is
-   robust to the corner spread and is what the width of the eye at this
-   clock demands; a slower SDRAM clock (5 x C16M = 78.336 MHz is still an
-   integer divide of the VCO) widens the eye to 8.8 ns but breaks the
-   3:1 slot scheme. Section 4's own result stands unread: the VIAs were
-   never written on either boot.
+   captures picked once at reset by reading back a pattern written to
+   RAM is robust to the corner spread and is what the width of the eye
+   at this clock demands; a slower SDRAM clock (5 x C16M = 78.336 MHz is
+   still an integer divide of the VCO) widens the eye to 8.8 ns but
+   breaks the 3:1 slot scheme. Section 4's own result stands unread: the
+   VIAs were never written on either boot.
+
+   **DECIDED by Daniel, 2026-09-27: the run-time choice between two
+   captures, and multicorner analysis ON.** The design, as far as it got
+   before the session closed (nothing implemented yet; 3.8 item 18 is
+   the work):
+
+   - **Two capture clocks, not the input cell's two edges.** The cell's
+     rising and falling edges are 5.32 ns apart, and with 4.1-4.7 ns
+     windows that leaves a worst-case margin of 0.6-0.8 ns. Two
+     phase-shifted copies of `clk_mem` from the PLL's spare outputs,
+     **capture A at -1.0 ns and capture B at +2.5 ns** from the present
+     edge, cover the four corners with **at least 1.6 ns** each (from
+     the table above: A serves the slow corners with 1.9/2.2 and
+     2.4/1.8 setup/hold, B the fast ones with 1.6/2.1 and 2.3/2.4). The
+     PLL is fractional but its output phase shifts are ordinary
+     (VCO-phase steps of 0.13 ns at 940 MHz).
+   - **The registers**: `dq_a` on `clk_capa`, `dq_b` on `clk_capb`, both
+     I/O-cell input registers as `dq_q` is now; the controller consumes
+     `cap_sel ? dq_b : dq_a` where it consumes `dq_q` today (sequence 6
+     and 7), a full period on. Constraints: for each capture clock the
+     same two-cycle setup multicycle from `sdram_clk` that `dq_q` has,
+     with the default hold; from `clk_capa` to the consumer a two-cycle
+     setup multicycle with hold end 1 (its edge sits 1 ns before
+     `clk_mem`'s); from `clk_capb` the natural single cycle (8.1 ns).
+     `derive_pll_clocks` names the new clocks.
+   - **The training**, at the end of the power-up ladder, before
+     `ready`: write two distinct words (`$A5C3`, `$3C5A`) to the top two
+     words of the 32 MB (word `$FFFFFE`, above the 8 MB RAM image and the
+     ROM at `$400000`; reserved from now on), then read them back eight
+     times capturing through A and B; a capture that returns the pair
+     every time is chosen, A preferred; neither matching picks A and
+     raises `cap_fail`. `cap_sel` and `cap_fail` go to `PSTA`'s spare
+     bits 20 and 19 so the board says which edge it chose.
+   - **The benches**: `sim/sdram`'s `CLK_TO_PIN` sweep widened to cover
+     both captures (today 2.9-5.3 ns; the model drives data with the
+     datasheet's tAC and tOH and X between, so a wrong capture reads X
+     and the training must reject it); a check that the training picks A
+     at one end of the sweep and B at the other, and that `ready` waits
+     for it; the machine bench's `sd_clk`, `clk_capa`, `clk_capb` made in
+     the bench from `clk_mem` by the same offsets.
+   - **The files**: `rtl/pll/pll_0002.v` and `rtl/pll.v` (two more
+     outputs, `number_of_clocks` 4), `MacSE30.sv` (the wiring),
+     `rtl/se30_sdram.v` (ports `clk_capa`/`clk_capb`, the registers, the
+     training, `cap_sel`/`cap_fail` outputs), `MacSE30.sdc`, `MacSE30.qsf`
+     (`TIMEQUEST_MULTICORNER_ANALYSIS ON`; the flow's "timing met" then
+     means every corner, and `sta_corners.tcl` stays as the readout),
+     `rtl/dbg_probes.sv` (the two bits), `scripts/read_probes.tcl`.
+   - **The gate**: benches green, elaboration, then the compile with
+     Daniel's go-ahead, `sta_corners.tcl` on it, the board.
 
 ---
 
