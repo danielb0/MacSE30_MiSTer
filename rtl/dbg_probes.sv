@@ -57,7 +57,7 @@ module dbg_probes (
 	input  wire [31:0] cap_detail,         // PCAP: {the same four, failures through A[13:0], through B[13:0]} of 65,536 reads each
 	input  wire [31:0] mem_last,           // PMEM: the data of the machine's last acknowledged memory read
 	output wire [31:0] peek_src,           // PPEK's source: {go, hold, we, raw, 5'b0, longword address[22:0]} from the host
-	input  wire [39:0] peek_data,          // PPEK: {operations done[7:0], the longword read (or written, or $5AC0FFEE after a raw experiment)}
+	input  wire [39:0] peek_data,          // PPEK: {operations done[7:0], the longword read (or written; a raw READ's words after a raw experiment)}
 	input  wire [15:0] peek_stat,          // PPKS: {operations done[7:0], 2'b0, raw_ack, hold, req, state[2:0]}
 	output wire [63:0] poke_src,           // PPOK's source: {27'b0, odd, byte enables[3:0], write data[31:0]}
 	output wire [63:0] raw_src,            // PRAW's source: the SDRAM controller's raw experiment schedule word

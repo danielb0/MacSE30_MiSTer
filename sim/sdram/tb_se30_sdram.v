@@ -36,7 +36,15 @@
 //        write mode and is written when unmasked, the two-WRITE form
 //        lands both words, and the LOAD MODE round trip (A9 0 and back)
 //        leaves the CPU port as it was
-//     9. the model reports no datasheet violation anywhere in the run
+//     9. an abandoned read (a start with no request), then 20 us of
+//        nothing: refresh goes on (plan 3.8 item 20: the done state used
+//        to starve it), and a read shaped as the JTAG peek's - a start
+//        for one clk_sys, the request the next, sampled every clk_sys -
+//        returns its own data, not the abandoned read's
+//    10. raw READs: unmasked, the longword; with DQM on the READ's clock
+//        and the next, blanked beats (the mask on the output, two clocks
+//        later) - the masked-read test of the chip's DQM inputs
+//    11. the model reports no datasheet violation anywhere in the run
 //
 // HOW IT DRIVES THE DUT
 //   As the wrapper and GLUE do (plan 3.2's timeline): the address, R/W,
@@ -214,9 +222,20 @@ module tb_se30_sdram;
   // a raw experiment (the controller's header): the schedule word and the
   // word address, the same level handshake as the download's
   function [63:0] raw_word(input [15:0] w0, input [15:0] w1, input [7:0] dqm, input [3:0] oe,
-                           input [3:0] sel, input ap, input second, input kind, input [12:0] mode);
-    raw_word = {mode, kind, second, ap, sel, oe, dqm, w1, w0};
+                           input [2:0] sel, input rd, input ap, input second, input kind, input [12:0] mode);
+    raw_word = {mode, kind, second, ap, rd, sel, oe, dqm, w1, w0};
   endfunction
+  // a read shaped as the JTAG peek's (MacSE30.sv): start for one clk_sys,
+  // the request from the next, the acknowledge sampled every clk_sys
+  task peek_read(input [22:0] a, output [31:0] rd);
+    begin
+      @(posedge clk_sys); #1 cpu_addr = a; cpu_we = 0; cpu_be = 4'hF; cpu_start = 1;
+      @(posedge clk_sys); #1 cpu_start = 0; cpu_req = 1;
+      @(posedge clk_sys); while (!cpu_ack) @(posedge clk_sys);
+      rd = cpu_rdata; #1 cpu_req = 0;
+      while (cpu_ack) @(posedge clk_sys);
+    end
+  endtask
   task raw_op(input [63:0] ctl, input [23:0] a);
     begin
       @(posedge clk_sys); #1 raw_ctl = ctl; raw_addr = a; raw_req = 1;
@@ -393,34 +412,63 @@ module tb_se30_sdram;
     acks_before = acks_late;
     cpu_write(23'h006000, 4'hF, 32'hAAAA5555, ack);                  // words $00C000/$00C001
     // single-write mode (as loaded): the masked-beat schedule writes the one word
-    raw_op(raw_word(16'h1234, 16'h0000, 8'b00_00_11_00, 4'b0011, 4'b0000, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
+    raw_op(raw_word(16'h1234, 16'h0000, 8'b00_00_11_00, 4'b0011, 3'b000, 1'b0, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
     cpu_read(23'h006000, rd, ack);
     check(rd == 32'h12345555, "raw: one WRITE in single-write mode lands one word");
     // burst-write mode: the model masks the second beat as the datasheet says
-    raw_op(raw_word(16'h0, 16'h0, 8'h0, 4'h0, 4'h0, 1'b0, 1'b0, 1'b1, 13'h0021), 24'h0);
-    raw_op(raw_word(16'h2222, 16'h0000, 8'b00_00_11_00, 4'b0011, 4'b0000, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
+    raw_op(raw_word(16'h0, 16'h0, 8'h0, 4'h0, 3'h0, 1'b0, 1'b0, 1'b0, 1'b1, 13'h0021), 24'h0);
+    raw_op(raw_word(16'h2222, 16'h0000, 8'b00_00_11_00, 4'b0011, 3'b000, 1'b0, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
     cpu_read(23'h006000, rd, ack);
     check(rd == 32'h22225555, "raw: burst-write mode, the second beat masked stays unwritten");
-    raw_op(raw_word(16'h4444, 16'h3333, 8'b00_00_00_00, 4'b0011, 4'b0010, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
+    raw_op(raw_word(16'h4444, 16'h3333, 8'b00_00_00_00, 4'b0011, 3'b010, 1'b0, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C000);
     cpu_read(23'h006000, rd, ack);
     check(rd == 32'h44443333, "raw: burst-write mode, the second beat unmasked is written with clock 3's word");
     // (in burst-write mode the second WRITE starts its own burst, whose
     // second beat wraps to the even column: clock 4 must be masked, as the
     // model showed when this schedule first left it open)
-    raw_op(raw_word(16'h5566, 16'h7788, 8'b00_11_00_00, 4'b0011, 4'b0010, 1'b1, 1'b1, 1'b0, 13'h0), 24'h00C000);
+    raw_op(raw_word(16'h5566, 16'h7788, 8'b00_11_00_00, 4'b0011, 3'b010, 1'b0, 1'b1, 1'b1, 1'b0, 13'h0), 24'h00C000);
     cpu_read(23'h006000, rd, ack);
     check(rd == 32'h55667788, "raw: two WRITEs land both words (clock 4 masked)");
     // back to single-write mode; the CPU port and the precharge path
-    raw_op(raw_word(16'h0, 16'h0, 8'h0, 4'h0, 4'h0, 1'b0, 1'b0, 1'b1, 13'h0221), 24'h0);
+    raw_op(raw_word(16'h0, 16'h0, 8'h0, 4'h0, 3'h0, 1'b0, 1'b0, 1'b0, 1'b1, 13'h0221), 24'h0);
     cpu_write(23'h006000, 4'hF, 32'h0BADF00D, ack);
     cpu_read(23'h006000, rd, ack);
     check(rd == 32'h0BADF00D, "raw: after the LOAD MODE round trip a CPU write and read are intact");
-    raw_op(raw_word(16'h9999, 16'h0000, 8'b00_00_00_00, 4'b0001, 4'b0000, 1'b0, 1'b0, 1'b0, 13'h0), 24'h00C001);
+    raw_op(raw_word(16'h9999, 16'h0000, 8'b00_00_00_00, 4'b0001, 3'b000, 1'b0, 1'b0, 1'b0, 1'b0, 13'h0), 24'h00C001);
     cpu_read(23'h006000, rd, ack);
     check(rd == 32'h0BAD9999, "raw: an experiment without auto-precharge (the odd word) is precharged by the port");
     check(acks_late == acks_before, "raw: the experiments left the CPU port on time");
 
-    // 10. the model's verdict
+    // 9. an abandoned read, a long idle, a peek-shaped read (plan 3.8
+    // item 20: the board on compile 10 read one longword behind)
+    $display("---- an abandoned read, 20 us idle, peek-shaped reads");
+    chip.max_ref_gap = 0.0;
+    bus_cycle(0, addrs[2], 4'hF, 32'h0, 1, 0, rd, ack);              // a start with no request
+    #20000;
+    check(chip.max_ref_gap > 0.0 && chip.max_ref_gap <= 7812.5, "refresh went on while an unrequested read waited");
+    peek_read(addrs[5], rd);
+    check(rd == vals[5], "a peek-shaped read after the idle returns its own data, not the abandoned read's");
+    peek_read(addrs[6], rd);
+    check(rd == vals[6], "and the one after it");
+    cpu_read(addrs[7], rd, ack);
+    check(rd == vals[7] && ack == 2, "and a GLUE-shaped read after those is right and on time");
+
+    // 10. raw READs: the mask on the output beats
+    $display("---- raw reads, masked and not");
+    cpu_write(23'h006001, 4'hF, 32'hC0DEF00D, ack);                  // words $00C002/3
+    raw_op(raw_word(16'h0, 16'h0, 8'h00, 4'h0, 3'h0, 1'b1, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C002);
+    check(cpu_rdata == 32'hC0DEF00D, "a raw READ, unmasked, captures the longword");
+    raw_op(raw_word(16'h0, 16'h0, 8'b00_00_11_11, 4'h0, 3'h0, 1'b1, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C002);
+    check(cpu_rdata !== 32'hC0DEF00D, "a raw READ with DQM on clocks 2 and 3 captures blanked beats");
+    $display("      masked read captured %08x (blanked beats read as the floating bus)", cpu_rdata);
+    raw_op(raw_word(16'h0, 16'h0, 8'b00_00_00_11, 4'h0, 3'h0, 1'b1, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C002);
+    $display("      DQM on clock 2 alone: captured %08x", cpu_rdata);
+    raw_op(raw_word(16'h0, 16'h0, 8'b00_00_11_00, 4'h0, 3'h0, 1'b1, 1'b1, 1'b0, 1'b0, 13'h0), 24'h00C002);
+    $display("      DQM on clock 3 alone: captured %08x", cpu_rdata);
+    cpu_read(23'h006001, rd, ack);
+    check(rd == 32'hC0DEF00D, "and the longword is intact after the masked reads");
+
+    // 11. the model's verdict
     check(chip.errors == 0, "no datasheet violation in the whole run");
 
     check(acks_late == late_dl + 2, "only the two late-request cycles and the download collisions were late");

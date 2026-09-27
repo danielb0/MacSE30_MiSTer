@@ -3904,6 +3904,84 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       `read_probes.tcl peek 200000 64` and `scripts/peek_diff.py` (the
       image); `read_probes.tcl dqmtest` (the chip's answer); then the
       Section 4 reading the VIAs were waiting for.
+    - **The board on compile 10 (Daniel flashed, 2026-09-27).** THE IMAGE
+      IS RIGHT AND THE MACHINE RUNS: the deck reads PBLD 9e268c3b, the
+      training 0 of 65,536 failed through either capture, the CPU alive
+      at some three million bus cycles a second with no halt and no bus
+      error, **overlay 0 - the ROM's first VIA write landed and RAM is at
+      0** - and the peek of the ROM's first 64 longwords matches the file
+      (with two exceptions explained under item 20). The CPU sits in a
+      loop at `$408032A0-$40803304` polling the SCC at `$50F04000` for a
+      received character behind a flag bit in D7: the ROM's serial test
+      manager, where the start-up code goes after a failed test, before
+      the video card is set up (Daniel: no code on the screen; the
+      screen flickers at every probe operation because the peek holds
+      the machine in reset). **`dqmtest` (its coherent second run, after
+      the reader's flush below): THE CHIP NEVER HONOURS DQM ON A WRITE.**
+      Rows 0b-0d, the design's own byte-enable writes, wrote every byte;
+      rows 5, 6, 9, 11 and 12 (the mask on the WRITE's own clock, in
+      burst-write and in single-location mode) wrote everything; rows 1
+      and 2 (compile 8's download shape) doubled the word as the ROM
+      was doubled; rows 3, 7, 8, 13 (no mask) read as the datasheet;
+      rows 8 and 9 read `22222222` - the second WRITE's own second beat
+      wrapping to the even column with the floating bus, unmasked, just
+      as the model warned. Everything else the chip does is textbook:
+      `mode 0020` (burst length 1) doubled the first word of every read
+      and `mode 0221` restored it, single writes land, two WRITEs land
+      both words. So the ROM's RAM test, which writes bytes, fails, and
+      the loop above follows. The FPGA's side of the DQM pins is built
+      like the command pins (the fit packs `sd_dqm` and `cmd` alike,
+      both as inverted fast output registers because both reset to
+      ones - the command pins work), timed like them (setup 2.6 / hold
+      2.6 ns at the slow corner, data delay 3.34 / 3.17 against nWE's
+      3.19) and placed on the template's pins (AF13/AG13, the same as
+      MacPlus, MacLC and the Quadra 800, whose `sdram_beat32` says a
+      32-bit write is two accesses and whose 128 MB module selects its
+      second chip through nCS as an address bit - DQM is wired normally
+      on every module). MacLC masks bytes through these two pins and
+      boots System 7 on this board. Nothing in the reports separates
+      "the pin never goes high" from "the chip does not act on it";
+      item 20's masked read does.
+
+20. **The controller's done state, and the masked read (built 2026-09-27,
+    from compile 10's board reading).**
+    - **The one-behind peek, explained and fixed.** The first peek of
+      a session, and the descending peeks, read one longword behind (the
+      first value a word of ROM code: the machine's own last read). The
+      mechanism, reproduced in the bench: a read whose request never
+      arrives waited in S_DONE indefinitely, S_DONE issues no refresh,
+      after 10.9 us the overdue flag blocked every new start, and the next
+      request was acknowledged with the old data; the start then ran and
+      parked its data in the same state. The hold cuts the running
+      machine's cycle short, which is how every session began that way;
+      a write's acknowledge cleared it, which is why `dqmtest` (a write
+      first) was mostly aligned, and the reader now writes a scratch
+      longword first (`005c1ed`). The machine was exposed too: an aborted
+      start followed by a refresh-delayed start and a quick request would
+      have been acknowledged with the aborted read's data, and an aborted
+      start on a machine that then went quiet starved refresh. Two rules
+      in S_DONE: a request after a new start belongs to the start; data
+      nobody asked for by 63 clocks after its start is dropped. Bench
+      section 9 (an abandoned read, 20 us of nothing, peek-shaped reads)
+      fails on the old controller in exactly the board's way and passes
+      on the new; the model's refresh-gap check catches the starvation.
+    - **The masked read.** The raw port's command at clock 2 can be a
+      READ (schedule bit 47; the data captured as a CPU read's and
+      returned by the poke). DQM asserted on the READ's own clock blanks
+      the burst's second beat two clocks later (the model's alignment:
+      DQM on clock 2 blanks the second word, on clock 3 nothing), which
+      the capture sees as the floating bus. `read_probes.tcl dqmread
+      [word]` runs it unmasked and with four masks and says, per word,
+      whether DQM blanked anything. **If every row reads both words, DQM
+      never reaches the chip** and the pins or the module are the
+      question (the emu port list is the template's `emu_ports.vh`, so a
+      pin read-back is not ours to add); **if the masked rows are
+      blanked, the chip sees DQM and it is the write mask alone that it
+      ignores.** Bench section 10 proves the schedule against the model.
+    - Benches: sim/sdram 184 checks, sim/machine 17; the reader's every
+      operation run off the board against stubbed probes. **Compile 11
+      needs Daniel's go-ahead**; on the board: the deck, `dqmread`, and
+      `dqmtest` once more with the fixed controller.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

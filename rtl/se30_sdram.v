@@ -152,8 +152,14 @@
 //     [15:0]  w0, [31:16] w1   two data words
 //     [39:32] DQM on the clocks 2, 3, 4, 5 after the ACTIVE (2 bits each,
 //             [33:32] = clock 2, the WRITE's own)
-//     [43:40] output enable on those clocks, [47:44] which word each drives
-//             (0 = w0, 1 = w1)
+//     [43:40] output enable on those clocks, [46:44] which word clocks 2,
+//             3, 4 drive (0 = w0, 1 = w1; clock 5 drives w0)
+//     [47]    the command at clock 2 is a READ, not a WRITE: the two
+//             words it returns are captured as a CPU read's are and the
+//             poke reports them (the DQM schedule still applies - DQM
+//             blanks a read's output beats two clocks later, which tests
+//             the chip's DQM inputs through a path that owes nothing to
+//             write timing; the output enables are ignored)
 //     [48]    auto-precharge on the (last) WRITE
 //     [49]    a second WRITE on clock 3, to the odd column (then the first
 //             has no auto-precharge and the second carries [48])
@@ -350,7 +356,9 @@ module se30_sdram #(
   // the experiment's fields (the header)
   wire [15:0] r_w0 = xs_raw_ctl[15:0], r_w1 = xs_raw_ctl[31:16];
   wire  [7:0] r_dqm = xs_raw_ctl[39:32];
-  wire  [3:0] r_oe = xs_raw_ctl[43:40], r_sel = xs_raw_ctl[47:44];
+  wire  [3:0] r_oe = xs_raw_ctl[43:40];
+  wire  [3:0] r_sel = {1'b0, xs_raw_ctl[46:44]};
+  wire        r_read = xs_raw_ctl[47];
   wire        r_ap = xs_raw_ctl[48], r_second = xs_raw_ctl[49], r_kind = xs_raw_ctl[50];
   wire [12:0] r_mode = xs_raw_ctl[63:51];
   wire  [1:0] r_bank = xs_raw_addr[23:22];
@@ -573,13 +581,25 @@ module se30_sdram #(
 
         // ----------------------------- acknowledged, or waiting to be
         // A read's data waits here for the request (GLUE's refresh window
-        // can delay it) or for the next start, which means the cycle
-        // never ran.  The acknowledge is a level while the request is up.
+        // can delay it by four C16M, 24 of these clocks) or for the next
+        // start, which means the cycle never ran.  The acknowledge is a
+        // level while the request is up.  Two rules since plan 3.8 item
+        // 20 (the board on compile 10, 2026-09-27): a request that
+        // arrives after a NEW start belongs to that start, not to the
+        // data waiting here (the start may be waiting on busy: without
+        // the rule the request was acknowledged with the old data), and
+        // data nobody has asked for by 63 clocks after its start is
+        // dropped, so the controller returns to S_IDLE, where refresh
+        // runs - waiting here indefinitely starved refresh, set the
+        // overdue flag, and the flag then blocked every new start, which
+        // is how the JTAG peek read one longword behind whenever the
+        // machine's cycle was cut short by the hold.
         S_DONE: begin
-          if (req_q) cpu_ack <= 1;
+          if (req_q && !start_pend) cpu_ack <= 1;
           else begin
             cpu_ack <= 0;
             if (cpu_ack) state <= S_IDLE;
+            else if (since_start == 6'd63) state <= S_IDLE;         // never requested: dropped
             else if (go) begin
               // the next cycle's start, with this one never requested: the
               // data is discarded and the row for the new one opens now
@@ -614,16 +634,19 @@ module se30_sdram #(
             if (seq == 4'd4) begin raw_ack <= 1; state <= S_IDLE; end  // tMRD met by busy
           end else begin
             if (seq == 4'd2) begin
-              cmd <= CMD_WRITE; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap && !r_second, 1'b0, r_col};
+              cmd <= r_read ? CMD_READ : CMD_WRITE; sd_ba <= r_bank;
+              sd_addr <= {2'b00, r_ap && !(r_second && !r_read), 1'b0, r_col};
             end
-            if (seq == 4'd3 && r_second) begin
+            if (seq == 4'd3 && r_second && !r_read) begin
               cmd <= CMD_WRITE; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap, 1'b0, r_col | 9'd1};
             end
             if (seq >= 4'd2 && seq <= 4'd5) begin                   // the schedule
               dq_out <= r_sel[r_k] ? r_w1 : r_w0;
               sd_dqm <= r_dqm[2 * r_k +: 2];
-              dq_oe  <= r_oe[r_k];
+              dq_oe  <= r_oe[r_k] && !r_read;
             end
+            if (r_read && seq == 4'd7) cpu_rdata[31:16] <= dq_m;   // a read's words, as S_ACC takes them
+            if (r_read && seq == 4'd8) cpu_rdata[15:0]  <= dq_m;
             if (seq == 4'd7 && !r_ap) begin                         // tRAS met at 4, tWR after the last data
               cmd <= CMD_PRECHARGE; sd_ba <= r_bank; sd_addr[10] <= 1'b0; busy <= 4'd3;
             end

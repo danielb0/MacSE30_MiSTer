@@ -311,7 +311,7 @@ always @(posedge clk_sys) begin
 		3'd2: if (mem_ack) begin
 			pk_data <= pk_we ? pk_wdata : mem_rdata; pk_req_r <= 0; pk_cnt <= pk_cnt + 1'd1; pk_st <= 0;
 		end
-		3'd3: if (raw_ack) begin raw_req_r <= 0; pk_data <= 32'h5AC0FFEE; pk_cnt <= pk_cnt + 1'd1; pk_st <= 4; end
+		3'd3: if (raw_ack) begin raw_req_r <= 0; pk_data <= mem_rdata; pk_cnt <= pk_cnt + 1'd1; pk_st <= 4; end  // a raw READ's words
 		3'd4: if (!raw_ack) pk_st <= 0;                              // the level clears before the next operation
 		default: pk_st <= 0;
 	endcase

@@ -12,10 +12,14 @@
 #   ... mode <hex>                               LOAD MODE with this value
 #                                                (0221 single-location writes,
 #                                                the design; 0021 burst writes)
-#   ... raw <word hex> <w0> <w1> <dqm> <oe> <sel> [ap] [second]
+#   ... raw <word hex> <w0> <w1> <dqm> <oe> <sel> [ap] [second] [read]
 #                                                one raw experiment (below),
 #                                                the longword read back
 #   ... dqmtest [word hex]                       the write-mask experiment set
+#   ... dqmread [word hex]                       the masked-read test: DQM on
+#                                                a READ blanks its output beats
+#                                                two clocks later, if the chip
+#                                                sees DQM at all
 #
 # The board is never flashed from here (the standing rule); the writes above
 # are to the SDRAM, through the design's own controller, for measurement.
@@ -145,9 +149,10 @@ if {$op ne ""} {
 		write_source_data -instance_index $idx(PPOK) -value_in_hex -value [format %016llX [expr {($be << 32) | ($data & 0xFFFFFFFF)}]]
 		return [pk_op 2 $lw]
 	}
-	# the schedule word: dqm/oe/sel are per clock 2, 3, 4, 5 after the ACTIVE
-	proc raw_ctl {w0 w1 dqm oe sel ap second kind mode} {
-		return [expr {($mode << 51) | ($kind << 50) | ($second << 49) | ($ap << 48) | ($sel << 44) | ($oe << 40) | ($dqm << 32) | (($w1 & 0xFFFF) << 16) | ($w0 & 0xFFFF)}]
+	# the schedule word: dqm/oe are per clock 2, 3, 4, 5 after the ACTIVE,
+	# sel per clock 2, 3, 4; rd makes the command at clock 2 a READ
+	proc raw_ctl {w0 w1 dqm oe sel ap second kind mode {rd 0}} {
+		return [expr {($mode << 51) | ($kind << 50) | ($second << 49) | ($ap << 48) | ($rd << 47) | (($sel & 7) << 44) | ($oe << 40) | ($dqm << 32) | (($w1 & 0xFFFF) << 16) | ($w0 & 0xFFFF)}]
 	}
 	proc pk_raw {word ctl} {
 		global idx
@@ -208,15 +213,39 @@ if {$op ne ""} {
 			puts [format "  LOAD MODE %04X%s" $m [note $st]]
 		}
 		raw {
-			lassign $opargs word w0 w1 dqm oe sel ap second
+			lassign $opargs word w0 w1 dqm oe sel ap second rd
 			if {$ap eq ""} { set ap 1 }
 			if {$second eq ""} { set second 0 }
+			if {$rd eq ""} { set rd 0 }
 			set word [expr 0x$word]
-			set ctl [raw_ctl [expr 0x$w0] [expr 0x$w1] [dqm_field $dqm] [bit_field $oe] [bit_field $sel] $ap $second 0 0]
+			set ctl [raw_ctl [expr 0x$w0] [expr 0x$w1] [dqm_field $dqm] [bit_field $oe] [bit_field $sel] $ap $second 0 0 $rd]
 			lassign [pk_raw $word $ctl] w st
-			puts [format "  raw at word %06X: ctl %016llX%s" $word $ctl [note $st]]
+			puts [format "  raw at word %06X: ctl %016llX%s%s" $word $ctl \
+				[expr {$rd ? [format "   the READ captured %08X" $w] : ""}] [note $st]]
 			lassign [pk_peek [expr {$word >> 1}]] r st
 			puts [format "  %06X: %08X%s" [expr {$word >> 1}] $r [note $st]]
+		}
+		dqmread {
+			# The masked-read test (plan 3.8 item 20).  A READ through the raw
+			# port with DQM on its own clock and the next: the chip blanks the
+			# two output beats two clocks later (DQM's read latency), so the
+			# capture sees the floating bus instead of the words - if, and only
+			# if, DQM reaches the chip.  Nothing here depends on write timing.
+			set word [expr {[llength $opargs] >= 1 ? [expr 0x[lindex $opargs 0]] : 0x400000}]
+			set word [expr {$word & ~1}]
+			lassign [pk_peek [expr {$word >> 1}]] truth st
+			puts [format "masked-read test at word %06X: the longword reads %08X through the CPU port" $word $truth]
+			foreach {name dqm} {"unmasked" 00.00.00.00 "DQM on clocks 2 and 3" 11.11.00.00 "DQM on clock 2" 11.00.00.00 "DQM on clock 3" 00.11.00.00 "DQM on clocks 3 and 4" 00.11.11.00} {
+				set ctl [raw_ctl 0 0 [dqm_field $dqm] 0 0 1 0 0 0 1]
+				lassign [pk_raw $word $ctl] w st
+				set hi [expr {(($w >> 16) & 0xFFFF) == (($truth >> 16) & 0xFFFF)}]
+				set lo [expr {($w & 0xFFFF) == ($truth & 0xFFFF)}]
+				puts [format "  %-24s raw READ captured %08X   %s%s" $name $w \
+					[expr {$hi && $lo ? "both words: DQM did nothing" : (!$hi && !$lo ? "neither word: DQM blanked both beats" : ($hi ? "the second beat blanked (DQM read latency 2)" : "the first beat blanked"))}] [note $st]]
+			}
+			puts "How to read this: if every row reads the words, DQM never reaches the chip"
+			puts "(the pins, the module); if the masked rows are blanked, the chip sees DQM and"
+			puts "the write mask alone is what it ignores."
 		}
 		dqmtest {
 			# The write-mask experiment set (plan 3.8 item 19).  Each row: the
