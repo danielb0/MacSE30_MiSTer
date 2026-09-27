@@ -3490,9 +3490,38 @@ desktop (ADB).
     before, worst setup the framework's HDMI at +0.17, worst hold
     +0.25), fit 45%, five probes; archived as
     `output_files/MacSE30_2654faeb_cl2edge.rbf` / `.sof` (md5
-    `726df519e7f815e0dcce6a21edd5a41b`), tag restored to 0.** **Next:
-    Daniel flashes it; the deck read against item 8, `bitstream=2654faeb`
-    expected.**
+    `726df519e7f815e0dcce6a21edd5a41b`), tag restored to 0.**
+17. **The second board reading, 2026-09-27, compile 5 flashed by Daniel:
+    the SDRAM path works; the machine stops where a machine with no VIAs
+    and no writable RAM must.** `PBLD 2654faeb`; `PACT` **728,640** and
+    frozen; `halted` 1; bus errors 0; `PIFA $0075D1F4`; `PLAS
+    $0000000C`. **Item 8's prediction was misread by the session that
+    wrote it:** `$408036FC/$3700/$3704` are not a VIA1 poll but the
+    fetches of the ROM's **checksum loop** (`$408036F0`: `LEA
+    $40800000,A0; MOVE.L (A0)+,D4; MOVE.L #$1FFFE,D3; loop: MOVE.W
+    (A0)+,D0; ADD.L D0,D1; SUBQ.L #1,D3; BNE.S loop; EOR.L D4,D1; BEQ.S
+    ok; MOVE.W #$FFFF,D6; ok: JMP (A6)`), which reads every word of the
+    ROM: 131,070 iterations of three longword fetches (the 030's cache is
+    off at reset) and one data read = 524,280 bus cycles, about 130 ms -
+    the bench's 215 us saw the first 3,000 of them and called it a poll.
+    So the board ran the whole checksum loop through the SDRAM path and
+    then 204,360 cycles more, against compile 4's 53. Where it stopped:
+    with `OVERLAY` tied to 1 (the machine module's Section 4 stand-in)
+    the ROM's RAM tests and its exception stack fall on the read-only ROM
+    window, so an exception during exception processing - the halt, with
+    the address-error vector at `$C` the last read - is the expected end,
+    and the last fetch in the RAM window (`$0075D1F4`) says the ROM had
+    already moved on to RAM. **Section 3's rung 6 is therefore met as far
+    as this machine can show it: the CPU fetched from ROM and ran the
+    ROM's own 256 KB read test to its end. Whether the checksum PASSED
+    is not observable without the VIAs (the verdict goes to D6 and the
+    Sad Mac code).** Two things carried into Section 4: the machine
+    bench's prediction is only good for the first 130 ms of machine time
+    (make the next prediction from the ROM's code path, not from where
+    a short run happens to sit); and a probe on the checksum verdict
+    (e.g. a fetch seen at `$4080370E`, with the prefetch caveat, or
+    better the sum GLUE hands back over the loop) is cheap insurance
+    before trusting the SDRAM path with RAM.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

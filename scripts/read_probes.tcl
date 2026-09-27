@@ -8,11 +8,12 @@
 #
 # The deck is rtl/dbg_probes.sv: PBLD the bitstream's git SHA, PIFA the last
 # instruction-fetch address, PLAS the last bus-cycle address, PSTA a status
-# word, PACT the bus-cycle count.  The first-boot prediction it is read
-# against is the machine bench's (SE30_PLAN.md 3.8 item 8): PIFA in the
-# three-instruction VIA1 poll $408036FC / $40803700 / $40803704, PLAS the
-# same, PACT advancing between samples, halted 0, bus errors 0.  Anything
-# else means the SDRAM path, not the ROM, is the question.
+# word, PACT the bus-cycle count.  The machine bench's first-boot picture
+# (SE30_PLAN.md 3.8 items 8 and 17): for the first 130 ms the ROM is in its
+# CHECKSUM LOOP at $408036FE, fetching $408036FC / $40803700 / $40803704 and
+# reading every ROM word (524,280 bus cycles); the bench's 215 us sees only
+# the start of it.  Read seconds after boot, PACT past ~524,000 says the
+# loop completed through the SDRAM path; what follows depends on the VIAs.
 #
 # A probe that is NOT in the running bitstream is never reported as data
 # (MacPlus's lesson: an absent probe used to read 0 and every field derived
@@ -107,7 +108,7 @@ for {set n 0} {$n < $samples} {incr n} {
 		set pifa [rd PIFA]
 		set in_poll [expr {$pifa == 0x408036FC || $pifa == 0x40803700 || $pifa == 0x40803704}]
 		puts [format "  PIFA  last fetch  %08X   %s" $pifa \
-			[expr {$in_poll ? "<- in the VIA1 poll the bench predicts" : "<- NOT the predicted poll"}]]
+			[expr {$in_poll ? "<- in the ROM checksum loop" : ""}]]
 	}
 	if {[have PLAS]} {
 		puts [format "  PLAS  last cycle  %08X" [rd PLAS]]
@@ -155,10 +156,10 @@ if {[array size absent] > 0} {
 	puts "############################################################"
 	puts ""
 }
-puts "How to read this (SE30_PLAN.md 3.8 item 8):"
-puts "  * PIFA in 408036FC/40803700/40803704 with PACT advancing and halted 0,"
-puts "    bus errors 0: the ROM ran from reset to the VIA1 poll, as the bench"
-puts "    predicts. The SDRAM path (ROM in SDRAM, GLUE's 4-clock cycle) works."
+puts "How to read this (SE30_PLAN.md 3.8 items 8 and 17):"
+puts "  * PACT above ~524,000: the ROM's 256 KB checksum loop ran to its end"
+puts "    through the SDRAM path (ROM in SDRAM, GLUE's 4-clock cycle)."
+puts "  * PIFA in 408036FC/40803700/40803704 with PACT advancing: still in it."
 puts "  * PACT frozen: the CPU is stalled on a bus cycle; PLAS names it, PSTA's"
 puts "    FC and DSACK* say what kind and whether it was ever acknowledged."
 puts "  * halted 1 or bus errors > 0: a double fault or a BERR; PLAS is the"
