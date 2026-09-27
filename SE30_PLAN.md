@@ -3889,7 +3889,15 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       once off the board against stubbed probes (Python's Tcl), and the
       reader was run against compile 9 on the board, where it reports the
       missing probes and stops.
-    - **Compile 10 needs Daniel's go-ahead.** On the board, in order:
+    - **Compile 10 DONE (Daniel's go-ahead, 2026-09-27): tag `9e268c3b`,
+      23 min, 0 errors, archived as `MacSE30_9e268c3b_singlewr.rbf` (md5
+      90d42175...).** The fit is compiles 8 and 9's again: D1 chains 0 on
+      every DQ pin, the sixteen cells packed, GCLK11/GCLK9, and
+      `sta_corners.tcl` reads the same capture table to the hundredth (A
+      1.63/1.62 and 2.09/1.34 at the slow corners, B 2.00/2.28 and
+      2.40/1.85 at the fast ones; outputs 2.31/2.53 to 3.27/3.01; the
+      worst other SDRAM path 0.94 ns, met at every corner). On the board,
+      in order:
       `read_probes.tcl 3 1.0` (PBLD, the training's counts, the CPU's
       state - with the download now single writes the ROM image should be
       right and the machine should get past the reset vector);
