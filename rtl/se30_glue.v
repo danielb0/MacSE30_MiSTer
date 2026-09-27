@@ -36,9 +36,11 @@
 //                 between.
 //   SCSI handshake  the DACK port at $50006000 strobes only when DRQ is
 //                 high; no DRQ, no acknowledge, and UI6 bus-errors it.
-//   VIA           E-synchronous: the select must be up before E rises, the
-//                 strobe is E's last high clock, the acknowledge comes at
-//                 E's fall.  12 to 32 clocks by alignment.
+//   VIA           E-synchronous, E re-phased to the access (plan 4.4): the
+//                 select is up a clock before E rises, the access's high
+//                 phase is four clocks with the strobe in the last, the
+//                 acknowledge follows the fall.  7 to 16 clocks by phase,
+//                 about 10 on average - the Guide's "average of 0.5 us".
 //   slot          the card's DSACK0*, followed; the video PALs' 5/6/7.
 //   none          $50008000-$5000FFFF, $51000000-$5FFFFFFF, an empty
 //                 slot, the I/O windows with A17 = 1: no acknowledge, and
@@ -51,7 +53,10 @@
 //   unused by these timings.
 //
 // CLOCKS
-//   E is C16M/20, ten clocks high, ten low (duty OPEN, plan 2.13); C3M is
+//   E averages C16M/20 exactly - one rise per 20-clock reference period,
+//   ten high and ten low when idle, the rise taken early and the high
+//   phase cut to four for a VIA access (plan 4.4; the 4-clock phase
+//   minimum is OPEN); C3M is
 //   15 pulses in every 64 clocks, a phase accumulator (pattern OPEN);
 //   refresh is a pulse every 244 clocks, 15.6 us, with a four-clock
 //   window in which a RAM request waits.
@@ -176,16 +181,28 @@ module se30_glue (
   reg        done;                     // acknowledged; DSACK* held until AS* negates
   reg        mem_done;                 // the RAM or ROM port has answered
   reg  [1:0] dcnt;                     // clocks into the device cycle
-  reg        via_armed;                // the VIA select was up when E rose
   reg [31:0] din_r;
   reg  [5:0] scc_hold;
   reg        ff1, ff2, berr_r;         // UI6's timeout, below
 
-  // E and the SCC hold-off
-  reg  [4:0] ecnt;                     // 0..19
-  assign e_clk = (ecnt >= 5'd10);
-  wire e_rise_next = (ecnt == 5'd9);
-  wire e_fall_next = (ecnt == 5'd19);
+  // E (plan 4.4).  eref is the 20-clock reference, E nominally high for
+  // eref 10-19; e_r is the E driven.  Each reference period has one rise:
+  // at eref 9 -> 10 if nothing asked earlier, or as soon as a VIA access
+  // is waiting with E low for four clocks; a period whose rise has been
+  // taken (rose) does not rise again, so after an access E stays low
+  // until the next period's.  A high phase is the reference's ten clocks,
+  // or four when it serves an access (via_armed: a VIA access was waiting
+  // when E rose), or is cut to four when an access arrives during it.
+  // The strobe is the access phase's last high clock.
+  reg  [4:0] eref;
+  reg        e_r, rose, via_armed;
+  reg  [3:0] eph;                      // clocks in E's current phase, saturating
+  assign e_clk = e_r;
+  wire via_pending = !cpu_as_n && d_via && !done;
+  wire e_rise    = !e_r && !rose && (eph >= 4'd3) && (via_pending || eref >= 5'd9);
+  wire e_fall    =  e_r && (via_armed ? (eph == 4'd3) : ((eref == 5'd19) || (via_pending && eph >= 4'd3)));
+  wire e_strobe  =  e_r && via_armed && (eph == 4'd2);   // the next clock is the access's last high one
+  wire e_capture =  e_r && via_armed && (eph == 4'd3);
 
   // the device cycle, counted from the clock AS* is first seen: strobe on
   // clock cap-1, capture (and the acknowledge) on clock cap.  The SCC's
@@ -197,7 +214,7 @@ module se30_glue (
   wire scc_go  = d_scc && (dcnt == 0) && (scc_hold == 0);
   wire capture = active && ( (fixed_port && dcnt == cap && dc_adv)
                           || (d_scc && dcnt == 2'd2)
-                          || (d_via && via_armed && e_fall_next)
+                          || (d_via && e_capture)
                           || (d_slot && !slot_dsack0_n) );
   wire [7:0] rbyte = d_slot ? slot_rdata : dev_rdata;
 
@@ -213,14 +230,14 @@ module se30_glue (
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       active <= 0; done <= 0; mem_done <= 0; dcnt <= 0;
-      via_armed <= 0; din_r <= 0; dev_strobe <= 0; scc_hold <= 0;
+      din_r <= 0; dev_strobe <= 0; scc_hold <= 0;
     end else if (c16_en) begin
       dev_strobe <= 0;
       if (scc_hold != 0) scc_hold <= scc_hold - 1'b1;
 
       if (!active) begin
         if (!cpu_as_n) begin
-          active <= 1; done <= 0; mem_done <= 0; dcnt <= 0; via_armed <= 0;
+          active <= 1; done <= 0; mem_done <= 0; dcnt <= 0;
           if (scc_go) begin dev_strobe <= 1; dcnt <= 1; end
           if (fixed_port && dc_adv) begin dcnt <= 1; if (cap == 2'd1) dev_strobe <= 1; end
         end
@@ -245,10 +262,7 @@ module se30_glue (
             if (dc_adv && dcnt != 2'd3) dcnt <= dcnt + 1'b1;
             if (fixed_port && dc_adv && dcnt == cap - 1'b1) dev_strobe <= 1;
           end
-          if (d_via) begin
-            if (e_rise_next) via_armed <= 1;
-            if (via_armed && ecnt == 5'd18) dev_strobe <= 1;
-          end
+          if (d_via && e_strobe) dev_strobe <= 1;
           if (capture) done <= 1;
         end
       end
@@ -262,8 +276,8 @@ module se30_glue (
 
   // selects follow the cycle, as chip selects follow AS*; the slot's drops
   // with the acknowledge so the video PALs do not take a second cycle
-  assign via1_sel  = active && d_via1;
-  assign via2_sel  = active && d_via2;
+  assign via1_sel  = !cpu_as_n && d_via1;             // with AS*, as a chip select: a clock before E can rise
+  assign via2_sel  = !cpu_as_n && d_via2;
   assign scc_sel   = active && d_scc && (dcnt != 0);
   assign scsi_sel  = active && d_scsi;
   assign scsi_dack = active && (d_dma || d_hs);
@@ -288,12 +302,22 @@ module se30_glue (
   assign rom_addr  = cpu_addr[17:2];
 
   // ------------------------------------------------------------- clocks
+  always @(posedge clk or negedge reset_n)
+    if (!reset_n) begin
+      eref <= 0; e_r <= 0; rose <= 0; via_armed <= 0; eph <= 4'd15;
+    end else if (c16_en) begin
+      eref <= (eref == 5'd19) ? 5'd0 : eref + 1'b1;
+      if (eref == 5'd19) rose <= 0;
+      if (e_rise)      begin e_r <= 1; rose <= 1; via_armed <= via_pending; eph <= 0; end
+      else if (e_fall) begin e_r <= 0; via_armed <= 0; eph <= 0; end
+      else if (eph != 4'd15) eph <= eph + 1'b1;
+    end
+
   reg [6:0] c3m_acc;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      ecnt <= 0; refcnt <= 0; ram_refresh <= 0; c3m_acc <= 0; c3m_en <= 0;
+      refcnt <= 0; ram_refresh <= 0; c3m_acc <= 0; c3m_en <= 0;
     end else if (c16_en) begin
-      ecnt <= e_fall_next ? 5'd0 : ecnt + 1'b1;
       refcnt <= (refcnt == REF_PERIOD - 1) ? 8'd0 : refcnt + 1'b1;
       ram_refresh <= (refcnt == REF_PERIOD - 1);
       if (c3m_acc + 7'd15 >= 7'd64) begin c3m_acc <= c3m_acc + 7'd15 - 7'd64; c3m_en <= 1; end
