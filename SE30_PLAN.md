@@ -4236,6 +4236,33 @@ or the flashing question mark.
    items of 3.7 have their first data, and Section 5 is whichever device
    the ROM stops at.
 
+   **The third board reading, 2026-09-27, compile 6 flashed by Daniel:
+   NOT the prediction, and not a Section 4 picture at all - it is
+   compile 4's (3.8 item 15) to the digit.** `PBLD df8ce0ce`; `PACT` 53
+   and frozen; `halted` 1; bus errors 0; `PIFA $002A0030`; `PLAS $C`;
+   `PVIA $F0000000` (overlay 1, `RAMSIZ` 11, both IERs 0: the VIAs at
+   reset, never written); `PIRQ` 0. The reset vector came out
+   `$002A002A` = the long at `$4` (`4080 002A`) read as its second word
+   twice, the CL2 symptom whose fix (`2654fae`) is in this build and
+   worked on compile 5 (item 17: 728,640 cycles through the same path).
+   What the desk could check, all identical between compiles 5 and 6:
+   the SDRAM data-capture paths (`dq_q` in the I/O cell, setup +0.906,
+   hold +3.232 to three decimals, as compile 3), every SDRAM port
+   constrained (`report_ucp`: only the framework's I2C and audio pins
+   unconstrained), the 44 registers that power up High (all the
+   kernel's), the warning sets (one connectivity count differs), the
+   controller and download RTL untouched since `2654fae`; the download
+   holds the HPS per word until the controller acks, so no init race.
+   Nothing in the Section 4 RTL touches a memory cycle. **So the
+   difference is not one the desk can see, and the next evidence is
+   the board's:** (a) reload the core and read again - the same picture
+   means deterministic, a different one means a power-up or download
+   lottery; (b) re-flash compile 5's archive
+   (`MacSE30_2654faeb_cl2edge.rbf`) - if it no longer runs the checksum
+   loop the environment moved, not the build; (c) then a clean rebuild
+   of the same commit (`rm -rf db incremental_db`) or a seed change,
+   with Daniel's go-ahead, to see whether the fit is the variable.
+
 ---
 
 ## Appendix - where the sources are
