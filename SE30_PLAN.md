@@ -3484,9 +3484,15 @@ desktop (ADB).
     is the same edge pair). The corrected model fails the previous
     controller on "read data matches" and passes the corrected one: SDRAM
     bench 165 checks, the clock-to-pin window 2.9-5.3 ns as before,
-    machine bench 12 with the same prediction. **Next: the fifth
-    compile - ask first - by the ritual; then read the deck against item
-    8 again.**
+    machine bench 12 with the same prediction.
+16. **The fifth compile, 2026-09-27, with Daniel's go-ahead, by the
+    ritual: tag `2654faeb`, TIMING MET (the read capture +0.91 as
+    before, worst setup the framework's HDMI at +0.17, worst hold
+    +0.25), fit 45%, five probes; archived as
+    `output_files/MacSE30_2654faeb_cl2edge.rbf` / `.sof` (md5
+    `726df519e7f815e0dcce6a21edd5a41b`), tag restored to 0.** **Next:
+    Daniel flashes it; the deck read against item 8, `bitstream=2654faeb`
+    expected.**
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
