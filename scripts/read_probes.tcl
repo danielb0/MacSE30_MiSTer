@@ -22,8 +22,15 @@
 
 set samples 1
 set delay   1.0
-if {$argc >= 1} { set samples [lindex $argv 0] }
-if {$argc >= 2} { set delay   [lindex $argv 1] }
+set peek_mode 0
+if {$argc >= 1 && [lindex $argv 0] eq "peek"} {
+	set peek_mode 1
+	set peek_addr  [expr 0x[lindex $argv 1]]
+	set peek_count [expr {$argc >= 3 ? [lindex $argv 2] : 1}]
+} else {
+	if {$argc >= 1} { set samples [lindex $argv 0] }
+	if {$argc >= 2} { set delay   [lindex $argv 1] }
+}
 
 # ---- find the board -------------------------------------------------------
 # The DE10-Nano's on-board blaster enumerates as "DE-SoC [USB-n]", NOT as
@@ -86,6 +93,36 @@ proc rd {name} {
 
 # One session for the whole run, rather than one per probe read.
 start_insystem_source_probe -hardware_name $hw -device_name $dev
+
+# ---- the memory peek (plan 3.8 item 18) --------------------------------------
+#   quartus_stp -t scripts/read_probes.tcl peek <longword address, hex> [count]
+# Holds the machine in reset (its SDRAM contents survive; it restarts from
+# the reset vector when released), reads <count> consecutive longwords of the
+# SDRAM through the controller's own CPU port - the same path, without the
+# CPU - and prints them.  The address is the controller's: the 32 MB as
+# longwords, the ROM image at $200000 (byte $800000, CPU $40800000).  Diff
+# against the ROM file with scripts/peek_diff.py.  Read a range twice to see
+# whether a wrong word is stable (the image) or varies (the read).
+if {$peek_mode} {
+	if {![have PPEK] || ![have PPKS]} { puts "ERROR: this bitstream has no PPEK/PPKS (built before plan 3.8 item 18's peek)"; exit 1 }
+	set go 0
+	for {set i 0} {$i < $peek_count} {incr i} {
+		set a [expr {($peek_addr + $i) & 0x7FFFFF}]
+		set src [expr {(1 << 30) | $a}]
+		set before [expr {[rd PPKS] >> 8}]
+		write_source_data -instance_index $idx(PPEK) -value_in_hex -value [format %08X $src]
+		set go [expr {1 - $go}]
+		write_source_data -instance_index $idx(PPEK) -value_in_hex -value [format %08X [expr {$src | ($go << 31)}]]
+		set tries 0
+		while {([expr {[rd PPKS] >> 8}]) == $before && $tries < 50} { after 2; incr tries }
+		set d [rd PPEK]
+		puts [format "  %06X: %08X%s" $a $d [expr {$tries >= 50 ? "   (no acknowledge: the read never completed)" : ""}]]
+	}
+	write_source_data -instance_index $idx(PPEK) -value_in_hex -value 00000000
+	puts "machine released from reset"
+	end_insystem_source_probe
+	exit 0
+}
 
 set prev_pact -1
 set prev_pifa -1
@@ -154,11 +191,13 @@ for {set n 0} {$n < $samples} {incr n} {
 			[expr {$cap_fail ? "  *** NEITHER PASSED: reads are not trustworthy ***" : ""}]]
 	}
 	if {[have PCAP]} {
-		# {cap_sel, cap_fail, cap_ok[1:0], 6'b0, good_a[5:0], 2'b0, good_b[5:0],
-		#  8'b0}: the training's counts, of 32 reads each (plan 3.8 item 18)
+		# {cap_sel, cap_fail, cap_ok[1:0], fail_a[13:0], fail_b[13:0]}: the
+		# training's failure counts of 65,536 reads each, saturating at 16,383
+		# (plan 3.8 item 18): 0 is a capture with margin, hundreds is one on
+		# the edge of the eye
 		set pcap [rd PCAP]
-		puts [format "  PCAP  %08X   training: %d of 32 reads returned the pair through A, %d of 32 through B" \
-			$pcap [expr {($pcap >> 16) & 0x3F}] [expr {($pcap >> 8) & 0x3F}]]
+		puts [format "  PCAP  %08X   training: %d of 65536 reads failed through A, %d through B" \
+			$pcap [expr {($pcap >> 14) & 0x3FFF}] [expr {$pcap & 0x3FFF}]]
 	}
 	if {[have PMEM]} {
 		set pmem [rd PMEM]

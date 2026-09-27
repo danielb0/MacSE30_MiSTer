@@ -3698,6 +3698,53 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
     `dq_q -> dq_w` at fast -40C. Fit 46%. The board is next: PSTA's
     capture bits, PCAP's counts, PMEM's reset vector.
 
+    **The board on compile 8 (Daniel, 2026-09-27): the training passed A
+    32 of 32 and B 32 of 32, chose A, and the machine halted at 151
+    cycles** - no bus error, the last cycle a supervisor data read at $C
+    (the address-error vector) that returned `$4A6B4A6B`, the last fetch
+    at `$4EFA4EFC`. Against the ROM file (its checksum recomputed and
+    matching, version $178): the long at $C is `$00844EFA`, `$4A6B` first
+    occurs at offset $4620, `$4EFC` occurs nowhere in the ROM, and
+    `$4EFA4EFC` is `$4EFA` doubled with bits 1 and 2 flipped - DQ[1] and
+    DQ[2], two of the three DQ pins on the chip's top edge. After an OSD
+    reset (the SDRAM image kept, the training not rerun) the machine did
+    not halt: ten million cycles and counting, executing from
+    `$8EDAxxxx` with reads returning the address plus two, an unmapped
+    region's echo. So the reads are nondeterministic, the image is not
+    simply corrupt, and a training that passes 32 reads through A is
+    blind to a failure the CPU meets within a hundred: **the crossover
+    case, with A the capture STA puts at -0.14 to +0.29 ns of hold on
+    fast silicon, and the errors on the pins with the longest paths.**
+
+    **Two changes, built 2026-09-27, for compile 9:**
+    - **The training counts.** 65,536 reads per capture on the board (a
+      parameter; the benches set 32), the failures counted, saturating
+      at 16,383; A if clean, else B if clean, else the fewer failures;
+      PCAP carries both counts. A capture one read in a hundred from the
+      edge shows some 650, one in ten thousand about six, a capture with
+      half a nanosecond in hand none: the count is the margin, coarsely,
+      and it is what the rule needed. (The match is counted, not the
+      mismatch: in simulation a wrong capture reads X, and a mismatch
+      test on X is X, which an `if` treats as false - the first form of
+      this counted nothing and called every capture clean.)
+    - **A JTAG memory peek**, because Daniel's question - is it reading
+      the ROM correctly at all? - has never been answered: compile 5's
+      checksum loop ran to its end but its verdict was not captured, and
+      the training proves only that two words the controller wrote come
+      back. `read_probes.tcl peek <longword> [count]` holds the machine
+      in reset, reads consecutive longwords through the controller's own
+      CPU port (the same path, without the CPU), and prints them; the
+      image is at longword $200000; `scripts/peek_diff.py` classifies
+      each wrong longword as doubled (the capture), a neighbour (an
+      address bit) or bit errors (which name DQ pins), and reading a
+      range twice tells a varying read from a stable image. Its first
+      use answers whether the boot0.rom on the card is the 97221136
+      image at all.
+    - The benches: sim/sdram 170 checks and the three moved-eye
+      trainings, now with the counts checked against the verdict.
+    **Compile 9 needs Daniel's go-ahead**; then the peek before anything
+    else: the vector table and a few hundred longwords, twice.
+
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
 (2.7), and only then the donor `via6522.sv` (MacLC) and `via6522.vhd`

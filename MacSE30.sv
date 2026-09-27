@@ -143,7 +143,7 @@ always @(posedge clk_sys) if (ioctl_download && ioctl_index[7:0] == 8'h00) rom_l
 reg        machine_reset_n = 0;
 reg [15:0] rst_cnt = '1;
 always @(posedge clk_sys) begin
-	if (!lock_s[1] || !rom_loaded || !sdram_ready || status[0] || buttons[1] || RESET || ioctl_download) begin
+	if (!lock_s[1] || !rom_loaded || !sdram_ready || status[0] || buttons[1] || RESET || ioctl_download || pk_hold) begin
 		rst_cnt <= '1;
 		machine_reset_n <= 0;
 	end else if (rst_cnt != 0) rst_cnt <= rst_cnt - 1'd1;
@@ -194,17 +194,25 @@ end
 
 wire        sdram_ready, cap_sel;
 wire  [1:0] cap_ok;
-wire  [5:0] cap_good_a, cap_good_b;
+wire [13:0] cap_fail_a, cap_fail_b;
 wire        mem_start, mem_req, mem_we, mem_ack;
 wire [22:0] mem_addr;
 wire  [3:0] mem_be;
 wire [31:0] mem_wdata, mem_rdata;
 
+// The JTAG memory peek (plan 3.8 item 18, the probe deck's PPEK): while
+// pk_hold holds the machine in reset, the peek owns the controller's CPU
+// port and reads the longword pk_addr on each toggle of pk_go.  Without the
+// probes the machine owns the port outright.
+wire        pk_hold, pk_start, pk_req;
+wire [22:0] pk_addr;
+
 se30_sdram sdram
 (
 	.clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(pll_locked),
-	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_good_a(cap_good_a), .cap_good_b(cap_good_b),
-	.cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
+	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
+	.cpu_start(pk_hold ? pk_start : mem_start), .cpu_req(pk_hold ? pk_req : mem_req),
+	.cpu_we(pk_hold ? 1'b0 : mem_we), .cpu_addr(pk_hold ? pk_addr : mem_addr),
 	.cpu_be(mem_be), .cpu_wdata(mem_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),
@@ -257,16 +265,47 @@ assign VGA_B  = {8{~vidout}};
 reg [31:0] mem_last_rdata = 0;
 always @(posedge clk_sys) if (mem_req && mem_ack && !mem_we) mem_last_rdata <= mem_rdata;
 
+// The peek: the source word is {go, hold, 7'b0, longword address[22:0]}.
+// A toggle of go while hold is up runs one read as GLUE would: start for
+// one clk_sys, then the request until the acknowledge, whose data goes to
+// PPEK; PPKS counts the reads done, so the reader knows when to look.
+wire [31:0] pk_src;
+reg  [31:0] pk_data = 0;
+reg   [7:0] pk_cnt = 0;
+reg   [1:0] pk_st = 0;
+reg         pk_go_q = 0, pk_start_r = 0, pk_req_r = 0;
+assign pk_hold  = pk_src[30];
+assign pk_addr  = pk_src[22:0];
+assign pk_start = pk_start_r;
+assign pk_req   = pk_req_r;
+always @(posedge clk_sys) begin
+	pk_go_q    <= pk_src[31];
+	pk_start_r <= 0;
+	case (pk_st)
+		2'd0: if (pk_hold && (pk_src[31] != pk_go_q)) begin pk_start_r <= 1; pk_st <= 1; end
+		2'd1: begin pk_req_r <= 1; pk_st <= 2; end
+		2'd2: if (mem_ack) begin pk_data <= mem_rdata; pk_req_r <= 0; pk_cnt <= pk_cnt + 1'd1; pk_st <= 0; end
+		default: pk_st <= 0;
+	endcase
+	if (!pk_hold) begin pk_req_r <= 0; pk_st <= 0; end
+end
+
 dbg_probes probes
 (
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
 	.dsack_n(dbg_dsack_n), .berr(dbg_berr), .halted(dbg_halted), .sdram_ready(sdram_ready),
 	.sdram_cap({cap_sel, ~|cap_ok, cap_ok}),
-	.cap_detail({cap_sel, ~|cap_ok, cap_ok, 6'b0, cap_good_a, 2'b0, cap_good_b, 8'b0}),
+	.cap_detail({cap_sel, ~|cap_ok, cap_ok, cap_fail_a, cap_fail_b}),
 	.mem_last(mem_last_rdata),
+	.peek_src(pk_src), .peek_data(pk_data), .peek_stat({pk_cnt, 4'b0, pk_hold, pk_req_r, pk_st}),
 	.rom_loaded(rom_loaded), .via_state(dbg_via)
 );
+`else
+assign pk_hold = 1'b0;
+assign pk_start = 1'b0;
+assign pk_req = 1'b0;
+assign pk_addr = 23'd0;
 `endif
 
 endmodule

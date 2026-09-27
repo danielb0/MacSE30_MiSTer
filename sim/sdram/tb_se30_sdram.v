@@ -101,6 +101,7 @@ module tb_se30_sdram;
   wire [31:0] cpu_rdata;
   wire        cpu_ack, ready, cap_sel;
   wire  [1:0] cap_ok;
+  wire [13:0] cap_fail_a, cap_fail_b;
   reg         dl_req = 0;
   reg  [23:0] dl_addr = 0;
   reg  [15:0] dl_data = 0;
@@ -111,9 +112,9 @@ module tb_se30_sdram;
   wire  [1:0] sd_ba, sd_dqm;
   wire [15:0] sd_dq;                               // the DUT's side of the data pins
 
-  se30_sdram dut (
+  se30_sdram #(.TR_READS_LOG2(5)) dut (                 // 32 reads per capture here; 65,536 on the board
     .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(reset_n),
-    .ready(ready), .cap_sel(cap_sel), .cap_ok(cap_ok),
+    .ready(ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
     .cpu_start(cpu_start), .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr),
     .cpu_be(cpu_be), .cpu_wdata(cpu_wdata), .cpu_rdata(cpu_rdata), .cpu_ack(cpu_ack),
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
@@ -232,6 +233,8 @@ module tb_se30_sdram;
     check(chip.mem[24'hFFFFFE] == 16'hA5C3 && chip.mem[24'hFFFFFF] == 16'h5A3C, "the training wrote its pair to the top two words");
     check(cap_ok == EXPECT_OK, "the training's verdict is what these delays call for");
     check(cap_sel == EXPECT_SEL, "and its choice");
+    check((cap_fail_a == 0) == cap_ok[1] && (cap_fail_b == 0) == cap_ok[0] && (cap_ok[1] || cap_fail_a == 32) && (cap_ok[0] || cap_fail_b == 32),
+          "the failure counts agree with the verdict (a capture outside the eye fails every read)");
     $display("      ready at %0.1f us; the training passed A=%0d B=%0d and chose %s", t_ready / 1000.0,
              cap_ok[1], cap_ok[0], cap_sel ? "B (clk_mem - 2.261 ns)" : "A (clk_mem - 0.266 ns)");
     if (TRAIN_ONLY) begin

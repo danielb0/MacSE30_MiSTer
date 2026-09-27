@@ -100,19 +100,26 @@
 //   Writes the complementary pair $A5C3, $5A3C to the top two words of the
 //   32 MB (word $FFFFFE: bank 3, row 8191, columns 510-511 - above the RAM
 //   image and the ROM, reserved for this), then reads them back as one
-//   burst 32 times through A and 32 times through B, consuming dq_m at
-//   the same clocks a CPU read does, so the test is the operational path.
-//   A capture that returns the pair every time passes.  Both pass: A,
-//   because a cold board warms and slows, which widens A's margin (its
-//   failing side is hold, on fast silicon) and narrows B's (setup, on slow
-//   silicon).  Only one passes: that one.  Neither: A, and cap_ok reads
-//   00 - the probe deck's PSTA carries {cap_sel, cap_fail, cap_ok} so the
-//   board says what it chose.  A wrong capture cannot return the pair:
-//   early it reads the bus before the word (the previous word, or the
-//   floating bus holding the last word driven, always $5A3C), late it
-//   reads the second word for the first; the pair differs in every bit.
-//   The choice stands until the PLL loses lock - the machine's resets do
-//   not repeat it.
+//   burst 2^TR_READS_LOG2 times through A and as many through B (65,536
+//   each on the board, 14 ms; the benches set 32), consuming dq_m at the
+//   same clocks a CPU read does, so the test is the operational path, and
+//   COUNTS the reads that did not return the pair.  The choice: no
+//   failure through A - A, because a cold board warms and slows, which
+//   widens A's margin (its failing side is hold, on fast silicon) and
+//   narrows B's (setup, on slow silicon); else no failure through B - B;
+//   else the one with fewer failures, and cap_ok reads 00.  Why count and
+//   not pass or fail (compiles 7 and 8 on the board, 2026-09-27): a
+//   capture 0.1 ns inside the eye passes 32 reads on jitter's good side
+//   and fails one read in a hundred, and the CPU met that read within 151
+//   cycles while the training had called both captures good; with 65,536
+//   reads a one-in-a-hundred capture shows some 650 failures, a one-in-
+//   ten-thousand about six, and a capture with half a nanosecond in hand
+//   shows none - the count is the margin, coarsely.  A wrong capture
+//   cannot return the pair: early it reads the bus before the word (the
+//   previous word, or the floating bus holding the last word driven,
+//   always $5A3C), late it reads the second word for the first; the pair
+//   differs in every bit.  The choice stands until the PLL loses lock -
+//   the machine's resets do not repeat it.
 //
 // PORTS
 //   cpu_*   the clk_sys-domain signals of the machine, registered here first
@@ -124,11 +131,14 @@
 //           acknowledged by a level held until the request drops; served
 //           when the CPU port is idle, never touching cpu_ack.
 //   ready   the power-up ladder and the training have run.
-//   cap_sel the capture in use: 0 = A, 1 = B.  cap_ok {A passed, B passed}.
+//   cap_sel the capture in use: 0 = A, 1 = B.  cap_ok {A clean, B clean};
+//           cap_fail_a/b the failure counts, saturating at 16,383.
 
 `timescale 1ns/1ps
 
-module se30_sdram (
+module se30_sdram #(
+  parameter TR_READS_LOG2 = 16       // the training's reads per capture, as a power of two
+) (
   input             clk,               // 94.0032 MHz, 3 x clk_sys
   input             clk_sdc,           // clk + 1.064 ns: the chip's clock, inverted at the pin
   input             clk_capa,          // clk - 0.266 ns: read-data capture A
@@ -137,9 +147,9 @@ module se30_sdram (
   input             reset_n,
   output            ready,
   output reg        cap_sel,           // the read capture in use: 0 = A, 1 = B
-  output reg  [1:0] cap_ok,            // the training's verdict: {A passed, B passed}
-  output reg  [5:0] cap_good_a,        // reads of TR_READS that returned the pair through A
-  output reg  [5:0] cap_good_b,        //   and through B (the probe deck's PCAP)
+  output reg  [1:0] cap_ok,            // the training's verdict: {A clean, B clean}
+  output reg [13:0] cap_fail_a,        // reads that did not return the pair through A, saturating
+  output reg [13:0] cap_fail_b,        //   and through B (the probe deck's PCAP)
 
   // the CPU port (clk_sys domain)
   input             cpu_start,         // ECS with a RAM/ROM address: the S0 half-clock
@@ -195,7 +205,7 @@ module se30_sdram (
   localparam  [1:0] TR_BANK = 2'd3;
   localparam [12:0] TR_ROW  = 13'd8191;
   localparam  [8:0] TR_COL  = 9'd510;
-  localparam  [5:0] TR_READS = 6'd32;
+  localparam [17:0] TR_READS = 18'd1 << TR_READS_LOG2;
 
   reg  [3:0] cmd;
   assign {sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n} = cmd;
@@ -308,7 +318,11 @@ module se30_sdram (
   reg  [3:0] init_step;                // 0 pause, 1 precharge, 2-9 refreshes, 10 mode, 11 settle
   reg  [1:0] tr_step;                  // the training: 0 write the pair, 1 read it, 2 judge and switch
   reg        tr_pass;                  // 0 testing A, 1 testing B
-  reg  [5:0] tr_n, tr_good;            // reads done in this pass, reads that returned the pair
+  reg [17:0] tr_n;                     // reads done in this pass
+  reg [17:0] tr_good;                  // reads that returned the pair (counted as matches: an X on a
+                                       //   wrong capture in simulation must count as a failure)
+  wire [17:0] tr_bad = TR_READS - tr_good;
+  wire [13:0] tr_fail = (tr_bad > 18'd16383) ? 14'h3FFF : tr_bad[13:0];
   reg [15:0] tr_w1;                    // the burst's first word, held for the compare
   assign ready = (state != S_INIT) && (state != S_TRAIN);
   // a CPU access may begin: a start (this clock or pending) or a request
@@ -323,7 +337,7 @@ module se30_sdram (
       since_start <= 6'd63;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
       cap_sel <= 0; cap_ok <= 2'b00; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
-      cap_good_a <= 0; cap_good_b <= 0;
+      cap_fail_a <= 0; cap_fail_b <= 0;
     end else begin
       cmd    <= CMD_NOP;
       dq_oe  <= 0;
@@ -389,11 +403,12 @@ module se30_sdram (
             default: begin                                          // judge this pass; switch; settle 16 clocks
               if (seq == 4'd0) begin
                 if (!tr_pass) begin
-                  cap_ok[1] <= (tr_good == TR_READS); cap_good_a <= tr_good;
+                  cap_ok[1] <= (tr_fail == 0); cap_fail_a <= tr_fail;
                   cap_sel <= 1;                                     // B next
                 end else begin
-                  cap_ok[0] <= (tr_good == TR_READS); cap_good_b <= tr_good;
-                  cap_sel <= cap_ok[1] ? 1'b0 : (tr_good == TR_READS);   // A if it passed, else B if it did, else A
+                  cap_ok[0] <= (tr_fail == 0); cap_fail_b <= tr_fail;
+                  // A if clean; else B if clean; else the fewer failures (A on a tie)
+                  cap_sel <= (cap_fail_a == 0) ? 1'b0 : (tr_fail == 0) ? 1'b1 : (tr_fail < cap_fail_a);
                 end
                 tr_n <= 0; tr_good <= 0;
               end

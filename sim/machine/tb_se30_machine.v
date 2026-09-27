@@ -72,7 +72,7 @@ module tb_se30_machine;
   wire  [1:0] sd_ba, sd_dqm;
   wire [15:0] sd_dq;
 
-  se30_sdram sdram (
+  se30_sdram #(.TR_READS_LOG2(5)) sdram (               // 32 reads per capture here; 65,536 on the board
     .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(sdram_reset_n),
     .ready(ready), .cap_sel(cap_sel), .cap_ok(cap_ok),
     .cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
