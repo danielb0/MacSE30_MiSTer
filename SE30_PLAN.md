@@ -4053,6 +4053,13 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       operations run off the board. (A reader gotcha, twice now: a new
       operation's name must be in the `lsearch` list at the top of
       read_probes.tcl or the script takes it for a sample count and loops.)
+    - **The module (Daniel, 2026-09-27): 128 MB** - two AS4C32M16SB, the
+      second chip selected through nCS as an address bit (the Quadra 800
+      core's `SDRAM_nCS = chip`); DQML/DQMH reach both chips. Our
+      controller holds nCS low and so initialises and uses chip 0 alone,
+      the 32 MB the design assumes; chip 1 is untouched until the 128 MB
+      option of 1.5 and 1.11 is built. MacPlus and Ramtest run clean on
+      it, so its DQM traces are good.
     - **Compile 12 needs Daniel's go-ahead.** On the board: `dqmread`
       first (the reset-value change alone may end this); if still
       unblanked, `dqmforce 1` and the meter on pins 15 and 39.
