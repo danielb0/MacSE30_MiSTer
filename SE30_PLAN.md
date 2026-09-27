@@ -4222,8 +4222,15 @@ or the flashing question mark.
 6. ~~**`rtl/dbg_probes.sv`**: `PVIA` and `PIRQ`; `scripts/read_probes.tcl`
    reads them.~~ **Done 2026-09-27.**
 7. ~~Elaboration~~ **done 2026-09-27: 0 errors, 82 warnings (85 at 3.8
-   item 9; none in the new files).** Then the compile, **with Daniel's
-   go-ahead**, the ritual of 3.6 item 5; the archive.
+   item 9; none in the new files).** ~~Then the compile, **with Daniel's
+   go-ahead**, the ritual of 3.6 item 5; the archive.~~ **The sixth
+   compile, 2026-09-27, with Daniel's go-ahead, by the ritual: tag
+   `df8ce0ce`, 20m52s, TIMING MET (the read capture +0.91 as before,
+   `sdram_clk` +1.74, worst setup the framework's HDMI at +0.26, worst
+   hold +0.26), fit 48% (45% before the VIAs), the known 4-node kernel
+   loop (3.7) the only 332125, all seven probes in the fit; archived as
+   `output_files/MacSE30_df8ce0ce_vias.rbf` / `.sof` (md5
+   `b7bfdccda677f918ccc27795a8d6fdb6`), tag restored to 0.**
 8. The board: Daniel flashes; the probes and the screen against the
    prediction; the reading recorded here. Then the empty-bank and 128 MB
    items of 3.7 have their first data, and Section 5 is whichever device
