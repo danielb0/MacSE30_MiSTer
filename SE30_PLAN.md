@@ -3818,22 +3818,26 @@ drives is that reference displaced by a bounded phase shift:
    `DSACK0*` follows the strobe as row 3 has it. If E is high at A, having
    been high for H clocks: E falls at the first clock by which the high
    phase has lasted at least 4, then low for 4, then the same 4-clock
-   high phase. Cycle lengths S0 to S5: **7 to 10 clocks when E was low,
-   10 to 14 when it was high**; the mean over a uniform phase is about 9
-   clocks = 0.57 µs, against the *Guide*'s "average of 0.5 µs".
-3. Every forced edge moves E's phase against the reference by up to half a
-   period. GLUE tracks the accumulated shift and works it off **one clock
-   per phase**: after the access, each E phase is 10 clocks plus one if E
-   is ahead of the reference, minus one if behind, until they coincide. No
-   phase is ever shorter than 4 clocks.
-4. **The bound:** a forced edge that would take the accumulated shift
-   beyond half a period is not taken; the access then waits for E's own
-   next edge, as the SE's would. So over any window of 20N clocks E rises
-   N ± 1 times whatever the VIA traffic - the timers' rate is exactly
-   C16M/20 in the long run, which is what "maintain an average frequency
-   of 783.36 kHz" has to mean for the Time Manager to keep time, and the
-   only cost of a saturating VIA polling loop is that its accesses slow to
-   the SE's speed rather than E running fast.
+   high phase. Cycle lengths S0 to S5: **about 6 to 9 clocks when E was
+   low, 10 to 15 when it was high** (the exact figures are the bench's,
+   4.11 item 3); the mean over a uniform phase is about 9 clocks =
+   0.57 µs, against the *Guide*'s "average of 0.5 µs".
+3. **Each reference period has exactly one E rise**, nominally at its
+   midpoint. An access may take it early - any time from the period's
+   start, once E has been low 4 clocks - and a period whose rise has been
+   taken does not rise again: after the access's 4-clock high phase E
+   stays low until the next period's rise, which comes at its nominal
+   time. So the phase shift is never more than half a period and is
+   repaid by the very next rise, with no bookkeeping. A forced fall (E
+   high at A) likewise only ends the current high phase early; the rise
+   that follows is the next period's, taken at its earliest. (Written
+   first as a shift counter worked off one clock per phase; replaced by
+   this before the RTL, 4.11 item 3.)
+4. **The bound follows:** over any window of 20N clocks E rises N ± 1
+   times whatever the VIA traffic - the timers' rate is exactly C16M/20,
+   which is what "maintain an average frequency of 783.36 kHz" has to
+   mean for the Time Manager to keep time. A run of back-to-back accesses
+   gets one access per period, the SE's rate, rather than E running fast.
 
 Both VIAs share one E (sheet 4: `E` to both `PH0` pins), so a phase shift
 for VIA1's access is seen by VIA2's timers too, and the bound is what

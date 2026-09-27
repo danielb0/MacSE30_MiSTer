@@ -188,25 +188,30 @@ module tb_se30_glue;
   reg        e_q = 0;
   integer    sel_high_clocks = 0;          // clocks the VIA select has been continuously high
   integer    e_high_clocks = 0;            // clocks E has been continuously high
-  integer    e_period = 0, e_last_rise = -1;
+  integer    e_low_clocks = 0;             // clocks E has been continuously low
+  integer    e_rises = 0, e_phase_min = 100;   // plan 4.4: rises counted, the shortest phase seen
   integer    scc_last_end = -1000, scc_gap_min = 1000000, cyc_clock = 0;
   always @(posedge clk) begin
     cyc_clock <= cyc_clock + 1;
     e_q <= e_clk;
     if (e_clk && !e_q) begin
-      if (e_last_rise >= 0) e_period = cyc_clock - e_last_rise;
-      e_last_rise = cyc_clock;
+      e_rises = e_rises + 1;
+      if (e_low_clocks > 0 && e_low_clocks < e_phase_min) e_phase_min = e_low_clocks;
       e_high_clocks = 0;
     end
-    if (e_clk) e_high_clocks = e_high_clocks + 1;
+    if (!e_clk && e_q) begin
+      if (e_high_clocks < e_phase_min) e_phase_min = e_high_clocks;
+      e_low_clocks = 0;
+    end
+    if (e_clk) e_high_clocks = e_high_clocks + 1; else e_low_clocks = e_low_clocks + 1;
     sel_high_clocks = (via1_sel || via2_sel) ? sel_high_clocks + 1 : 0;
     if (dev_strobe) begin
       last_addr = dev_addr; last_wdata = dev_wdata; last_rw = dev_rw;
       if (via1_sel || via2_sel) begin
         via_strobes = via_strobes + 1;
-        // the strobe is the E falling edge: E is high now, low next clock, and
-        // the select has been high at least as long as E has
-        if (!(e_clk && sel_high_clocks >= e_high_clocks)) via_phase_bad = via_phase_bad + 1;
+        // the strobe is E's last high clock, and the select was up at least
+        // a clock before E rose (the 6522's CS setup to phi2, plan 4.4)
+        if (!(e_clk && sel_high_clocks > e_high_clocks)) via_phase_bad = via_phase_bad + 1;
       end
       if (scc_sel)  begin
         scc_strobes = scc_strobes + 1;
@@ -377,16 +382,34 @@ module tb_se30_glue;
       begin repeat (12) @(posedge clk); #1; scsi_drq = 1; repeat (6) @(posedge clk); #1; scsi_drq = 0; end
     join
     check(n >= 13 && n <= 16, "SCSI handshake: DSACK follows DRQ (raised after 12 clocks)", n, 14);
-    lo = 1000; hi = 0;
-    for (k = 0; k < 24; k = k + 1) begin
+    // plan 4.4: E is re-phased to the access - one E rise per 20-clock
+    // reference period, takeable early once E has been low 4 clocks; the
+    // access high phase is 4 clocks; a used rise is not taken again
+    lo = 1000; hi = 0; m = 0;
+    for (k = 0; k < 40; k = k + 1) begin
+      repeat (17) @(posedge clk);                       // idle: E back on the reference
       rd_byte(32'h50000200, 100);
-      if (n < lo) lo = n; if (n > hi) hi = n;
-      repeat (k) @(posedge clk);
+      if (n < lo) lo = n; if (n > hi) hi = n; m = m + n;
+      repeat (k) @(posedge clk);                        // sweep the phase
     end
-    check(lo >= 12 && lo <= 14, "VIA cycle, best phase, 12-14 clocks", lo, 13);
-    check(hi >= 30 && hi <= 34, "VIA cycle, worst phase, 30-34 clocks", hi, 33);
-    check(via_phase_bad == 0, "every VIA strobe had the select valid through the E-high phase", via_phase_bad, 0);
-    check(e_period == 20, "E period 20 clocks (783.36 kHz)", e_period, 20);
+    check(lo >= 6 && lo <= 9, "VIA cycle, best phase (E low), 6-9 clocks", lo, 7);
+    check(hi >= 10 && hi <= 16, "VIA cycle, worst phase (E high), 10-16 clocks", hi, 15);
+    check(m >= 40 * 8 && m <= 40 * 11, "VIA cycle, mean over the phases 8-11 clocks (the Guide's 0.5 us average)", m / 40, 9);
+    check(via_phase_bad == 0, "every VIA strobe: select up a clock before E rose, held through the E-high phase", via_phase_bad, 0);
+    e_phase_min = 100;
+    t0 = e_rises; repeat (20000) @(posedge clk);
+    check(e_rises - t0 == 1000, "E idle: 1000 rises in 20000 clocks (783.36 kHz)", e_rises - t0, 1000);
+    t0 = e_rises; t1 = cyc_clock;
+    for (k = 0; k < 100; k = k + 1) begin repeat (137) @(posedge clk); rd_byte(32'h50000200, 100); end
+    m = (cyc_clock - t1) / 20;
+    check(e_rises - t0 >= m - 1 && e_rises - t0 <= m + 1, "E with sparse VIA accesses: clocks/20 +-1 rises", e_rises - t0, m);
+    t0 = e_rises; t1 = cyc_clock; m = 0;
+    for (k = 0; k < 900; k = k + 1) begin rd_byte(32'h50000200, 100); if (n > 0) m = m + 1; end
+    i = (cyc_clock - t1) / 20;
+    check(e_rises - t0 >= i - 1 && e_rises - t0 <= i + 1, "E under 900 back-to-back VIA accesses: clocks/20 +-1 rises (one access a period)", e_rises - t0, i);
+    check(m == 900, "... and every access completed", m, 900);
+    check((cyc_clock - t1) <= 900 * 24, "... at no worse than one a period", cyc_clock - t1, 900 * 20);
+    check(e_phase_min >= 4, "no E phase shorter than 4 clocks throughout", e_phase_min, 4);
 
     // ---- 6. ports
     $display("---- 6. an 8-bit device is on D31-D24 with DSACK0* alone; one device cycle per bus cycle");
