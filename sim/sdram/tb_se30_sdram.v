@@ -75,8 +75,25 @@ module tb_se30_sdram;
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
 
+  // The chip's clock reaches its pin about 4 ns after the fabric's edge
+  // (the second compile's STA, 2026-09-27: -3.97 ns of clock skew on the
+  // read-data paths).  The controller's read capture is designed around
+  // that (rtl/se30_sdram.v's timeline, MacSE30.sdc): without the delay
+  // the model's data eye [6.0, 13.1] ns after the fabric's falling edge
+  // misses the capture edge at 15.96 ns, and this bench would fail on a
+  // design the hardware runs.  The bench passes for any delay from 2.9 ns
+  // (below it the word is X again by the capture edge: the hold side of
+  // the eye) to 5.3 ns; above that the bound is the bench's, not the
+  // design's: our command and address pins change here with no delay of
+  // their own, so a chip clock delayed past half a period samples the next
+  // clock's command (the hardware's outputs are delayed like its clock,
+  // and MacSE30.sdc's output delays are what check them).
+  parameter  real CLK_TO_PIN = 4.0;                  // iverilog -P tb_se30_sdram.CLK_TO_PIN=x to probe the range
+  wire sd_clk_chip;
+  assign #(CLK_TO_PIN) sd_clk_chip = sd_clk;
+
   sdram_model chip (
-    .clk(sd_clk), .cke(sd_cke), .cs_n(sd_cs_n), .ras_n(sd_ras_n), .cas_n(sd_cas_n), .we_n(sd_we_n),
+    .clk(sd_clk_chip), .cke(sd_cke), .cs_n(sd_cs_n), .ras_n(sd_ras_n), .cas_n(sd_cas_n), .we_n(sd_we_n),
     .ba(sd_ba), .addr(sd_addr), .dqm(sd_dqm), .dq(sd_dq));
 
   // ------------------------------------------------------------ scoring

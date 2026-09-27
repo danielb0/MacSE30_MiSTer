@@ -56,8 +56,15 @@ module tb_se30_machine;
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
 
+  // the chip's clock reaches its pin about 4 ns after the fabric's edge,
+  // and the controller's read capture is designed around that: see
+  // sim/sdram/tb_se30_sdram.v, which explains the number
+  localparam real CLK_TO_PIN = 4.0;
+  wire sd_clk_chip;
+  assign #(CLK_TO_PIN) sd_clk_chip = sd_clk;
+
   sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'h400000)) chip (
-    .clk(sd_clk), .cke(sd_cke), .cs_n(sd_cs_n), .ras_n(sd_ras_n), .cas_n(sd_cas_n), .we_n(sd_we_n),
+    .clk(sd_clk_chip), .cke(sd_cke), .cs_n(sd_cs_n), .ras_n(sd_ras_n), .cas_n(sd_cas_n), .we_n(sd_we_n),
     .ba(sd_ba), .addr(sd_addr), .dqm(sd_dqm), .dq(sd_dq));
 
   // ---------------------------------------------------------- machine

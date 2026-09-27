@@ -38,11 +38,14 @@ set_multicycle_path -hold  -end 1 -from [get_clocks {emu|pll|pll_inst|altera_pll
 # the same chips, our clock).
 # ----------------------------------------------------------------------------
 # SDRAM_CLK is altddio_out(datain_h=0, datain_l=1) of clk_mem, i.e. the
-# INVERTED clk_mem, so the chip's rising edges are the FPGA's falling edges.
-# rtl/se30_sdram.v captures read data in an I/O-cell register on the falling
-# edge of clk_mem (the chip's next edge after the launch), re-times it once
-# in the fabric on the following falling edge and consumes it on a rising
-# edge after that - all ordinary same-clock paths STA checks natively.
+# INVERTED clk_mem, so the chip's rising edges are the FPGA's falling edges -
+# at the pin, about 4 ns later than in the fabric (the second compile's STA,
+# 2026-09-27: -3.97 ns of clock skew on the read-data paths, the clock's
+# delay through the DDR cell and the pin).  rtl/se30_sdram.v captures read
+# data in an I/O-cell register (dq_q) on the RISING edge of clk_mem one and
+# a half periods after the launch edge, and consumes it in the fabric on the
+# rising edge after that, an ordinary same-clock path.  The capture edge is
+# a multicycle, stated below.
 #
 # Delays: W9825G6KH-6 and AS4C32M16SB-7, the worse of the two at each row
 # (plan 3.2's table): tAC(CL2) 6.0 ns, tOH 2.5 ns, tIS/tDS 1.5 ns, tIH/tDH
@@ -58,6 +61,22 @@ create_generated_clock -name sdram_clk -invert \
 # chip -> FPGA (read data)
 set_input_delay  -clock sdram_clk -max 6.5 [get_ports {SDRAM_DQ[*]}]
 set_input_delay  -clock sdram_clk -min 2.5 [get_ports {SDRAM_DQ[*]}]
+
+# The read-data capture edge.  A word is at the pin from (skew 4.0 + tAC 6.5)
+# 10.5 ns after the FPGA's falling edge to (skew + the 10.64 ns period + tOH
+# 2.5) 17.1 ns after it.  The default capture edge, the next falling edge at
+# 10.64 ns, is 0.1 ns into that eye: the second compile's -2.49 ns (MacLC's
+# choice of edge, which its slower clock affords).  The rising edge after,
+# at 15.96 ns, is 5.4 ns into the eye with 1.1 ns to spare, and that is the
+# edge dq_q clocks on.  From sdram_clk's rising edge the first rising edge of
+# clk_mem is half a period away, so the capture edge is the SECOND: a
+# two-cycle setup multicycle.  NO hold multicycle goes with it, unlike the
+# xs_* credit above: the default hold check that a setup multicycle of 2
+# brings - the same launch edge against the capture edge one period earlier,
+# a 5.3 ns relationship - is exactly the physical requirement that the NEXT
+# word (launched a period later) must not reach the register before the
+# capture edge, and the STA must check it.
+set_multicycle_path -setup -end 2 -from [get_clocks {sdram_clk}] -to [get_keepers {*|se30_sdram:sdram|dq_q[*]}]
 
 # FPGA -> chip (address, command, write data, byte masks)
 set SDRAM_OUT [get_ports {SDRAM_A[*] SDRAM_BA[*] SDRAM_DQ[*] SDRAM_DQMH SDRAM_DQML SDRAM_nCAS SDRAM_nRAS SDRAM_nWE SDRAM_nCS SDRAM_CKE}]

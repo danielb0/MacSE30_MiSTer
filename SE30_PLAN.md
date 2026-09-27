@@ -3011,14 +3011,27 @@ two at every row, in clocks of 10.64 ns):
 So the read of 3.2's table runs (as revised after the first compile, 3.8
 item 9): the S0 address is sampled at clock 2, ACTIVE at 3, READ at 5;
 CL2 gives the first word after the chip's edge at 7.5 and the second at
-8.5; captured on the FPGA's falling edges at 8.5 and 9.5 (each word is
-valid from `tAC` 6.0 ns after its launch edge to `tOH` 2.5 ns after the
-next: a 7.1 ns eye, the capture edge inside it by 4.6 ns of setup and
-2.5 ns of hold), re-timed at 9.5 and 10.5, presented with the acknowledge
-at 11 - one clock before GLUE's sampling edge at 12. The eye figures
-apply because `SDRAM_CLK` is the inverted `clk_mem` (MacLC's
-`altddio_out`), so the chip's rising edges are the FPGA's falling ones;
-the sdc constraints are MacLC's 2026-09-12 set with the same chip numbers.
+8.5 - the chip's edges, which are the FPGA's falling edges plus the
+clock's delay to the pin, 4 ns (the second compile's STA, below); each
+word is at the FPGA's pin from 10.5 ns after the fabric's falling edge
+(skew + `tAC` 6.0 + 0.5 of trace) to 17.1 ns after it (skew + the period
++ `tOH` 2.5), a 6.6 ns eye. The words are captured in the I/O cell on the
+FPGA's **rising** edges at 9 and 10, 15.96 ns after the falling edge:
+5.4 ns of setup and 1.1 ns of hold inside the eye. The falling edge at
+10.64 ns (MacLC's choice, and this plan's until the second compile) is
+0.1 ns into the eye - the -2.49 ns of the second compile. The capture is
+then taken into the read-data register a full period later, presented
+with the acknowledge at 11 - one clock before GLUE's sampling edge at
+12. `SDRAM_CLK` is the inverted `clk_mem` (MacLC's `altddio_out`), so the
+chip's rising edges are the FPGA's falling ones; the sdc constraints are
+MacLC's 2026-09-12 set with the same chip numbers, plus a two-cycle setup
+multicycle on the capture registers that states the rising-edge capture
+(and deliberately no hold multicycle: the default hold check that comes
+with it is the next word's arrival, the real requirement). The benches
+model the 4 ns on the chip's clock; without it the model's eye misses the
+capture edge, and the bench's passing window (2.9 to 5.3 ns, the top
+being the bench's zero-delay command pins) is written in
+`sim/sdram/tb_se30_sdram.v`.
 A write issues WRITE at clock 6, once `AS*` has confirmed the cycle (the
 request is sampled at 5), with the first word and its `DQM` from
 `be[3:2]`, the second word at 7. A read is issued speculatively at 5 - a
@@ -3356,7 +3369,21 @@ desktop (ADB).
     (they power up high), upstream's, harmless while `nReset` initialises
     the ATC - to be checked in the PMMU source. `scripts/sta_paths.tcl`
     (ours) prints the worst paths per domain from a compiled design.
-    **Next: the second compile with the fix - ask first.**
+11. **The second compile, 2026-09-27, with Daniel's go-ahead, the
+    sample-on-the-second-edge fix in: 17 min, an RBF produced, fit 43%,
+    timing NOT met, -2.491 ns.** The `clk_sys -> clk_mem` paths are gone
+    (the multicycle did its job) and the one violation left is the SDRAM
+    read capture, `SDRAM_DQ -> dq_q`: relationship 10.6 ns, clock skew
+    -3.97 ns (the clock's delay through the DDR cell to the pin, which the
+    chip's launch inherits), input delay 6.5, pin-to-register 2.35. Hold
+    met everywhere. **Fixed (this item): the capture moves to the rising
+    edge** (3.2's revised timeline), one register fewer, the same
+    sequence numbers; `MacSE30.sdc` gains a two-cycle setup multicycle on
+    `dq_q` and no hold credit; both benches model the 4 ns on the chip's
+    clock (the range they pass over is in the bench). SDRAM bench 165
+    checks, machine bench 12 with the same probe prediction. The -2.5 ns
+    RBF was not flashed. **Next: the third compile, with Daniel's
+    go-ahead given for it.**
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

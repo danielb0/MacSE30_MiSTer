@@ -32,13 +32,22 @@
 //       registers below)
 //    3  ACTIVE                              chip 3.5
 //    5  READ with auto-precharge            chip 5.5   (tRCD 21.28 >= 21)
-//    7.5, 8.5  the chip launches the two words (CL2)
-//    8.5, 9.5  captured in the I/O cell on the falling edge (dq_q): 6.0 ns
-//              of tAC to 2.5 ns of tOH after the next edge is a 7.1 ns eye
-//    9.5, 10.5 re-timed once in the fabric (dq_r), a full period from the
-//              I/O cell, as MacLC's 2026-09-12 capture work found necessary
-//   10, 11     taken into cpu_rdata on the rising edge, half a period from
-//              dq_r; cpu_ack with the second word at 11
+//    7.5, 8.5  the chip launches the two words (CL2) - at ITS edges, which
+//              are ours plus the clock's 4 ns to the pin (the second
+//              compile's STA: -3.97 ns of skew on this path), so each word
+//              is at our pin from 10.5 ns after our falling edge (skew + tAC
+//              6.0 + trace) to 17.1 ns after it (skew + a period + tOH 2.5)
+//    9, 10     captured in the I/O cell on the RISING edge (dq_q), 15.96 ns
+//              after the falling edge: 5.4 ns of setup and 1.1 ns of hold
+//              inside that eye.  The falling edge at 10.64 ns, MacLC's
+//              choice, is 0.1 ns into the eye: -2.49 ns in the second
+//              compile.  MacSE30.sdc states the rising-edge capture as a
+//              two-cycle setup multicycle on dq_q; the default hold check
+//              that comes with it is the real one (the next word's arrival)
+//   10, 11     taken into cpu_rdata on the rising edge, a full period from
+//              the I/O cell (MacLC's 2026-09-12 capture work found a full
+//              period from the cell necessary); cpu_ack with the second
+//              word at 11
 //   12  GLUE samples: one clock in hand.
 //   A write: WRITE at 6 (cpu_req, AS* having asserted at S1, was sampled
 //   at 5) with the high word and its DQM from be[3:2], the low word at 7;
@@ -119,9 +128,10 @@ module se30_sdram (
   assign sd_cke = 1'b1;
 
   // ------------------------------------------- the clock to the chip
-  // The inverted clk: the chip's rising edge is our falling edge, half a
-  // period after our registered outputs change (tIS 1.5 ns) and the edge
-  // on which we capture its data (MacLC's arrangement, its sdc numbers).
+  // The inverted clk: the chip's rising edge is our falling edge (plus the
+  // clock's delay to the pin), half a period after our registered outputs
+  // change (tIS 1.5 ns) - MacLC's arrangement, its sdc numbers.  Its data
+  // is captured on the rising edge after (dq_q below, the timeline above).
 `ifdef SIMULATION
   assign sd_clk = ~clk;
 `else
@@ -139,9 +149,8 @@ module se30_sdram (
   reg [15:0] dq_out;
   reg        dq_oe;
   assign sd_dq = dq_oe ? dq_out : 16'hzzzz;
-  reg [15:0] dq_q, dq_r;               // the I/O-cell capture and its re-timing, both falling edge
-  always @(negedge clk) dq_q <= sd_dq;
-  always @(negedge clk) dq_r <= dq_q;
+  reg [15:0] dq_q;                     // the I/O-cell capture, rising edge (the timeline above)
+  always @(posedge clk) dq_q <= sd_dq;
 
   // -------------------------------------------- the inputs, registered
   // The clk_sys-domain inputs are sampled on the SECOND of our clocks after
@@ -271,12 +280,12 @@ module se30_sdram (
         S_ACC: begin
           seq <= seq + 1'b1;
           if (!a_we) begin
-            // a read: speculative, auto-precharged; the two words arrive
-            // in dq_r for the rising edges at 7 and 8 clocks after ACTIVE
+            // a read: speculative, auto-precharged; the two words are in
+            // dq_q for the rising edges at 7 and 8 clocks after ACTIVE
             if (seq == 4'd2) begin cmd <= CMD_READ; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r}; end
-            if (seq == 4'd7) cpu_rdata[31:16] <= dq_r;
+            if (seq == 4'd7) cpu_rdata[31:16] <= dq_q;
             if (seq == 4'd8) begin
-              cpu_rdata[15:0] <= dq_r; cpu_ack <= req_q;
+              cpu_rdata[15:0] <= dq_q; cpu_ack <= req_q;
               state <= S_DONE;
             end
           end else begin
