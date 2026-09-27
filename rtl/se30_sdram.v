@@ -32,23 +32,33 @@
 //       registers below)
 //    3  ACTIVE                              chip 3.5
 //    5  READ with auto-precharge            chip 5.5   (tRCD 21.28 >= 21)
-//    7.5, 8.5  the chip launches the two words (CL2) - at ITS edges, which
-//              are ours plus the clock's 4 ns to the pin (the second
-//              compile's STA: -3.97 ns of skew on this path), so each word
-//              is at our pin from 10.5 ns after our falling edge (skew + tAC
-//              6.0 + trace) to 17.1 ns after it (skew + a period + tOH 2.5)
-//    9, 10     captured in the I/O cell on the RISING edge (dq_q), 15.96 ns
-//              after the falling edge: 5.4 ns of setup and 1.1 ns of hold
+//    6.5, 7.5  the chip launches the two words: CAS latency 2 means the
+//              first word is VALID at the second chip edge after the READ
+//              (7.5), launched from the edge before it (AS4C32M16SB 1.4:
+//              CL is "the number of clock cycles from the assertion of the
+//              Read command to the first read data"; the model's comment
+//              at its READ has the quotes).  The chip's edges are ours plus
+//              the clock's 4 ns to the pin (the second compile's STA: -3.97
+//              ns of skew on this path), so each word is at our pin from
+//              10.5 ns after our falling edge (skew + tAC 6.0 + trace) to
+//              17.1 ns after it (skew + a period + tOH 2.5)
+//    8, 9      captured in the I/O cell on the RISING edge (dq_q), 15.96 ns
+//              after the launch edge: 5.4 ns of setup and 1.1 ns of hold
 //              inside that eye.  The falling edge at 10.64 ns, MacLC's
 //              choice, is 0.1 ns into the eye: -2.49 ns in the second
 //              compile.  MacSE30.sdc states the rising-edge capture as a
 //              two-cycle setup multicycle on dq_q; the default hold check
 //              that comes with it is the real one (the next word's arrival)
-//   10, 11     taken into cpu_rdata on the rising edge, a full period from
+//    9, 10     taken into cpu_rdata on the rising edge, a full period from
 //              the I/O cell (MacLC's 2026-09-12 capture work found a full
 //              period from the cell necessary); cpu_ack with the second
-//              word at 11
-//   12  GLUE samples: one clock in hand.
+//              word at 10
+//   12  GLUE samples: two clocks in hand.
+//   Until 2026-09-27 this timeline had the launches at 7.5 and 8.5 - MacLC's
+//   reading of CL2, one clock late - and the first board reading showed the
+//   chip keeping to the datasheet: the capture at 9 took the SECOND word,
+//   the one at 10 the floating bus after the burst (SE30_PLAN.md 3.8 item
+//   15: a reset vector of $002A002A from $4080002A).
 //   A write: WRITE at 6 (cpu_req, AS* having asserted at S1, was sampled
 //   at 5) with the high word and its DQM from be[3:2], the low word at 7;
 //   acknowledged as posted.  Any ACTIVE is followed by eight clocks before
@@ -281,10 +291,12 @@ module se30_sdram (
           seq <= seq + 1'b1;
           if (!a_we) begin
             // a read: speculative, auto-precharged; the two words are in
-            // dq_q for the rising edges at 7 and 8 clocks after ACTIVE
+            // dq_q for the rising edges at 6 and 7 clocks after ACTIVE:
+            // the READ at 2, the words valid at the chip's edges 4.5 and
+            // 5.5, captured into dq_q at 5 and 6 (the timeline above)
             if (seq == 4'd2) begin cmd <= CMD_READ; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r}; end
-            if (seq == 4'd7) cpu_rdata[31:16] <= dq_q;
-            if (seq == 4'd8) begin
+            if (seq == 4'd6) cpu_rdata[31:16] <= dq_q;
+            if (seq == 4'd7) begin
               cpu_rdata[15:0] <= dq_q; cpu_ack <= req_q;
               state <= S_DONE;
             end

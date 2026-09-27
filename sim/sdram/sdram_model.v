@@ -183,9 +183,20 @@ module sdram_model (
       3'b101: begin                                               // READ
         if (!open_r[ba]) err("READ on a closed bank");
         if (now - t_act[ba] < tRCD - tSLOP) err("READ before tRCD");
+        // CAS latency is "the number of clock cycles from the assertion of
+        // the Read command to the first read data" (AS4C32M16SB 1.4, the
+        // mode register; tCAC(min) <= CL x tCK), the first word "available
+        // following the CAS latency after the issue of the Read command",
+        // "each subsequent data-out element valid by the next positive
+        // clock edge".  So the first word is VALID at edge n + cl and is
+        // launched (tAC) from the edge before it, n + cl - 1.  This model
+        // launched it from n + cl until 2026-09-27 - MacLC's reading, one
+        // clock late - and the first board reading (SE30_PLAN.md 3.8 item
+        // 15) showed the chip agreeing with the datasheet: the controller
+        // built to the late model captured the burst's second word first.
         for (i = 0; i < bl; i = i + 1) begin
-          rd_v[cl + i - 1] = 1;                                   // the word launches cl edges after this one
-          rd_a[cl + i - 1] = burst_col({ba, row_r[ba], addr[8:0]}, i);
+          rd_v[cl + i - 2] = 1;                                   // launched cl - 1 edges after this one, valid at cl
+          rd_a[cl + i - 2] = burst_col({ba, row_r[ba], addr[8:0]}, i);
         end
         if (addr[10]) begin                                       // auto precharge after the last word
           rd_pre_v[cl + bl - 2] = 1; rd_pre_b[cl + bl - 2] = ba;

@@ -3010,19 +3010,27 @@ two at every row, in clocks of 10.64 ns):
 
 So the read of 3.2's table runs (as revised after the first compile, 3.8
 item 9): the S0 address is sampled at clock 2, ACTIVE at 3, READ at 5;
-CL2 gives the first word after the chip's edge at 7.5 and the second at
-8.5 - the chip's edges, which are the FPGA's falling edges plus the
-clock's delay to the pin, 4 ns (the second compile's STA, below); each
-word is at the FPGA's pin from 10.5 ns after the fabric's falling edge
-(skew + `tAC` 6.0 + 0.5 of trace) to 17.1 ns after it (skew + the period
-+ `tOH` 2.5), a 6.6 ns eye. The words are captured in the I/O cell on the
-FPGA's **rising** edges at 9 and 10, 15.96 ns after the falling edge:
-5.4 ns of setup and 1.1 ns of hold inside the eye. The falling edge at
-10.64 ns (MacLC's choice, and this plan's until the second compile) is
-0.1 ns into the eye - the -2.49 ns of the second compile. The capture is
-then taken into the read-data register a full period later, presented
-with the acknowledge at 11 - one clock before GLUE's sampling edge at
-12. `SDRAM_CLK` is the inverted `clk_mem` (MacLC's `altddio_out`), so the
+CL2 makes the first word **valid at** the chip's second edge after the
+READ, 7.5, launched from the edge before it, 6.5, and the second word
+valid at 8.5 (the AS4C32M16SB datasheet's definition: CAS latency is
+"the number of clock cycles from the assertion of the Read command to
+the first read data", `tCAC(min) <= CL x tCK`; each subsequent element
+"valid by the next positive clock edge") - the chip's edges being the
+FPGA's falling edges plus the clock's delay to the pin, 4 ns (the second
+compile's STA, below); each word is at the FPGA's pin from 10.5 ns after
+its launch edge (skew + `tAC` 6.0 + 0.5 of trace) to 17.1 ns after it
+(skew + the period + `tOH` 2.5), a 6.6 ns eye. The words are captured in
+the I/O cell on the FPGA's **rising** edges at 8 and 9, 15.96 ns after
+their launch edges: 5.4 ns of setup and 1.1 ns of hold inside the eye.
+The falling edge a period after the launch (MacLC's choice, and this
+plan's until the second compile) is 0.1 ns into the eye - the -2.49 ns
+of the second compile. The capture is then taken into the read-data
+register a full period later, presented with the acknowledge at 10 - two
+clocks before GLUE's sampling edge at 12. **Until the first board
+reading (3.8 item 15) this paragraph, the model and the controller had
+the launches one clock later, at 7.5 and 8.5 - MacLC's reading of CL2,
+inherited with its capture work - and the board showed the chip keeping
+to the datasheet.** `SDRAM_CLK` is the inverted `clk_mem` (MacLC's `altddio_out`), so the
 chip's rising edges are the FPGA's falling ones; the sdc constraints are
 MacLC's 2026-09-12 set with the same chip numbers, plus a two-cycle setup
 multicycle on the capture registers that states the rising-edge capture
@@ -3451,10 +3459,34 @@ desktop (ADB).
     (18,571 ALMs, 19,261 registers), all five probes in the fitter
     report; archived by the script as
     `output_files/MacSE30_7785248e_probes.rbf` / `.sof` (md5
-    `ba7a7e8a7dd0977ad774fc71da027262`), tag restored to 0.** **Next:
-    Daniel flashes it; `quartus_stp -t scripts/read_probes.tcl 5 1.0`
-    against item 8's prediction, `bitstream=7785248e` expected on
-    `PBLD`.**
+    `ba7a7e8a7dd0977ad774fc71da027262`), tag restored to 0.**
+15. **The first board reading, 2026-09-27, Daniel having flashed compile
+    4 (a white screen): not item 8's prediction.** `PBLD 7785248e`;
+    `PACT` 53 and frozen; `halted` 1; bus errors 0; `PIFA $002A0030`;
+    `PLAS $0000000C`, a supervisor data read. Read together: the ROM's
+    reset vector at `$4` is `4080 002A`, and a program counter of
+    `$002A002A` puts the last fetch at exactly `$002A0030`; a longword
+    read that returns the burst's **second word in the high half and the
+    floating bus (still holding it) in the low half** gives that vector,
+    and it also makes the address-error vector at `$C` read
+    `$00840084`, an odd handler address - so the CPU halted on the double
+    fault without a bus error and without ever fetching the handler,
+    which is why `PLAS` stops at `$C`. Reads were delivering the data one
+    clock earlier than the model launched it. **The cause is the model's
+    reading of CAS latency, MacLC's, inherited with its capture work: it
+    launched the first word from the second chip edge after the READ,
+    where the datasheet (AS4C32M16SB 1.4, quoted in 3.2 and in the
+    model) has it valid AT that edge, launched from the first.** Fixed
+    in `sim/sdram/sdram_model.v` (the launch index) and
+    `rtl/se30_sdram.v` (the words consumed at sequence 6 and 7, the
+    acknowledge a clock earlier, two clocks in hand at GLUE); 3.2's
+    timeline rewritten; the sdc unchanged (the launch-to-capture relation
+    is the same edge pair). The corrected model fails the previous
+    controller on "read data matches" and passes the corrected one: SDRAM
+    bench 165 checks, the clock-to-pin window 2.9-5.3 ns as before,
+    machine bench 12 with the same prediction. **Next: the fifth
+    compile - ask first - by the ritual; then read the deck against item
+    8 again.**
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
