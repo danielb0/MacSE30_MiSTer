@@ -3742,8 +3742,20 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       image at all.
     - The benches: sim/sdram 170 checks and the three moved-eye
       trainings, now with the counts checked against the verdict.
-    **Compile 9 needs Daniel's go-ahead**; then the peek before anything
-    else: the vector table and a few hundred longwords, twice.
+    **Compile 9 DONE (Daniel's go-ahead, 2026-09-27): tag `1812d325`,
+    22 min, 0 errors, archived as `MacSE30_1812d325_countpeek.rbf`
+    (md5 0ac7d7aa...).** The fit is compile 8's again: D1 input chains 0
+    on every DQ pin, input/output/OE registers all in their cells, the
+    chip's clock on GCLK11 and the capture clock on GCLK9, and
+    `sta_corners.tcl` reads the same table to the hundredth - A 1.63/1.62
+    and 2.09/1.34 (setup/hold) at the slow corners, B 2.00/2.28 and
+    2.40/1.85 at the fast ones, the outputs 2.32/2.53 to 3.27/3.01, every
+    other SDRAM path met at every corner (worst 0.97, `dq_q -> dq_w`
+    hold at fast -40C). So compile 9 changes only what it meant to: the
+    counting training and the peek. **Next: Daniel flashes; then
+    `read_probes.tcl peek 200000 64` twice and `peek_diff.py` before
+    anything else** (is boot0.rom the 97221136 image, and does this path
+    read it), then the deck for PCAP's two counts and where the CPU got.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
