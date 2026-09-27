@@ -1034,6 +1034,10 @@ is off limits.
 | `TG68K_PMMU_030.vhd` | `ATC_ENTRIES` 22 -> 8, plus zero-padding of the debug ports | **An area workaround**, not a fix: "reduced 22 -> 8 to relieve a 98%-ALM fit whose STA-met builds misbehaved on hardware ... a smaller ATC walks more, never translates differently. RE-APPLY ON EVERY re-sync." The IIvi's fabric is full of colour video; ours will not be. **Do not take it** unless our own fit forces it - and 1.11's finding that every distinct top byte in 24-bit mode costs an ATC entry argues for keeping the full 22. `sim/pmmu_rom_contract` passes on both (run against upstream's file with `TG68K_SRC=`). |
 | `TG68K.qip` | build list | Builds `tg68k.v` in place of upstream's `TG68K.vhd` top; `CacheCtrl_030` kept as reference only. |
 
+**Our own kernel changes since** are recorded where they were made: the
+32-bit bus (1.15), MOVEM's step on the 32-bit port (3.8 item 23), and the
+restart for an external bus error on a data read (5.11 item 6).
+
 **The Mac-specific content is `rtl/tg68k/tg68k.v`** - 1,370 lines of
 danifunker's own Verilog, 13 commits, against upstream's 4,545-line Amiga
 `cpu_wrapper.v` for the same job. It is where 1.4's integration contract
@@ -5692,7 +5696,56 @@ reach, and the board is the verdict either way (5.11 item 4).
      that does what the ROM does (BERR on a data read, RTE 100 times,
      unwind `$5C`) before any change. The SWIM's rungs 2-3 wait behind
      it: the `.Sony` Open comes after the Slot Manager.
-6. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
+6. **The kernel's external bus error on a data read, fixed (2026-09-28,
+   Daniel's go-ahead).**
+   - **The manual** (MC68030 UM 3rd ed., section 8): "data read faults
+     only generate the long bus fault frame" (8.2.2); the frame's PC is
+     "the logical address of the instruction that was executing at the
+     time the fault was detected" (8.1.2); "if the DF bit is set when the
+     processor reads the stack frame, it reruns the faulted data access",
+     and a fault on the rerun deallocates the frame and builds a new one
+     (8.2.1, 8.2.3); "when a bus error exception occurs while accessing a
+     data item, the exception is taken immediately after the bus cycle
+     terminates" (8.2).
+   - **The bench first: `sim/busfault/`** (ModelSim; `tg68k.v` and GLUE,
+     whose UI6 timeout raises the BERR as on the board). The program is
+     the ROM's probe (`$408043EA-F6`) and its handler (`$40804F28`) byte
+     for byte, with an entry counter and end markers; the bench captures
+     the first frame as the kernel writes it. 11 checks. **On the
+     committed kernel it failed as the board did**: the run ended in the
+     illegal-instruction stub after one handler entry; the frame was
+     right in format (`$B`, 92 bytes, vector `$008`), SSW (`$0155`: DF,
+     byte read, supervisor data) and fault address (`$F9FFFFFF`), but
+     **its PC was `$102E` for a faulting instruction at `$102A`** - the
+     kernel's own report: `exe_pc` `$102A`, `tg68_pc` `$102E` stacked.
+   - **The cause**: the kernel implements "rerun the faulted access" for
+     PMMU data faults by instruction restart - the register file rolled
+     back to the instruction's start and the frame carrying `exe_pc`, so
+     a plain RTE re-executes it (`mmu_restart_pending`, the "MMU RESTART"
+     design) - but an **external** BERR never armed it, and its frame
+     stacked `TG68_PC`, the prefetch pointer.
+   - **The change** (`TG68KdotC_Kernel.vhd`, one `IF` after the no-fault
+     clear in the first-fire block): an external BERR on a data read
+     (`fc_internal(1:0) = 01`, `pmmu_rw = 1`, not locked) arms the same
+     restart (`mmu_restart_pending`, `berr_restart_pc <= exe_pc`).
+     Writes and locked cycles keep the old path: the bench covers reads
+     only, and the ROM's need is a read.
+   - **After**: `sim/busfault` 11 PASS at N = 3 and at the ROM's N = 100
+     (100 entries, 100 bus errors, the SP back where it was after the
+     92-byte unwind); `sim/kernel_bus` ports 32/16/8 PASS (181/242/328);
+     `sim/system` 23 PASS; `sim/kernel_upstream` verdicts unchanged (14
+     pass, the three known), and upstream's `tb_berr_frame`,
+     `tb_rte_stress`, `tb_rte_format_a_replay`, `tb_mmu_fault_recovery`,
+     `tb_mmu_user_data_fault_recovery` pass before and after (none of
+     them takes an external data-read BERR: `tb_berr_frame` is PMMU
+     write-protect faults). `sim/machine` 17 PASS, **one bus cycle
+     fewer**: traced, the committed kernel ran a stray prefetch
+     (`$40802A3C`) between the ROM's faulted read of `$58000000` and the
+     frame; now the frame follows the faulted cycle at once, as 8.2 says.
+     The prediction's `PACT` moves 3815 -> 3814 and nothing else.
+   - **Next**: elaboration, the compile with Daniel's go-ahead, the
+     board: past the Slot Manager to the `.Sony` Open (`PSWM` PH = 7).
+7. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
    when rung 1 is on the board, from 5.2.4's sources.
 
 ---

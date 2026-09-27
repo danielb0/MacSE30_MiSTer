@@ -4475,6 +4475,27 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						END IF;
 					end if;
 
+					-- SE/30 (SE30_PLAN.md 5.11 item 5): an EXTERNAL bus error ending a
+					-- data READ gets the same instruction restart as a PMMU data fault.
+					-- MC68030 UM 8.2.1/8.2.3: "if the DF bit is set when the processor
+					-- reads the stack frame, it reruns the faulted data access"; the
+					-- restart model does that by re-executing the instruction from its
+					-- first word with the register file rolled back, so the frame must
+					-- carry exe_pc, not the prefetch pointer TG68_PC.  The Mac ROM's Slot
+					-- Manager relies on it: its empty-slot handler RTEs to re-run the
+					-- read of $F9FFFFFF 100 times (ROM $40804F28); stacking TG68_PC
+					-- resumed one word into the next instruction (System Error 3 on the
+					-- board).  After the no-fault clear above, which sees make_berr still
+					-- 0 on this first-fire clock.  Writes and locked cycles keep the old
+					-- path (sim/busfault covers reads only).
+					IF berr='1' AND make_berr='0' AND trap_berr='0' AND trap_mmu_berr='0' AND
+					   berr_exception_active='0' AND
+					   fc_internal(1 downto 0)="01" AND pmmu_rw='1' AND pmmu_rmw='0' THEN
+						mmu_restart_pending <= '1';
+						mmu_restart_soft <= '0';
+						berr_restart_pc <= exe_pc;
+					END IF;
+
 					-- T27 squash: a completing directPC load (RTE/RTS redirect)
 					-- discards the speculative instruction stream, so a PENDING
 					-- bus error whose first-fire flavor was an INSTRUCTION
