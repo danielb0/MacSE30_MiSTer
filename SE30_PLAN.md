@@ -3441,10 +3441,20 @@ desktop (ADB).
     switched on.** `rtl/build_tag.v` + `PBLD` in the deck, `files.qip`,
     `scripts/stamp_build_tag.ps1`, `scripts/archive_build.ps1`,
     `scripts/read_probes.tcl` (all three exercised: the refusal, a stamp,
-    a stamped archive), `USE_DBG_PROBES=1` in `MacSE30.qsf`. Synthesis
-    check clean with the deck in. **Next: the fourth compile - the first
-    with the probes and a tag - ask first; then Daniel flashes it and the
-    deck is read against item 8.**
+    a stamped archive), `USE_DBG_PROBES=1` in `MacSE30.qsf`. Compile 3's
+    bitstream, flashed by Daniel: a white screen (as predicted: VRAM
+    never written) and, on the reader, no ISSP instance - the missing
+    define, confirmed from the board.
+14. **The fourth compile, 2026-09-27, with Daniel's go-ahead, the first
+    by the ritual: tag `7785248e` stamped, 17 min, TIMING MET (read
+    capture +0.91 as before, `clk_sys` +3.05, worst hold +0.25), fit 44%
+    (18,571 ALMs, 19,261 registers), all five probes in the fitter
+    report; archived by the script as
+    `output_files/MacSE30_7785248e_probes.rbf` / `.sof` (md5
+    `ba7a7e8a7dd0977ad774fc71da027262`), tag restored to 0.** **Next:
+    Daniel flashes it; `quartus_stp -t scripts/read_probes.tcl 5 1.0`
+    against item 8's prediction, `bitstream=7785248e` expected on
+    `PBLD`.**
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
