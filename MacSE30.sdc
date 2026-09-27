@@ -16,6 +16,24 @@ derive_clock_uncertainty
 # clk_sys - is in the plan, and it is applied here only with that check done.
 
 # ----------------------------------------------------------------------------
+# clk_sys -> clk_mem: the SDRAM controller's input registers (plan 3.2).
+# ----------------------------------------------------------------------------
+# The controller samples the machine's request bundle (start, request, R/W,
+# address, byte enables, write data, the download port) on the SECOND clk_mem
+# edge after each clk_sys edge - rtl/se30_sdram.v, sample_en and the xs_*
+# registers - because the bundle is the kernel's address adder and the beat
+# engine's byte routing: 12 logic levels, 15.1 ns of data delay in the first
+# compile (2026-09-27), against the 10.6 ns single-cycle window between the
+# related clocks (-5.7 ns).  The second edge gives it 21.3 ns.  This credit
+# states exactly that, for exactly those registers; the hold check stays on
+# the default edge.  Nothing else between the two clocks is relaxed: the
+# controller's outputs to GLUE (ack, read data) are honest single-cycle paths
+# and passed (+2.9 ns).  The phi_q register is NOT in the set: it is sampled
+# on the first edge, and is a register-to-register hop.
+set_multicycle_path -setup -end 2 -from [get_clocks {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] -to [get_keepers {*|se30_sdram:sdram|xs_*}]
+set_multicycle_path -hold  -end 1 -from [get_clocks {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] -to [get_keepers {*|se30_sdram:sdram|xs_*}]
+
+# ----------------------------------------------------------------------------
 # SDRAM interface I/O constraints (plan 3.2; MacLC's 2026-09-12 derivation,
 # the same chips, our clock).
 # ----------------------------------------------------------------------------

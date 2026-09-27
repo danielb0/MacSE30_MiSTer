@@ -27,21 +27,23 @@
 //
 // THE READ TIMELINE (clocks after the C16M edge that begins S0; the chip
 // clocks on the falling edges, SDRAM_CLK being the inverted clk)
-//    1  cpu_start, the address and R/W registered
-//    2  ACTIVE                              chip 2.5
-//    4  READ with auto-precharge            chip 4.5   (tRCD 21.28 >= 21)
-//    6.5, 7.5  the chip launches the two words (CL2)
-//    7.5, 8.5  captured in the I/O cell on the falling edge (dq_q): 6.0 ns
+//    2  cpu_start, the address and R/W sampled (the second clock after the
+//       clk_sys edge: 21 ns for the kernel's address cone, see the xs_*
+//       registers below)
+//    3  ACTIVE                              chip 3.5
+//    5  READ with auto-precharge            chip 5.5   (tRCD 21.28 >= 21)
+//    7.5, 8.5  the chip launches the two words (CL2)
+//    8.5, 9.5  captured in the I/O cell on the falling edge (dq_q): 6.0 ns
 //              of tAC to 2.5 ns of tOH after the next edge is a 7.1 ns eye
-//    8.5, 9.5  re-timed once in the fabric (dq_r), a full period from the
+//    9.5, 10.5 re-timed once in the fabric (dq_r), a full period from the
 //              I/O cell, as MacLC's 2026-09-12 capture work found necessary
-//    9, 10     taken into cpu_rdata on the rising edge, half a period from
-//              dq_r; cpu_ack with the second word at 10
-//   12  GLUE samples: two clocks in hand.
-//   A write: WRITE at 5 (cpu_req was registered at 4, AS* having asserted
-//   at S1) with the high word and its DQM from be[3:2], the low word at 6;
+//   10, 11     taken into cpu_rdata on the rising edge, half a period from
+//              dq_r; cpu_ack with the second word at 11
+//   12  GLUE samples: one clock in hand.
+//   A write: WRITE at 6 (cpu_req, AS* having asserted at S1, was sampled
+//   at 5) with the high word and its DQM from be[3:2], the low word at 7;
 //   acknowledged as posted.  Any ACTIVE is followed by eight clocks before
-//   the next ACTIVE or refresh (tRC 63; a write's tWR + tRP land at 9.8).
+//   the next ACTIVE or refresh (tRC 63; a write's tWR + tRP well inside).
 //
 // PORTS
 //   cpu_*   the clk_sys-domain signals of the machine, registered here first
@@ -58,6 +60,7 @@
 
 module se30_sdram (
   input             clk,               // 94.0032 MHz, 3 x clk_sys
+  input             phi,               // the top's clk_sys toggle: where the clk_sys edges are
   input             reset_n,
   output            ready,
 
@@ -141,27 +144,43 @@ module se30_sdram (
   always @(negedge clk) dq_r <= dq_q;
 
   // -------------------------------------------- the inputs, registered
-  reg        start_q, start_qq, req_q, we_q, dl_req_q;
-  reg [22:0] addr_q;
-  reg  [3:0] be_q;
-  reg [31:0] wdata_q;
-  reg [23:0] dl_addr_q;
-  reg [15:0] dl_data_q;
-  wire       start_rise = start_q && !start_qq;       // cpu_start is a clk_sys clock wide, three of ours
+  // The clk_sys-domain inputs are sampled on the SECOND of our clocks after
+  // each clk_sys edge (sample_en), not the first: the address and write
+  // data are the kernel's address adder and the beat engine's byte
+  // routing, 15 ns of logic (the first compile: 12 levels, -5.7 ns against
+  // the 10.6 ns single-cycle window between the related clocks), and the
+  // second edge gives them 21 ns.  MacSE30.sdc says so with a two-cycle
+  // multicycle on exactly these xs_* registers.  phi is the top's clk_sys
+  // toggle; its own crossing is a register-to-register hop.
+  reg        phi_q, phi_qq;
+  always @(posedge clk) begin phi_q <= phi; phi_qq <= phi_q; end
+  wire       sample_en = (phi_q != phi_qq);           // one clock after the clk_sys edge: the edge after is the sample
+  reg        xs_start, xs_start_evt, xs_req, xs_we, xs_dl_req;
+  reg [22:0] xs_addr;
+  reg  [3:0] xs_be;
+  reg [31:0] xs_wdata;
+  reg [23:0] xs_dl_addr;
+  reg [15:0] xs_dl_data;
   always @(posedge clk) begin
-    start_q <= cpu_start; start_qq <= start_q; req_q <= cpu_req; we_q <= cpu_we;
-    addr_q <= cpu_addr; be_q <= cpu_be; wdata_q <= cpu_wdata;
-    dl_req_q <= dl_req; dl_addr_q <= dl_addr; dl_data_q <= dl_data;
+    xs_start_evt <= 0;
+    if (sample_en) begin
+      xs_start <= cpu_start; xs_start_evt <= cpu_start && !xs_start;    // the start, once, for one clock
+      xs_req <= cpu_req; xs_we <= cpu_we;
+      xs_addr <= cpu_addr; xs_be <= cpu_be; xs_wdata <= cpu_wdata;
+      xs_dl_req <= dl_req; xs_dl_addr <= dl_addr; xs_dl_data <= dl_data;
+    end
   end
+  wire       start_rise = xs_start_evt;
+  wire       req_q = xs_req, we_q = xs_we, dl_req_q = xs_dl_req;
 
   // the word address of the access: bank, row, column
-  wire [23:0] a_word  = {addr_q, 1'b0};
+  wire [23:0] a_word  = {xs_addr, 1'b0};
   wire  [1:0] a_bank  = a_word[23:22];
   wire [12:0] a_row   = a_word[21:9];
   wire  [8:0] a_col   = a_word[8:0];
-  wire  [1:0] d_bank  = dl_addr_q[23:22];
-  wire [12:0] d_row   = dl_addr_q[21:9];
-  wire  [8:0] d_col   = dl_addr_q[8:0];
+  wire  [1:0] d_bank  = xs_dl_addr[23:22];
+  wire [12:0] d_row   = xs_dl_addr[21:9];
+  wire  [8:0] d_col   = xs_dl_addr[8:0];
 
   // --------------------------------------------------- the sequencer
   localparam [2:0] S_INIT = 3'd0, S_IDLE = 3'd1, S_ACC = 3'd2, S_DONE = 3'd3, S_DL = 3'd4;
@@ -178,7 +197,6 @@ module se30_sdram (
   reg  [8:0] a_col_r;
   reg  [3:0] a_be;
   reg [31:0] a_wdata;
-  reg        have_data;                // S_DONE: a read's data is complete
   reg [14:0] init_cnt;
   reg  [3:0] init_step;                // 0 pause, 1 precharge, 2-9 refreshes, 10 mode, 11 settle
   assign ready = (state != S_INIT);
@@ -193,7 +211,6 @@ module se30_sdram (
       cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
       since_start <= 6'd63;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
-      have_data <= 0;
     end else begin
       cmd    <= CMD_NOP;
       dq_oe  <= 0;
@@ -237,8 +254,8 @@ module se30_sdram (
             if (go) begin
               cmd <= CMD_ACTIVE; sd_ba <= a_bank; sd_addr <= a_row;
               a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_col_r <= a_col;
-              a_be <= be_q; a_wdata <= wdata_q;
-              seq <= 1; busy <= ACT_BUSY; start_pend <= 0; have_data <= 0;
+              a_be <= xs_be; a_wdata <= xs_wdata;
+              seq <= 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
             end else if (ref_due || (ref_early && since_start >= WIN_LO && since_start <= WIN_HI)) begin
               cmd <= CMD_REFRESH; busy <= REF_BUSY; ref_cnt <= 0;
@@ -259,7 +276,7 @@ module se30_sdram (
             if (seq == 4'd2) begin cmd <= CMD_READ; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r}; end
             if (seq == 4'd7) cpu_rdata[31:16] <= dq_r;
             if (seq == 4'd8) begin
-              cpu_rdata[15:0] <= dq_r; have_data <= 1; cpu_ack <= req_q;
+              cpu_rdata[15:0] <= dq_r; cpu_ack <= req_q;
               state <= S_DONE;
             end
           end else begin
@@ -295,14 +312,14 @@ module se30_sdram (
           if (req_q) cpu_ack <= 1;
           else begin
             cpu_ack <= 0;
-            if (cpu_ack) begin have_data <= 0; state <= S_IDLE; end
+            if (cpu_ack) state <= S_IDLE;
             else if (go) begin
               // the next cycle's start, with this one never requested: the
               // data is discarded and the row for the new one opens now
               cmd <= CMD_ACTIVE; sd_ba <= a_bank; sd_addr <= a_row;
               a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_col_r <= a_col;
-              a_be <= be_q; a_wdata <= wdata_q;
-              seq <= 1; busy <= ACT_BUSY; start_pend <= 0; have_data <= 0;
+              a_be <= xs_be; a_wdata <= xs_wdata;
+              seq <= 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
             end
           end
@@ -316,7 +333,7 @@ module se30_sdram (
           seq <= seq + 1'b1;
           if (seq == 4'd2) begin
             cmd <= CMD_WRITE; sd_ba <= d_bank; sd_addr <= {2'b00, 1'b1, 1'b0, d_col};
-            dq_out <= dl_data_q; sd_dqm <= 2'b00; dq_oe <= 1; dl_ack <= 1;
+            dq_out <= xs_dl_data; sd_dqm <= 2'b00; dq_oe <= 1; dl_ack <= 1;
           end
           if (seq == 4'd3) begin sd_dqm <= 2'b11; dq_oe <= 1; end
           if (seq == 4'd4) state <= S_IDLE;

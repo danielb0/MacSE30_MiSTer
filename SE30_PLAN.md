@@ -3008,21 +3008,38 @@ two at every row, in clocks of 10.64 ns):
 | organisation | 4 banks x 8192 rows x **512** columns (`A0-A8`) | 4 x 8192 x **1024** (`A0-A9`) | 4 x 8192 x 512, row on `A0-A12`, column on `A0-A8`, `A10` = auto-precharge | 32 MB |
 | mode register | `A9` write burst (0 = burst), `A8-A7` = 00, `A6-A4` CL (010 = 2), `A3` = 0 sequential, `A2-A0` burst length (001 = 2) | the same | `$0021`: CL2, sequential, BL2, burst writes | - |
 
-So the read of 3.2's table runs: ACTIVE at clock 1 (the S0 address is
-sampled one clock after the C16M edge that makes it valid), READ at 3,
-CL2 gives the first word after the chip's edge at 5.5 and the second at
-6.5; captured on the FPGA's falling edges at 6.5 and 7.5 (each word is
+So the read of 3.2's table runs (as revised after the first compile, 3.8
+item 9): the S0 address is sampled at clock 2, ACTIVE at 3, READ at 5;
+CL2 gives the first word after the chip's edge at 7.5 and the second at
+8.5; captured on the FPGA's falling edges at 8.5 and 9.5 (each word is
 valid from `tAC` 6.0 ns after its launch edge to `tOH` 2.5 ns after the
 next: a 7.1 ns eye, the capture edge inside it by 4.6 ns of setup and
-2.5 ns of hold), re-timed at 7.5 and 8.5, presented with the acknowledge
-at 9 - three clocks before GLUE's sampling edge at 12. The eye figures
+2.5 ns of hold), re-timed at 9.5 and 10.5, presented with the acknowledge
+at 11 - one clock before GLUE's sampling edge at 12. The eye figures
 apply because `SDRAM_CLK` is the inverted `clk_mem` (MacLC's
 `altddio_out`), so the chip's rising edges are the FPGA's falling ones;
 the sdc constraints are MacLC's 2026-09-12 set with the same chip numbers.
-A write issues WRITE at clock 4, once `AS*` has confirmed the cycle, with
-the first word and its `DQM` from `be[3:2]`, the second word at 5.
-A read is issued speculatively at 3 - a RAM read has no side effect and
-auto-precharge closes the row - which is what makes the budget close.
+A write issues WRITE at clock 6, once `AS*` has confirmed the cycle (the
+request is sampled at 5), with the first word and its `DQM` from
+`be[3:2]`, the second word at 7. A read is issued speculatively at 5 - a
+RAM read has no side effect and auto-precharge closes the row - which is
+what makes the budget close.
+
+**Why the sample is at clock 2, not 1 (the first compile, 2026-09-27).**
+The request bundle the controller samples - start, address, R/W, byte
+enables, write data - is not a register's output but the kernel's address
+adder and the beat engine's byte routing: 12 logic levels, 15.1 ns of
+data delay, against the 10.6 ns single-cycle window STA sees between the
+two related clocks (-5.7 ns, 29.7 million paths). Sampling on the second
+edge gives the cone 21.3 ns, stated to STA as a two-cycle multicycle on
+exactly those registers (`xs_*` in `rtl/se30_sdram.v`; `MacSE30.sdc`),
+with the hold check on the default edge. The controller's outputs back to
+GLUE stay honest single-cycle paths (+2.9 ns). It costs one of the two
+clocks in hand, and a request that GLUE's refresh window delays is now
+acknowledged one C16M later for a read as for a write (the bench's
+late-request rows read 6). Registering the bundle in `clk_sys` first, as
+MacLC does, would cost three clocks and miss the cycle; this is the
+alternative the related-clock arrangement allows.
 
 **What the bench decided (`sim/sdram/`, 165 checks, 2026-09-26; the
 controller is `rtl/se30_sdram.v`, the chip model ours,
@@ -3231,9 +3248,14 @@ desktop (ADB).
   section's engineering risk; the bench of 3.6 item 2 catches logic, not
   I/O timing - the sdc constraints (MacLC's 2026-09-12 set, re-derived for
   the new period) and the first fit's STA are the only evidence before
-  hardware. Fallback if the budget proves short: 4 x (3.2's table), then
-  the split acknowledge (DSACK from a promise, data by the end of S4, a
-  further 1.5 clocks) - a workaround, listed as one.
+  hardware. **The first fit met the I/O constraints (+1.7 ns) and failed
+  the `clk_sys -> clk_mem` crossing instead (3.8 item 10; fixed in 3.2).**
+  One clock now in hand rather than two. Fallback if a later fit shows
+  the 21 ns cone short: 4 x (3.2's table), then the split acknowledge
+  (DSACK from a promise, data by the end of S4, a further 1.5 clocks) - a
+  workaround, listed as one.
+- **A 4-node combinational loop in the kernel** (3.8 item 10): attribute
+  it (ours or upstream's) before any kernel timing credit is considered.
 - **How an empty RAM bank reads.** The ROM sizes RAM by writing and reading
   bank boundaries (2.11.6); on the board an unpopulated SIMM socket reads
   a floating bus. The core's installed size (an OSD option later, 8 MB
@@ -3310,10 +3332,31 @@ desktop (ADB).
    the board means the SDRAM path, not the ROM, is the question. 45 s of
    ModelSim for the run.
 9. ~~Elaboration (3.6 item 4).~~ **Done 2026-09-26: 0 errors, 85 warnings
-   (the baseline; not yet read for what is ours), 1 min 37 s.** Quartus
-   rewrites `MacSE30.qsf` with the framework's pin assignments inlined on
-   every run; the short form is kept in git and the rewrite reverted.
-   **Next: stop and ask before the compile** (3.6 item 5).
+   (84 name our tree; all but three are the inherited kernel's and
+   PMMU's - VHDL sensitivity lists, unused signals - and the three of ours
+   were cosmetic and are fixed), 1 min 37 s.** Quartus rewrites
+   `MacSE30.qsf` with the framework's pin assignments inlined on every
+   run; the short form is kept in git and the rewrite reverted.
+10. **The first compile, 2026-09-27, with Daniel's go-ahead: 18 min, an RBF
+    produced, fit healthy, timing NOT met.** Fit: 18,291 ALMs of 41,910
+    (44%), 18,817 registers, 160 of 553 M10Ks (22% of the bits), 3 PLLs.
+    STA: every domain met except `clk_mem`, -5.657 ns, all on the
+    `clk_sys -> clk_mem` crossing into the SDRAM controller's input
+    registers (the analysis and the fix are in 3.2: sample on the second
+    edge, a two-cycle multicycle on those registers); the SDRAM I/O
+    constraints themselves met (+1.7 ns), the kernel closed at 31.3 MHz
+    with no credit (+2.9 ns worst in `clk_sys`). **Two things to carry:**
+    (a) Quartus reports **a 4-node combinational loop in the kernel**
+    (`TG68KdotC_Kernel.vhd` line 7768, nodes `exec~6` and `Selector121`,
+    warning 332125) - the class MacLC's SDC history warns about; our delta
+    does not touch that region (the nearest hunk is a comment), so it is
+    probably upstream's, to be confirmed by elaborating upstream's kernel
+    alone, and then either fixed here or credited honestly; (b) the PMMU's
+    `atc_shift` registers draw "Ignored Power-Up Level" critical warnings
+    (they power up high), upstream's, harmless while `nReset` initialises
+    the ATC - to be checked in the PMMU source. `scripts/sta_paths.tcl`
+    (ours) prints the worst paths per domain from a compiled design.
+    **Next: the second compile with the fix - ask first.**
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

@@ -121,7 +121,7 @@ module se30_video #(
 
   localparam H_TOTAL      = 704;
   localparam H_ACTIVE     = 512;
-  localparam FIRST_LINE   = 1;                      // first active line of the frame
+  localparam [8:0] FIRST_LINE = 9'd1;               // first active line of the frame
   localparam LAST_LINE    = FIRST_LINE + 342 - 1;   // 342
   localparam HSYNC_START  = 535;
   localparam HSYNC_END    = (HSYNC_START + 288) - H_TOTAL;   // 119, into the next line
@@ -161,7 +161,8 @@ module se30_video #(
   wire       rd_wrap   = (hcnt == H_TOTAL - 2);
   wire [8:0] rd_line   = rd_wrap ? (vcnt == V_TOTAL - 1 ? 9'd0 : vcnt + 9'd1) : vcnt;
   wire       rd_active = (rd_line >= FIRST_LINE) && (rd_line <= LAST_LINE);
-  wire [6:0] rd_byte   = rd_wrap ? 7'd0 : ((hcnt + 10'd2) >> 3);
+  wire [9:0] hcnt_p2   = hcnt + 10'd2;
+  wire [6:0] rd_byte   = rd_wrap ? 7'd0 : hcnt_p2[9:3];
   wire       rd_ok     = (hcnt[2:0] == 3'd6) && rd_active && (rd_byte < 64);
   wire [8:0] rd_row    = rd_line - FIRST_LINE + 9'd1;       // line 1 shows VRAM row 1 (offset $40)
   wire [15:0] scan_addr = {page, rd_row, rd_byte[5:0]};

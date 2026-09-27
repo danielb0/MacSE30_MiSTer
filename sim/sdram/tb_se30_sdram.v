@@ -68,7 +68,7 @@ module tb_se30_sdram;
   wire [15:0] sd_dq;
 
   se30_sdram dut (
-    .clk(clk_mem), .reset_n(reset_n), .ready(ready),
+    .clk(clk_mem), .phi(phi), .reset_n(reset_n), .ready(ready),
     .cpu_start(cpu_start), .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr),
     .cpu_be(cpu_be), .cpu_wdata(cpu_wdata), .cpu_rdata(cpu_rdata), .cpu_ack(cpu_ack),
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
@@ -229,7 +229,7 @@ module tb_se30_sdram;
     $display("---- late requests");
     bus_cycle(0, addrs[5], 4'hF, 0, 0, 4, rd, ack);
     check(rd == vals[5], "a read with the request four C16M late has the right data");
-    check(ack == 5, "and is acknowledged at the edge after the request");
+    check(ack == 6, "and is acknowledged two edges after the request (the request is sampled on the second clock)");
     bus_cycle(1, addrs[5], 4'hF, 32'h600D1DEA, 0, 4, rd, ack);
     check(ack == 6, "a late write re-opens its row: acknowledged two edges after the request");
     cpu_read(addrs[5], rd, ack);

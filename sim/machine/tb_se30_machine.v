@@ -49,7 +49,7 @@ module tb_se30_machine;
   wire [15:0] sd_dq;
 
   se30_sdram sdram (
-    .clk(clk_mem), .reset_n(sdram_reset_n), .ready(ready),
+    .clk(clk_mem), .phi(phi), .reset_n(sdram_reset_n), .ready(ready),
     .cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
     .cpu_be(mem_be), .cpu_wdata(mem_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
     .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),

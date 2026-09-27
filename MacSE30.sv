@@ -191,7 +191,7 @@ wire [31:0] mem_wdata, mem_rdata;
 
 se30_sdram sdram
 (
-	.clk(clk_mem), .reset_n(pll_locked), .ready(sdram_ready),
+	.clk(clk_mem), .phi(phi), .reset_n(pll_locked), .ready(sdram_ready),
 	.cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
 	.cpu_be(mem_be), .cpu_wdata(mem_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
