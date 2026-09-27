@@ -3980,8 +3980,13 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       ignores.** Bench section 10 proves the schedule against the model.
     - Benches: sim/sdram 184 checks, sim/machine 17; the reader's every
       operation run off the board against stubbed probes. **Compile 11
-      needs Daniel's go-ahead**; on the board: the deck, `dqmread`, and
-      `dqmtest` once more with the fixed controller.
+      DONE (Daniel's go-ahead, 2026-09-27): tag `5d502bf6`, 23 min,
+      archived as `MacSE30_5d502bf6_dqmread.rbf` (md5 7991da3f...); the
+      fit and the every-corner table as compiles 8-10 (capture A 1.63/
+      1.62, 2.09/1.34; B 2.00/2.28, 2.40/1.85; outputs 2.31/2.53; worst
+      other path 0.95; D1 chains 0, cells packed, GCLK11/GCLK9).** On the
+      board: the deck, `dqmread`, and `dqmtest` once more with the fixed
+      controller.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
