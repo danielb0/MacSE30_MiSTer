@@ -4210,6 +4210,23 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
     - **Compile 14 (Daniel's go-ahead given with the probe):** on the
       board, PREG first - D6 = 0 and the CPU past the serial test manager
       is the fix confirmed; D6 nonzero names the next failing test.
+    - **Compile 14 (tag `045df9e6`, archived `MacSE30_045df9e6_preg.rbf`):
+      every corner met (worst non-capture path 0.687; the capture as
+      compiles 12-13). THE BOARD: THE RAM TESTS PASS.** PREG D6 = 0,
+      D7 = 0; no halt, no bus error; **the ROM re-sized RAM (PVIA
+      `ramsiz` 01, from the 11 of its prelude)**; VIA1 IFR bit 1 set (the
+      60 Hz CA1 flag; IER still 0 - the VIA initialisation at `$408006F2`
+      comes next). The CPU loops at `$408006C0-$408006E0` touching
+      `$50F17000`/`$50F17C00`/`$50F17E00`: the **SWIM's mode-set loop**
+      (`$408006AA`: the SWIM at `$50F1C000` or `$50F16000`; `$1000` motor
+      off, `$1A00`, read the status at `$1C00` - loop while bit 5 (enable)
+      is set, done when `status & $17 = $17`, else write `$17` to the mode
+      register at `$1E00` and try again). With no SWIM the status never
+      reads the mode back, so this is where a machine without its floppy
+      controller must stop - not a fault. **Section 3.8's SDRAM work is
+      done; the next device the ROM needs is the SWIM**, which (like the
+      ASC, SCC, SCSI, ADB and RTC) is unwritten and is written from its
+      documentation first.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
