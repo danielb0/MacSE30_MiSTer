@@ -3011,7 +3011,7 @@ two at every row, in clocks of 10.64 ns):
 | refresh | 8192 cycles / 64 ms | 8192 / 64 ms, `tREFI` 7.8 us | one AUTO REFRESH per 7.8125 us | 734 |
 | power-up | 200 us pause, PRECHARGE ALL, MRS, **8** AUTO REFRESH (before or after MRS) | 200 us, PRECHARGE ALL, MRS, **>= 2** AUTO REFRESH | 200 us, PRECHARGE ALL, 8 refreshes, MRS | - |
 | organisation | 4 banks x 8192 rows x **512** columns (`A0-A8`) | 4 x 8192 x **1024** (`A0-A9`) | 4 x 8192 x 512, row on `A0-A12`, column on `A0-A8`, `A10` = auto-precharge | 32 MB |
-| mode register | `A9` write burst (0 = burst), `A8-A7` = 00, `A6-A4` CL (010 = 2), `A3` = 0 sequential, `A2-A0` burst length (001 = 2) | the same | `$0021`: CL2, sequential, BL2, burst writes | - |
+| mode register | `A9` write burst (0 = burst, 1 = single-location writes), `A8-A7` = 00, `A6-A4` CL (010 = 2), `A3` = 0 sequential, `A2-A0` burst length (001 = 2) | the same | `$0221`: CL2, sequential, BL2 reads, single-location writes (3.8 item 19; `$0021` until compile 9) | - |
 
 So the read of 3.2's table runs (as revised after the first compile, 3.8
 item 9): the S0 address is sampled at clock 2, ACTIVE at 3, READ at 5;
@@ -3819,7 +3819,83 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
     longword as two single writes - the design the working cores prove
     on this board, at one more clock per longword write; (c) both: (b)
     for the machine, (a) to learn why. Section 3's contract (a 32-bit
-    write per bus cycle) is met by either.
+    write per bus cycle) is met by either. **Daniel chose (c), 2026-09-27:
+    "since the CPU is not going to be cycle-accurate anyway ... it would
+    be good to know what the problem is, in case we can find another
+    solution later on."** He also asked whether the 68040 cores had been
+    checked first: the Quadra 800 core (danifunker's, now cloned beside
+    the other cores) is Sorgelig's controller with `NO_WRITE_BURST`, the
+    byte mask on the WRITE command's clock through `A12:A11`, and "writes
+    still take two accesses" for a 32-bit beat - the same answer as
+    MacPlus, MacLC and MacIIvi. No working core on this hardware masks a
+    beat after the command.
+
+19. **Single-location writes, and the write-mask instrument (built
+    2026-09-27, plan 3.8 item 18's board reading on compile 9).**
+    - **The design:** the mode register loads `$0221` (A9 = 1). A CPU
+      write is two WRITE commands a clock apart - the high word to the
+      even column with DQM from be[3:2] and no auto-precharge, the low
+      word to the odd column with DQM from be[1:0] and auto-precharge -
+      on the same clocks the two beats used, so the acknowledge, `busy`,
+      tWR and tRP are as they were; the download word is one WRITE; the
+      training pair two. `rtl/se30_sdram.v`'s header has THE WRITE. The
+      benches: sim/sdram 177 checks (the byte-enable patterns and the
+      download read back as before), sim/machine 17 into the boot chime;
+      and the one-line model mutant that reproduced the board's doubled
+      pairs now PASSES the bench, which is the point - nothing in the
+      design depends on a masked later beat any more. Two commits:
+      `82ec3e8` (the writes), `d355142` (the port below).
+    - **The instrument, the raw experiment port** (`raw_*` on the
+      controller; its header has the field map): while the JTAG poke
+      holds the machine in reset, one request runs one experiment -
+      ACTIVE, a WRITE at clock 2 to a given word, and on clocks 2-5 a
+      programmable schedule of which word the pins drive, whether they
+      drive at all, and DQM; optionally a second WRITE at clock 3 to the
+      odd column; auto-precharge or the port's own PRECHARGE at clock 7 -
+      or a PRECHARGE ALL and a LOAD MODE with a given value, so the chip
+      can be put back in burst-write mode (`$0021`) for the experiments
+      and returned. The bench's section 9 drives it against the model:
+      in burst-write mode a masked second beat stays unwritten and an
+      unmasked one takes clock 3's word, the two-WRITE form lands both
+      words, the LOAD MODE round trip leaves the CPU port intact, and an
+      experiment without auto-precharge is precharged by the port. (The
+      model also taught the instrument something on its first run: in
+      burst-write mode a second WRITE starts its own two-beat burst whose
+      second beat wraps to the EVEN column - clock 4 must be masked in
+      that form, or the floating bus is written over the first word.)
+    - **The poke** (`MacSE30.sv`, `rtl/dbg_probes.sv`, under
+      `USE_DBG_PROBES`): the peek's FSM also runs CPU-port writes with
+      byte enables (PPOK's source: data, be, the odd-word bit) and raw
+      experiments (PRAW's source: the schedule word), one per toggle of
+      go. **PPEK's probe is now 40 bits, {operations done, data}**: the
+      reader waits for the count to change and takes the data from the
+      same word, which closes item 18's one-behind reading for good
+      (count and data were in two probes, read by two JTAG scans).
+    - **The reader** (`scripts/read_probes.tcl`): `peek` as before;
+      `poke <lw> <data> [be]`; `mode <hex>`; `raw <word> <w0> <w1> <dqm>
+      <oe> <sel> [ap] [second]` (per-clock fields written as
+      `00.11.00.00` and `1100`, clock 2 first); and **`dqmtest [word]`**,
+      the experiment set: rows 0a-0d the design's own CPU-port writes with
+      byte enables (must all read as the datasheet), rows 1-9 in
+      burst-write mode - compile 8's download shape (clock 3 masked, w0
+      still driven), the same with the bus released, clock 3 unmasked,
+      the mask held over 3 and 4, the FIRST beat masked, both masked, a
+      mask a clock late, the two-WRITE form masked and unmasked - and
+      rows 10-13 the same shapes in single-location mode (must all read
+      as the datasheet). Each row prints the longword read beside what a
+      chip that masks as the datasheet says would hold, and a verdict.
+      The board's rows 1 and 2 are predicted to DIFFER (`11111111`); which
+      of 3-9 differ says where the chip takes DQM. Every operation was run
+      once off the board against stubbed probes (Python's Tcl), and the
+      reader was run against compile 9 on the board, where it reports the
+      missing probes and stops.
+    - **Compile 10 needs Daniel's go-ahead.** On the board, in order:
+      `read_probes.tcl 3 1.0` (PBLD, the training's counts, the CPU's
+      state - with the download now single writes the ROM image should be
+      right and the machine should get past the reset vector);
+      `read_probes.tcl peek 200000 64` and `scripts/peek_diff.py` (the
+      image); `read_probes.tcl dqmtest` (the chip's answer); then the
+      Section 4 reading the VIAs were waiting for.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

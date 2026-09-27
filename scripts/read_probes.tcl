@@ -3,8 +3,22 @@
 #   quartus_stp -t scripts/read_probes.tcl          one sample, decoded
 #   quartus_stp -t scripts/read_probes.tcl 10 0.5   10 samples, 0.5 s apart
 #
-# READ-ONLY: this observes the board and writes nothing to it (the standing
-# rule: reading over JTAG is invited, flashing is never ours).
+# and the memory operations of plan 3.8 items 18 and 19, which hold the
+# machine in reset and drive the SDRAM controller's ports over JTAG (the
+# machine restarts from the reset vector when released):
+#   ... peek <longword hex> [count]              read consecutive longwords
+#   ... poke <longword hex> <data hex> [be hex]  a CPU-port write (byte
+#                                                enables, default F), read back
+#   ... mode <hex>                               LOAD MODE with this value
+#                                                (0221 single-location writes,
+#                                                the design; 0021 burst writes)
+#   ... raw <word hex> <w0> <w1> <dqm> <oe> <sel> [ap] [second]
+#                                                one raw experiment (below),
+#                                                the longword read back
+#   ... dqmtest [word hex]                       the write-mask experiment set
+#
+# The board is never flashed from here (the standing rule); the writes above
+# are to the SDRAM, through the design's own controller, for measurement.
 #
 # The deck is rtl/dbg_probes.sv: PBLD the bitstream's git SHA, PIFA the last
 # instruction-fetch address, PLAS the last bus-cycle address, PSTA a status
@@ -22,11 +36,11 @@
 
 set samples 1
 set delay   1.0
-set peek_mode 0
-if {$argc >= 1 && [lindex $argv 0] eq "peek"} {
-	set peek_mode 1
-	set peek_addr  [expr 0x[lindex $argv 1]]
-	set peek_count [expr {$argc >= 3 ? [lindex $argv 2] : 1}]
+set op      ""
+set opargs  {}
+if {$argc >= 1 && [lsearch -exact {peek poke mode raw dqmtest} [lindex $argv 0]] >= 0} {
+	set op     [lindex $argv 0]
+	set opargs [lrange $argv 1 end]
 } else {
 	if {$argc >= 1} { set samples [lindex $argv 0] }
 	if {$argc >= 2} { set delay   [lindex $argv 1] }
@@ -94,32 +108,162 @@ proc rd {name} {
 # One session for the whole run, rather than one per probe read.
 start_insystem_source_probe -hardware_name $hw -device_name $dev
 
-# ---- the memory peek (plan 3.8 item 18) --------------------------------------
-#   quartus_stp -t scripts/read_probes.tcl peek <longword address, hex> [count]
-# Holds the machine in reset (its SDRAM contents survive; it restarts from
-# the reset vector when released), reads <count> consecutive longwords of the
-# SDRAM through the controller's own CPU port - the same path, without the
-# CPU - and prints them.  The address is the controller's: the 32 MB as
-# longwords, the ROM image at $200000 (byte $800000, CPU $40800000).  Diff
-# against the ROM file with scripts/peek_diff.py.  Read a range twice to see
-# whether a wrong word is stable (the image) or varies (the read).
-if {$peek_mode} {
-	if {![have PPEK] || ![have PPKS]} { puts "ERROR: this bitstream has no PPEK/PPKS (built before plan 3.8 item 18's peek)"; exit 1 }
-	set go 0
-	for {set i 0} {$i < $peek_count} {incr i} {
-		set a [expr {($peek_addr + $i) & 0x7FFFFF}]
-		set src [expr {(1 << 30) | $a}]
-		set before [expr {[rd PPKS] >> 8}]
-		write_source_data -instance_index $idx(PPEK) -value_in_hex -value [format %08X $src]
+# ---- the memory operations (plan 3.8 items 18 and 19) -------------------------
+# MacSE30.sv's poke: PPEK's source is {go, hold, we, raw, 5'b0, longword
+# address}; PPOK's {27'b0, odd, byte enables, write data}; PRAW's the
+# controller's raw schedule word (rtl/se30_sdram.v, THE RAW EXPERIMENT
+# PORT).  PPEK's probe is {operations done[7:0], data[31:0]}: one read gives
+# the count and the data of the same operation, so waiting for the count to
+# change and taking the data from that very word can never pair a new count
+# with old data (item 18's peek kept them in two probes and was seen one
+# read behind).  Addresses are the controller's: the 32 MB as longwords, the
+# ROM image at $200000 (byte $800000, CPU $40800000).
+if {$op ne ""} {
+	foreach need {PPEK PPKS PPOK PRAW} {
+		if {![have $need]} { puts "ERROR: this bitstream has no $need (built before plan 3.8 item 19's poke)"; exit 1 }
+	}
+	set ::go 0
+	# one operation: flags = {we, raw}; returns {data ok|timeout}
+	proc pk_op {flags lw} {
+		global idx go
+		set src [expr {(1 << 30) | ($flags << 28) | ($lw & 0x7FFFFF)}]
+		set before [expr {([rd PPEK] >> 32) & 0xFF}]
+		write_source_data -instance_index $idx(PPEK) -value_in_hex -value [format %08X [expr {$src | ($go << 31)}]]
 		set go [expr {1 - $go}]
 		write_source_data -instance_index $idx(PPEK) -value_in_hex -value [format %08X [expr {$src | ($go << 31)}]]
 		set tries 0
-		while {([expr {[rd PPKS] >> 8}]) == $before && $tries < 50} { after 2; incr tries }
-		set d [rd PPEK]
-		puts [format "  %06X: %08X%s" $a $d [expr {$tries >= 50 ? "   (no acknowledge: the read never completed)" : ""}]]
+		while {1} {
+			set v [rd PPEK]
+			if {(($v >> 32) & 0xFF) != $before} { return [list [expr {$v & 0xFFFFFFFF}] ok] }
+			if {[incr tries] >= 50} { return [list [expr {$v & 0xFFFFFFFF}] timeout] }
+			after 2
+		}
 	}
-	write_source_data -instance_index $idx(PPEK) -value_in_hex -value 00000000
-	puts "machine released from reset"
+	proc pk_peek {lw} { return [pk_op 0 $lw] }
+	proc pk_poke {lw data be} {
+		global idx
+		write_source_data -instance_index $idx(PPOK) -value_in_hex -value [format %016llX [expr {($be << 32) | ($data & 0xFFFFFFFF)}]]
+		return [pk_op 2 $lw]
+	}
+	# the schedule word: dqm/oe/sel are per clock 2, 3, 4, 5 after the ACTIVE
+	proc raw_ctl {w0 w1 dqm oe sel ap second kind mode} {
+		return [expr {($mode << 51) | ($kind << 50) | ($second << 49) | ($ap << 48) | ($sel << 44) | ($oe << 40) | ($dqm << 32) | (($w1 & 0xFFFF) << 16) | ($w0 & 0xFFFF)}]
+	}
+	proc pk_raw {word ctl} {
+		global idx
+		write_source_data -instance_index $idx(PRAW) -value_in_hex -value [format %016llX $ctl]
+		write_source_data -instance_index $idx(PPOK) -value_in_hex -value [format %016llX [expr {($word & 1) << 36}]]
+		return [pk_op 1 [expr {$word >> 1}]]
+	}
+	proc pk_mode {mode} { return [pk_raw 0 [raw_ctl 0 0 0 0 0 0 0 1 $mode]] }
+	# "00.11.00.00" -> the DQM field (clock 2 first); "1100" -> an oe/sel field (clock 2 first)
+	proc dqm_field {str} {
+		set v 0; set k 0
+		foreach pair [split $str .] { set v [expr {$v | ([expr 0b$pair] << (2 * $k))}]; incr k }
+		return $v
+	}
+	proc bit_field {str} {
+		set v 0; set k 0
+		foreach c [split $str ""] { set v [expr {$v | ($c << $k)}]; incr k }
+		return $v
+	}
+	proc note {st} { return [expr {$st eq "ok" ? "" : "   (no acknowledge: the operation never completed)"}] }
+	proc release {} {
+		global idx
+		write_source_data -instance_index $idx(PPEK) -value_in_hex -value 00000000
+		puts "machine released from reset"
+	}
+
+	switch -- $op {
+		peek {
+			set a0 [expr 0x[lindex $opargs 0]]
+			set n  [expr {[llength $opargs] >= 2 ? [lindex $opargs 1] : 1}]
+			for {set i 0} {$i < $n} {incr i} {
+				set a [expr {($a0 + $i) & 0x7FFFFF}]
+				lassign [pk_peek $a] d st
+				puts [format "  %06X: %08X%s" $a $d [note $st]]
+			}
+		}
+		poke {
+			set a  [expr 0x[lindex $opargs 0]]
+			set d  [expr 0x[lindex $opargs 1]]
+			set be [expr {[llength $opargs] >= 3 ? [expr 0x[lindex $opargs 2]] : 0xF}]
+			lassign [pk_poke $a $d $be] w st
+			puts [format "  poke %06X <- %08X be %X%s" $a $d $be [note $st]]
+			lassign [pk_peek $a] r st
+			puts [format "  %06X: %08X%s" $a $r [note $st]]
+		}
+		mode {
+			set m [expr 0x[lindex $opargs 0]]
+			lassign [pk_mode $m] w st
+			puts [format "  LOAD MODE %04X%s" $m [note $st]]
+		}
+		raw {
+			lassign $opargs word w0 w1 dqm oe sel ap second
+			if {$ap eq ""} { set ap 1 }
+			if {$second eq ""} { set second 0 }
+			set word [expr 0x$word]
+			set ctl [raw_ctl [expr 0x$w0] [expr 0x$w1] [dqm_field $dqm] [bit_field $oe] [bit_field $sel] $ap $second 0 0]
+			lassign [pk_raw $word $ctl] w st
+			puts [format "  raw at word %06X: ctl %016llX%s" $word $ctl [note $st]]
+			lassign [pk_peek [expr {$word >> 1}]] r st
+			puts [format "  %06X: %08X%s" [expr {$word >> 1}] $r [note $st]]
+		}
+		dqmtest {
+			# The write-mask experiment set (plan 3.8 item 19).  Each row: the
+			# longword is set to $AAAA5555 through the CPU port, one raw
+			# experiment runs at the even word, the longword is read back and
+			# printed beside what a chip that masks as the datasheet says would
+			# hold.  w0 = $1111 (the word at clock 2), w1 = $2222.  Rows 1-9 run
+			# in burst-write mode (A9 = 0, as the design had until compile 9),
+			# rows 10-12 in single-location mode (the design since); the mode
+			# register is restored at the end.
+			set word [expr {[llength $opargs] >= 1 ? [expr 0x[lindex $opargs 0]] : 0x000200}]
+			set word [expr {$word & ~1}]
+			set lw [expr {$word >> 1}]
+			set old 0xAAAA5555
+			proc row {name ctl expect} {
+				global word lw old
+				pk_poke $lw $old 0xF
+				lassign [pk_raw $word $ctl] w st1
+				lassign [pk_peek $lw] r st2
+				set verdict [expr {$r == $expect ? "as the datasheet" : "DIFFERS"}]
+				if {$st1 ne "ok" || $st2 ne "ok"} { set verdict "NO ACKNOWLEDGE" }
+				puts [format "  %-52s read %08X   datasheet %08X   %s" $name $r $expect $verdict]
+			}
+			puts [format "write-mask experiments at word %06X (longword %06X), the old contents %08X" $word $lw $old]
+			puts "-- single-location mode, the CPU port (the design since compile 9)"
+			lassign [pk_poke $lw $old 0xF] w st; lassign [pk_peek $lw] r st
+			puts [format "  %-52s read %08X   datasheet %08X   %s" "0a. a longword write, be F" $r $old [expr {$r == $old ? "as the datasheet" : "DIFFERS"}]]
+			lassign [pk_poke $lw 0x33334444 0xC] w st; lassign [pk_peek $lw] r st
+			puts [format "  %-52s read %08X   datasheet %08X   %s" "0b. be C: the high word only" $r 0x33335555 [expr {$r == 0x33335555 ? "as the datasheet" : "DIFFERS"}]]
+			lassign [pk_poke $lw 0x66667777 0x3] w st; lassign [pk_peek $lw] r st
+			puts [format "  %-52s read %08X   datasheet %08X   %s" "0c. be 3: the low word only" $r 0x33337777 [expr {$r == 0x33337777 ? "as the datasheet" : "DIFFERS"}]]
+			lassign [pk_poke $lw 0x88889999 0x6] w st; lassign [pk_peek $lw] r st
+			puts [format "  %-52s read %08X   datasheet %08X   %s" "0d. be 6: the middle bytes" $r 0x33889977 [expr {$r == 0x33889977 ? "as the datasheet" : "DIFFERS"}]]
+			puts "-- burst-write mode (LOAD MODE 0021): one WRITE, two beats"
+			pk_mode 0x0021
+			row "1. clock 3 masked, w0 still driven (compile 8's download)" [raw_ctl 0x1111 0x2222 [dqm_field 00.11.00.00] [bit_field 1100] [bit_field 0000] 1 0 0 0] 0x11115555
+			row "2. clock 3 masked, bus released"                            [raw_ctl 0x1111 0x2222 [dqm_field 00.11.00.00] [bit_field 1000] [bit_field 0000] 1 0 0 0] 0x11115555
+			row "3. clock 3 unmasked with w1"                                [raw_ctl 0x1111 0x2222 [dqm_field 00.00.00.00] [bit_field 1100] [bit_field 0100] 1 0 0 0] 0x11112222
+			row "4. clocks 3 and 4 masked, w1 driven at 3"                   [raw_ctl 0x1111 0x2222 [dqm_field 00.11.11.00] [bit_field 1100] [bit_field 0100] 1 0 0 0] 0x11115555
+			row "5. clock 2 masked (the first beat), w1 at 3"                [raw_ctl 0x1111 0x2222 [dqm_field 11.00.00.00] [bit_field 1100] [bit_field 0100] 1 0 0 0] 0xAAAA2222
+			row "6. clocks 2 and 3 masked"                                   [raw_ctl 0x1111 0x2222 [dqm_field 11.11.00.00] [bit_field 1100] [bit_field 0100] 1 0 0 0] 0xAAAA5555
+			row "7. clock 4 masked only, w1 at 3"                            [raw_ctl 0x1111 0x2222 [dqm_field 00.00.11.00] [bit_field 1100] [bit_field 0100] 1 0 0 0] 0x11112222
+			row "8. two WRITEs (2: w0, 3: w1), clock 4 masked"               [raw_ctl 0x1111 0x2222 [dqm_field 00.00.11.00] [bit_field 1100] [bit_field 0100] 1 1 0 0] 0x11112222
+			row "9. two WRITEs, the second masked, clock 4 masked"           [raw_ctl 0x1111 0x2222 [dqm_field 00.11.11.00] [bit_field 1100] [bit_field 0100] 1 1 0 0] 0x11115555
+			puts "-- single-location mode (LOAD MODE 0221): a WRITE is one word"
+			pk_mode 0x0221
+			row "10. as 1: clock 3 masked, w0 still driven"                  [raw_ctl 0x1111 0x2222 [dqm_field 00.11.00.00] [bit_field 1100] [bit_field 0000] 1 0 0 0] 0x11115555
+			row "11. two WRITEs, the second masked"                          [raw_ctl 0x1111 0x2222 [dqm_field 00.11.00.00] [bit_field 1100] [bit_field 0100] 1 1 0 0] 0x11115555
+			row "12. clock 2 masked: the one word masked"                    [raw_ctl 0x1111 0x2222 [dqm_field 11.00.00.00] [bit_field 1000] [bit_field 0000] 1 0 0 0] 0xAAAA5555
+			row "13. two WRITEs, both unmasked"                              [raw_ctl 0x1111 0x2222 [dqm_field 00.00.00.00] [bit_field 1100] [bit_field 0100] 1 1 0 0] 0x11112222
+			puts "How to read this: a row that DIFFERS in burst-write mode names how the chip"
+			puts "takes DQM on the clocks after a WRITE; rows 0 and 10-13 are the design's own"
+			puts "write forms and must all read as the datasheet."
+		}
+	}
+	release
 	end_insystem_source_probe
 	exit 0
 }

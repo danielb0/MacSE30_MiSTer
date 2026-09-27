@@ -32,6 +32,14 @@
 //          size did it set, is the VBL armed and firing
 //   PIRQ  {level-2 acknowledges[15:0], level-1 acknowledges[15:0]}: the
 //          FC = 7 cycles by A3-A1; 60 a second on level 1 if the VBL works
+// and, since plan 3.8 items 18 and 19 (the SDRAM read capture, the peek
+// and poke):
+//   PCAP  the training's failure counts; PMEM the machine's last read
+//   PPEK  the peek/poke: source {go, hold, we, raw, 5'b0, longword
+//         address}, probe {operations done[7:0], data[31:0]}
+//   PPOK  source only: {27'b0, odd, byte enables, write data}
+//   PRAW  source only: the controller's raw experiment schedule word
+//   PPKS  the poke's status
 
 module dbg_probes (
 	input  wire        clk,
@@ -48,9 +56,11 @@ module dbg_probes (
 	input  wire  [3:0] sdram_cap,          // {cap_sel, cap_fail, cap_ok[1:0]} from se30_sdram
 	input  wire [31:0] cap_detail,         // PCAP: {the same four, failures through A[13:0], through B[13:0]} of 65,536 reads each
 	input  wire [31:0] mem_last,           // PMEM: the data of the machine's last acknowledged memory read
-	output wire [31:0] peek_src,           // PPEK's source: {go, hold, 7'b0, longword address[22:0]} from the host
-	input  wire [31:0] peek_data,          // PPEK: the longword the peek read
-	input  wire [15:0] peek_stat,          // PPKS: {reads done[7:0], 4'b0, hold, req, state[1:0]}
+	output wire [31:0] peek_src,           // PPEK's source: {go, hold, we, raw, 5'b0, longword address[22:0]} from the host
+	input  wire [39:0] peek_data,          // PPEK: {operations done[7:0], the longword read (or written, or $5AC0FFEE after a raw experiment)}
+	input  wire [15:0] peek_stat,          // PPKS: {operations done[7:0], 2'b0, raw_ack, hold, req, state[2:0]}
+	output wire [63:0] poke_src,           // PPOK's source: {27'b0, odd, byte enables[3:0], write data[31:0]}
+	output wire [63:0] raw_src,            // PRAW's source: the SDRAM controller's raw experiment schedule word
 	input  wire        rom_loaded,
 	input  wire [31:0] via_state          // se30_machine's dbg_via (plan 4.8)
 );
@@ -130,12 +140,23 @@ module dbg_probes (
 		.sld_auto_instance_index ("YES")
 	) cp_pmem (.probe(mem_last), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	// the JTAG memory peek (MacSE30.sv): the host writes the source, the
-	// top runs the read, the probe returns the data
+	// the JTAG memory peek and poke (MacSE30.sv, plan 3.8 items 18 and
+	// 19): the host writes the sources, the top runs the operation, PPEK
+	// returns the count and the data together
 	altsource_probe #(
-		.instance_id ("PPEK"), .probe_width (32), .source_width (32),
+		.instance_id ("PPEK"), .probe_width (40), .source_width (32),
 		.sld_auto_instance_index ("YES")
 	) cp_ppek (.probe(peek_data), .source(peek_src), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(
+		.instance_id ("PPOK"), .probe_width (1), .source_width (64),
+		.sld_auto_instance_index ("YES")
+	) cp_ppok (.probe(1'b0), .source(poke_src), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(
+		.instance_id ("PRAW"), .probe_width (1), .source_width (64),
+		.sld_auto_instance_index ("YES")
+	) cp_praw (.probe(1'b0), .source(raw_src), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(
 		.instance_id ("PPKS"), .probe_width (16), .source_width (1),

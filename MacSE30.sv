@@ -200,21 +200,29 @@ wire [22:0] mem_addr;
 wire  [3:0] mem_be;
 wire [31:0] mem_wdata, mem_rdata;
 
-// The JTAG memory peek (plan 3.8 item 18, the probe deck's PPEK): while
-// pk_hold holds the machine in reset, the peek owns the controller's CPU
-// port and reads the longword pk_addr on each toggle of pk_go.  Without the
-// probes the machine owns the port outright.
-wire        pk_hold, pk_start, pk_req;
+// The JTAG memory peek and poke (plan 3.8 items 18 and 19, the probe deck's
+// PPEK/PPOK/PRAW): while pk_hold holds the machine in reset, the poke owns
+// the controller's CPU port and its raw experiment port, and on each toggle
+// of go reads or writes the longword pk_addr or runs one raw experiment.
+// Without the probes the machine owns the ports outright.
+wire        pk_hold, pk_start, pk_req, pk_we;
 wire [22:0] pk_addr;
+wire  [3:0] pk_be;
+wire [31:0] pk_wdata;
+wire        raw_req, raw_ack;
+wire [63:0] raw_ctl;
+wire [23:0] raw_addr;
 
 se30_sdram sdram
 (
 	.clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(pll_locked),
 	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
 	.cpu_start(pk_hold ? pk_start : mem_start), .cpu_req(pk_hold ? pk_req : mem_req),
-	.cpu_we(pk_hold ? 1'b0 : mem_we), .cpu_addr(pk_hold ? pk_addr : mem_addr),
-	.cpu_be(mem_be), .cpu_wdata(mem_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
+	.cpu_we(pk_hold ? pk_we : mem_we), .cpu_addr(pk_hold ? pk_addr : mem_addr),
+	.cpu_be(pk_hold ? pk_be : mem_be), .cpu_wdata(pk_hold ? pk_wdata : mem_wdata),
+	.cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
+	.raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),
 	.sd_dqm({SDRAM_DQMH, SDRAM_DQML}), .sd_cs_n(SDRAM_nCS), .sd_ras_n(SDRAM_nRAS),
 	.sd_cas_n(SDRAM_nCAS), .sd_we_n(SDRAM_nWE)
@@ -265,29 +273,49 @@ assign VGA_B  = {8{~vidout}};
 reg [31:0] mem_last_rdata = 0;
 always @(posedge clk_sys) if (mem_req && mem_ack && !mem_we) mem_last_rdata <= mem_rdata;
 
-// The peek: the source word is {go, hold, 7'b0, longword address[22:0]}.
-// A toggle of go while hold is up runs one read as GLUE would: start for
-// one clk_sys, then the request until the acknowledge, whose data goes to
-// PPEK; PPKS counts the reads done, so the reader knows when to look.
+// The peek and poke.  PPEK's source word is {go, hold, we, raw, 5'b0,
+// longword address[22:0]}; PPOK's is {27'b0, odd, byte enables[3:0], write
+// data[31:0]}; PRAW's is the controller's raw schedule word (its header).
+// A toggle of go while hold is up runs one operation: a read or a write
+// through the CPU port as GLUE would (start for one clk_sys, then the
+// request until the acknowledge), or a raw experiment at word address
+// {longword address, odd}.  PPEK's probe returns {operations done[7:0],
+// data[31:0]} in ONE word - the count and the data of the same operation,
+// so the reader can never pair a new count with old data (item 18's peek
+// kept them in two probes and was seen one read behind); PPKS is status.
 wire [31:0] pk_src;
+wire [63:0] pok_src, praw_src;
 reg  [31:0] pk_data = 0;
 reg   [7:0] pk_cnt = 0;
-reg   [1:0] pk_st = 0;
-reg         pk_go_q = 0, pk_start_r = 0, pk_req_r = 0;
+reg   [2:0] pk_st = 0;
+reg         pk_go_q = 0, pk_start_r = 0, pk_req_r = 0, raw_req_r = 0;
 assign pk_hold  = pk_src[30];
+assign pk_we    = pk_src[29];
 assign pk_addr  = pk_src[22:0];
+assign pk_be    = pok_src[35:32];
+assign pk_wdata = pok_src[31:0];
 assign pk_start = pk_start_r;
 assign pk_req   = pk_req_r;
+assign raw_req  = raw_req_r;
+assign raw_ctl  = praw_src;
+assign raw_addr = {pk_src[22:0], pok_src[36]};
 always @(posedge clk_sys) begin
 	pk_go_q    <= pk_src[31];
 	pk_start_r <= 0;
 	case (pk_st)
-		2'd0: if (pk_hold && (pk_src[31] != pk_go_q)) begin pk_start_r <= 1; pk_st <= 1; end
-		2'd1: begin pk_req_r <= 1; pk_st <= 2; end
-		2'd2: if (mem_ack) begin pk_data <= mem_rdata; pk_req_r <= 0; pk_cnt <= pk_cnt + 1'd1; pk_st <= 0; end
+		3'd0: if (pk_hold && (pk_src[31] != pk_go_q)) begin
+			if (pk_src[28]) begin raw_req_r <= 1; pk_st <= 3; end
+			else begin pk_start_r <= 1; pk_st <= 1; end
+		end
+		3'd1: begin pk_req_r <= 1; pk_st <= 2; end
+		3'd2: if (mem_ack) begin
+			pk_data <= pk_we ? pk_wdata : mem_rdata; pk_req_r <= 0; pk_cnt <= pk_cnt + 1'd1; pk_st <= 0;
+		end
+		3'd3: if (raw_ack) begin raw_req_r <= 0; pk_data <= 32'h5AC0FFEE; pk_cnt <= pk_cnt + 1'd1; pk_st <= 4; end
+		3'd4: if (!raw_ack) pk_st <= 0;                              // the level clears before the next operation
 		default: pk_st <= 0;
 	endcase
-	if (!pk_hold) begin pk_req_r <= 0; pk_st <= 0; end
+	if (!pk_hold) begin pk_req_r <= 0; raw_req_r <= 0; pk_st <= 0; end
 end
 
 dbg_probes probes
@@ -298,14 +326,22 @@ dbg_probes probes
 	.sdram_cap({cap_sel, ~|cap_ok, cap_ok}),
 	.cap_detail({cap_sel, ~|cap_ok, cap_ok, cap_fail_a, cap_fail_b}),
 	.mem_last(mem_last_rdata),
-	.peek_src(pk_src), .peek_data(pk_data), .peek_stat({pk_cnt, 4'b0, pk_hold, pk_req_r, pk_st}),
+	.peek_src(pk_src), .peek_data({pk_cnt, pk_data}),
+	.peek_stat({pk_cnt, 2'b0, raw_ack, pk_hold, pk_req_r, pk_st}),
+	.poke_src(pok_src), .raw_src(praw_src),
 	.rom_loaded(rom_loaded), .via_state(dbg_via)
 );
 `else
 assign pk_hold = 1'b0;
 assign pk_start = 1'b0;
 assign pk_req = 1'b0;
+assign pk_we = 1'b0;
 assign pk_addr = 23'd0;
+assign pk_be = 4'd0;
+assign pk_wdata = 32'd0;
+assign raw_req = 1'b0;
+assign raw_ctl = 64'd0;
+assign raw_addr = 24'd0;
 `endif
 
 endmodule
