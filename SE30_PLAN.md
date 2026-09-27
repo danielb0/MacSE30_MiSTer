@@ -5648,6 +5648,13 @@ reach, and the board is the verdict either way (5.11 item 4).
    given 2026-09-27** - the 3.6 ritual and `sta_corners.tcl`; the board: `PIFA` out of the loop, `PSWM` mode
    `$17`, then wherever the start-up goes next - the question mark is the
    target.
+   **Compile 15 (tag `60481ce0`, archived `MacSE30_60481ce0_swim1.rbf`,
+   md5 `c2f6aeb6...`): 21m41s, the flow's worst slack +0.065 ns;
+   `sta_corners.tcl`: every corner met with the capture excepted (worst
+   1.065 ns, up from compile 14's 0.687), and at every corner one of the
+   two captures met on setup and hold (A's hold -0.141 at fast -40C, B's
+   1.853 there - the two-capture design of 3.8 item 18 doing its job).
+   Waiting for the board: `read_probes.tcl`, `PSWM` and the screen.**
 6. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
    when rung 1 is on the board, from 5.2.4's sources.
 
