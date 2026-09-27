@@ -6,7 +6,7 @@
 # and the memory operations of plan 3.8 items 18 and 19, which hold the
 # machine in reset and drive the SDRAM controller's ports over JTAG (the
 # machine restarts from the reset vector when released):
-#   ... peek <longword hex> [count]              read consecutive longwords
+#   ... peek <longword hex> [count] [step]       read longwords, count of them, step apart (-1: descending)
 #   ... poke <longword hex> <data hex> [be hex]  a CPU-port write (byte
 #                                                enables, default F), read back
 #   ... mode <hex>                               LOAD MODE with this value
@@ -174,12 +174,21 @@ if {$op ne ""} {
 		puts "machine released from reset"
 	}
 
+	# The first operation of a session flushes the controller: while the
+	# machine ran, the hold cut a cycle short and its data waits in the
+	# controller's done state, where (until plan 3.8 item 20's fix) no
+	# refresh runs, the overdue-refresh flag then blocks every new start, and
+	# a request is acknowledged with the old data - one read behind for the
+	# whole session.  A write's acknowledge clears that state.  The scratch
+	# longword is above the RAM image and below the training pair.
+	pk_poke 0x3FFFFE 0 0xF
 	switch -- $op {
 		peek {
-			set a0 [expr 0x[lindex $opargs 0]]
-			set n  [expr {[llength $opargs] >= 2 ? [lindex $opargs 1] : 1}]
+			set a0   [expr 0x[lindex $opargs 0]]
+			set n    [expr {[llength $opargs] >= 2 ? [lindex $opargs 1] : 1}]
+			set step [expr {[llength $opargs] >= 3 ? [lindex $opargs 2] : 1}]
 			for {set i 0} {$i < $n} {incr i} {
-				set a [expr {($a0 + $i) & 0x7FFFFF}]
+				set a [expr {($a0 + $i * $step) & 0x7FFFFF}]
 				lassign [pk_peek $a] d st
 				puts [format "  %06X: %08X%s" $a $d [note $st]]
 			}
@@ -242,7 +251,7 @@ if {$op ne ""} {
 			lassign [pk_poke $lw 0x88889999 0x6] w st; lassign [pk_peek $lw] r st
 			puts [format "  %-52s read %08X   datasheet %08X   %s" "0d. be 6: the middle bytes" $r 0x33889977 [expr {$r == 0x33889977 ? "as the datasheet" : "DIFFERS"}]]
 			puts "-- burst-write mode (LOAD MODE 0021): one WRITE, two beats"
-			pk_mode 0x0021
+			lassign [pk_mode 0x0021] w st; puts "  LOAD MODE 0021[note $st]"
 			row "1. clock 3 masked, w0 still driven (compile 8's download)" [raw_ctl 0x1111 0x2222 [dqm_field 00.11.00.00] [bit_field 1100] [bit_field 0000] 1 0 0 0] 0x11115555
 			row "2. clock 3 masked, bus released"                            [raw_ctl 0x1111 0x2222 [dqm_field 00.11.00.00] [bit_field 1000] [bit_field 0000] 1 0 0 0] 0x11115555
 			row "3. clock 3 unmasked with w1"                                [raw_ctl 0x1111 0x2222 [dqm_field 00.00.00.00] [bit_field 1100] [bit_field 0100] 1 0 0 0] 0x11112222
@@ -253,7 +262,7 @@ if {$op ne ""} {
 			row "8. two WRITEs (2: w0, 3: w1), clock 4 masked"               [raw_ctl 0x1111 0x2222 [dqm_field 00.00.11.00] [bit_field 1100] [bit_field 0100] 1 1 0 0] 0x11112222
 			row "9. two WRITEs, the second masked, clock 4 masked"           [raw_ctl 0x1111 0x2222 [dqm_field 00.11.11.00] [bit_field 1100] [bit_field 0100] 1 1 0 0] 0x11115555
 			puts "-- single-location mode (LOAD MODE 0221): a WRITE is one word"
-			pk_mode 0x0221
+			lassign [pk_mode 0x0221] w st; puts "  LOAD MODE 0221[note $st]"
 			row "10. as 1: clock 3 masked, w0 still driven"                  [raw_ctl 0x1111 0x2222 [dqm_field 00.11.00.00] [bit_field 1100] [bit_field 0000] 1 0 0 0] 0x11115555
 			row "11. two WRITEs, the second masked"                          [raw_ctl 0x1111 0x2222 [dqm_field 00.11.00.00] [bit_field 1100] [bit_field 0100] 1 1 0 0] 0x11115555
 			row "12. clock 2 masked: the one word masked"                    [raw_ctl 0x1111 0x2222 [dqm_field 11.00.00.00] [bit_field 1000] [bit_field 0000] 1 0 0 0] 0xAAAA5555
