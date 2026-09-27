@@ -3683,6 +3683,21 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
     does, and 4.11 item 8's (b) option list should have had it. **Compile
     8 with Daniel's go-ahead (given with the board reading).**
 
+    **Compile 8, 2026-09-27, tag `31f122a8`, 21m37s, A BOARD BUILD,
+    archived as `output_files/MacSE30_31f122a8_twocap.rbf` / `.sof`.**
+    The global-clock lines took: clk_sys GCLK7, clk_mem GCLK6, the chip's
+    clock GCLK11, the capture clock GCLK9; no packing conflict, every DQ
+    delay chain 0, `dq_oe` and `dq_out` in their cells. The flow: met,
+    +0.115 (the framework's HDMI, as every compile). The corner script:
+    outputs at the chip 2.32/2.53 at slow 100C and 3.27/3.01 at fast -40C;
+    the capture A 1.63/1.62 and 2.09/1.34 at the slow corners, B 2.00/2.28
+    and 2.40/1.85 at the fast ones (the experiment's table within 0.05
+    ns; its "design setup -0.363" line is capture B at the slow corner,
+    which the script times on purpose and the flow does not); every other
+    SDRAM path met at every corner, the least being 0.94 ns of hold on
+    `dq_q -> dq_w` at fast -40C. Fit 46%. The board is next: PSTA's
+    capture bits, PCAP's counts, PMEM's reset vector.
+
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
 (2.7), and only then the donor `via6522.sv` (MacLC) and `via6522.vhd`
