@@ -3275,6 +3275,17 @@ desktop (ADB).
   now) has to make absent addresses fail that test the way the board's
   do, and what the ROM's sizing code tolerates is read from the ROM
   (1.11's tooling), not guessed. Open until then.
+- **RAM to 128 MB with a 32-bit clean ROM - a wanted option (Daniel,
+  2026-09-27).** With a IIsi / IIfx ROM file (32-bit clean) the machine
+  addresses RAM to the *Guide*'s Table 5-2 ceiling of 128 MB, and the
+  core is to offer that as an OSD option, the stock 8 MB staying the
+  default (1.5). Nothing changes now; it lands when RAM sizing is done
+  (this list's previous item, and Section 4's VIA2 `RAMSIZ`). It fixes
+  what the SDRAM map has to grow to: the ROM image at word `$400000`
+  (3.3) sits at the 8 MB mark and must move above the largest RAM, and
+  the DE10-Nano's 32 MB SDRAM caps what one module can offer, so 128 MB
+  needs the 64 MB or 128 MB modules or a smaller top step; the strap
+  combinations the ROM accepts (`$4080366E`, 1.5) decide the steps.
 - ~~**ModelSim's limits** on the full machine (1.10): measured at rung 3.~~
   Measured: 9 s for 215 us of the whole machine (3.8 item 8). Closed.
 - **The declaration BRAM's write port** changes `se30_video`'s internal
