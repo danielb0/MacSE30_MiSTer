@@ -3757,6 +3757,70 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
     anything else** (is boot0.rom the 97221136 image, and does this path
     read it), then the deck for PCAP's two counts and where the CPU got.
 
+    **The board on compile 9 (Daniel flashed, 2026-09-27) - THE ROM IN
+    THE SDRAM IS DOUBLED; THE READ IS NOT.** The peek of longwords
+    $200000-$20003F, twice: every longword is the true image's SECOND
+    word in both halves (62 of 64 wrong; the two "right" are pairs whose
+    words are equal) - `1136 1136`, `002A 002A`, `4EFA 4EFA` for
+    `9722 1136`, `4080 002A`, `0178 4EFA` - so the card's boot0.rom IS the
+    97221136 image, and every pair holds its odd word twice. The read
+    path is exonerated by three peeks the same session: the training
+    pair at longword $7FFFFF reads `A5C3 5A3C` (two distinct words, the
+    pair the controller's own two-beat burst wrote), unwritten RAM at
+    $000100-$00010F reads sixteen distinct random longwords (`049A A40A`,
+    `869A A68A`, ...), and unwritten bank-1 memory at $3F0000 shows
+    unequal halves too. The deck: the training 0 of 65,536 failed through
+    A and 0 through B, chose A; the CPU halted (double fault, PLAS $C).
+    **The signature is a write mask that fails on the second beat**: the
+    download writes one word per BL2 burst with the second beat masked
+    (S_DL, DQM=11 at seq 3); if that beat is not masked, the even word
+    fills its pair, then the odd word (burst order {c+1, c}) fills it
+    again - every pair = its odd word twice. The bench model with ONE
+    line changed (the second write beat ignores DQM, scratch copy only)
+    reads back exactly the board's pattern (`8101 8101` for `8000 8101`)
+    and fails the byte-enable checks too. What was ruled out: the RTL
+    (the unmutated bench passes: the model honours a zero-latency write
+    mask and the download test reads both words back); the FPGA-side
+    timing (per-pin STA: DQMH/DQML setup 2.62/hold 2.60 at slow 100C,
+    3.39/3.05 at fast -40C, data delay 3.34/3.17 ns against DQ's
+    3.06-3.13 and nWE's 3.19 - the mask reaches the pins in the same
+    window as data and command); the pins (AG13/AF13, byte-identical to
+    MacPlus's and MacLC's sys.tcl); a burst-length or address-bit fault
+    (BL4's arithmetic gives `{w2,w3}` for longword 0, an A0 fault gives
+    the pair swapped, neither seen; the reads' two distinct beats say
+    BL2 and A0 are right). What remains is the chip's side of the pins:
+    the mask on a beat AFTER the WRITE command. MacPlus and MacLC never
+    ask for that: both load the mode register with A9 = 1 (single-location
+    writes, `NO_WRITE_BURST`) and carry the byte mask on the WRITE
+    command's own clock (`sd_dqm = sd_addr[12:11]`), so their working
+    byte writes prove the DQM traces and beat-0 masking, not beat-1.
+    Compile 5's 728K-cycle run is NOT evidence the contents were ever
+    right: compile 8's OSD reset ran ten million cycles in an unmapped
+    region's echo, so a long run proves nothing about the image, and
+    the doubled contents may date from the first download.
+    **Also seen, unexplained:** the CPU's halting read of vector $C
+    returned `$2F2B2F2B` (compile 8: `$4A6B4A6B`) where the peek reads
+    `$4EFA4EFA`; both words occur at dozens of odd positions in the ROM
+    and name no neighbour. The CPU's address path deserves its own
+    look once the contents are right. **The peek instrument** is usable
+    but its handshake is one read behind in some calls (the first line
+    of a call can be stale, and one call printed "no acknowledge" and
+    stayed two behind): a sequence tag in PPKS would make it exact.
+
+    **Next (Daniel's choice):** the write mask must be made to work for
+    the CPU's byte and word writes regardless of the download, so the
+    question is the chip's, not the download's. The candidates: (a) a
+    JTAG poke beside the peek with a PROGRAMMABLE mask schedule (which
+    of seq 2..5 carry DQM=11) so one compile tests beat-0 masking,
+    beat-1 masking, a mask held two clocks, and a mask a clock early -
+    the instrument that finds where the chip samples DQM; (b) load the
+    mode register with A9 = 1 (single-location writes, as MacPlus and
+    MacLC do) and mask bytes on the command clock only, writing a
+    longword as two single writes - the design the working cores prove
+    on this board, at one more clock per longword write; (c) both: (b)
+    for the machine, (a) to learn why. Section 3's contract (a 32-bit
+    write per bus cycle) is met by either.
+
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
 (2.7), and only then the donor `via6522.sv` (MacLC) and `via6522.vhd`
