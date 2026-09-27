@@ -82,6 +82,15 @@ set_global_assignment -name VERILOG_MACRO "USE_DBG_PROBES=1"
 # (the phases were placed with no input delay chain); the fitter would
 # otherwise tune the chains for a capture it cannot see (MacSE30.sdc)
 set_instance_assignment -name D1_DELAY 0 -to SDRAM_DQ[*]
+# The core's clocks on GLOBAL networks, said outright: compile 7 (2026-09-27)
+# let the fitter choose and it put clk_mem on a regional one, which reaches
+# one quadrant, so the SDRAM_DQ output and output-enable registers on pins
+# outside it could not pack into their I/O cells and the outputs to the chip
+# lost 4 ns of setup.  The capture clock is global by its clock control
+# block's own setting.
+set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[0]"
+set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[1]"
+set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[2]"
 
 source sys/sys.tcl
 source sys/sys_analog.tcl

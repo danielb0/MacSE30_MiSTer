@@ -3640,6 +3640,26 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       passed - the expectation for this board, which showed hold margin
       near zero at room temperature on compile 6's single capture, is B.
 
+    **Compile 7, 2026-09-27, Daniel's go-ahead, tag `eaadecec`, 19m43s,
+    NOT a board build.** The capture came out as the experiment said, to
+    the tenth: A 1.63/1.65 and 2.08/1.35 at the slow corners, B 2.00/2.30
+    and 2.40/1.86 at the fast ones, the transfer chain 1.5 ns and better
+    everywhere, every SDRAM_DQ delay chain 0, `dq_q` packed as the Fast
+    Input Register. **What failed was the outputs to the chip: -1.44 ns
+    of setup at slow 100C on SDRAM_DQ's output enable, -0.22 on SDRAM_A.**
+    The fitter had put clk_mem on a REGIONAL clock network (RCLK76, one
+    quadrant) where compile 6 had it on a global (GCLK10); its automatic
+    periphery placement then confined every clk_mem register to that
+    quadrant, so `dq_out` and `dq_oe` could not pack into the I/O cells of
+    the DQ pins outside it (Warning 176229, "conflicting location
+    assignments"), a fabric copy of `dq_oe` drove ten pins through 4 ns of
+    routing, and the hold optimiser answered with the maximum output-
+    enable delay chain (D5 OE 31) on every DQ pin. Not a shortage: 12 of
+    the 16 globals were in use. The fix is to say it: `GLOBAL_SIGNAL
+    "GLOBAL CLOCK"` on the three PLL outputs in MacSE30.qsf (the capture
+    clock is global by its clock control block's setting). Not archived;
+    the tag restored. **Compile 8 needs Daniel's go-ahead.**
+
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
 (2.7), and only then the donor `via6522.sv` (MacLC) and `via6522.vhd`
