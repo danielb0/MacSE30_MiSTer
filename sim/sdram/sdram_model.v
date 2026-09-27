@@ -55,6 +55,19 @@ module sdram_model (
   reg [15:0] mem [0:(1<<24)-1];        // {bank, row[12:0], col[8:0]}
   parameter PRELOAD_HEX  = "";         // an image to load before the run (the ROM, for the machine bench)
   parameter PRELOAD_WORD = 0;          // at this word address
+  // What a never-written word reads as: 0 = X (the default; the SDRAM bench
+  // wants every unwritten read to show), 1 = a fixed pseudo-random value
+  // chosen on the first read and kept, as a real chip's power-up contents
+  // are (plan 3.8 item 23: the machine bench ended with D6 = X, the ROM
+  // having branched on unwritten RAM, where the board reads real bits).
+  parameter FILL_UNWRITTEN = 0;
+  function [7:0] fill_byte(input [23:0] a, input hi);
+    reg [31:0] h;
+    begin
+      h = ({a, 7'd0, hi} ^ 32'h5BD1E995) * 32'h9E3779B1;
+      fill_byte = h[31:24] ^ h[15:8];
+    end
+  endfunction
   initial if (PRELOAD_HEX != "") $readmemh(PRELOAD_HEX, mem, PRELOAD_WORD);
 
   // ------------------------------------------------------- the state
@@ -142,6 +155,10 @@ module sdram_model (
     // since; nothing had put a mask near a read until the board's wiring
     // of DQM to A12/A11 (the controller's THE MASK) did.
     if (driving) dq_drv <= #(tOH) 16'hxxxx;
+    if (rd_v[0] && FILL_UNWRITTEN) begin
+      if (mem[rd_a[0]][15:8] === 8'hxx) mem[rd_a[0]][15:8] = fill_byte(rd_a[0], 1'b1);
+      if (mem[rd_a[0]][7:0]  === 8'hxx) mem[rd_a[0]][7:0]  = fill_byte(rd_a[0], 1'b0);
+    end
     if (rd_v[0])
       dq_drv <= #(tAC) { dqm_hist[0][1] ? 8'hzz : mem[rd_a[0]][15:8],
                          dqm_hist[0][0] ? 8'hzz : mem[rd_a[0]][7:0] };

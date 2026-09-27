@@ -83,7 +83,8 @@ module se30_machine #(
   output        dbg_berr,
   output        dbg_halted,
   output        reset_out_n,           // the RESET instruction: the peripherals' reset
-  output [31:0] dbg_via                // {overlay, ramsiz, vsyncen_n, VIA1 IER, IFR, VIA2 IER, IFR} (plan 4.8)
+  output [31:0] dbg_via,               // {overlay, ramsiz, vsyncen_n, VIA1 IER, IFR, VIA2 IER, IFR} (plan 4.8)
+  output [63:0] dbg_regs               // {D6, D7}: the test manager's failure code and flags (plan 3.8 item 23)
 );
 
   // ---------------------------------------------------------- the bus
@@ -96,7 +97,8 @@ module se30_machine #(
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .reset_out_n(reset_out_n), .halted(halted));
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .reset_out_n(reset_out_n), .halted(halted),
+    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]));
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;
   assign dbg_rw_n = cpu_rw_n;  assign dbg_dsack_n = dsack_n;  assign dbg_berr = berr;
@@ -144,7 +146,14 @@ module se30_machine #(
   // acknowledge is both ports' (GLUE consults the one it requested)
   assign mem_start = ecs && mem_early;
   assign mem_req   = ram_req || rom_req;
-  assign mem_we    = ram_req && ram_we;
+  // R/W must be valid at the start: the controller decides read or write
+  // there (se30_sdram's a_we), and R/W is valid at S0 with ECS, while
+  // ram_req comes only with AS*. Gated by ram_req until plan 3.8 item 23,
+  // every RAM write reached the controller as a read and was lost - the
+  // ROM's RAM tests failed into the serial test manager on the board, and
+  // the bench hid it behind unwritten RAM reading X. A ROM write stays a
+  // no-op (GLUE acknowledges it).
+  assign mem_we    = !rom_early && ram_we;
   assign mem_addr  = rom_early ? {2'b01, 5'b00000, rom_addr} : {2'b00, ram_addr[20:0]};
   assign mem_be    = ram_be;
   assign mem_wdata = ram_wdata;

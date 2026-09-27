@@ -40,6 +40,12 @@
 //   PPOK  source only: {27'b0, odd, byte enables, write data}
 //   PRAW  source only: the controller's raw experiment schedule word
 //   PPKS  the poke's status
+// and, since plan 3.8 item 23:
+//   PREG  {D6, D7}, 64 bits, registered here on clk: the ROM's start-up
+//         tests leave a failure's code in D6 and their flags in D7 when
+//         they drop into the serial test manager (its command loop at
+//         $40802EDC sends D6 and D7's low word to the host) - what a Sad
+//         Mac would show, before there is video to show it on
 
 module dbg_probes (
 	input  wire        clk,
@@ -62,7 +68,8 @@ module dbg_probes (
 	output wire [63:0] poke_src,           // PPOK's source: {26'b0, DQM force, odd, byte enables[3:0], write data[31:0]}
 	output wire [63:0] raw_src,            // PRAW's source: the SDRAM controller's raw experiment schedule word
 	input  wire        rom_loaded,
-	input  wire [31:0] via_state          // se30_machine's dbg_via (plan 4.8)
+	input  wire [31:0] via_state,         // se30_machine's dbg_via (plan 4.8)
+	input  wire [63:0] cpu_regs           // PREG: {D6, D7} from the kernel's register file (plan 3.8 item 23)
 );
 
 	reg        as_q = 1;
@@ -112,6 +119,16 @@ module dbg_probes (
 		.instance_id ("PSTA"), .probe_width (32), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_psta (.probe(psta), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the test manager's registers (the header's PREG): one register stage
+	// off the kernel's register file
+	reg [63:0] preg_r = 0;
+	always @(posedge clk) preg_r <= cpu_regs;
+
+	altsource_probe #(
+		.instance_id ("PREG"), .probe_width (64), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_preg (.probe(preg_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(
 		.instance_id ("PACT"), .probe_width (32), .source_width (1),

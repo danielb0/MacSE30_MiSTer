@@ -105,6 +105,33 @@ def build(bf5=True):
             # before it.  Expected value tracked here.
             p.access("slot %s +%d" % (case, off), "long", slot, "w", None)
             slot += 4
+    # MOVEM (plan 3.8 item 23): each register is its own operand, the next
+    # at the previous one's address plus its size.  On the 32-bit port a
+    # long moves in one beat, and the kernel stepped from its first beat's
+    # address by the 16-bit shape's constant 2 - the second register went
+    # to A+2 (the ROM's RAM data-bus test, MOVEM.L D0-D1,(A0), found it on
+    # the board).  D2 carries a second known long; D3/D4 take the reads.
+    p.emit(0x243C, 0x0506, 0x0708)                                 # MOVE.L #$05060708,D2
+    D2 = [0x05, 0x06, 0x07, 0x08]
+    for off in range(4):
+        a = BASE + off
+        p.lea(a)
+        p.emit(0x48D0, 0x0005)                                     # MOVEM.L D0/D2,(A0)
+        p.access("movem.l w +%d" % off, "long", a, "w", D0)
+        p.access("movem.l w2 +%d" % off, "long", a + 4, "w", D2)
+        p.emit(0x4CD0, 0x0018)                                     # MOVEM.L (A0),D3/D4
+        p.access("movem.l r +%d" % off, "long", a, "r")
+        p.access("movem.l r2 +%d" % off, "long", a + 4, "r")
+        p.emit(0x4890, 0x0005)                                     # MOVEM.W D0/D2,(A0)
+        p.access("movem.w w +%d" % off, "word", a, "w", D0[2:])
+        p.access("movem.w w2 +%d" % off, "word", a + 2, "w", D2[2:])
+        p.lea(a + 8)
+        p.emit(0x48E0, 0xA000)                                     # MOVEM.L D0/D2,-(A0): D2 first, at A-4
+        p.access("movem.l pd +%d" % off, "long", a + 4, "w", D2)
+        p.access("movem.l pd2 +%d" % off, "long", a, "w", D0)
+        p.emit(0x4CD8, 0x0018)                                     # MOVEM.L (A0)+,D3/D4
+        p.access("movem.l pi +%d" % off, "long", a, "r")
+        p.access("movem.l pi2 +%d" % off, "long", a + 4, "r")
     for off in range(4):
         a = BASE + off
         p.lea(a)

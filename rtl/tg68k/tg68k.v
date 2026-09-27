@@ -65,7 +65,9 @@ module tg68k (
   input   [2:0] ipl_n,
 
   output        reset_out_n,           // the RESET instruction
-  output        halted                 // double bus fault
+  output        halted,                // double bus fault
+  output [31:0] dbg_d6,                // D6 and D7, for the probe deck: the ROM's test manager
+  output [31:0] dbg_d7                 //   keeps a failed test's code there (plan 3.8 item 23)
 );
 
   // ------------------------------------------------------------- kernel
@@ -92,7 +94,8 @@ module tg68k (
     .pmmu_walker_req(w_req), .pmmu_walker_we(w_we), .pmmu_walker_addr(w_addr), .pmmu_walker_wdat(w_wdat),
     .pmmu_walker_ack(w_ack), .pmmu_walker_data(w_data), .pmmu_walker_berr(w_berr),
     .debug_pmmu_busy(k_pmmu_busy), .debug_pmmu_fault(k_pmmu_fault),
-    .debug_make_berr(k_make_berr), .debug_trap_berr(k_trap_berr), .debug_cpu_halted(k_halted)
+    .debug_make_berr(k_make_berr), .debug_trap_berr(k_trap_berr), .debug_cpu_halted(k_halted),
+    .debug_regfile_d6(dbg_d6), .debug_regfile_d7(dbg_d7)
   );
   assign reset_out_n = k_nreset_out;
   assign halted = k_halted;

@@ -429,6 +429,14 @@ for {set n 0} {$n < $samples} {incr n} {
 		set irq2 [expr {($pirq >> 16) & 0xFFFF}]
 		puts [format "  PIRQ  %08X   level-1 acknowledges=%u  level-2=%u   (level 1 advancing ~60/s: the VBL is running)" $pirq $irq1 $irq2]
 	}
+	if {[have PREG]} {
+		# plan 3.8 item 23: D6 and D7 from the kernel's register file; the
+		# test manager's command loop reports D6 and D7's low word
+		set preg [rd PREG]
+		set d6 [expr {($preg >> 32) & 0xFFFFFFFF}]
+		set d7 [expr {$preg & 0xFFFFFFFF}]
+		puts [format "  PREG  D6=%08X  D7=%08X   %s" $d6 $d7 			[expr {$d6 != 0 ? "D6 nonzero: in the test manager, a start-up test's failure code" : "D6 zero"}]]
+	}
 	puts ""
 	if {$n + 1 < $samples} { after [expr {int($delay * 1000)}] }
 }
@@ -461,3 +469,6 @@ puts "  * PIRQ level-1 advancing at ~60/s: VIA2 T1 -> PB7 -> VIA1 CA1 -> IRQ ->"
 puts "    GLUE -> IPL1 -> the CPU, the whole interrupt path works."
 puts "  * The screen is the verdict beyond the probes: a Sad Mac code or the"
 puts "    flashing question mark (plan 4.6)."
+puts "Since plan 3.8 item 23:"
+puts "  * PREG with PIFA in 40802EDC-40803304: the ROM's serial test manager;"
+puts "    D6 is the failed test's code and D7 its flags (the Sad Mac's numbers)."

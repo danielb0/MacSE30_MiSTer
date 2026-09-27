@@ -22,11 +22,16 @@
 //        it writes $C0 to VIA2's DDRA and ORA and reads its 128
 //        longwords a megabyte apart; it enters the RAM tests - the first
 //        RAM writes; no bus error and no halt on the way; the probe
-//        deck's PVIA is predicted with the rest.  The run ends where the
-//        ROM settles into a long loop: the boot chime's per-sample delay
-//        ($40805F46-$40805F4A, 30,001 samples of 36 iterations, about
-//        0.7 s of machine time, silent with no ASC), which is where the
-//        board takes over (plan 4.6).
+//        deck's PVIA is predicted with the rest.  The run ends in the
+//        RAM tests' long loops (the data-bus test at $408036D2, 256
+//        passes), with D6 - where the ROM gathers a failure - still 0:
+//        no start-up test has failed by then.  Until plan 3.8 item 23
+//        the run ended in the boot chime's delay ($40805F48) instead, and
+//        that was false: unwritten RAM read X, D6 became X, and the ROM
+//        branched past its failed tests (every RAM write was being turned
+//        into a read, and MOVEM.L put its second register at A+2).  The
+//        model now gives never-written words fixed random contents, as a
+//        real chip's power-up state, so a failed test shows as one.
 //
 //   It is also 1.10's measurement: the Starter Edition's wall clock on the
 //   whole machine (run.sh prints it).
@@ -98,7 +103,7 @@ module tb_se30_machine;
   assign dq_chip = oe_c ? dq_out_c : 16'hzzzz;
   assign #(DQ_TO_REG) sd_dq = sdram.dq_oe ? 16'hzzzz : dq_chip;
 
-  sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'h400000)) chip (
+  sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'h400000), .FILL_UNWRITTEN(1)) chip (
     .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
     // the chip's DQM is the A12/A11 traces, as on the MiSTer modules (the
     // controller header's THE MASK); dqm_c, the FPGA's DQM pins, reaches nothing
@@ -119,7 +124,8 @@ module tb_se30_machine;
     .vidout(vidout), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
     .nmi_n(1'b1),
     .dbg_addr(cpu_addr), .dbg_fc(cpu_fc), .dbg_as_n(cpu_as_n), .dbg_rw_n(cpu_rw_n),
-    .dbg_dsack_n(dsack_n), .dbg_berr(berr), .dbg_halted(halted), .reset_out_n(reset_out_n));
+    .dbg_dsack_n(dsack_n), .dbg_berr(berr), .dbg_halted(halted), .reset_out_n(reset_out_n),
+    .dbg_via(), .dbg_regs());
 
   // -------------------------------------------------- the ROM's vector
   reg [15:0] romw [0:131071];
@@ -271,15 +277,17 @@ module tb_se30_machine;
     for (i = 0; i < NRING; i = i + 1) $display("      %08x", ring[(ring_i + i) % NRING]);
     $display("---- PREDICTION for the probe deck (plan 3.5, 4.9): PIFA %08x  PLAS %08x  PACT %0d%s  halted %0d  bus errors %0d  PVIA %08x",
              last_fetch, last_as, cycles, halted ? "" : " and counting", halted, berrs, machine.dbg_via);
+    $display("      PREG D6 %08x  D7 %08x (plan 3.8 item 23: D6 nonzero in the test manager is a failed test's code)",
+             machine.dbg_regs[63:32], machine.dbg_regs[31:0]);
     check(overlay_off >= 0 && overlay_off < 200, "overlay cleared by the ROM's first VIA writes (DDRA $3D), before cycle 200");
     check(via2_c0 >= 2, "VIA2 DDRA and ORA written with $C0: the RAMSIZ prelude (plan 4.6 item 4)");
     check(first_ram_wr >= 0, "the ROM wrote RAM: the RAM tests began");
     check(berrs == 0, "no bus error on the way");
-    check(!halted && since_new >= LOOP_CYCLES, "the run ends in a long loop (the boot chime's delay), not a halt or the cycle limit");
-    check(last_fetch == 32'h40805F48 || last_fetch == 32'h40805F4C, "... and that loop is the chime's, $40805F48/$40805F4C (plan 4.6)");
+    check(!halted && since_new >= LOOP_CYCLES, "the run ends in a long loop (the RAM tests'), not a halt or the cycle limit");
+    check(machine.dbg_regs[63:32] === 32'h0, "... with D6 = 0: no start-up test has failed (plan 3.8 item 23)");
     check(chip.errors == 0, "the SDRAM model saw no datasheet violation");
 
-    if (fails == 0) $display("==== PASS: %0d checks, the machine runs the ROM from reset, through its first RAM test, into the boot chime", pass);
+    if (fails == 0) $display("==== PASS: %0d checks, the machine runs the ROM from reset into its RAM tests, none failed", pass);
     else $display("==== FAIL: %0d of %0d checks failed", fails, pass + fails);
     $finish;
   end

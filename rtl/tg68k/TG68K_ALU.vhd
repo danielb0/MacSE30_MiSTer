@@ -700,8 +700,30 @@ PROCESS (OP1out, OP2out, execOPC, Flags, long_start, movem_presub, exe_datatype,
 			opaddsub <= exec(addsub);
 		END IF;
 
+		-- MOVEM's step to the next register, on a register's last beat
+		-- (long_start='0' here means "the operand's last beat", memmaskmux(3)):
+		-- up, the bytes that beat moved; predecrement, back over them and
+		-- over one more operand, 2 x size - those bytes. The constants above
+		-- (+2 up, -6 for a long down) are this rule for the 16-bit shape,
+		-- whose last beat of a long is always two bytes at A+2; on the
+		-- 32-bit port a long moves in one beat at A, and +2 put the next
+		-- register at A+2 - the ROM's RAM data-bus test (MOVEM.L D0-D1,(A0))
+		-- failed on the board with it (SE30_PLAN.md 3.8 item 23). Odd
+		-- addresses need nothing more: every beat steps by what it moved.
+		-- mikej's unaligned patch below, the 68000 shape's hold on a
+		-- one-byte beat, stays for CHK2 (check_aligned) only.
+		if exec(movem_action)='1' then
+		  if long_start = '0' then
+			if movem_presub = '0' then
+			  addsub_b <= "00000000000000000000000000000" & beat_step;
+			elsif exe_datatype = "10" then
+			  addsub_b <= "00000000000000000000000000001000" - ("00000000000000000000000000000" & beat_step);
+			else
+			  addsub_b <= "00000000000000000000000000000100" - ("00000000000000000000000000000" & beat_step);
+			end if;
+		  end if;
 		-- patch for un-aligned movem --mikej
-		if exec(movem_action)='1' OR check_aligned='1' then
+		elsif check_aligned='1' then
 		  if (movem_presub = '0') then -- up
 			if (non_aligned = '1') and (long_start = '0') then -- hold
 			  addsub_b <= (others => '0');

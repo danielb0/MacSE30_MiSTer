@@ -4151,6 +4151,66 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       is fixed, and a different test fails on the board. **Next: read D6
       and D7** - the failure code names the test.
 
+23. **D6/D7, and the two faults the ROM's RAM test found (2026-09-27).**
+    Daniel's go-ahead: build the D6/D7 probe, compile when ready.
+    - **The probe:** the kernel already had `debug_regfile_d6/d7` (the
+      register file is flip-flops, not block RAM - the map report infers
+      no RAM for it - so the tap is wiring); `tg68k.v` brings them out as
+      `dbg_d6/dbg_d7`, the machine as `dbg_regs` {D6, D7}, the deck as
+      **PREG** (64 bits, one register stage on clk_sys), and
+      `read_probes.tcl` prints `PREG D6=... D7=...`. The machine bench
+      prints them with its prediction.
+    - **The bench said D6 = X.** The ROM had put a value read from never-
+      written RAM into D6, where the board reads real bits - so the bench
+      had been passing the RAM tests on X. The chip model gained
+      `FILL_UNWRITTEN` (a never-written word reads as a fixed pseudo-
+      random value chosen on its first read and kept, as a real chip's
+      power-up contents; the machine bench sets it, the SDRAM bench keeps
+      X). With it the bench failed as the board does: D6 = `7D3DD59F` in
+      the RAM data-bus test at `$408036D2` (`MOVEM.L D0-D1,(A0)`, then
+      `EOR.L` each register back into memory and `OR` the result into D6,
+      256 patterns). A trace of the bus cycles at `$0` found two faults:
+    - **Fault 1: every RAM write was a read.** `se30_machine.v` had
+      `mem_we = ram_req && ram_we`; the controller decides read or write at
+      the cycle's START (ECS, S0) - `a_we <= we_q` - where R/W is valid
+      but `ram_req` (AS*, S1) is not yet, so `mem_we` was always 0 there:
+      the controller ran a READ, acknowledged the cycle, and the data was
+      lost (the trace: `we 1` requests, `cmd 0101` at the chip). Since the
+      tree was cut (`e6e2edb`). Fixed: `mem_we = !rom_early && ram_we` - a
+      ROM write stays a no-op (GLUE acknowledges it). The SDRAM bench never
+      saw it: it drives the controller's port directly, with R/W valid at
+      the start.
+    - **Fault 2: MOVEM on the 32-bit port.** With writes landing, the trace
+      showed `MOVEM.L D0-D1,(A0)` writing D1 at A+2 (a long at 2, then a
+      word at 4). In the ALU (`TG68K_ALU.vhd`) the step to the next
+      register, taken on a register's LAST beat (`long_start = '0'` there
+      is `NOT memmaskmux(3)`), was +2 up and -6 for a long down: right for
+      the 16-bit shape, whose long ends with two bytes at A+2, wrong on the
+      32-bit port, where the long is one beat at A. The rule, in the ALU
+      now: **up, the bytes the last beat moved (`beat_step`); predecrement,
+      2 x size - those bytes** - the 16-bit constants are its special case,
+      and odd addresses need nothing more. mikej's unaligned-MOVEM patch
+      (the 68000 shape's hold on a one-byte beat) stays for CHK2
+      (`check_aligned`) only. `sim/kernel_bus` had no MOVEM; it now has
+      MOVEM.L and MOVEM.W up, MOVEM.L -(An) and (An)+, at offsets 0-3,
+      against the same UM 7.2 oracle. **Before the fix the 32-bit run
+      failed at the first MOVEM.L's second register (`$2002` for `$2004`)
+      and the 16-bit run at odd offsets; after it: port 32 181 checks, port
+      16 200 (242 with the five-byte fields), port 8 328, all PASS.**
+      `sim/kernel_upstream`: the same verdicts as before (14 pass;
+      `tb_stack_frame_push`, and the two DIVU saved-SR rows of 1.12's
+      hunk).
+    - **The machine bench** (fill on, both fixes): 804 RAM writes, D6 = 0,
+      the run ending in the data-bus test's loop at cycle 3815 (its loop
+      detector's 3000 cycles; the RAM tests run far longer than the bench
+      can). Its last check was "the loop is the chime's" - true only
+      because X let the ROM past its failed tests; it is now "D6 = 0: no
+      start-up test has failed". 17 checks PASS; sdram 184 + trainings.
+      Prediction: PIFA/PLAS in the RAM tests, PREG D6 00000000.
+    - **Compile 14 (Daniel's go-ahead given with the probe):** on the
+      board, PREG first - D6 = 0 and the CPU past the serial test manager
+      is the fix confirmed; D6 nonzero names the next failing test.
+
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables
 (2.7), and only then the donor `via6522.sv` (MacLC) and `via6522.vhd`
