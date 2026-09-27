@@ -173,6 +173,11 @@
 //   acknowledge is a level held until the request drops, like dl_ack.
 //   The benches drive it against the model, which masks as the datasheet
 //   says, so they prove the instrument's schedule, not the chip.
+//   dbg_dqm_force (item 21) holds both DQM pins high for a meter on the
+//   chip's LDQM/UDQM pins: compile 11's masked read said the chip never
+//   sees DQM high, and no report can tell whether the FPGA drives the
+//   pins; while it is held every write is masked, so only while the
+//   machine is held in reset.
 //
 // PORTS
 //   cpu_*   the clk_sys-domain signals of the machine, registered here first
@@ -225,6 +230,7 @@ module se30_sdram #(
   input      [63:0] raw_ctl,
   input      [23:0] raw_addr,          // word address
   output reg        raw_ack,
+  input             dbg_dqm_force,     // hold both DQM pins high, for a meter on the chip (item 21)
 
   // the chip
   output            sd_clk,
@@ -269,6 +275,12 @@ module se30_sdram #(
 
   reg  [3:0] cmd;
   assign {sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n} = cmd;
+  // sd_dqm resets to 00 and S_INIT raises it on its first clock (plan 3.8
+  // item 21, compile 12's experiment): with a reset value of 11 the fitter
+  // packs the pin's output register inverted (an asynchronous preset in
+  // an I/O cell that has only a clear), the one way the DQM pins differed
+  // in construction from the command pins while the chip never saw DQM
+  // high (compile 11's masked-read test).
   assign sd_cke = 1'b1;
 
   // ------------------------------------------- the clock to the chip
@@ -408,7 +420,7 @@ module se30_sdram #(
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0;
-      cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; sd_dqm <= 2'b11; dq_out <= 0; dq_oe <= 0;
+      cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; sd_dqm <= 2'b00; dq_out <= 0; dq_oe <= 0;
       cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; raw_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
       since_start <= 6'd63;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
@@ -656,6 +668,9 @@ module se30_sdram #(
 
         default: state <= S_IDLE;
       endcase
+      // the meter's test (plan 3.8 item 21): both DQM pins high for as
+      // long as the poke holds this; the last assignment wins
+      if (dbg_dqm_force) sd_dqm <= 2'b11;
     end
 
 endmodule

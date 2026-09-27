@@ -3987,6 +3987,75 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
       other path 0.95; D1 chains 0, cells packed, GCLK11/GCLK9).** On the
       board: the deck, `dqmread`, and `dqmtest` once more with the fixed
       controller.
+    - **The board on compile 11 (Daniel flashed, 2026-09-27): DQM NEVER
+      REACHES THE CHIP.** The deck as on compile 10 (the machine alive in
+      the SCC loop, overlay 0). `dqmread` at word $400000: unmasked and
+      under every mask - clocks 2 and 3, clock 2, clock 3, clocks 3 and
+      4 - the raw READ captured `97221136`, both words, every time; a
+      chip that saw DQM would have blanked the second beat under the
+      clock-2 masks (the model's alignment). `dqmtest` on the fixed
+      controller repeated compile 10's table row for row (0b now
+      `33334444`: every byte written, as 0c and 0d), so the earlier 0b
+      was the instrument. Conclusion: the chip's DQM inputs are never
+      high while this bitstream runs; every other behaviour is by the
+      datasheet. On the FPGA side the two pins are built, timed and
+      placed as the working command pins are; the template's pins are
+      MacPlus's and MacLC's, and both of those cores mask bytes through
+      them from the CPU's data strobes (MacLC: `sdram_ds = {!_memoryUDS,
+      !_memoryLDS}`) and boot System on this board. The one construction
+      difference found: `sd_dqm` resets to 11 (DQM high through the
+      power-up pause), an asynchronous preset, which the fitter packs
+      into the I/O cell as an INVERTED register (the cell has only a
+      clear); `cmd` is packed the same way and works, but never has to
+      hold a lone one-clock high on a normally-low pin. The "Missing
+      slew rate" note on the pins is generic (81 pins). The reader's
+      `dqmread` was missing from its operation list on the first run and
+      looped as a sample count (killed; fixed).
+
+21. **The DQM pins: the reset-value experiment and the hardware
+    cross-check (2026-09-27).** `sd_dqm` now resets to 00 and S_INIT
+    raises it on its first clock (the chip's 200 us pause wants DQM high;
+    one clock of low at the very start, under INHIBIT, is nothing). This
+    removes the inverted packing and is the only FPGA-side change left to
+    try; benches 184 / 17. **Daniel was asked, in parallel, to run his
+    MacPlus core on this board now** (it masks bytes through the same
+    pins and boots System only if they work) **and to say which SDRAM
+    module is fitted.** If MacPlus runs and compile 12 still shows every
+    `dqmread` row unblanked, the remaining suspects are outside this
+    repository's reasoning so far (the pin assignment as the board
+    actually has it, a module whose DQM traces differ from the working
+    cores' assumptions, the I/O cell) and the next instrument is a
+    bitstream that drives the two pins from a plain counter, read by a
+    meter.
+    - **Daniel's answers (2026-09-27): MacPlus runs as usual on this
+      board, and the last time the SDRAM was suspected he ran the Ramtest
+      core, which found nothing.** The module and the traces are good;
+      our bitstream is what leaves the pins low. The differences between
+      what the working cores put on those two pins and what we do, each
+      checked: (1) their DQM register (the address register's bits 12:11)
+      resets synchronously and packs plain, ours resets asynchronously
+      to 11 and packs inverted - compile 12's change; (2) theirs also
+      drives A12:A11, ours is dedicated - no reason known; (3) theirs
+      holds the level for several clocks after the WRITE, ours one -
+      **tested on compile 11 with the raw port: DQM held high on clocks
+      2-5 (42 ns) around a single WRITE still wrote the word, and around
+      a READ still returned both words; closed**; (4) the chip's clock
+      edge relative to the launch differs - cannot single out DQM on its
+      own; (5) drive strength and slew - identical in the fit (16 mA,
+      slew 1, on DQMH, DQML and nWE alike); closed.
+    - **The meter's test, built:** `dbg_dqm_force` on the controller holds
+      both DQM pins high; the poke's PPOK bit 37 drives it while the
+      machine is held; `read_probes.tcl dqmforce 1` sets it and leaves the
+      hold up, `dqmforce 0` releases. With it on, the chip's LDQM and UDQM
+      pins (15 and 39 of the TSOP-54; the datasheet's pin table) read 3.3
+      V if the FPGA drives them and near 0 V if it does not - the one
+      measurement no report can substitute. Benches 184 / 17; the reader's
+      operations run off the board. (A reader gotcha, twice now: a new
+      operation's name must be in the `lsearch` list at the top of
+      read_probes.tcl or the script takes it for a sample count and loops.)
+    - **Compile 12 needs Daniel's go-ahead.** On the board: `dqmread`
+      first (the reset-value change alone may end this); if still
+      unblanked, `dqmforce 1` and the meter on pins 15 and 39.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

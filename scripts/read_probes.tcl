@@ -20,6 +20,10 @@
 #                                                a READ blanks its output beats
 #                                                two clocks later, if the chip
 #                                                sees DQM at all
+#   ... dqmforce 1 | 0                           hold both DQM pins high (the
+#                                                machine stays held) for a meter
+#                                                on the chip's LDQM/UDQM pins, 15
+#                                                and 39 of the TSOP-54; 0 releases
 #
 # The board is never flashed from here (the standing rule); the writes above
 # are to the SDRAM, through the design's own controller, for measurement.
@@ -42,7 +46,7 @@ set samples 1
 set delay   1.0
 set op      ""
 set opargs  {}
-if {$argc >= 1 && [lsearch -exact {peek poke mode raw dqmtest} [lindex $argv 0]] >= 0} {
+if {$argc >= 1 && [lsearch -exact {peek poke mode raw dqmtest dqmread dqmforce} [lindex $argv 0]] >= 0} {
 	set op     [lindex $argv 0]
 	set opargs [lrange $argv 1 end]
 } else {
@@ -225,6 +229,22 @@ if {$op ne ""} {
 			lassign [pk_peek [expr {$word >> 1}]] r st
 			puts [format "  %06X: %08X%s" [expr {$word >> 1}] $r [note $st]]
 		}
+		dqmforce {
+			# item 21: PPOK bit 37 with the hold up forces sd_dqm to 11 in the
+			# controller; the hold stays up until `dqmforce 0` so the pins can
+			# be measured
+			set on [expr {[lindex $opargs 0] ne "0"}]
+			global idx
+			if {$on} {
+				write_source_data -instance_index $idx(PPOK) -value_in_hex -value [format %016llX [expr {1 << 37}]]
+				write_source_data -instance_index $idx(PPEK) -value_in_hex -value [format %08X [expr {1 << 30}]]
+				puts "DQM FORCED HIGH: both DQM pins should read 3.3 V at the chip (LDQM pin 15, UDQM pin 39 of the TSOP-54)"
+				puts "the machine is held in reset until: quartus_stp -t scripts/read_probes.tcl dqmforce 0"
+			} else {
+				write_source_data -instance_index $idx(PPOK) -value_in_hex -value 0000000000000000
+				release
+			}
+		}
 		dqmread {
 			# The masked-read test (plan 3.8 item 20).  A READ through the raw
 			# port with DQM on its own clock and the next: the chip blanks the
@@ -301,7 +321,7 @@ if {$op ne ""} {
 			puts "write forms and must all read as the datasheet."
 		}
 	}
-	release
+	if {$op ne "dqmforce"} { release }
 	end_insystem_source_probe
 	exit 0
 }

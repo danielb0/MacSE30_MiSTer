@@ -212,6 +212,7 @@ wire [31:0] pk_wdata;
 wire        raw_req, raw_ack;
 wire [63:0] raw_ctl;
 wire [23:0] raw_addr;
+wire        dqm_force;
 
 se30_sdram sdram
 (
@@ -223,6 +224,7 @@ se30_sdram sdram
 	.cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
 	.raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
+	.dbg_dqm_force(dqm_force),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),
 	.sd_dqm({SDRAM_DQMH, SDRAM_DQML}), .sd_cs_n(SDRAM_nCS), .sd_ras_n(SDRAM_nRAS),
 	.sd_cas_n(SDRAM_nCAS), .sd_we_n(SDRAM_nWE)
@@ -274,8 +276,9 @@ reg [31:0] mem_last_rdata = 0;
 always @(posedge clk_sys) if (mem_req && mem_ack && !mem_we) mem_last_rdata <= mem_rdata;
 
 // The peek and poke.  PPEK's source word is {go, hold, we, raw, 5'b0,
-// longword address[22:0]}; PPOK's is {27'b0, odd, byte enables[3:0], write
-// data[31:0]}; PRAW's is the controller's raw schedule word (its header).
+// longword address[22:0]}; PPOK's is {26'b0, DQM force, odd, byte enables
+// [3:0], write data[31:0]}; PRAW's is the controller's raw schedule word
+// (its header).
 // A toggle of go while hold is up runs one operation: a read or a write
 // through the CPU port as GLUE would (start for one clk_sys, then the
 // request until the acknowledge), or a raw experiment at word address
@@ -299,6 +302,7 @@ assign pk_req   = pk_req_r;
 assign raw_req  = raw_req_r;
 assign raw_ctl  = praw_src;
 assign raw_addr = {pk_src[22:0], pok_src[36]};
+assign dqm_force = pk_hold && pok_src[37];                   // item 21: both DQM pins high for the meter
 always @(posedge clk_sys) begin
 	pk_go_q    <= pk_src[31];
 	pk_start_r <= 0;
@@ -342,6 +346,7 @@ assign pk_wdata = 32'd0;
 assign raw_req = 1'b0;
 assign raw_ctl = 64'd0;
 assign raw_addr = 24'd0;
+assign dqm_force = 1'b0;
 `endif
 
 endmodule
