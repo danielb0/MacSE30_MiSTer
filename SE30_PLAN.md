@@ -3818,10 +3818,12 @@ drives is that reference displaced by a bounded phase shift:
    `DSACK0*` follows the strobe as row 3 has it. If E is high at A, having
    been high for H clocks: E falls at the first clock by which the high
    phase has lasted at least 4, then low for 4, then the same 4-clock
-   high phase. Cycle lengths S0 to S5: **about 6 to 9 clocks when E was
-   low, 10 to 15 when it was high** (the exact figures are the bench's,
-   4.11 item 3); the mean over a uniform phase is about 9 clocks =
-   0.57 µs, against the *Guide*'s "average of 0.5 µs".
+   high phase. Cycle lengths in the GLUE bench's convention (AS* low to
+   DSACK* inclusive, plus S4/S5): **7 clocks when E was low with room,
+   up to 16 when it was high and had just risen**, a mean of 10 over a
+   uniform phase sweep (4.11 item 3) = 0.64 µs, against the *Guide*'s
+   "average of 0.5 µs" - the 4-clock phase minimum, OPEN, is most of the
+   gap.
 3. **Each reference period has exactly one E rise**, nominally at its
    midpoint. An access may take it early - any time from the period's
    start, once E has been low 4 clocks - and a period whose rise has been
@@ -3982,6 +3984,22 @@ VIAs through 2.11.2's decode). In the order the machine meets them:
     source), the power-off (`$408062EE`: `PWROFF` low), the shift-register
     ADB transactions, the RTC's clock.
 
+**Where the machine bench found the ROM after all this (4.11 item 5).**
+Steps 1-4 happen by bus cycle 152; the test manager's first RAM test
+(`$40802B28`, over `$0-$400`) writes RAM at cycle 802; then the ROM
+returns to the main start-up chain and, at `$408000D0`, calls the **boot
+chime** (`$40805E4A`): the ASC's registers and wavetable are written
+(`$50F14801`, `$807`, `$806`, `$802`, `$810-$81F`, the four channel
+buffers) and a 30,001-sample tune is played by **software timing** - a
+36-iteration delay loop per sample at `$40805F46-$40805F4A`, about 0.7 s
+of machine time (the table at `$40805F78`). With no ASC the chime is
+silent and harmless, and it is where the bench's loop detector stops:
+`PIFA` sits at `$40805F48`/`$40805F4C` for the first second after boot.
+The main RAM sizing (`$40802BBC`, which reads `RAMSIZ` back from VIA2 ORA
+to index the size table at `$408036BA`), the VIA initialisation of step 8
+and the VBL of step 9 all come after the chime, so they are the board's
+to show, through `PVIA` and `PIRQ`.
+
 **What the machine bench can reach.** Steps 1-4 happen within a few ms
 of machine time; the RAM tests over 8 MB take of the order of a second,
 and steps 6-10 lie beyond them. ModelSim gives 215 µs in 9 s (3.7), so
@@ -4060,13 +4078,14 @@ PB7 pin to VIA1 CA1, GLUE's `slot_irq_or_n` to VIA2 CA1 and the video's
 video (`page`, `vsyncen_n`), and the two `IRQ*` to GLUE. The 3.5 tie-offs
 go. `files.qip` gains the file.
 
-**`rtl/dbg_probes.sv`**: one more 32-bit probe, `PVIA`: `{overlay,
-ramsiz[1:0], vsyncen_n, page, via1 IER[6:0], via1 IFR[6:0], via2 IER[6:0],
-via2 IFR[6:0]}` - whether the ROM got as far as clearing overlay, what
-size it set, whether the VBL is armed and firing - and `PIRQ`, a count of
-level-1 interrupt acknowledges (FC = 7 cycles with `A3-A1` = 1), which is
-60 per second if the VBL works and 0 if it does not. Item 17's
-checksum-verdict probe: not added; the screen (4.6) is the verdict.
+**`rtl/dbg_probes.sv`**: two more 32-bit probes. `PVIA`: `{overlay,
+ramsiz[1:0], vsyncen_n, via1 IER[6:0], via1 IFR[6:0], via2 IER[6:0], via2
+IFR[6:0]}` - whether the ROM got as far as clearing overlay, what size it
+set, whether the VBL is armed and firing. `PIRQ`: `{level-2 acknowledges
+[15:0], level-1 acknowledges[15:0]}`, the FC = 7 cycles by `A3-A1`; level
+1 advances 60 a second if the VBL works and not at all if it does not.
+`scripts/read_probes.tcl` decodes both. Item 17's checksum-verdict probe:
+not added; the screen (4.6) is the verdict.
 
 ## 4.9 The benches
 
@@ -4115,21 +4134,28 @@ with the byte on `D31-D24` (item 6 unchanged).
 
 **`sim/machine/tb_se30_machine.v`, ModelSim** (rung 3), extended past its
 "first I/O access" stop: with the VIAs answering, the ROM (a) writes DDRA
-`$3D` and clears PA4, after which a RAM cycle at a low address issues
-`RAS` (overlay off, held by GLUE's own bench already, now seen from the
-ROM); (b) passes the PA0/PA1 strap test; (c) runs the checksum loop; (d)
-writes `$C0` to VIA2 DDRA and ORA and reads its 128 longwords; (e) enters
-the RAM tests - the first RAM writes and read-backs at `$0`-`$400`. The
-run is bounded at a few ms; the report is the I/O trace and the
-prediction for `PACT`, `PIFA`, `PVIA` at the stop, made from the ROM's
-code path (item 17's lesson), and the check is that no bus error and no
-halt occur before (e). The empty-bank behaviour (3.7) is *observed* here
-first: what the ROM's sizing does on an 8 MB machine whose addresses
-alias above 8 MB.
+`$3D`, which drives PA4 low from the reset OR flip-flop - overlay off at
+cycle 70, RAM at `$0` from then on; (b) passes the PA0/PA1 strap test
+(cycles 76-87, ORA reading `$C2` as 4.2.3 says it must); (c) runs the
+checksum loop - **shortened in the bench's copy of the image** (run.sh:
+two iterations, verdict forced to "passed"; the real loop is 130 ms of
+machine time, an hour and more of ModelSim, and the board has already
+run it, 3.8 item 17); (d) writes `$C0` to VIA2 DDRA and ORA (cycles
+149-152) and reads its 128 longwords a megabyte apart; (e) writes RAM in
+the test manager's first RAM test (cycle 802) - and then plays the boot
+chime, where the run ends (4.6). 16 checks, 102 s of ModelSim: no bus
+error, no halt, the SDRAM model clean, and the prediction **`PIFA
+$40805F48`/`$40805F4C`, `PVIA $70000000`** (overlay 0, `RAMSIZ` 11,
+`VSYNCEN*` 1, both IERs 0 - nothing enabled yet) for the first second
+after boot. The empty-bank behaviour (3.7) is beyond the bench's reach:
+the main sizing runs after the chime.
 
-**The board** (rung 6, Daniel flashes): `PVIA` shows overlay cleared and
-`RAMSIZ` written; `PIRQ` counting at 60 Hz; and the screen - a Sad Mac
-code (read back through `$4083F8FC`) or the flashing question mark.
+**The board** (rung 6, Daniel flashes): in the first second `PIFA` in the
+chime loop and `PVIA $70000000`; then, once the main start-up chain has
+run, `PVIA` with overlay 0, `RAMSIZ` as the sizing set it and VIA1's IER
+bit 1 (`$83` written, 4.6 item 9); `PIRQ` level 1 counting at 60 a
+second; and the screen - a Sad Mac code (read back through `$4083F8FC`)
+or the flashing question mark.
 
 ## 4.10 Risks and open items
 
@@ -4168,20 +4194,36 @@ code (read back through `$4083F8FC`) or the flashing question mark.
 
 ## 4.11 The work
 
-1. Write this section, and mark 2.11 row 3, 2.11.7 item 1 and 3.6's ladder
-   with pointers to 4.4 and 4.9.
-2. **`sim/via/tb_se30_via.v`** and `run.sh` (4.9 items 1-10), failing, then
-   **`rtl/se30_via.v`** to 4.2 until it passes.
-3. **`sim/glue`** item 5 rewritten to 4.4, failing, then the E generator and
-   VIA cycle in **`rtl/se30_glue.v`** until the whole GLUE bench passes.
-4. **`rtl/se30_machine.v`** to 4.8; `files.qip`; `sim/system` and
-   `sim/video` still green.
-5. **`sim/machine`** extended to 4.9's (a)-(e); the prediction recorded
-   here.
-6. **`rtl/dbg_probes.sv`**: `PVIA` and `PIRQ`; `scripts/read_probes.tcl`
-   reads them.
-7. Elaboration; then the compile, **with Daniel's go-ahead**, the ritual of
-   3.6 item 5; the archive.
+1. ~~Write this section, and mark 2.11 row 3, 2.11.7 item 1 and 3.6's
+   ladder with pointers to 4.4 and 4.9.~~ **Done 2026-09-27.**
+2. ~~**`sim/via/tb_se30_via.v`** and `run.sh` (4.9 items 1-10), failing,
+   then **`rtl/se30_via.v`** to 4.2 until it passes.~~ **Done 2026-09-27:
+   93 checks.** The bench corrected the plan on T1's free-run period
+   (N+2, 4.2.4) and found one model artifact (a control line tied low
+   read as a "negative edge" out of reset; the edge registers now start
+   from the pins).
+3. ~~**`sim/glue`** item 5 rewritten to 4.4, failing, then the E generator
+   and VIA cycle in **`rtl/se30_glue.v`** until the whole GLUE bench
+   passes.~~ **Done 2026-09-27: 97 checks.** Measured in the bench's
+   convention (AS* low to DSACK* inclusive, plus S4/S5): **7 clocks best,
+   16 worst, 10 mean** over a 40-phase sweep; E's rise count clocks/20
+   exactly under idle, sparse and 900 back-to-back accesses, the latter
+   running one a period (17,995 clocks for 900); no phase under 4. The
+   mechanism as simplified in 4.4 item 3.
+4. ~~**`rtl/se30_machine.v`** to 4.8; `files.qip`; `sim/system` and
+   `sim/video` still green.~~ **Done 2026-09-27.** The VIAs' reset is
+   `reset_n` and the RESET instruction's `reset_out_n` together, as
+   RESET* is shared on the board; the ROM executes RESET at `$4083F85A`.
+5. ~~**`sim/machine`** extended to 4.9's (a)-(e); the prediction recorded
+   here.~~ **Done 2026-09-27: 16 checks, 102 s**; the result and the
+   prediction are in 4.6 and 4.9. The boot chime was the surprise: a
+   software-timed tune on the absent ASC, 0.7 s, between the quick tests
+   and the main sizing.
+6. ~~**`rtl/dbg_probes.sv`**: `PVIA` and `PIRQ`; `scripts/read_probes.tcl`
+   reads them.~~ **Done 2026-09-27.**
+7. ~~Elaboration~~ **done 2026-09-27: 0 errors, 82 warnings (85 at 3.8
+   item 9; none in the new files).** Then the compile, **with Daniel's
+   go-ahead**, the ritual of 3.6 item 5; the archive.
 8. The board: Daniel flashes; the probes and the screen against the
    prediction; the reading recorded here. Then the empty-bank and 128 MB
    items of 3.7 have their first data, and Section 5 is whichever device

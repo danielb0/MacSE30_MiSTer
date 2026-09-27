@@ -1,6 +1,6 @@
-// se30_machine.v - the SE/30's logic board: the CPU, GLUE and the video
-// today; the VIAs, ASC, SWIM, SCC, SCSI, ADB and RTC as their sections
-// land (SE30_PLAN.md 3.5).
+// se30_machine.v - the SE/30's logic board: the CPU, GLUE, the video and
+// the two VIAs today; the ASC, SWIM, SCC, SCSI, ADB and RTC as their
+// sections land (SE30_PLAN.md 3.5, 4.8).
 //
 // WHAT IT IS
 //   Everything of the machine that is not the MiSTer framework's, behind
@@ -24,12 +24,19 @@
 //   address is a longword address in the 32 MB: RAM at 0 (8 MB, GLUE's
 //   flat address truncated), the ROM's 64K longwords at $200000.
 //
-// NOT HERE YET - the tie-offs below stand in for the VIAs (Section 4):
-//   OVERLAY reads 1, as an undriven VIA1 PA4 does at reset (plan 2.11.6),
-//   so the ROM is at $0 and RAM is not reachable; RAMSIZ reads 11; the
-//   video's page bit reads 1 and its retrace interrupt is disabled; every
-//   I/O device answers $00 and raises no interrupt.  The ROM runs from
-//   reset to its first VIA access, which is where Section 4 begins.
+// THE VIAs (plan 4.5, 4.7)
+//   A port pin is OR where DDR says output and the external driver
+//   otherwise, and a line nothing drives reads 1 - the 65C22's level,
+//   which is what makes OVERLAY, PA6 (the box ID) and RAMSIZ read as the
+//   ROM expects before it writes them.  GLUE and the video take the pins.
+//   The RESET instruction resets the VIAs, RESET* being shared on the
+//   board (2.11.6).
+//
+// NOT HERE YET - what the VIAs' inputs and the device bus hold until
+//   their sections: the SCC's W/REQ*, the ADB transceiver's interrupt,
+//   clock and data, the RTC's data and 1 Hz, the ASC's and SCSI's
+//   interrupt and DRQ lines, all at their idle levels (plan 4.7); every
+//   other I/O device answers $00 and raises no interrupt.
 
 `timescale 1ns/1ps
 
@@ -75,7 +82,8 @@ module se30_machine #(
   output  [1:0] dbg_dsack_n,
   output        dbg_berr,
   output        dbg_halted,
-  output        reset_out_n            // the RESET instruction: the peripherals' reset
+  output        reset_out_n,           // the RESET instruction: the peripherals' reset
+  output [31:0] dbg_via                // {overlay, ramsiz, vsyncen_n, VIA1 IER, IFR, VIA2 IER, IFR} (plan 4.8)
 );
 
   // ---------------------------------------------------------- the bus
@@ -108,12 +116,10 @@ module se30_machine #(
   wire        vid_dsack0_n, irq6_n, vid_sel;
   wire  [7:0] vid_dout;
 
-  // Section 4's: the VIAs' lines, as they read with the VIAs undriven
-  wire        overlay   = 1'b1;        // VIA1 PA4
-  wire  [1:0] ramsiz    = 2'b11;       // VIA2 PA7-PA6
-  wire        vid_page  = 1'b1;        // VIA1 PA6
-  wire        vsyncen_n = 1'b1;        // VIA1 PB6
-  wire        via1_irq_n = 1'b1, via2_irq_n = 1'b1, scc_irq_n = 1'b1;
+  wire        overlay, vid_page, vsyncen_n, via1_irq_n, via2_irq_n;   // the VIAs' pins, below
+  wire  [1:0] ramsiz;
+  wire  [7:0] dev_rdata;
+  wire        scc_irq_n = 1'b1;        // the SCC's, until its section
 
   se30_glue glue (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
@@ -126,7 +132,7 @@ module se30_machine #(
     .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(mem_rdata), .rom_ack(rom_ack),
     .via1_sel(via1_sel), .via2_sel(via2_sel), .scc_sel(scc_sel), .scsi_sel(scsi_sel), .scsi_dack(scsi_dack),
     .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
-    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(8'h00), .scsi_drq(1'b0),
+    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(1'b0),
     .e_clk(e_clk), .c3m_en(c3m_en),
     .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
     .via1_irq_n(via1_irq_n), .via2_irq_n(via2_irq_n), .scc_irq_n(scc_irq_n), .nmi_n(nmi_n),
@@ -144,6 +150,51 @@ module se30_machine #(
   assign mem_wdata = ram_wdata;
   assign ram_ack   = mem_ack;
   assign rom_ack   = mem_ack;
+
+  // ------------------------------------------------------------- VIAs
+  wire        via_reset_n = reset_n && reset_out_n;
+  wire  [7:0] via1_rdata, via2_rdata;
+  wire  [7:0] via1_pa_out, via1_pa_oe, via1_pb_out, via1_pb_oe;
+  wire  [7:0] via2_pa_out, via2_pa_oe, via2_pb_out, via2_pb_oe;
+  wire  [6:0] via1_ifr, via1_ier, via2_ifr, via2_ier;
+  wire  [7:0] via1_pa_ext = 8'hFF;                       // PA7 SCCWREQ* idle; PA6-0 undriven (ALTVID, HDSEL, OVERLAY, SYNC out; PDS straps)
+  wire  [7:0] via1_pb_ext = 8'hFF;                       // PB3 ADB-INT* and PB0 RTC data idle; the rest undriven or outputs
+  wire  [7:0] via2_pa_ext = {2'b11, irq6_n, 5'b11111};   // RAMSIZ undriven; IRQ*6 the video's latch; IRQ*5-1 the empty PDS
+  wire  [7:0] via2_pb_ext = 8'b1011_0111;                // PB6 SNDEXT* and PB3 tied low; TM0A*/TM1A* the empty PDS
+  wire  [7:0] via1_pa_pin = (via1_pa_oe & via1_pa_out) | (~via1_pa_oe & via1_pa_ext);
+  wire  [7:0] via1_pb_pin = (via1_pb_oe & via1_pb_out) | (~via1_pb_oe & via1_pb_ext);
+  wire  [7:0] via2_pa_pin = (via2_pa_oe & via2_pa_out) | (~via2_pa_oe & via2_pa_ext);
+  wire  [7:0] via2_pb_pin = (via2_pb_oe & via2_pb_out) | (~via2_pb_oe & via2_pb_ext);
+  assign overlay   = via1_pa_pin[4];
+  assign vid_page  = via1_pa_pin[6];
+  assign vsyncen_n = via1_pb_pin[6];
+  assign ramsiz    = via2_pa_pin[7:6];
+  assign dev_rdata = via1_sel ? via1_rdata : via2_sel ? via2_rdata : 8'h00;
+  assign dbg_via   = {overlay, ramsiz, vsyncen_n, via1_ier, via1_ifr, via2_ier, via2_ifr};
+
+  se30_via via1 (
+    .clk(clk), .c16_en(phi1), .reset_n(via_reset_n), .e_clk(e_clk),
+    .sel(via1_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .rw(dev_rw), .wdata(dev_wdata),
+    .rdata(via1_rdata), .irq_n(via1_irq_n),
+    .pa_in(via1_pa_pin), .pa_out(via1_pa_out), .pa_oe(via1_pa_oe),
+    .pb_in(via1_pb_pin), .pb_out(via1_pb_out), .pb_oe(via1_pb_oe),
+    .ca1(via2_pb_pin[7]),                                // VBLK*: VIA2's PB7, T1's output
+    .ca2_in(1'b1), .ca2_out(), .ca2_oe(),                // RTC-1HZ: no edges until the RTC section
+    .cb1_in(1'b1), .cb1_out(), .cb1_oe(),                // ADB-SCLK: idle until the ADB section
+    .cb2_in(1'b1), .cb2_out(), .cb2_oe(),                // ADB-DIO
+    .dbg_ifr(via1_ifr), .dbg_ier(via1_ier));
+
+  se30_via via2 (
+    .clk(clk), .c16_en(phi1), .reset_n(via_reset_n), .e_clk(e_clk),
+    .sel(via2_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .rw(dev_rw), .wdata(dev_wdata),
+    .rdata(via2_rdata), .irq_n(via2_irq_n),
+    .pa_in(via2_pa_pin), .pa_out(via2_pa_out), .pa_oe(via2_pa_oe),
+    .pb_in(via2_pb_pin), .pb_out(via2_pb_out), .pb_oe(via2_pb_oe),
+    .ca1(slot_irq_or_n),                                 // SLOTIRQ*: GLUE's OR of the slot lines
+    .ca2_in(1'b0), .ca2_out(), .ca2_oe(),                // SCSIDRQ: none until the SCSI section
+    .cb1_in(1'b1), .cb1_out(), .cb1_oe(),                // SNDINT*: none until the ASC section
+    .cb2_in(1'b0), .cb2_out(), .cb2_oe(),                // SCSIIRQ
+    .dbg_ifr(via2_ifr), .dbg_ier(via2_ier));
 
   // ------------------------------------------------------------ video
   // slot $E: GLUE's slot select at $FExxxxxx (plan 2.10 item 2: A23-A17

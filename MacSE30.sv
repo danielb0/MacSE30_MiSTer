@@ -207,6 +207,7 @@ wire [31:0] dbg_addr;
 wire  [2:0] dbg_fc;
 wire  [1:0] dbg_dsack_n;
 wire        dbg_as_n, dbg_rw_n, dbg_berr, dbg_halted, reset_out_n;
+wire [31:0] dbg_via;
 
 se30_machine machine
 (
@@ -217,7 +218,8 @@ se30_machine machine
 	.vidout(vidout), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
 	.nmi_n(1'b1),
 	.dbg_addr(dbg_addr), .dbg_fc(dbg_fc), .dbg_as_n(dbg_as_n), .dbg_rw_n(dbg_rw_n),
-	.dbg_dsack_n(dbg_dsack_n), .dbg_berr(dbg_berr), .dbg_halted(dbg_halted), .reset_out_n(reset_out_n)
+	.dbg_dsack_n(dbg_dsack_n), .dbg_berr(dbg_berr), .dbg_halted(dbg_halted), .reset_out_n(reset_out_n),
+	.dbg_via(dbg_via)
 );
 
 ///////////////////////   VIDEO   ////////////////////////////////
@@ -243,7 +245,7 @@ dbg_probes probes
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
 	.dsack_n(dbg_dsack_n), .berr(dbg_berr), .halted(dbg_halted), .sdram_ready(sdram_ready),
-	.rom_loaded(rom_loaded)
+	.rom_loaded(rom_loaded), .via_state(dbg_via)
 );
 `endif
 

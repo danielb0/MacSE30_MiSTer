@@ -22,6 +22,12 @@
 //   PSTA  {FC, R/W*, DSACK*, berr seen, halted, sdram ready, rom loaded,
 //          reset released, 5'b0, bus-error count[15:0]}
 //   PACT  the bus-cycle count: is the CPU alive at all?
+// and, since Section 4 (plan 4.8):
+//   PVIA  {overlay, ramsiz[1:0], vsyncen_n, VIA1 IER[6:0], VIA1 IFR[6:0],
+//          VIA2 IER[6:0], VIA2 IFR[6:0]}: did the ROM clear overlay, what
+//          size did it set, is the VBL armed and firing
+//   PIRQ  {level-2 acknowledges[15:0], level-1 acknowledges[15:0]}: the
+//          FC = 7 cycles by A3-A1; 60 a second on level 1 if the VBL works
 
 module dbg_probes (
 	input  wire        clk,
@@ -35,7 +41,8 @@ module dbg_probes (
 	input  wire        berr,
 	input  wire        halted,
 	input  wire        sdram_ready,
-	input  wire        rom_loaded
+	input  wire        rom_loaded,
+	input  wire [31:0] via_state          // se30_machine's dbg_via (plan 4.8)
 );
 
 	reg        as_q = 1;
@@ -43,7 +50,7 @@ module dbg_probes (
 	reg  [2:0] fc_r = 0;
 	reg        rw_r = 1, berr_seen = 0, berr_q = 0;
 	reg  [1:0] dsack_r = 2'b11;
-	reg [15:0] berr_cnt = 0;
+	reg [15:0] berr_cnt = 0, irq1_cnt = 0, irq2_cnt = 0;
 
 	always @(posedge clk) if (phi1) begin
 		as_q <= cpu_as_n;
@@ -51,6 +58,8 @@ module dbg_probes (
 			plas_r <= cpu_addr; fc_r <= cpu_fc; rw_r <= cpu_rw_n;
 			pact_r <= pact_r + 1'd1;
 			if (cpu_fc == 3'd6) pifa_r <= cpu_addr;
+			if (cpu_fc == 3'd7 && cpu_addr[3:1] == 3'd1) irq1_cnt <= irq1_cnt + 1'd1;
+			if (cpu_fc == 3'd7 && cpu_addr[3:1] == 3'd2) irq2_cnt <= irq2_cnt + 1'd1;
 		end
 		if (!cpu_as_n && dsack_n != 2'b11) dsack_r <= dsack_n;
 		if (berr) berr_seen <= 1;
@@ -88,5 +97,15 @@ module dbg_probes (
 		.instance_id ("PACT"), .probe_width (32), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pact (.probe(pact_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(
+		.instance_id ("PVIA"), .probe_width (32), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pvia (.probe(via_state), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(
+		.instance_id ("PIRQ"), .probe_width (32), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pirq (.probe({irq2_cnt, irq1_cnt}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule

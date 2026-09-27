@@ -62,7 +62,10 @@ module se30_via (
   output        cb1_oe,
   input         cb2_in,
   output        cb2_out,
-  output        cb2_oe
+  output        cb2_oe,
+
+  output  [6:0] dbg_ifr,               // for the probe deck (plan 4.8)
+  output  [6:0] dbg_ier
 );
 
   reg  [7:0] ora, orb, ddra, ddrb, acr, pcr;
@@ -124,7 +127,8 @@ module se30_via (
       sr <= 0; srcnt <= 0; sr_active <= 0;
       t1_armed <= 0; t1_reload <= 0; t1_skip <= 0; t2_armed <= 0; t2_skip <= 0; pb7_t1 <= 1;
       ira_l <= 8'hFF; irb_l <= 8'hFF;
-      e_q <= 0; ca1_q <= 1; ca2_q <= 1; cb1_q <= 1; cb2_q <= 1; pb6_q <= 1; iclk_q <= 1;
+      e_q <= 0; iclk_q <= 1;
+      ca1_q <= ca1; ca2_q <= ca2_in; cb1_q <= cb1_in; cb2_q <= cb2_in; pb6_q <= pb_in[6];   // no edge out of reset
       ca2_hs <= 1; cb2_hs <= 1; ca2_pulse <= 0; cb2_pulse <= 0; iclk <= 1;
     end else begin
       if (c16_en) begin
@@ -247,6 +251,8 @@ module se30_via (
   endcase
   assign rdata = sel ? rmux : 8'h00;
   assign irq_n = !irq;
+  assign dbg_ifr = ifr;
+  assign dbg_ier = ier;
 
   // ---------------------------------------------------------------- pins
   assign pa_out  = ora;

@@ -14,9 +14,19 @@
 //     2. every RAM and ROM cycle on the way is the Guide's four C16M
 //        clocks, GLUE's refresh-window stall excepted
 //     3. no bus error and no halt before the ROM's first I/O access
-//     4. the ROM runs to its first I/O access - a VIA, by plan 2.11.6 -
-//        which is reported (address, FC, direction, cycle number) and is
-//        where Section 4 begins.  With no VIAs yet the run stops there.
+//     4. the ROM runs to its first I/O access - VIA1's DDRA, plan 4.6 -
+//        which is reported (address, FC, direction, cycle number)
+//     5. with the VIAs answering (plan 4.9): the ROM clears overlay and
+//        RAM appears at $0; it passes its PA0/PA1 strap test; it runs
+//        the checksum loop (shortened in the bench's copy, see run.sh);
+//        it writes $C0 to VIA2's DDRA and ORA and reads its 128
+//        longwords a megabyte apart; it enters the RAM tests - the first
+//        RAM writes; no bus error and no halt on the way; the probe
+//        deck's PVIA is predicted with the rest.  The run ends where the
+//        ROM settles into a long loop: the boot chime's per-sample delay
+//        ($40805F46-$40805F4A, 30,001 samples of 36 iterations, about
+//        0.7 s of machine time, silent with no ASC), which is where the
+//        board takes over (plan 4.6).
 //
 //   It is also 1.10's measurement: the Starter Edition's wall clock on the
 //   whole machine (run.sh prints it).
@@ -114,7 +124,8 @@ module tb_se30_machine;
   // (no fetch address it has not fetched before for LOOP_CYCLES cycles),
   // logging the I/O accesses and the last fetch addresses - the prediction
   // for the probe deck on hardware (plan 3.6 item 6)
-  localparam LOOP_CYCLES = 3000, NIO = 24, NRING = 16;
+  localparam LOOP_CYCLES = 3000, NIO = 40, NRING = 16;
+  integer    overlay_off = -1, first_ram_wr = -1, ram_writes = 0, ramsiz_wr = -1, via2_c0 = 0;
   reg        seen [0:65535];           // ROM-offset longwords fetched so far
   integer    since_new = 0, io_n = 0, ring_i = 0, berr_first = -1;
   reg [31:0] last_fetch = 0, last_as = 0;
@@ -144,6 +155,14 @@ module tb_se30_machine;
       if (is_io && !stop) begin
         io_addr = c_addr; io_fc = c_fc; io_rw = c_rw; io_cycle = cycles; stop = 1;
       end
+      // plan 4.9: overlay off, the RAMSIZ prelude, the RAM tests
+      if (!machine.overlay && overlay_off < 0) overlay_off = cycles;
+      if (is_mem && !c_rw && c_addr[31:30] == 2'b00 && !machine.overlay) begin
+        ram_writes = ram_writes + 1; if (first_ram_wr < 0) first_ram_wr = cycles;
+      end
+      if (is_io && !c_rw && c_addr[23:0] == 24'hF03E00 && ramsiz_wr < 0) ramsiz_wr = cycles;
+      if (is_io && !c_rw && (c_addr[23:0] == 24'hF02600 || c_addr[23:0] == 24'hF03E00) && (c_data[31:24] & 8'hC0) == 8'hC0)
+        via2_c0 = via2_c0 + 1;
       last_as = c_addr;
       if (c_fc == 3'd6) begin
         last_fetch = c_addr;
@@ -206,30 +225,40 @@ module tb_se30_machine;
     $display("      %0d memory cycles, %0d longer than four clocks (the refresh window)", mem_cycles, long_cycles);
     check(long_cycles * 20 < mem_cycles, "fewer than one memory cycle in twenty stalled");
 
-    // ---- phase 2: on to the halt or the loop
-    $display("---- running on, with the VIAs answering $00");
-    while (!halted && since_new < LOOP_CYCLES && cycles < 40000) @(posedge clk_sys);
+    // ---- phase 2: on with the VIAs, to a long loop (the boot chime's delay)
+    $display("---- running on, with the VIAs answering (plan 4.9)");
+    while (!halted && since_new < LOOP_CYCLES && cycles < 60000) @(posedge clk_sys);
     repeat (4) @(posedge clk_sys);
     $display("      stopped after %0d cycles: %s", cycles,
              halted ? "the CPU HALTED (double bus fault)" : (since_new >= LOOP_CYCLES) ? "a LOOP (no new fetch address)" : "the cycle limit");
+    $display("      overlay cleared at cycle %0d; VIA2 ORA first written at cycle %0d; first RAM write at cycle %0d; %0d RAM writes",
+             overlay_off, ramsiz_wr, first_ram_wr, ram_writes);
+    $display("      PVIA %08x: overlay %0d ramsiz %b vsyncen* %0d  VIA1 IER %02x IFR %02x  VIA2 IER %02x IFR %02x",
+             machine.dbg_via, machine.dbg_via[31], machine.dbg_via[30:29], machine.dbg_via[28],
+             machine.dbg_via[27:21], machine.dbg_via[20:14], machine.dbg_via[13:7], machine.dbg_via[6:0]);
     $display("      the first %0d I/O accesses:", io_n);
     for (i = 0; i < io_n; i = i + 1)
       $display("      %6d  %s %08x  fc %0d  data %08x", io_cyc[i], io_rw_l[i] ? "rd" : "wr", io_a[i], io_fc_l[i], io_d[i]);
     if (berrs != 0) $display("      %0d bus errors, the first at cycle %0d", berrs, berr_first);
     $display("      the last %0d fetch addresses:", NRING);
     for (i = 0; i < NRING; i = i + 1) $display("      %08x", ring[(ring_i + i) % NRING]);
-    $display("---- PREDICTION for the probe deck (plan 3.5): PIFA %08x  PLAS %08x  PACT %0d%s  halted %0d  bus errors %0d",
-             last_fetch, last_as, cycles, halted ? "" : " and counting", halted, berrs);
-    check(halted || since_new >= LOOP_CYCLES, "the run ends in a halt or a loop, not the cycle limit");
+    $display("---- PREDICTION for the probe deck (plan 3.5, 4.9): PIFA %08x  PLAS %08x  PACT %0d%s  halted %0d  bus errors %0d  PVIA %08x",
+             last_fetch, last_as, cycles, halted ? "" : " and counting", halted, berrs, machine.dbg_via);
+    check(overlay_off >= 0 && overlay_off < 200, "overlay cleared by the ROM's first VIA writes (DDRA $3D), before cycle 200");
+    check(via2_c0 >= 2, "VIA2 DDRA and ORA written with $C0: the RAMSIZ prelude (plan 4.6 item 4)");
+    check(first_ram_wr >= 0, "the ROM wrote RAM: the RAM tests began");
+    check(berrs == 0, "no bus error on the way");
+    check(!halted && since_new >= LOOP_CYCLES, "the run ends in a long loop (the boot chime's delay), not a halt or the cycle limit");
+    check(last_fetch == 32'h40805F48 || last_fetch == 32'h40805F4C, "... and that loop is the chime's, $40805F48/$40805F4C (plan 4.6)");
     check(chip.errors == 0, "the SDRAM model saw no datasheet violation");
 
-    if (fails == 0) $display("==== PASS: %0d checks, the machine runs the ROM from reset to its first I/O access", pass);
+    if (fails == 0) $display("==== PASS: %0d checks, the machine runs the ROM from reset, through its first RAM test, into the boot chime", pass);
     else $display("==== FAIL: %0d of %0d checks failed", fails, pass + fails);
     $finish;
   end
 
   initial begin
-    #40000000;                                                       // 40 ms
+    #120000000;                                                      // 120 ms
     $display("==== FAIL: timeout");
     $finish;
   end

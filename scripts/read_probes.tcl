@@ -142,6 +142,29 @@ for {set n 0} {$n < $samples} {incr n} {
 		puts [format "        reset released=%d  rom loaded=%d  sdram ready=%d  halted=%d  bus error seen=%d  bus errors=%d" \
 			$reset_n $rom_ld $sdram_rdy $halted $berr_seen $berr_cnt]
 	}
+	if {[have PVIA]} {
+		# {overlay, ramsiz[1:0], vsyncen_n, via1 ier[6:0], via1 ifr[6:0],
+		#  via2 ier[6:0], via2 ifr[6:0]} -- rtl/dbg_probes.sv, plan 4.8
+		set pvia [rd PVIA]
+		set overlay   [expr {($pvia >> 31) & 1}]
+		set ramsiz    [expr {($pvia >> 29) & 3}]
+		set vsyncen_n [expr {($pvia >> 28) & 1}]
+		set v1ier     [expr {($pvia >> 21) & 0x7F}]
+		set v1ifr     [expr {($pvia >> 14) & 0x7F}]
+		set v2ier     [expr {($pvia >> 7) & 0x7F}]
+		set v2ifr     [expr {$pvia & 0x7F}]
+		puts [format "  PVIA  %08X   overlay=%d %s  ramsiz=%d%d  vsyncen*=%d" $pvia $overlay \
+			[expr {$overlay ? "(ROM at 0: the ROM never cleared it)" : "(RAM at 0)"}] \
+			[expr {($ramsiz >> 1) & 1}] [expr {$ramsiz & 1}] $vsyncen_n]
+		puts [format "        VIA1 IER=%02X IFR=%02X   VIA2 IER=%02X IFR=%02X   %s" $v1ier $v1ifr $v2ier $v2ifr \
+			[expr {($v1ier & 2) ? "VBL enabled on VIA1" : "VBL not yet enabled"}]]
+	}
+	if {[have PIRQ]} {
+		set pirq [rd PIRQ]
+		set irq1 [expr {$pirq & 0xFFFF}]
+		set irq2 [expr {($pirq >> 16) & 0xFFFF}]
+		puts [format "  PIRQ  %08X   level-1 acknowledges=%u  level-2=%u   (level 1 advancing ~60/s: the VBL is running)" $pirq $irq1 $irq2]
+	}
 	puts ""
 	if {$n + 1 < $samples} { after [expr {int($delay * 1000)}] }
 }
@@ -166,3 +189,11 @@ puts "  * halted 1 or bus errors > 0: a double fault or a BERR; PLAS is the"
 puts "    address that drew it. The SDRAM path, not the ROM, is the question."
 puts "  * rom loaded 0 / sdram ready 0 / reset released 0: the machine never"
 puts "    left reset -- the HPS download or the SDRAM power-up ladder."
+puts "Since Section 4 (the VIAs, SE30_PLAN.md 4.6 and 4.9):"
+puts "  * PVIA overlay=0: the ROM's first VIA write landed and RAM is at 0;"
+puts "    ramsiz is what the ROM's sizing set (11 = 16 Mbit parts, 64 MB banks,"
+puts "    also the undriven reading); VIA1 IER bit 1 set: the VBL is enabled."
+puts "  * PIRQ level-1 advancing at ~60/s: VIA2 T1 -> PB7 -> VIA1 CA1 -> IRQ ->"
+puts "    GLUE -> IPL1 -> the CPU, the whole interrupt path works."
+puts "  * The screen is the verdict beyond the probes: a Sad Mac code or the"
+puts "    flashing question mark (plan 4.6)."
