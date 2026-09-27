@@ -20,10 +20,10 @@
 #                                                a READ blanks its output beats
 #                                                two clocks later, if the chip
 #                                                sees DQM at all
-#   ... dqmforce 1 | 0                           hold both DQM pins high (the
-#                                                machine stays held) for a meter
-#                                                on the chip's LDQM/UDQM pins, 15
-#                                                and 39 of the TSOP-54; 0 releases
+#   ... dqmforce 1 | 0                           hold the mask high (A12:11 and the
+#                                                DQM pins; the machine stays held):
+#                                                a peek then reads the floating bus
+#                                                if the chip sees it; 0 releases
 #
 # The board is never flashed from here (the standing rule); the writes above
 # are to the SDRAM, through the design's own controller, for measurement.
@@ -230,15 +230,15 @@ if {$op ne ""} {
 			puts [format "  %06X: %08X%s" [expr {$word >> 1}] $r [note $st]]
 		}
 		dqmforce {
-			# item 21: PPOK bit 37 with the hold up forces sd_dqm to 11 in the
-			# controller; the hold stays up until `dqmforce 0` so the pins can
-			# be measured
+			# item 21: PPOK bit 37 with the hold up forces the mask (A12:11, the
+			# chip's DQM on the MiSTer modules - plan 3.8 item 22) to 11 in the
+			# controller; the hold stays up until `dqmforce 0`
 			set on [expr {[lindex $opargs 0] ne "0"}]
 			global idx
 			if {$on} {
 				write_source_data -instance_index $idx(PPOK) -value_in_hex -value [format %016llX [expr {1 << 37}]]
 				write_source_data -instance_index $idx(PPEK) -value_in_hex -value [format %08X [expr {1 << 30}]]
-				puts "DQM FORCED HIGH: both DQM pins should read 3.3 V at the chip (LDQM pin 15, UDQM pin 39 of the TSOP-54)"
+				puts "DQM FORCED HIGH on A12:11 and the DQM pins: writes are ignored and reads blanked while it holds"
 				puts "the machine is held in reset until: quartus_stp -t scripts/read_probes.tcl dqmforce 0"
 			} else {
 				write_source_data -instance_index $idx(PPOK) -value_in_hex -value 0000000000000000

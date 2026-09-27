@@ -4063,6 +4063,68 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
     - **Compile 12 needs Daniel's go-ahead.** On the board: `dqmread`
       first (the reset-value change alone may end this); if still
       unblanked, `dqmforce 1` and the meter on pins 15 and 39.
+    - **Compile 12 (Daniel's go-ahead, tag `01dc958e`, archived
+      `MacSE30_01dc958e_dqmreset.rbf`):** every corner met as compile 9
+      (worst non-capture path 0.749); `sd_dqm` packed plain in the DQML/DQMH
+      output cells. The fit also shows `cmd[3:0]` and `dq_oe` packed
+      inverted and working, so the inversion was never a sufficient
+      explanation. **On the board: PBLD 01dc958e, the CPU in the serial
+      test loop as on compile 11, and every `dqmread` row unblanked.** No
+      meter is available (Daniel, 2026-09-27); item 22 made one unnecessary.
+
+22. **The mask is on A12/A11 (2026-09-27).** Item 21's difference (2) was
+    the answer. **The MiSTer SDRAM modules wire each chip's UDQM/LDQM to
+    the A12/A11 traces** - Sorgelig shorted them to save two pins (MiSTer
+    forum thread "For the SDRAM add on, why DQMH and DQML connected to A11
+    and A12?"; the module's own design files are not in
+    `MiSTer-devel/Hardware_MiSTer`) - so the chip's mask on every clock
+    is whatever A12:11 carry, and the FPGA's DQM pins reach nothing. Every
+    working core's code says the same: MacPlus, MacLC and MacIIvi
+    `assign sd_dqm = sd_addr[12:11]`, the Quadra 800 and the IIgs
+    `{SDRAM_DQMH,SDRAM_DQML} = SDRAM_A[12:11]`, and Minimig, whose
+    `sd_dqm` is a register of its own, also loads the mask into
+    `sd_addr[12:11]` at its column command. Our controller drove A12:11 =
+    00 on every READ and WRITE, which explains every DQM reading on the
+    board at once: compile 9's doubled ROM (the burst's masked second beat
+    written), compile 10's ignored byte masks, item 21's held mask, and
+    compiles 11 and 12's masked reads returning both words - while the FPGA's
+    DQM pins did exactly as told. (Item 21's note that DQML/DQMH "reach
+    both chips" was an assumption, and wrong.)
+    - **The controller:** the mask rides A12:11 - `~be` on each CPU WRITE's
+      clock, 00 on the download's and the training's WRITEs and on every
+      READ, 00 on NOPs by default, 11 through the power-up pause (LOAD
+      MODE's value overrides it on its clock); the raw port's per-clock
+      schedule goes out on A12:11; `dbg_dqm_force` holds A12:11 high except
+      into a mode register (every write ignored, every read blanked, so a
+      peek under it reads the floating bus - the electronic version of the
+      meter). `sd_dqm` copies A12:11, as the other cores' does, for a
+      module that uses the DQM pins. A column address is ten bits at most,
+      so A12:11 are free on a column command; on an ACTIVE they are row
+      bits, and no data beat here is under an ACTIVE's clock (a read's
+      beats take their mask from the READ's clock and the next, a
+      single-location write from its own).
+    - **The benches model the board:** the chip model's DQM input is now
+      `addr_c[12:11]` in both benches. Doing that exposed **a model bug**:
+      a read word took its mask from the clock two before its LAUNCH edge,
+      i.e. one clock before the datasheet's ("the read data appears on the
+      DQs subject to the values on the DQM inputs two clocks earlier",
+      AS4C32M16SB; W9825G6KH: "Hi-Z (with latency of 2)"). It was right
+      until item 15 moved the launch one edge earlier and nothing had put a
+      mask near a read since; with the board's wiring an ACTIVE's row bits
+      on the clock before a READ blanked the first word. Fixed: the word
+      launched at edge e takes the mask sampled at e-1. **The fixed,
+      board-wired model against the committed controller fails exactly the
+      board's three ways and nothing else** - the byte-enable writes (5),
+      the burst's masked second beat and the masked clock-4 write (2), the
+      masked READ (1): 8 of 184 - while the training, the reads, the
+      download and the timing checks pass, as on the board. The new
+      controller: sdram 184 + the three trainings, machine 17 (the ROM into
+      the boot chime; prediction PIFA/PLAS 40805f48, PACT 9139 and counting).
+    - **Compile 13 needs Daniel's go-ahead.** On the board, expect:
+      `dqmread` rows 2 and 3 blanked (the READ's clock masks the first word,
+      the next the second; the "clocks 3 and 4" row the second word only),
+      `dqmtest` byte masks honoured, and the machine past the serial test
+      loop - the ROM's byte-write RAM test (`$408032A0-3304`) passing.
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

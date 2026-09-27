@@ -159,7 +159,9 @@ module tb_se30_sdram;
 
   sdram_model chip (
     .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
-    .ba(ba_c), .addr(addr_c), .dqm(dqm_c), .dq(dq_chip));
+    // the chip's DQM is the A12/A11 traces, as on the MiSTer modules (the
+    // controller header's THE MASK); dqm_c, the FPGA's DQM pins, reaches nothing
+    .ba(ba_c), .addr(addr_c), .dqm(addr_c[12:11]), .dq(dq_chip));
 
   // ------------------------------------------------------------ scoring
   integer pass = 0, fails = 0;

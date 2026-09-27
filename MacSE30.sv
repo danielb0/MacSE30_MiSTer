@@ -302,7 +302,7 @@ assign pk_req   = pk_req_r;
 assign raw_req  = raw_req_r;
 assign raw_ctl  = praw_src;
 assign raw_addr = {pk_src[22:0], pok_src[36]};
-assign dqm_force = pk_hold && pok_src[37];                   // item 21: both DQM pins high for the meter
+assign dqm_force = pk_hold && pok_src[37];                   // item 21: the mask high (A12:11, item 22)
 always @(posedge clk_sys) begin
 	pk_go_q    <= pk_src[31];
 	pk_start_r <= 0;

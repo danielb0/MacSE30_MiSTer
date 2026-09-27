@@ -116,6 +116,26 @@
 //   the second WRITE where the second beat was.  Any ACTIVE is followed by
 //   eight clocks before the next ACTIVE or refresh (tRC 63; a write's tWR
 //   + tRP well inside).
+//   THE MASK IS ON A12/A11 (plan 3.8 item 22, the board on compile 12,
+//   2026-09-27): the MiSTer SDRAM modules wire each chip's UDQM/LDQM to the
+//   A12/A11 traces - Sorgelig shorted them to save two pins (MiSTer forum,
+//   "For the SDRAM add on, why DQMH and DQML connected to A11 and A12?") -
+//   so the chip's mask is whatever A12:11 carry on each clock, and the
+//   FPGA's DQM pins reach nothing. Every working core on this hardware
+//   says the same in its code: MacPlus, MacLC and MacIIvi assign sd_dqm =
+//   sd_addr[12:11], the Quadra 800 and the IIgs {DQMH,DQML} = A[12:11],
+//   and Minimig puts the mask into sd_addr[12:11] at its column command.
+//   A column address is at most ten bits, so A12:11 are free on a READ or
+//   WRITE clock and carry the mask there; on a NOP they carry 00; on an
+//   ACTIVE they are row bits, which no data beat here is ever under (a
+//   read's beats are masked by the two clocks after its READ, and a
+//   single-location write takes its mask on its own clock). Until item 22
+//   every column command drove A12:11 = 00, which explains every DQM
+//   reading: compile 9's doubled ROM (the burst's second beat never
+//   masked), compile 10's ignored byte masks, compiles 11 and 12's masked
+//   reads returning the words, and the held mask of item 21 - while the
+//   FPGA's DQM pins did exactly as told. sd_dqm still copies A12:11, as
+//   the other cores' do, for a module wired to the DQM pins.
 //
 // THE TRAINING (S_TRAIN, after the ladder and before ready)
 //   Writes the complementary pair $A5C3, $5A3C to the top two words of the
@@ -173,11 +193,13 @@
 //   acknowledge is a level held until the request drops, like dl_ack.
 //   The benches drive it against the model, which masks as the datasheet
 //   says, so they prove the instrument's schedule, not the chip.
-//   dbg_dqm_force (item 21) holds both DQM pins high for a meter on the
-//   chip's LDQM/UDQM pins: compile 11's masked read said the chip never
-//   sees DQM high, and no report can tell whether the FPGA drives the
-//   pins; while it is held every write is masked, so only while the
-//   machine is held in reset.
+//   The schedule's DQM goes out on A12:11 (THE MASK above), on the
+//   command clocks and the NOPs after them alike.
+//   dbg_dqm_force (item 21) holds the mask high - A12:11 and so the DQM
+//   pins - on every clock but a LOAD MODE's: every write is then ignored
+//   and every read's beats blanked (a peek reads the floating bus), so
+//   only while the machine is held in reset. Built for a meter on the
+//   chip's pins; since item 22 the peek is the test.
 //
 // PORTS
 //   cpu_*   the clk_sys-domain signals of the machine, registered here first
@@ -238,7 +260,7 @@ module se30_sdram #(
   output reg [12:0] sd_addr,
   output reg  [1:0] sd_ba,
   inout      [15:0] sd_dq,
-  output reg  [1:0] sd_dqm,
+  output      [1:0] sd_dqm,
   output            sd_cs_n,
   output            sd_ras_n,
   output            sd_cas_n,
@@ -275,12 +297,8 @@ module se30_sdram #(
 
   reg  [3:0] cmd;
   assign {sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n} = cmd;
-  // sd_dqm resets to 00 and S_INIT raises it on its first clock (plan 3.8
-  // item 21, compile 12's experiment): with a reset value of 11 the fitter
-  // packs the pin's output register inverted (an asynchronous preset in
-  // an I/O cell that has only a clear), the one way the DQM pins differed
-  // in construction from the command pins while the chip never saw DQM
-  // high (compile 11's masked-read test).
+  // the mask is on A12:11 (the header's THE MASK); the DQM pins copy it
+  assign sd_dqm = sd_addr[12:11];
   assign sd_cke = 1'b1;
 
   // ------------------------------------------- the clock to the chip
@@ -420,7 +438,7 @@ module se30_sdram #(
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0;
-      cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; sd_dqm <= 2'b00; dq_out <= 0; dq_oe <= 0;
+      cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_out <= 0; dq_oe <= 0;
       cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; raw_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
       since_start <= 6'd63;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
@@ -438,7 +456,7 @@ module se30_sdram #(
       else if (since_start != 6'd63) since_start <= since_start + 1'b1;
       if (!dl_req_q) dl_ack <= 0;
       if (!raw_req_q) raw_ack <= 0;
-      if (state != S_INIT) sd_dqm <= 2'b00;
+      if (state != S_INIT) sd_addr[12:11] <= 2'b00;                 // the mask: 00 unless a command says otherwise
 
       case (state)
         // ------------------------------------------------- power-up
@@ -446,7 +464,7 @@ module se30_sdram #(
         // eight clocks apart (tRFC 63 ns), LOAD MODE, tMRD, then the
         // training.
         S_INIT: begin
-          sd_dqm <= 2'b11;
+          sd_addr[12:11] <= 2'b11;                                  // DQM high; LOAD MODE's value overrides it
           init_cnt <= init_cnt + 1'b1;
           case (init_step)
             4'd0:  if (init_cnt == INIT_PAUSE) begin init_step <= 1; init_cnt <= 0; end
@@ -471,11 +489,11 @@ module se30_sdram #(
               if (seq == 4'd0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
               if (seq == 4'd2) begin
                 cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b0, 1'b0, TR_COL};
-                dq_out <= TR_W1; sd_dqm <= 2'b00; dq_oe <= 1;
+                dq_out <= TR_W1; dq_oe <= 1;
               end
               if (seq == 4'd3) begin
                 cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL | 9'd1};
-                dq_out <= TR_W2; sd_dqm <= 2'b00; dq_oe <= 1;
+                dq_out <= TR_W2; dq_oe <= 1;
               end
               if (seq == 4'd9) begin tr_step <= 1; seq <= 0; end
             end
@@ -570,8 +588,8 @@ module se30_sdram #(
             if (!a_written) begin
               if (seq == 4'd15) seq <= 4'd15;                       // count the wait, saturating
               if (req_q && seq >= 4'd2) begin                       // tRCD met at 2
-                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b0, 1'b0, a_col_r};
-                dq_out <= a_wdata[31:16]; sd_dqm <= ~a_be[3:2]; dq_oe <= 1;
+                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {~a_be[3:2], 1'b0, 1'b0, a_col_r};
+                dq_out <= a_wdata[31:16]; dq_oe <= 1;
                 a_written <= 1; seq <= 4'd3; cpu_ack <= 1;
                 busy <= 4'd6;                                       // the low word, tWR, tRP: 4.8 from here
               end else if (seq >= 4'd5) begin
@@ -583,8 +601,8 @@ module se30_sdram #(
               end
             end else begin
               if (seq == 4'd3) begin                                // the low word, auto-precharged
-                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r | 9'd1};
-                dq_out <= a_wdata[15:0]; sd_dqm <= ~a_be[1:0]; dq_oe <= 1;
+                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {~a_be[1:0], 1'b1, 1'b0, a_col_r | 9'd1};
+                dq_out <= a_wdata[15:0]; dq_oe <= 1;
               end
               if (seq == 4'd4) state <= S_DONE;
             end
@@ -633,7 +651,7 @@ module se30_sdram #(
           seq <= seq + 1'b1;
           if (seq == 4'd2) begin
             cmd <= CMD_WRITE; sd_ba <= d_bank; sd_addr <= {2'b00, 1'b1, 1'b0, d_col};
-            dq_out <= xs_dl_data; sd_dqm <= 2'b00; dq_oe <= 1; dl_ack <= 1;
+            dq_out <= xs_dl_data; dq_oe <= 1; dl_ack <= 1;
           end
           if (seq == 4'd4) state <= S_IDLE;
         end
@@ -654,7 +672,7 @@ module se30_sdram #(
             end
             if (seq >= 4'd2 && seq <= 4'd5) begin                   // the schedule
               dq_out <= r_sel[r_k] ? r_w1 : r_w0;
-              sd_dqm <= r_dqm[2 * r_k +: 2];
+              sd_addr[12:11] <= r_dqm[2 * r_k +: 2];               // after the column address: the schedule wins
               dq_oe  <= r_oe[r_k] && !r_read;
             end
             if (r_read && seq == 4'd7) cpu_rdata[31:16] <= dq_m;   // a read's words, as S_ACC takes them
@@ -668,9 +686,10 @@ module se30_sdram #(
 
         default: state <= S_IDLE;
       endcase
-      // the meter's test (plan 3.8 item 21): both DQM pins high for as
-      // long as the poke holds this; the last assignment wins
-      if (dbg_dqm_force) sd_dqm <= 2'b11;
+      // plan 3.8 item 21: the mask high for as long as the poke holds this,
+      // but never into a mode register's reserved bits; the last
+      // assignment wins
+      if (dbg_dqm_force && state != S_INIT && !(state == S_RAW && r_kind)) sd_addr[12:11] <= 2'b11;
     end
 
 endmodule

@@ -132,11 +132,19 @@ module sdram_model (
     // ---- the data pins for this edge: the word launched at the previous
     // edge is held tOH after this one, then X; this edge's word (if any)
     // appears tAC after it, or the pins go Z at tHZ.  Read DQM has two
-    // clocks of latency: the mask sampled two edges ago applies per byte.
+    // clocks of latency: "the read data appears on the DQs subject to the
+    // values on the DQM inputs two clocks earlier" (AS4C32M16SB, READ).
+    // A word launched here is VALID at the next edge, so its mask is the
+    // one sampled at the previous edge (dqm_hist[0], before the shift
+    // below) - a READ's own clock for its first word.  Until plan 3.8 item
+    // 22 this took dqm_hist[1], which was right while words launched at
+    // the edge they were valid (before item 15's fix) and a clock early
+    // since; nothing had put a mask near a read until the board's wiring
+    // of DQM to A12/A11 (the controller's THE MASK) did.
     if (driving) dq_drv <= #(tOH) 16'hxxxx;
     if (rd_v[0])
-      dq_drv <= #(tAC) { dqm_hist[1][1] ? 8'hzz : mem[rd_a[0]][15:8],
-                         dqm_hist[1][0] ? 8'hzz : mem[rd_a[0]][7:0] };
+      dq_drv <= #(tAC) { dqm_hist[0][1] ? 8'hzz : mem[rd_a[0]][15:8],
+                         dqm_hist[0][0] ? 8'hzz : mem[rd_a[0]][7:0] };
     else if (driving)
       dq_drv <= #(tHZ) 16'hzzzz;
     driving = rd_v[0];
