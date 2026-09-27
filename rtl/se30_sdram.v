@@ -138,6 +138,8 @@ module se30_sdram (
   output            ready,
   output reg        cap_sel,           // the read capture in use: 0 = A, 1 = B
   output reg  [1:0] cap_ok,            // the training's verdict: {A passed, B passed}
+  output reg  [5:0] cap_good_a,        // reads of TR_READS that returned the pair through A
+  output reg  [5:0] cap_good_b,        //   and through B (the probe deck's PCAP)
 
   // the CPU port (clk_sys domain)
   input             cpu_start,         // ECS with a RAM/ROM address: the S0 half-clock
@@ -321,6 +323,7 @@ module se30_sdram (
       since_start <= 6'd63;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
       cap_sel <= 0; cap_ok <= 2'b00; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
+      cap_good_a <= 0; cap_good_b <= 0;
     end else begin
       cmd    <= CMD_NOP;
       dq_oe  <= 0;
@@ -386,10 +389,10 @@ module se30_sdram (
             default: begin                                          // judge this pass; switch; settle 16 clocks
               if (seq == 4'd0) begin
                 if (!tr_pass) begin
-                  cap_ok[1] <= (tr_good == TR_READS);
+                  cap_ok[1] <= (tr_good == TR_READS); cap_good_a <= tr_good;
                   cap_sel <= 1;                                     // B next
                 end else begin
-                  cap_ok[0] <= (tr_good == TR_READS);
+                  cap_ok[0] <= (tr_good == TR_READS); cap_good_b <= tr_good;
                   cap_sel <= cap_ok[1] ? 1'b0 : (tr_good == TR_READS);   // A if it passed, else B if it did, else A
                 end
                 tr_n <= 0; tr_good <= 0;

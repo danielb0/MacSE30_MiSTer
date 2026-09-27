@@ -153,6 +153,18 @@ for {set n 0} {$n < $samples} {incr n} {
 			$cap_ok_a $cap_ok_b \
 			[expr {$cap_fail ? "  *** NEITHER PASSED: reads are not trustworthy ***" : ""}]]
 	}
+	if {[have PCAP]} {
+		# {cap_sel, cap_fail, cap_ok[1:0], 6'b0, good_a[5:0], 2'b0, good_b[5:0],
+		#  8'b0}: the training's counts, of 32 reads each (plan 3.8 item 18)
+		set pcap [rd PCAP]
+		puts [format "  PCAP  %08X   training: %d of 32 reads returned the pair through A, %d of 32 through B" \
+			$pcap [expr {($pcap >> 16) & 0x3F}] [expr {($pcap >> 8) & 0x3F}]]
+	}
+	if {[have PMEM]} {
+		set pmem [rd PMEM]
+		puts [format "  PMEM  %08X   the machine's last memory read%s" $pmem \
+			[expr {$pmem == 0x4080002A ? "  (the reset vector's PC, as the ROM has it)" : ""}]]
+	}
 	if {[have PVIA]} {
 		# {overlay, ramsiz[1:0], vsyncen_n, via1 ier[6:0], via1 ifr[6:0],
 		#  via2 ier[6:0], via2 ifr[6:0]} -- rtl/dbg_probes.sv, plan 4.8

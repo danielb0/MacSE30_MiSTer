@@ -3658,7 +3658,30 @@ desktop (ADB). **Section 4 is the VIAs' (4.9 is its rung list).**
     the 16 globals were in use. The fix is to say it: `GLOBAL_SIGNAL
     "GLOBAL CLOCK"` on the three PLL outputs in MacSE30.qsf (the capture
     clock is global by its clock control block's setting). Not archived;
-    the tag restored. **Compile 8 needs Daniel's go-ahead.**
+    the tag restored.
+
+    **The board on compile 7 (Daniel flashed it anyway, 2026-09-27):**
+    `PBLD eaadecec`, sdram ready, **the training passed BOTH captures and
+    chose A**, and the machine halted at 53 cycles with `PIFA $002A0030`,
+    `PLAS $C` - compile 4's and 6's picture to the digit. Its outputs to
+    the chip were 1.4 ns short of setup at the slow corner, so it is a
+    poor witness; but it says one thing clearly: **a training that passes
+    both captures does not by itself protect the ROM read.** The likely
+    reading: on this silicon both edges are inside the eye at power-up,
+    A by very little (STA's fast-corner hold for A is -0.13 to +0.30),
+    32 reads passed on jitter's good side, and the CPU's hundreds of
+    thousands of reads found the bad side - the crossover case of the
+    "A preferred" rule, on the wrong side of it. Two probes added for
+    compile 8 so that the reading can be made: `PCAP`, the training's
+    counts per capture (a marginal 32 of 32 against a solid one is still
+    invisible; the counts tell whether a capture failed outright), and
+    `PMEM`, the data of the machine's last acknowledged memory read (the
+    reset vector's PC is `$4080002A`; `$002A002A` is the late capture).
+    If compile 8 repeats the picture, the decision rule is the work: the
+    training must measure margin, not pass/fail - the PLL's dynamic phase
+    shift sweeping one capture clock across the eye is the instrument that
+    does, and 4.11 item 8's (b) option list should have had it. **Compile
+    8 with Daniel's go-ahead (given with the board reading).**
 
 Then Section 4, the VIAs, documentation first: Apple's VIA cell
 specification (Nov 1989), the R65C22 data sheet, the *Guide*'s bit tables

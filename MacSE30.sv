@@ -194,6 +194,7 @@ end
 
 wire        sdram_ready, cap_sel;
 wire  [1:0] cap_ok;
+wire  [5:0] cap_good_a, cap_good_b;
 wire        mem_start, mem_req, mem_we, mem_ack;
 wire [22:0] mem_addr;
 wire  [3:0] mem_be;
@@ -202,7 +203,7 @@ wire [31:0] mem_wdata, mem_rdata;
 se30_sdram sdram
 (
 	.clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(pll_locked),
-	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok),
+	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_good_a(cap_good_a), .cap_good_b(cap_good_b),
 	.cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
 	.cpu_be(mem_be), .cpu_wdata(mem_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
@@ -251,12 +252,19 @@ assign VGA_B  = {8{~vidout}};
 // quartus_stp; FPGA-only, behind USE_DBG_PROBES in MacSE30.qsf.
 
 `ifdef USE_DBG_PROBES
+// the data of the machine's last acknowledged memory read, for PMEM (plan
+// 3.8 item 18: the reset vector should read $4080002A)
+reg [31:0] mem_last_rdata = 0;
+always @(posedge clk_sys) if (mem_req && mem_ack && !mem_we) mem_last_rdata <= mem_rdata;
+
 dbg_probes probes
 (
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
 	.dsack_n(dbg_dsack_n), .berr(dbg_berr), .halted(dbg_halted), .sdram_ready(sdram_ready),
 	.sdram_cap({cap_sel, ~|cap_ok, cap_ok}),
+	.cap_detail({cap_sel, ~|cap_ok, cap_ok, 6'b0, cap_good_a, 2'b0, cap_good_b, 8'b0}),
+	.mem_last(mem_last_rdata),
 	.rom_loaded(rom_loaded), .via_state(dbg_via)
 );
 `endif

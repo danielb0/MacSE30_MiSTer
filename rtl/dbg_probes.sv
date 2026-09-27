@@ -46,6 +46,8 @@ module dbg_probes (
 	input  wire        halted,
 	input  wire        sdram_ready,
 	input  wire  [3:0] sdram_cap,          // {cap_sel, cap_fail, cap_ok[1:0]} from se30_sdram
+	input  wire [31:0] cap_detail,         // PCAP: {the same four, 6'b0, good reads through A[5:0], 2'b0, through B[5:0], 8'b0}
+	input  wire [31:0] mem_last,           // PMEM: the data of the machine's last acknowledged memory read
 	input  wire        rom_loaded,
 	input  wire [31:0] via_state          // se30_machine's dbg_via (plan 4.8)
 );
@@ -112,5 +114,17 @@ module dbg_probes (
 		.instance_id ("PIRQ"), .probe_width (32), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pirq (.probe({irq2_cnt, irq1_cnt}), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// since plan 3.8 item 18: the read-capture training's counts, and what
+	// the machine last read from memory
+	altsource_probe #(
+		.instance_id ("PCAP"), .probe_width (32), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pcap (.probe(cap_detail), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(
+		.instance_id ("PMEM"), .probe_width (32), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pmem (.probe(mem_last), .source(), .source_clk(clk), .source_ena(1'b1));
 
 endmodule
