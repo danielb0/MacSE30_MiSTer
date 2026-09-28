@@ -227,6 +227,7 @@ entity TG68KdotC_Kernel is
 		-- once per exception, interrupts included; debug_trap_vector holds its
 		-- vector address then (SE30_PLAN.md 5.12.12 item 8, the PEXC/PTRP probes)
 		debug_exc_take : out std_logic;
+		debug_opcode_pc : out std_logic_vector(31 downto 0);   -- the opcode's address (the PC an F-line stacks)
 		debug_pmmu_brief : out std_logic_vector(15 downto 0);
 -- DEBUG: Address computation diagnosis
 		debug_use_base : out std_logic;
@@ -10627,6 +10628,7 @@ debug_fline_context_valid <= fline_context_valid;
 debug_trap_1111 <= '1' when trap_1111='1' else '0';
 debug_trapmake <= '1' when trapmake='1' else '0';
 debug_exc_take <= '1' when micro_state = trap3 and clkena_lw = '1' else '0';
+debug_opcode_pc <= opcode_pc;
 debug_pmmu_brief <= pmmu_brief;
 
 -- DEBUG: Address computation diagnosis

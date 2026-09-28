@@ -84,6 +84,9 @@
 //         went wrong
 //   PTRP  256 bits: the last 16 A-line trap words, newest in [15:0]: which
 //         Toolbox and OS calls the machine is making
+//   PFLN  192 bits: the last 4 F-line exceptions, {opcode[15:0], its
+//         address[31:0]} each, newest in [47:0]: which FPU instructions the
+//         software issues with no 68882 to answer them (plan 5.12.12 item 8)
 
 module dbg_probes (
 	input  wire        clk,
@@ -112,7 +115,7 @@ module dbg_probes (
 	input  wire [63:0] adb_state,         // PADB: se30_machine's dbg_adb (plan 6.6)
 	input  wire [31:0] rtc_state,         // PRTC: se30_machine's dbg_rtc (plan 6.6)
 	input  wire [63:0] flp_state,         // PFLP: the floppy's (plan 5.12.12 item 7)
-	input  wire [24:0] exc_state          // PEXC, PTRP: {an exception taken, its vector, the opcode} (item 8)
+	input  wire [56:0] exc_state          // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
 );
 
 	reg        as_q = 1;
@@ -199,23 +202,26 @@ module dbg_probes (
 
 	// the CPU's exceptions (the header's PEXC, PTRP): one pulse per
 	// exception from the kernel, with its vector number and the opcode
-	wire       exc_take = exc_state[24];
-	wire [7:0] exc_vec  = exc_state[23:16];
+	wire        exc_take = exc_state[56];
+	wire  [7:0] exc_vec  = exc_state[55:48];
+	wire [15:0] exc_opc  = exc_state[47:32];
+	wire [31:0] exc_pc   = exc_state[31:0];
 	wire       exc_irq  = (exc_vec >= 8'd24) && (exc_vec <= 8'd31);   // spurious and the autovectors
 	reg [15:0] n_exc = 0, n_aline = 0, n_irq = 0, n_fline = 0;
 	reg  [7:0] n_addr = 0, n_ill = 0, n_berr = 0, n_other = 0;
 	reg [63:0] exc_ring = 0;                  // the last 8 vectors, not interrupts or A-line, newest [7:0]
 	reg [255:0] trp_ring = 0;                 // the last 16 A-line trap words, newest [15:0]
+	reg [191:0] fln_ring = 0;                 // the last 4 F-line exceptions {opcode, PC}, newest [47:0]
 	always @(posedge clk) if (exc_take) begin
 		n_exc <= n_exc + 1'd1;
 		if (exc_vec == 8'd10) begin
 			n_aline  <= n_aline + 1'd1;
-			trp_ring <= {trp_ring[239:0], exc_state[15:0]};
+			trp_ring <= {trp_ring[239:0], exc_opc};
 		end else if (exc_irq) n_irq <= n_irq + 1'd1;
 		else begin
 			exc_ring <= {exc_ring[55:0], exc_vec};
 			case (exc_vec)
-				8'd11:   n_fline <= n_fline + 1'd1;
+				8'd11:   begin n_fline <= n_fline + 1'd1; fln_ring <= {fln_ring[143:0], exc_opc, exc_pc}; end
 				8'd3:    if (n_addr  != 8'hFF) n_addr  <= n_addr  + 1'd1;
 				8'd4:    if (n_ill   != 8'hFF) n_ill   <= n_ill   + 1'd1;
 				8'd2:    if (n_berr  != 8'hFF) n_berr  <= n_berr  + 1'd1;
@@ -234,6 +240,11 @@ module dbg_probes (
 		.instance_id ("PTRP"), .probe_width (256), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_ptrp (.probe(trp_ring), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(
+		.instance_id ("PFLN"), .probe_width (192), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pfln (.probe(fln_ring), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the floppy (the header's PFLP)
 	reg [63:0] pflp_r = 0;

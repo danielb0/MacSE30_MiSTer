@@ -343,7 +343,7 @@ wire [63:0] dbg_regs;
 wire [63:0] dbg_swim, dbg_adb;
 wire [31:0] dbg_rtc;
 wire        dbg_swim_vread;
-wire [24:0] dbg_exc;
+wire [56:0] dbg_exc;
 
 se30_machine machine
 (

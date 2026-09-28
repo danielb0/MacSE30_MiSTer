@@ -50,7 +50,7 @@ module tb_busfault;
   wire        cpu_as_n, cpu_ds_n, cpu_rw_n, berr, reset_out_n, halted;
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
-  wire [24:0] exc;
+  wire [56:0] exc;
 
   tg68k cpu (
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
@@ -62,9 +62,11 @@ module tb_busfault;
   // the kernel's exception pulse (the probe deck's PEXC/PTRP, plan 5.12.12
   // item 8): one clk per exception taken, with its vector number
   integer     excs = 0, exc2 = 0;
-  always @(posedge clk) if (exc[24]) begin
+  reg  [31:0] exc_pc0 = 0;
+  always @(posedge clk) if (exc[56]) begin
     excs = excs + 1;
-    if (exc[23:16] == 8'd2) exc2 = exc2 + 1;
+    if (exc[55:48] == 8'd2) exc2 = exc2 + 1;
+    if (excs == 1) exc_pc0 = exc[31:0];
   end
 
   // --------------------------------------------------------------- GLUE
@@ -211,6 +213,7 @@ module tb_busfault;
     // 8. the probe deck's exception pulse (plan 5.12.12 item 8)
     check(exc2 == n_ret, "the exception pulse: once per bus error, vector 2", exc2, n_ret);
     check(excs == exc2, "and no other exception taken", excs, exc2);
+    check(exc_pc0 == probe_pc, "its PC: the faulting instruction's, as stacked", exc_pc0, probe_pc);
 
     if (fails == 0) $display("==== PASS: %0d checks - the empty-slot bus error returns as the MC68030's", pass);
     else $display("==== FAIL: %0d failures, %0d passes", fails, pass);

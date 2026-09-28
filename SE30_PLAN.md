@@ -6586,6 +6586,20 @@ The probes say where it stops.
    fetch step (`trap3`) advances (`debug_exc_take`, with `debug_trap_vector`
    and `debug_opcode`). `sim/busfault` holds the pulse: once per bus error,
    vector 2, no other exception (13 PASS); `sim/machine` 17 PASS.
+   **Compile 20 (tag `51a0475b`, `MacSE30_51a0475b_exc.rbf`)**: the flow's
+   timing not met by -0.220 ns in the framework's HDMI scaler
+   (`sys/ascal.vhd`'s `o_div`, slow -40C, as compile 18's); the machine met
+   at every corner (1.232 ns). Daniel flashed it. **THE ANSWER: F-line
+   exceptions, about 35 a second** - `PEXC`'s last 8 non-interrupt,
+   non-trap vectors all 11, no address error, no illegal, the bus-error
+   count not climbing (the Slot Manager's boot-time 255); `PTRP` a
+   QuickDraw redraw cycle around them. **The missing 68882.** Daniel: build
+   the 68882 as fully as possible now ("bypassing it will not exempt us
+   from implementing it"), and first a third probe, **`PFLN`**: the last 4
+   F-line exceptions, opcode and address (the kernel's `opcode_pc`, the PC
+   an F-line stacks, now exported), so the FPU's first instructions are
+   known. `sim/busfault` 14 PASS (the exported PC is the faulting
+   instruction's, as stacked); `sim/machine` 17 PASS.
 9. **5.13 - the ISM's MFM read** (720K, 1.44 MB), from the ISM ASIC spec,
    written when GCR is on the board.
 

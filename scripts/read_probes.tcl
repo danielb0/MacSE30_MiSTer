@@ -515,6 +515,16 @@ for {set n 0} {$n < $samples} {incr n} {
 		puts "        [lrange $words 0 7]"
 		puts "        [lrange $words 8 15]"
 	}
+	if {[have PFLN]} {
+		set pfln [rd PFLN]
+		puts "  PFLN  the last 4 F-line exceptions, newest first (opcode at address):"
+		set lines {}
+		for {set k 0} {$k < 4} {incr k} {
+			set e [expr {($pfln >> (48 * $k)) & 0xFFFFFFFFFFFF}]
+			lappend lines [format "%04X at %08X" [expr {($e >> 32) & 0xFFFF}] [expr {$e & 0xFFFFFFFF}]]
+		}
+		puts "        [join $lines {   }]"
+	}
 	if {[have PRTC]} {
 		# plan 6.6: the clock chip
 		set prtc [rd PRTC]
