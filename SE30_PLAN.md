@@ -6562,6 +6562,19 @@ waits for a disk (SWIM rung 2) or SCSI.
    `PADB` says so (W 0, the line low, no falls).
 7. The compile (Daniel's go-ahead), the 3.6 ritual and `sta_corners.tcl`;
    the board: rung 1 (6.10).
+   **Compile 17 (Daniel's go-ahead 2026-09-28; tag `90fe5b5b`, archived
+   `MacSE30_90fe5b5b_adb.rbf`, md5 `e2ff23d8...`)**: 22m15s, the flow's
+   worst slack +0.086 ns; 21,177 ALMs (51%), 196 RAM blocks (35%);
+   `sta_corners.tcl`: every corner met with the capture excepted (worst
+   0.964 ns), one of the two captures met at every corner (A's hold
+   -0.141 ns at fast -40C and B's setup -0.335 ns at slow 100C, both as
+   in compiles 15 and 16 - the training picks the one that works).
+   **For the board:** `342s0440-b.bin` in the core's folder as
+   `boot2.rom`. The prediction: past `$40806DD8`; `PADB` with W changing,
+   the line released, falls climbing by about a thousand a second and
+   last command `3C`; `PRTC` with transactions counted and the seconds'
+   low byte ticking; `PSWM` PH = 7 (the `.Sony` Open reached); the screen,
+   the flashing question-mark disk.
 8. Rung 2 when a boot device exists; PRAM persistence (Daniel's call on
    how: the framework's file interface to a `.sav` beside the ROMs is the
    usual MiSTer way).
