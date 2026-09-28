@@ -8500,7 +8500,15 @@ each item is in 8.6.15.)
 1. **FATANH(±1)**: +1 gives -infinity and -1 gives +infinity, stated
    twice (4-28, 6.1.6) - the opposite of atanh. A real 68882 quirk to
    replicate, or a documentation error? Silicon evidence decides; the
-   manual as printed is the fallback.
+   manual as printed is the fallback. **Not an OCR or print error**
+   (checked 2026-09-29, Daniel's question): both passages read cleanly
+   in the page images at 300 dpi, and the 1st edition prints the same
+   words in both places. The scan's fault - a faded vertical stroke
+   turning `+` into `-` in the operation tables' small type, confirmed at
+   400 dpi in FETOX and FDIV - can only turn `+` into `-`, and each
+   sentence pairs a clear "+infinity" with "-1" and "-infinity" with
+   "+1", so it cannot produce the reversal. What stays open is whether
+   Motorola's text is wrong: its 68040 FPSP returns sign(x) × infinity.
 2. **FLOGNP1(-1)**: 4-60 (both editions) returns a **NaN** with DZ; 6.1.6
    says "for the FLOGx instructions, return minus infinity". Same test.
 3. **`FMOVE <ea>,FPn` in single or double PREC**: OVFL is "cleared" and
@@ -8626,10 +8634,13 @@ on a real 68882 (all seventeen items at once - any 68882 machine would
 do, not only an SE/30; **none is available, Daniel 2026-09-29**, so this
 waits); Toni Wilen's own hardware-test posts (English Amiga Board), which
 would make WinUAE's answers citable; Motorola's FPSP source for items 1
-and 2. **Proposed, not yet agreed:** until one of them arrives, the
+and 2. **Decided (Daniel, 2026-09-29):** until one of them arrives, the
 model (item 5) builds every
 8.6.14 item as a **switchable choice** with the manual's reading as the
 default, so settling one later is a one-line change, not a redesign.
+Where the manual is silent (items 6, 7, 17 and the frame details
+above), the default is WinUAE's answer, labelled as a lead. The FPGA is
+built for one setting per item; the switches exist only in the model.
 
 ---
 
