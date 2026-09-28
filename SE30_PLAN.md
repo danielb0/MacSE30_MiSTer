@@ -5752,6 +5752,21 @@ reach, and the board is the verdict either way (5.11 item 4).
      1.6 ns, and the training picks it.) For the board: past the Slot
      Manager to the `.Sony` Open (`PSWM` PH = 7), the target the
      question-mark disk.
+   - **THE BOARD (compile 16, 2026-09-28): THE GREY DESKTOP PATTERN ON
+     THE SCREEN.** The ROM got past the Slot Manager, drew the desktop
+     through the video of Section 2, and runs normal code: no test
+     manager, no bus errors, the VBL at ~61/s (`PIRQ` level 1 3183 ->
+     3367 over three samples). **It now waits in the ADB Manager's
+     initialisation**, as 4.10 foresaw: at `$40806D94` it makes VIA1
+     PB4/PB5 outputs (DDRB `|= $30`: the ADB state lines), clears the
+     PCR, enables the shift-register interrupt (IER `$84` - `PVIA` VIA1
+     IER `$07`), sets bit 5 of the ADB flags (`$15D(a3)`), starts the
+     first transaction (`bsr $40806DEA`), opens interrupts and loops at
+     **`$40806DD8`** until the shift-register interrupt's handler clears
+     that bit. With no ADB transceiver nothing clocks the shift register
+     (CB1 idle, 4.7), so no interrupt comes. The `.Sony` Open comes after
+     it (`PSWM` PH still 0). **Next: the ADB section (with the RTC), from
+     its documentation first**; the SWIM's rungs 2-3 after it.
 7. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
    when rung 1 is on the board, from 5.2.4's sources.
 
