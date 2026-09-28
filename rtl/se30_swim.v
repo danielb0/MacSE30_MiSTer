@@ -121,7 +121,12 @@ module se30_swim (
   reg  [3:0] pidx;
   reg        corr_sel;                 // which correction byte a data read gives with ACTION low
 
-  wire       hit = sel && strobe;
+  // GLUE's strobe is one C16M - two clk in the machine, where clk is
+  // clk_sys - so the access is taken on the C16M edge alone, as the VIA
+  // takes it.  Without c16_en every access acted twice: the ISM switch's
+  // count never reached four and the ROM's probe found no SWIM
+  // (sim/gcrread part 1).
+  wire       hit = c16_en && sel && strobe;
 
   // ------------------------------------------------ the IWM, next state
   wire [2:0] k = rs[3:1];

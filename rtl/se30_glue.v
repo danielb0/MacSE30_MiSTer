@@ -182,6 +182,7 @@ module se30_glue (
   reg        mem_done;                 // the RAM or ROM port has answered
   reg  [1:0] dcnt;                     // clocks into the device cycle
   reg [31:0] din_r;
+  reg  [7:0] dev_q;                    // a device's byte, as it presented it on the capture clock
   reg  [5:0] scc_hold;
   reg        ff1, ff2, berr_r;         // UI6's timeout, below
 
@@ -230,7 +231,7 @@ module se30_glue (
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       active <= 0; done <= 0; mem_done <= 0; dcnt <= 0;
-      din_r <= 0; dev_strobe <= 0; scc_hold <= 0;
+      din_r <= 0; dev_q <= 0; dev_strobe <= 0; scc_hold <= 0;
     end else if (c16_en) begin
       dev_strobe <= 0;
       if (scc_hold != 0) scc_hold <= scc_hold - 1'b1;
@@ -263,15 +264,20 @@ module se30_glue (
             if (fixed_port && dc_adv && dcnt == cap - 1'b1) dev_strobe <= 1;
           end
           if (d_via && e_strobe) dev_strobe <= 1;
-          if (capture) done <= 1;
+          if (capture) begin done <= 1; dev_q <= rbyte; end
         end
       end
     end
 
-  // a device's byte is on the bus while it is selected; the processor
-  // latches it at the end of S4, a clock after it takes DSACK*.  Memory
-  // data is registered with the port's acknowledge.
-  assign cpu_din  = (active && d_dev) ? {rbyte, 24'h000000} : din_r;
+  // a device's byte is taken on the capture clock - the clock on which
+  // the device acts on the strobe (the SCC's two later) - and held for
+  // the processor, which latches it at the end of S4, a clock after it
+  // takes DSACK*.  Taken live, a byte that changed in that clock reached
+  // the processor without the device having seen it read: the SWIM's
+  // data register, whose clear follows only a read the chip saw, gave
+  // the ROM the same byte twice (sim/gcrread, plan 5.12.12 item 6).
+  // Memory data is registered with the port's acknowledge.
+  assign cpu_din  = (active && d_dev) ? {done ? dev_q : rbyte, 24'h000000} : din_r;
   assign dsack_n  = (!cpu_as_n && done && !berr_r) ? (d_mem ? 2'b00 : 2'b10) : 2'b11;
 
   // selects follow the cycle, as chip selects follow AS*; the slot's drops

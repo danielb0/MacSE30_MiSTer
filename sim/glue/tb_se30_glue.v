@@ -224,11 +224,15 @@ module tb_se30_glue;
       if (exp_sel)   exp_strobes = exp_strobes + 1;
     end
     if (scc_sel) scc_last_end = cyc_clock;  // the last clock the SCC was selected
-    // read data: the device answers with a value that names it and the address
-    dev_rdata <= via1_sel ? {4'h1, dev_addr[12:9]} : via2_sel ? {4'h2, dev_addr[12:9]} :
-                 scc_sel  ? {6'h0C, dev_addr[2:1]} : scsi_sel ? {5'h05, dev_addr[6:4]} :
-                 scsi_dack ? 8'hDA : asc_sel ? {4'hA, dev_addr[3:0]} : swim_sel ? {4'h5, dev_addr[12:9]} :
-                 exp_sel ? 8'hEE : 8'hFF;
+  end
+  // read data: the device answers with a value that names it and the
+  // address, while selected - combinationally, as the chips drive their
+  // pins: GLUE takes the byte on the clock the device acts on the strobe
+  always @* begin
+    dev_rdata = via1_sel ? {4'h1, dev_addr[12:9]} : via2_sel ? {4'h2, dev_addr[12:9]} :
+                scc_sel  ? {6'h0C, dev_addr[2:1]} : scsi_sel ? {5'h05, dev_addr[6:4]} :
+                scsi_dack ? 8'hDA : asc_sel ? {4'hA, dev_addr[3:0]} : swim_sel ? {4'h5, dev_addr[12:9]} :
+                exp_sel ? 8'hEE : 8'hFF;
   end
 
   // slot: the $E card alone - it decodes A31-A24 = $FE itself, as the video
