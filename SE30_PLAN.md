@@ -6122,8 +6122,9 @@ filling an empty second slot; register 2: the modifiers and the LEDs (Num
 Lock, Caps Lock, Scroll Lock, set by Listen register 2). The PS/2 set-2
 codes map to Figure 8-10's transition codes through a table built from
 the figure. Caps Lock is a locking key on the real keyboard: its register
-0 code goes down on one press and up on the next. **This choice is
-Daniel's** (6.11); the Standard Keyboard is the smaller alternative.
+0 code goes down on one press and up on the next. **Daniel decided
+2026-09-28: the Extended Keyboard, with the PC modifiers mapped by
+position** (6.12 item 4).
 
 ### 6.4.4 The mouse
 
@@ -6445,8 +6446,9 @@ waits for a disk (SWIM rung 2) or SCSI.
   read 1 because of them.
 - **DIO contention** and **MAME's race** (6.3.2, 6.8): watched on the
   bench, not assumed away.
-- **The keyboard model** (6.4.3): Extended proposed, Daniel's choice; and
-  the modifier mapping by position (6.12 item 4).
+- ~~**The keyboard model** (6.4.3): Extended proposed, Daniel's choice; and
+  the modifier mapping by position (6.12 item 4).~~ **Decided 2026-09-28:
+  the Extended Keyboard, modifiers by position.**
 - **Talk register 3's address field**: the real address (Table 8-15), not
   the FDB proposal's random one (6.12 item 4).
 - **Write protect and the extended command** (6.5.1): the manual's rule
