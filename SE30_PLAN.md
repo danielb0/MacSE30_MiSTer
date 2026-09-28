@@ -37,16 +37,23 @@ the only open question capable of making the project impossible. **Section
 first cut** with its own open-items list in 2.8, and is complete. **Section 3
 (the tree) was opened 2026-09-26**, **Section 4 (the VIAs) 2026-09-27**, and
 **Section 5 (the SWIM and the floppy drives) 2026-09-27**, its rung 1
-designed in full and rungs 2-3 mapped to their sources. Nothing about the
-ASC, the SCC, SCSI, ADB, the RTC or power should be inferred from what is
-written here - those sections do not exist yet, and the facts they need
-have not been read.
+designed in full and rungs 2-3 mapped to their sources, and **Section 6
+(the ADB and the RTC) 2026-09-28**. Nothing about the ASC, the SCC, SCSI
+or power should be inferred from what is written here - those sections
+do not exist yet, and the facts they need have not been read.
 
 **Revision 2026-09-27.** **Section 5 is new**: the SWIM from Apple's
 documents (the 343S0061-A drawing, the chip spec, the User's Reference,
 the ISM spec), the schematic's sheet 6 and the ROM's `.Sony` driver.
 Daniel decided the data path is bit-level, not MacLC's byte-level
 replica, and that the SWIM reaches the board in three rungs.
+
+**Revision 2026-09-28.** **Section 6 is new**: the ADB and the RTC, from
+the schematic's sheet 4, the *Guide*'s chapter 8, *Inside Macintosh*'s
+hardware chapter, General Instrument's PIC manual and the ROM's ADB
+Manager and clock code. Daniel decided the transceiver (UL11, a PIC1654S)
+runs its own dumped program, the keyboard and mouse speak bit cells on
+a modelled wire, and PRAM is volatile for now.
 
 ## Why this is a new core, not a `mac_model.v` entry
 
@@ -5770,6 +5777,681 @@ reach, and the board is the verdict either way (5.11 item 4).
 7. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
    when rung 1 is on the board, from 5.2.4's sources.
 
+# Section 6 - The ADB and the RTC
+
+Opened 2026-09-28, after 5.11 item 6: compile 16 drew the grey desktop and
+then waited in the ADB Manager's initialisation at `$40806DD8` for a
+shift-register interrupt that only the ADB transceiver can cause. Written
+before any RTL, documentation first: the schematic's sheet 4, the *Guide*'s
+chapter 8 and pp. 143-145, *Inside Macintosh*'s hardware chapter, General
+Instrument's PIC manual, and the ROM's own ADB Manager and clock code. The
+donors (MacPlus's `adb.sv` and `rtc.v`) and the emulators were read after
+those, as cross-checks.
+
+**Three decisions by Daniel, 2026-09-28, frame the section.**
+
+- **The transceiver runs its own firmware.** UL11 is Apple's 342S0440-B, a
+  General Instrument PIC1654S microcontroller with Apple's mask program
+  (6.3). That program has been dumped (MAME's `342s0440-b.bin`), so the
+  transceiver is built as a PIC1654S core in RTL running the dump. It is
+  the program the machine ran, so what `ADB-INT*` means in each state, the
+  timeouts, the auto-poll and the service-request handling come from it,
+  not from our reading. This is `feedback-independent-core-own-the-kernel`'s
+  "no workarounds for well-defined jobs": the CPU is documented in full, and
+  a hand-written transceiver would be a guess at a program we can run.
+- **The keyboard and mouse speak bit cells on a modelled wire.** An
+  open-collector ADB line joins the transceiver and the device models, which
+  keep the *Guide*'s Table 8-14 timing (attention, sync, bit cells, stop
+  bit, stop-to-start, service request) and the register contents of Tables
+  8-4 and 8-7 to 8-11, fed from MiSTer's PS/2 keyboard and mouse. The
+  devices had microcontrollers of their own, which we do not run: they are
+  built to the *Guide*'s specification (`feedback-replicate-bugs-else-spec`,
+  tier 2).
+- **PRAM is volatile for now.** The RTC keeps its 256 bytes in block RAM
+  and takes the time from the HPS when the core loads. The ROM
+  re-initialises PRAM on each cold start (6.7). Keeping PRAM on the SD card
+  is a later item (6.12).
+
+## 6.1 Sources, and their standing
+
+The ADB and PIC documents are in `C:\temp\Mac\SE30\Docs\adb`, downloaded
+2026-09-28 with Daniel's OK from the bitsavers `trailing-edge` mirror and
+size-checked. The `.txt` beside each is `pdftotext -layout`; all three are
+scans, so quote from the page image (`pdftoppm`, WSL) when a number
+matters.
+
+| source | what it is | standing |
+|---|---|---|
+| `se30.pdf` sheet 4 "VIA1 & VIA2 (65C22), RTC, Apple Desktop Bus" (`se30schems/Apple/SE30_P4.GIF`) | UL11 "ADB" with its pin numbers; UK4 "RTC" with its crystal; the bus driver Q3, R31-R33, the connectors | **primary for the wiring** (6.2), read from the scan and checked against the KiCad redraw |
+| BOMARC's redraw of board 820-0260-A (`se30schems/BOMARC/Serial, SCSI, Clock, PRAM, ADB.jpg`) | names the parts: **UL11 = 342S0440-B**, **UK4 = 344S0042-B** | secondary, independent of Apple's set; gives the part numbers the scan does not |
+| `IICX_BOM.txt` (the IIcx BOM) | `342S0440` "IC, MICRO-CONT, MAC ADB XCVR" and `341S0440`; `343-0042` / `344-0042` "IC, RAM, 256 BYTE SERIAL CLOCK", and a `062-0217` "SPEC, BI&T, MAC CLOCK CHIP" that has not surfaced | the IIcx as proxy (Section 2's rule); corroborates the part numbers |
+| *Guide* 2e, chapter 8 (pp. 289-326) | the ADB: the SE/SE/30 interface circuit (Figure 8-2), the transaction states (Table 8-12), commands (8-13), signals, **timing (Table 8-14)**, error conditions, device registers, addresses, handler IDs, collisions, polling; the Apple Standard Mouse (Table 8-4), the Apple Standard and Extended Keyboards (Figures 8-9 and 8-10, Tables 8-6 to 8-11) | **primary for the bus and the devices**; it does not describe the transceiver's program |
+| *Guide* 2e, pp. 143-145 | the RTC: 4-byte seconds counter, the one-second interrupt, **256 bytes of parameter RAM** on the SE, SE/30 and II family, the three VIA1 port-B lines (Table 3-11); it defers the command set to *Inside Macintosh* | **primary**, as far as it goes |
+| `Inside_Macintosh_Hardware_198502.pdf` (38 pp.), "Macintosh Hardware", 2/11/85, pp. 27-30 | the RTC's serial protocol and **command table**: seconds registers, test register, write-protect register, the 20 bytes of the original parameter RAM | **primary for the RTC's original command set**. It predates the 256-byte chip: the extended commands are not in it |
+| `1983_PIC_Series_Microcomputer_Data_Manual.pdf` (226 pp.), General Instrument | the PIC1650 family: the register file, the ALU and status word, the two-level stack, the RTCC counter, the I/O port structure (Figure 7), the **instruction set** (chapter 3, pp. 46-66), and the PIC1654 (section 2.3, pin assignments Fig. 15) | **primary for the CPU**. It covers the PIC1654 (18 pins), not the "S" part by name, and does not state the 1654's clock divider (6.3.1) |
+| `FDB_Specification_Rev_B_Proposal_19850613.pdf` (12 pp.) | Apple's ADB specification under its development name, Front Desk Bus | **primary, pre-release**; where it and the *Guide* differ, the *Guide* (1990, describing shipped hardware) wins |
+| **`342s0440-b.bin`**, the transceiver's mask program | 0x400 bytes, CRC32 `cffb33eb`, SHA1 `4a35a44605073ae6076a0292e2056ee4d938d1bd` (MAME's `adbmodem` device) | **documentation tier** (1.11's rule): it is what the transceiver ran. **Not yet on hand**: Daniel's MAME `MacSE30` set is older and lacks it (6.10) |
+| The SE/30 ROM: the ADB Manager (`$40806D80`-`$408077F4`) and the clock code (`$4080DBE8`-`$4080DE66`, the test manager's `$40803502`-`$408035A2`) | how the machine drives the transceiver and the clock | **documentation tier**; the only source for the RTC's extended commands (6.5) |
+| `macseadb88.asm` (github `lampmerchant/macseadb88`, 2025), Tashtari | an annotated disassembly of the 342S0440-B program, ported to the PIC16F87/88 as a drop-in replacement that works in real SEs; the annotation is "only partially complete" by its author's account | **secondary**: a reading aid for the firmware and a witness to the pin assignments. It is a port, not the dump - its oscillator set-up and `TRIS` writes are the new part's, not the old |
+| MAME `src/mame/apple/adbmodem.cpp`, `src/devices/cpu/pic16c5x/pic16c5x.cpp` | R. Belmont's device around the dump, with a pin table; MAME's PIC1654S core | cross-check only; an emulator's model (`feedback-se30-specs-from-documentation`) |
+| MacPlus `rtl/adb.sv`, `rtl/rtc.v` | a behavioural transceiver-plus-devices, and a 20-byte RTC | donors, read last (6.8) |
+
+Wanted and not yet fetched: **Microchip's PIC1654S data sheet** (16 pp.,
+about 502 KB; found only on `alldatasheet.com`). It would settle the
+clock divider, the 28-pin assignments and the I/O pull-ups outright. The
+download needs Daniel's OK (6.11).
+
+## 6.2 The wiring (sheet 4)
+
+Read from the scan at full resolution; the KiCad redraw agrees except that
+it names UL11's pin 2 `FDBO` on the `ADBO` net where the scan's symbol has
+`FDBO` and `FDBI` on pins 2 and 3 - the nets are the same, only the redraw's
+symbol label differs.
+
+**UL11, "ADB" (342S0440-B):**
+
+| pin | symbol | net | to |
+|---|---|---|---|
+| 14 | DIO | `ADB-DIO` | VIA1 CB2 |
+| 13 | SCLK | `ADB-SCLK` | VIA1 CB1 |
+| 27 | ST0 | `ADB-ST0` | VIA1 PB4 |
+| 28 | ST1 | `ADB-ST1` | VIA1 PB5 |
+| 16 | INT | `ADB-INT*` | VIA1 PB3 |
+| 4 | RST | `RESET*` | the system reset, as the VIAs' |
+| 26 | CLK | `C3M` | GLUE's 3.672 MHz (2.5; the *Guide*'s Figure 8-2 "osc 3.672MHz") |
+| 3 | FDBI | `ADBO` | the ADB line |
+| 2 | FDBO | `ADBO` | the ADB line |
+| 1 | FDBO* | `ADBO*` | R32 (4.7 k) to Q3's base |
+| 11, 12, 17, 18, 19 | P0, P1, P5, P6, P7 | - | unconnected |
+
+**The line.** `ADBO` is pulled up to +5 V by R31 (470 ohms, the *Guide*'s
+Table 8-1 "pulled up to +5V through a 470 ohm resistor") and pulled down by
+Q3 (2N3904) through R33 (27 ohms) when pin 1 is high. It leaves through the
+filter L1 as `ADBF` to both connectors J9 and J10 (mini-DIN 4, in parallel:
+"The two ADB ports on the back of the Macintosh are connected in parallel
+to the same ADB", p. 289). So the transceiver pulls the line low by raising
+pin 1, and senses it on pins 2 and 3. The SE/30 has no keyboard power-on
+wiring (Figure 8-2 against 8-3): pin 2 of the connectors, `POWER.ON` on
+the II family, is not connected here.
+
+**The pin names on the chip.** The GI manual's Fig. 15 gives the 18-pin
+PIC1654: 1 RA2, 2 RA3, 3 RTCC, 4 MCLR, 5 Vss, 6-9 RB0-RB3, 10-13 RB4-RB7,
+14 Vdd, 15 OSC2, 16 OSC1, 17 RA0, 18 RA1. UL11 is a 28-pin package whose
+pins 1-4 and 27-28 carry the same functions as the 18-pin part's 1-4 and
+17-18, with port B at 11-14 and 16-19. So:
+
+| PIC | UL11 pin | net |
+|---|---|---|
+| RA0 | 27 | ST0 (in) |
+| RA1 | 28 | ST1 (in) |
+| RA2 | 1 | `ADBO*`: 1 pulls the line low |
+| RA3 | 2 | the line (in) |
+| RTCC | 3 | the line (the counter's input) |
+| MCLR | 4 | `RESET*` |
+| RB0, RB1 | 11, 12 | unconnected |
+| RB2 | 13 | SCLK (out) |
+| RB3 | 14 | DIO (in/out) |
+| RB4 | 16 | INT* (out) |
+| RB5-RB7 | 17-19 | unconnected |
+| OSC1 | 26 | `C3M` |
+
+The 28-pin assignment is inferred from the pin numbers. It is corroborated
+twice, independently: Tashtari's replacement (RA0 = ST0, RA1 = ST1, RB4 =
+INT, RB3 = DIO, RB2 = SCLK, RA2 = ADB drive, RA3 and the counter input =
+ADB sense) runs in real SEs, and MAME's pin table says the same. The
+PIC1654S data sheet would make it primary (6.11).
+
+**UK4, "RTC" (344S0042-B):** pin 1 `1HZ` -> `RTC-1HZ` -> VIA1 CA2; pin 5
+`CS*` <- `RTC-CS*` = VIA1 PB2; pin 6 `D` <-> `RTC-D` = VIA1 PB0; pin 7
+`SK` <- `RTC-CLK` = VIA1 PB1; pins 2-3 a 32.768 kHz crystal (Y1, C44 33
+pF, C45 10 pF); pin 8 `+5V-RTC`, fed from +5 V through D2 or from the
+battery through D1 and R27; pin 4 ground. **There is no reset pin**: the
+clock and its RAM are battery-backed and see no machine reset.
+
+## 6.3 The transceiver: a PIC1654S running the 342S0440-B program
+
+### 6.3.1 The CPU (the GI manual, sections 2 and 3)
+
+A Harvard machine, 512 x 12 program ROM, 32 x 8 register file:
+
+- **The file.** F0 indirect through the FSR; F1 the RTCC; F2 the PC's
+  low eight bits; F3 the status word; F4 the FSR; F5 port A (4 bits); F6
+  port B (8 bits); F7-F37 (octal) general registers. The FSR is five bits
+  and "the three high order bits are read as 111" (2.1.4). The PC is nine
+  bits; bits 0-7 are readable as F2, and when F2 is a destination "bit 8
+  will always be zero" (2.1.2). The stack holds two return addresses
+  (2.1.3).
+- **The status word** (2.1.7): C, DC, Z, and **OV in bit 3** ("set if the
+  carry out from the MSB is opposite to the carry out from MSB-1") - the
+  1650 family's, not the later 16C5x's layout (which puts PA/TO/PD above Z
+  and has no OV). Bits 7-4 unused.
+- **The instruction set** (chapter 3): 12-bit words - byte-oriented file
+  operations `NOP MOVWF CLRW CLRF SUBWF DECF IORWF ANDWF XORWF ADDWF MOVF
+  COMF INCF DECFSZ RRF RLF SWAPF INCFSZ`, bit operations `BCF BSF BTFSC
+  BTFSS`, literal and control `RETLW CALL GOTO MOVLW IORLW ANDLW XORLW`.
+  **No `TRIS`, `OPTION`, `SLEEP` or `CLRWDT`** - the 1650 family has no
+  direction registers, no option register and no watchdog. `CALL`'s
+  literal is eight bits (its target is in the first 256 words), `GOTO`'s
+  nine. The binary table is on p. 48.
+- **Timing**: "All instructions, except for subroutine calls and
+  conditional skips and branches, are executed during one machine cycle.
+  The exceptions are executed in two machine cycles" (p. 47) - a skip
+  costs its second cycle only when it skips (a NOP replaces the skipped
+  instruction, 2.1.2), and a write to the PC is a branch (the manual's own
+  RTCC timing example counts `ADDWF PC` as "Two Cycles"). The bench holds
+  the per-instruction counts to the chapter 3 entries.
+- **The I/O lines** (2.1.9, Figure 7): each line is a latch driving a
+  pull-down, and a pull-up transistor Q1 ("Pull-up resistor may be deleted
+  via a mask option"); a read returns the pin, not the latch; to use a line
+  as an input "the latch must be set to a logic 1". So every line is an
+  open-drain output with a pull-up, read back as the wired-AND of its latch
+  and whatever else drives it. The firmware must see the unconnected RB0
+  and RB1 as 1 (Tashtari's reading of its INT path tests them) - so on this
+  part the pull-ups were not deleted, at least on port B, and the model
+  keeps Q1 on every line. Also: "Any output line sinking more than 5mA
+  could be read as a logic 1" - not modelled (no line here sinks that).
+- **The RTCC** (2.1.8): an eight-bit counter, presettable, incremented on
+  the **falling edge** of the RTCC pin, wrapping without setting carry.
+  Its pin is the ADB line.
+- **Reset**: MCLR (`RESET*`) low holds the chip. The manual's timing figure
+  (Fig. 9) is for the PIC1650A/1655A; where the 1654 starts after reset is
+  not stated for it in the manual - **the reset vector is read from the
+  dump** (its first instructions), not assumed (6.11).
+- **The clock divider - OPEN, and the dump decides it.** The manual gives
+  divide-by-4 for the PIC1650A and PIC1655A (2.1.12) and divide-by-16 for
+  the PIC1656 (2.6.6); for the PIC1654 it gives only "2 us" in the family
+  table (1.2), against the 1650A's "4 us" at its 1 MHz maximum. Tashtari
+  states the PIC1654S "divided ~4 MHz oscillator by 8". **The *Guide*
+  settles it without trusting either**: the firmware's bit-cell loops,
+  counted in instruction cycles, must give Table 8-14's 100 us bit cell and
+  800 us attention within the host's +/-3% at `C3M` = 3.672 MHz. At /8 an
+  instruction is 2.179 us; Tashtari's cycle counts for a "1" bit (about 16
+  cycles low, 46 per cell) give 35 us and 100 us - the table's figures.
+  At /4 or /16 every ADB timing would be off by a factor of two. This is
+  checked on the dump itself (6.9 item 3), and the data sheet would make
+  it primary.
+
+### 6.3.2 The pins, as the model drives them
+
+| line | inside | outside |
+|---|---|---|
+| RA0, RA1 | read ST0, ST1 | VIA1 PB4, PB5 pins (push-pull outputs after `$40806DA2`) |
+| RA2 | latch -> 1 pulls the ADB line low through Q3 | the line |
+| RA3 | reads the line (AND its own latch) | the line |
+| RTCC | counts the line's falling edges | the line |
+| RB2 | SCLK: latch, pulled up | VIA1 CB1 (input in the external-clock shift modes) |
+| RB3 | DIO: latch AND the VIA's CB2 | VIA1 CB2: the VIA drives it in shift-out mode (`sr[8]`, 4.2.5), releases it in shift-in |
+| RB4 | INT*: latch, pulled up | VIA1 PB3 (input) |
+| RB0, RB1, RB5-RB7 | read 1 (pull-up) | nothing |
+
+**The ADB line** = the wired-AND of: NOT RA2's pin (Q3), RA3's latch, and
+every device's pull-down, pulled up by R31. **DIO** = RB3's latch AND (the
+VIA's CB2 when it drives). A cycle in which the VIA drives CB2 high while
+the PIC's latch is 0 is a contention on the real board; the model resolves
+it as the AND and the bench flags it (6.9 item 4), since the firmware and
+the ROM between them should never cause one.
+
+### 6.3.3 The program
+
+What the dump does is read from the dump. Until it is in hand, Tashtari's
+annotated port is the map, and it says (secondary, to be confirmed
+line-for-line):
+
+- A main loop reads ST1-ST0 and, on a change, dispatches on {last command
+  type, new state}: in **state 0** it clocks a command byte out of the VIA
+  (eight SCLK pulses, reading DIO after each rising edge) and, for a
+  command with no data phase (SendReset, Flush), sends it on the bus at
+  once; in **states 1 and 2** it either clocks a data byte out of the VIA
+  (Listen) or clocks a buffered reply byte into it (Talk); entering
+  **state 3** with a Listen pending sends the command and its data on the
+  bus; entering state 3 after a Talk sends the Talk and collects the
+  reply.
+- **INT\*** (RB4) is pulled low in the even/odd states to say "error" (in
+  state 1: the device did not answer, or the frame was bad) or "service
+  request seen" (in state 2), and when a reply is exhausted - the
+  distinctions the ADB Manager's handler reads at `$40807040`-`$4080711A`
+  (6.7).
+- **On the bus**: attention (a count of 360 cycles, about 785 us at /8),
+  sync, eight command bits, stop; a service request is seen as the line
+  still low after the stop bit (it counts up to 26 polls); a reply is taken
+  bit by bit by a run of `BTFSC RA3` samples that times each cell's low
+  phase; SendReset holds the line low for about 1460 cycles (3.2 ms,
+  Table 8-14's "3 ms minimum") and restarts the program.
+- **Auto-poll**: two countdown registers (initial `$73` and `$54`) run
+  while the state lines are still, and in state 3 re-issue the last Talk -
+  the *Guide*'s "the ADB transceiver automatically repeats the last Talk
+  command every 11 ms" (p. 314). The period comes out of the loop's cycle
+  count, which 6.9 item 3 measures against the *Guide*'s 11 ms.
+
+### 6.3.4 The image and how it reaches the core
+
+Apple's program, so like the ROMs it is not in the repository: the user
+supplies it as **`boot2.rom`** in the core's folder, which Main sends with
+`ioctl_index` = `$80` (3.4's `bootN.rom` rule; `boot0.rom` is the main ROM,
+`boot1.rom` the declaration ROM). 0x400 bytes = 512 words of two bytes;
+the byte order and the unused top four bits of each word are read from
+the file when it arrives (MAME's PIC program space is 16-bit little-endian,
+so the expected layout is low byte first, top nibble zero - checked, not
+assumed). The core holds it in one M10K as 512 x 12. **With no `boot2.rom`
+the program memory reads zero** - all `NOP`s: the PIC runs through its
+memory forever, never touching a pin, and the machine waits in the ADB
+initialisation exactly as compile 16 does. That is the right failure: an
+absent file leaves the machine where it was, not broken.
+
+## 6.4 The bus and the devices
+
+### 6.4.1 The line
+
+One bit in the model: 1 unless someone pulls it low (R31's pull-up). The
+transceiver pulls it through Q3 (RA2 = 1) or through RA3's latch; each
+device pulls it through its own open-drain output. The line's rise and
+fall times (470 ohms against the cable and device capacitance, Table 8-2's
+150 pF per device) are sub-microsecond against a 100 us bit cell and are
+not modelled.
+
+### 6.4.2 A device
+
+A common engine, instanced per device, built to the *Guide* (pp. 311-326)
+and Table 8-14, with the FDB specification as a cross-check:
+
+- **Receiving**: an attention is a low of about 800 us (the host sends it
+  within +/-3%, a device accepts it - the engine takes 560 us or more,
+  "remains low for at least 3.0 ms" being a global reset); sync; eight
+  command bits, each decided by its low time against its cell ("0" 65%,
+  "1" 35% of the cell, +/-5%); the stop bit.
+- **Commands** (Table 8-13): Talk and Listen to its current address,
+  register 0-3; SendReset (address ignored) and global reset (line low 3
+  ms or more): back to power-on state; Flush to its address:
+  device-defined (keyboard: clear its buffered keys).
+- **Talk**: if the register has data (register 3 always has), the device
+  sends a start bit ("1"), the register's two bytes MSB first, and a stop
+  bit, beginning 140-260 us after the command's stop bit ("Stop-bit-to-
+  start-bit time", Table 8-14), at nominal timing. With nothing to send it
+  stays silent and the transceiver times out.
+- **Listen**: receives the start bit, the data bytes and the stop bit;
+  register 3's reserved handler IDs act as Table 8-17 says (`$FE` move
+  address if no collision, `$FD` move if the activator is pressed, `$00`
+  set address and enable, `$FF` self-test) and are not stored; another ID
+  is stored only if the device supports it (keyboard 2 and 3, mouse 1 and
+  2); an unknown ID is ignored.
+- **Service request**: a device with data that is not being addressed
+  holds the line low during the stop bit of any command to another device,
+  extending it to about 300 us (140 us or more beyond the normal stop,
+  Figure 8-15), if register 3 bit 13 enables it.
+- **Collisions** (p. 324): a device that sees the line low when it meant
+  it to be high, or another device's start bit first, stops, keeps its
+  data and sets its collision flag; the flag disables its address move
+  under `$FE`. With one keyboard and one mouse at their distinct default
+  addresses the start-up never collides; the logic is there for when a
+  second device of a kind is added.
+- **Register 3** (Table 8-15): bit 14 exceptional event (1 if unused), bit
+  13 SRQ enable (1 at reset), bits 11-8 the address, 7-0 the handler ID.
+
+### 6.4.3 The keyboard
+
+**Proposed: the Apple Extended Keyboard** (Figure 8-10, Tables 8-9 to
+8-11) - a PS/2 keyboard has its function keys, navigation cluster and
+right-hand modifiers, all of which the Extended Keyboard has and the
+Standard Keyboard lacks. Address 2, handler ID 2 at reset, 3 on request
+(then right Shift, Option and Control send `$7B`, `$7C`, `$7D`). Register
+0: two key transitions per Talk, bit 7 of each byte set on release, `$FF`
+filling an empty second slot; register 2: the modifiers and the LEDs (Num
+Lock, Caps Lock, Scroll Lock, set by Listen register 2). The PS/2 set-2
+codes map to Figure 8-10's transition codes through a table built from
+the figure. Caps Lock is a locking key on the real keyboard: its register
+0 code goes down on one press and up on the next. **This choice is
+Daniel's** (6.11); the Standard Keyboard is the smaller alternative.
+
+### 6.4.4 The mouse
+
+**The Apple Standard Mouse** (Table 8-4): address 3, handler ID 1 (100
+counts per inch) at reset, 2 (200) on request. Register 0: bit 15 the
+button (0 = down), bits 14-8 Y, bit 7 always 1, bits 6-0 X, each a 7-bit
+two's-complement count (negative is up, left). Motion from the PS/2 mouse
+accumulates between Talks and is sent clamped to -64..+63 per axis, the
+remainder kept; with no motion and no button change the mouse has no
+data and does not answer Talk register 0.
+
+## 6.5 The RTC (344S0042-B)
+
+### 6.5.1 The protocol (*Inside Macintosh*, p. 28-29, and the ROM)
+
+`CS*` (PB2) low for the whole transaction ("if you set it to 1, you'll
+abort the transfer"); every transfer is whole eight-bit bytes, MSB first.
+The **host sends** a bit by setting `D` (PB0 as an output) while the clock
+(PB1) is low and raising the clock: the chip takes it on the **rising
+edge**. The ROM's routines do exactly that (`$4080DE32`: data and clock
+low in one write, then `BSET` of the clock; the test manager's
+`$40803502` the same). The **chip sends** a bit after the clock falls:
+*Inside Macintosh*, "lower the data-clock (rTCClk) and read the first
+(high-order) bit ... Then raise the data-clock, lower it again, and read
+the next bit"; the ROM's read (`$4080DE44`) makes PB0 an input, then per
+bit writes the clock low, writes it high, and reads - so the chip drives
+each bit from the falling edge and holds it through the rising edge, and
+both readings see it.
+
+**The commands** (*Inside Macintosh* p. 29; `z` is 1 for a read):
+
+| command | register |
+|---|---|
+| `z0000001`, `z0000101`, `z0001001`, `z0001101` | seconds 0 (lowest) to 3 |
+| `00110001` (`$31`) | test register, write only |
+| `00110101` (`$35`) | write-protect register, write only |
+| `z010aa01` | RAM `$10`-`$13` of the original 20 bytes |
+| `z1aaaa01` | RAM `$00`-`$0F` of the original 20 bytes |
+
+and the **extended command** the 256-byte chip adds, read from the ROM
+(`$4080DD8E`-`$4080DDC2` builds it; `$4080DDEE` tells it apart by `(cmd &
+$78) = $38`): **byte 1 `z0111aaa`** (address bits 7-5), **byte 2
+`0aaaaa00`** (address bits 4-0), then the data byte. The test manager
+writes that way too (`$40803528`: `$3F`, `$40` + 4n = xPRAM `$F0` + n).
+
+**Where the original 20 bytes live in the 256.** The command bits 6-2 of
+the original forms, read as an address, are `1aaaa` = `$10`-`$1F` and
+`010aa` = `$08`-`$0B`. The ROM corroborates: when it finds xPRAM invalid
+(`$4080DC20`-`$4080DC58`) it writes the signature `'NuMc'` at `$0C`-`$0F`
+and then clears every byte from `$20` round to `$07` - everything except
+`$08`-`$1F`, which is exactly the original 20 bytes and the signature. So
+the model aliases: original `z1aaaa01` = xPRAM `$10`+a, `z010aa01` = xPRAM
+`$08`+a. (The seconds and the two special registers decode to `$00`-`$07`
+and `$0C`/`$0D` by the same reading; they are not RAM, and the extended
+command reaches the RAM there.)
+
+**Write protect** (*Inside Macintosh*): bit 7 set "prevents writing into
+any other register on the clock chip (including parameter RAM)". The
+model follows it for both command forms. A reverse-engineering note
+(quantulum.co.uk, secondary) says the real chip's extended window wrote
+through the protect bit; the ROM clears the bit before every write
+(`$4080DD1A`, `$35` <- `$55`) and sets it after (`$4080DD12`, `$35` <-
+`$D5`), so the difference is invisible to it. **Recorded as an open
+question** (6.11) - if Apple's own documentation or a silicon test turns
+up, `feedback-replicate-bugs-else-spec` applies.
+
+**The test register**: bits 7-6 "should always be set to 0 during normal
+operation. Setting them to anything else will interfere with normal clock
+counting". The ROM writes `$00` (`$4080DBEE`). The model stores it and
+does nothing else with it: what "interfere" means is not documented.
+
+### 6.5.2 The clock
+
+A 32-bit seconds counter, incremented once a second (the chip from its
+32.768 kHz crystal; the model from `clk_sys` = 31,334,400 per second, 3.2),
+**loaded when the core loads** from the HPS's `TIMESTAMP` plus 2,082,844,800
+(Unix to Macintosh epoch, 1904 - the MacPlus donor's conversion). Not reset
+by the machine's reset: the chip is battery-powered and has no reset pin
+(6.2). Writes to the seconds registers change it (low byte first, as *Inside
+Macintosh* asks of software). **`1HZ`**: "Each time the counter is
+incremented, the RTC sends an interrupt request signal to the VIA" (*Guide*
+p. 143); VIA1 CA2 is a negative-edge input (4.6 item 9: PCR `&= $F0`). The
+model makes `1HZ` a square wave falling at each increment and rising half
+a second later; the duty cycle is not documented (tier 2).
+
+### 6.5.3 The RAM
+
+256 bytes in block RAM, zero when the core loads (a battery-less chip's
+contents are undefined; zero makes the ROM's validity tests fail cleanly
+and re-initialise, 6.7). Kept across machine resets, lost at core load -
+Daniel's "volatile for now".
+
+## 6.6 The machine
+
+- **The transceiver**: `se30_adb_xcvr` = the PIC1654S core, its 512 x 12
+  program RAM (written by the `boot2.rom` download), the pins of 6.3.2, the
+  line of 6.4.1; clocked by `clk` with GLUE's `c3m_en` as OSC1 (15 pulses in
+  64 C16M, 3.672 MHz average - 2.11.3; the PIC's phase counter divides it
+  by 8 per 6.3.1, so an instruction is 32-33 C16M periods, 2.179 us on
+  average); MCLR = `via_reset_n` (sheet 4's `RESET*`, which the RESET
+  instruction pulses - the transceiver restarts when the ROM executes
+  RESET, as the VIAs do).
+- **VIA1**: `pb_ext[3]` = INT*; `pb_ext[0]` = the RTC's `D` while the chip
+  drives it, else 1 (4.5's undriven level); `cb1_in` = SCLK; `cb2_in` =
+  DIO (the wired-AND of 6.3.2); `ca2_in` = `1HZ`. PB4, PB5 (ST0, ST1) and
+  PB2, PB1 (`CS*`, clock) are read as pins, as every consumer of a VIA
+  output is (4.5).
+- **The devices**: the keyboard and mouse engines on the line, fed from
+  `hps_io`'s `ps2_key` and `ps2_mouse`.
+- **The RTC**: `se30_rtc` on PB0-PB2, CA2; `hps_io`'s `TIMESTAMP`.
+- **The top**: `hps_io` gains `ps2_key`, `ps2_mouse` and `TIMESTAMP`; the
+  download block gains `boot2 = (ioctl_index[7:0] == 8'h80)` into the
+  transceiver's program RAM; the README's table gains `boot2.rom`.
+- **Probes**: **`PADB`** - the PIC's PC, W, port A and B pins, the line,
+  ST1-ST0, INT*, the last command byte seen on the bus, and a count of
+  transactions; **`PRTC`** - the seconds counter's low byte, the last
+  command, write-protect, and a count of transactions. Both in
+  `rtl/dbg_probes.sv` and decoded by `read_probes.tcl`.
+
+## 6.7 What the ROM does with them
+
+Read from the disassembly (`scripts/se30_rom_mmu.py dis`; VIA1 registers
+at the offsets of 4.2.2 from `$50F00000`, which the ROM keeps in `$1D4`).
+
+**The ADB.**
+
+1. **Initialisation** (`$40806D80`, the routine compile 16 waits in):
+   VIA1 **PCR := 0** (`$40806D98`), **IER := `$84`** (the shift-register
+   interrupt), **DDRB |= `$30`** (PB5, PB4 = ST1, ST0 outputs); the ADB
+   Manager's flags (`$15D(a3)`) get bit 2 and bit 5 set, the reply queue
+   is initialised, and **`$40806DEA` starts the first transaction**.
+   Interrupts open (`$40806DD4`) and the loop at **`$40806DD8`** waits for
+   bit 5 to clear.
+2. **Sending a byte** (`$408073E6`): with interrupts masked, **ACR &=
+   `$E3`, then ACR |= `$1C`** - shift mode 111, out under the external
+   clock on CB1 - then **SR := the byte**. **Setting a state**
+   (`$408073A2`/`$AA`/`$B2`/`$BA` for states 0/1/2/3, `$408073C0`): ORB :=
+   (ORB & `$CF`) | state << 4, interrupts masked. A transaction loads the
+   command into SR and sets state 0, in either order (`$40806E0C` sends
+   first, `$40807354` sets the state first) - the *Guide*'s "sends the
+   command byte to the VIA's Shift register, then sets the ADB transceiver
+   to state 0" is one of them.
+3. **The shift-register interrupt** (`$40807002`): **IFR := `$04`**
+   (clears SR), then a dispatch on the command's type (`$15C(a3)` bits 3-2:
+   `$8` Listen, `$C` Talk) and on the state it last set (`$15F(a3)`, one
+   bit per state). It reads **PB3 (INT\*)** after state 0 (`$40807040`),
+   after state 1 (`$408070CA`) and after state 2 (`$40807116`); it takes a
+   byte in by clearing **ACR bit 4** (mode 011, in under CB1) and reading
+   SR (`$40807064`-`$4080706A`, `$40807092`-`$40807098`), gives one out by
+   writing SR (`$408070A6`), and steps the state (`$408073AA`, `$408073B2`,
+   `$408073BA`). What a low INT\* *means* in each state is the
+   transceiver program's to define, and the *Guide* gives only its outline
+   (a service request "sets bit 3 in Data register B to 0", p. 312); the
+   ROM's branches are the other half. **The ROM's reading of INT\* is
+   fixed by the ROM, the transceiver's meaning of it by the dump, and the
+   bench checks that they agree (6.9 item 5)** - nothing here is designed
+   from an interpretation of either.
+4. **ADBReInit** (`$40806DEA`-`$40806EDA`): **Talk register 3 to each
+   address `$0`-`$F`** (`$40806F7A`: command = addr << 4 | `$0F`), noting
+   which answer; then, for each address that answered, **Listen register
+   3** with the data `$FE`-and-a-free-address (`$40806F9E`: command = addr
+   << 4 | `$0B`, `$165` = `$FE`) and a Talk register 3 at the new address,
+   to find duplicates, up to `$32` tries; then the devices' table entries
+   (`$40806E24`-`$40806E62`: the keyboard's handler at `$4080753A` for
+   address 2, the mouse's at `$408074CE` for address 3); finally
+   **`$15C` := `$3C`** (Talk register 0, address 3: the mouse as the
+   active device) and **bit 5 of `$15D` cleared** (`$40806EDA`) - which
+   releases the loop at `$40806DD8`.
+5. With **no** device the Talks all time out, the table stays empty, and
+   the loop is released just the same: an ADB with nothing on it is a
+   working ADB. With the keyboard at 2 and the mouse at 3, both are found
+   and neither moves.
+
+**The RTC.**
+
+1. **The test manager** writes only: `$40803576` clears write protect
+   (`$35` <- `$55`), `$40803528` writes test results into xPRAM `$F0`-`$FF`
+   through the extended command (6.5.1) - not on a normal start-up's
+   path, only when a test fails.
+2. **InitUtil** (`$4080DBE8`, from the start-up chain): write protect off,
+   **test register := 0**, write protect on; read the original 20 bytes
+   into `SysParam` (`$1F8`); read the seconds (`$4080DCA6`: commands `$9D`,
+   `$99`, `$95`, `$91` - seconds 3 to 0 - twice until two reads agree, into
+   `Time` at `$20C`); if `SysParam`'s first byte is not **`$A8`** (the
+   validity byte), write the ROM's 20 defaults (`$4080DBD4`: `A8 00 00 00
+   CC 0A CC 0A 00 00 00 00 00 02 63 00 03 88 00 4C`) through the original
+   commands (`$41` x 16, `$21` x 4, `$4080DD22`); then, if the machine has
+   extended PRAM (flag bit 6 of `$B22`), **`_ReadXPRAM` 4 bytes at `$0C`**
+   and compare with **`'NuMc'`**; if it differs, write `'NuMc'`, clear
+   `$20`-`$07` (wrapping; 6.5.1), and write 20 bytes of defaults at `$76`
+   (`$4080DC92`).
+3. From then on the OS reads and writes PRAM through `$4080DD52` (the
+   routine at `$54C`, `$4080DDD6` in ROM) and takes the one-second
+   interrupt (VIA1 IER bit 0, enabled at 4.6 item 9) to advance `Time`.
+
+With zero PRAM at core load, every cold start takes both re-initialise
+paths; a warm reset (the RESET instruction, the OSD reset) keeps PRAM, so
+the second start finds `$A8` and `'NuMc'` and takes neither.
+
+## 6.8 The donors
+
+**MacPlus `rtl/adb.sv`** is a behavioural transceiver and device pair in
+one module - its own reading of what the transceiver does in each state,
+the thing the first decision replaces. **Not lifted.** Two parts are
+engineering and worth reading when the devices are written: the PS/2
+set-2 to ADB key-code table (checked entry by entry against Figure 8-10
+before use) and the PS/2 mouse packet decode. The appendix records a
+VIA shift-register bug found in the Quadra 800 core's ADB path whose
+construct also sits in MacPlus's VIA; ours is `se30_via.v`, written from
+the cell spec (4.2.5), and 6.9 item 5 exercises its external-clock modes
+end to end for the first time.
+
+**MacPlus `rtl/rtc.v`** implements the original 20 bytes and the seconds,
+without the extended command, write protect, the test register or the
+one-second output. **Lifted: the epoch conversion** (Unix seconds +
+2,082,844,800). The rest is written from 6.5.
+
+**MAME** (`adbmodem.cpp`) runs the same dump on its PIC1654S core. Its
+comment records a race it had to work around: on a fast CPU the ROM
+rewrote the ACR (so CB2 stopped being driven) before the PIC sampled the
+last bit. In the machine the sample is a few microseconds after the eighth
+SCLK edge and the ROM's interrupt latency is longer; the model is cycle-
+driven and should not need the workaround. The bench watches for it (6.9
+item 5) rather than assuming.
+
+## 6.9 The benches
+
+**`sim/pic/`** (iverilog) - the CPU against the GI manual, no firmware:
+
+1. Every instruction of the p. 48 table: its result, its destination bit,
+   the status bits it affects and those it must not (OV included), from
+   hand-written programs with expected values from the chapter 3 entries.
+2. Cycle counts: one machine cycle, two for `CALL`, `GOTO`, `RETLW`, a
+   write to F2 and a taken skip; the divider: one instruction per eight
+   OSC1 pulses.
+3. The file's corners: the FSR's high bits reading 111, indirect through
+   F0, F2 as a destination clearing PC bit 8, `CALL`'s 8-bit target, the
+   two-level stack, the RTCC counting falling edges on its pin and
+   wrapping without carry.
+4. The ports: a read returns the pin; a latched 0 pulls the pin low
+   against the pull-up; a latched 1 lets an external 0 through.
+
+**`sim/adb/`** (iverilog) - the dump in the PIC, `se30_via.v` as VIA1,
+the line, the two device engines, and a driver that **replays the ROM's
+own VIA sequences** from 6.7 (`$408073E6`, the state writes, the handler's
+reads of PB3 and SR, the ACR changes), not a paraphrase of them. It needs
+`342s0440-b.bin`, found as the ROM is (a path in `scripts/local.env`); it
+skips with a message if the file is absent.
+
+3. **The timing on the wire, measured**: the attention 800 us +/-3%, the
+   bit cell 100 us +/-3%, "0" and "1" low times 65% and 35% +/-5%, the
+   stop bit 70 us, the SendReset low of 3 ms or more - Table 8-14. This is
+   the check that decides 6.3.1's divider.
+4. No contention on DIO (6.3.2) in any transaction.
+5. **ADBReInit replayed**: Talk register 3 to all sixteen addresses; with
+   no devices, sixteen timeouts and INT\* where the ROM expects it; with
+   the keyboard and mouse, their register 3 (`$62 02`-style: bit 14 1,
+   SRQ-enable bit 13 1, address, handler) read back through SR, byte for
+   byte; the Listen register 3 `$FE` move and the Talk that confirms it;
+   the final Talk register 0 to address 3 and the transceiver's auto-poll
+   repeating it every 11 ms (+/- the *Guide*'s tolerance, measured).
+6. A key press and release through Talk register 0 at address 2; mouse
+   motion and the button through address 3; a service request from the
+   keyboard while the mouse is the active device, seen by the ROM's handler
+   as INT\* in state 2 - the *Guide*'s polling protocol (p. 325) end to end.
+7. SendReset and Flush; Listen register 2 setting the keyboard's LEDs.
+
+**`sim/rtc/`** (iverilog) - the chip behind a driver that replays the
+ROM's bit-bang routines (`$4080DE32`, `$4080DE44`, `$40803502`) exactly:
+
+8. Every command of *Inside Macintosh*'s table, read and write; the
+   extended command at the four corners of the address space; the
+   aliasing of 6.5.1 (a byte written through one form read back through
+   the other).
+9. Write protect: set, a write refused through each form; cleared, the
+   write lands.
+10. InitUtil (6.7 RTC item 2) replayed from zero RAM: the defaults written,
+    `'NuMc'` written, `$20`-`$07` cleared; replayed again: neither path
+    taken.
+11. The seconds: loaded from a `TIMESTAMP`, incremented once per
+    31,334,400 clocks, `1HZ` falling at each increment; a read spanning an
+    increment disagreeing once and the ROM's read-twice loop settling.
+12. `CS*` high mid-byte aborting the transfer (no write lands).
+
+**`sim/machine`**: unchanged in reach (it ends in the RAM tests, 3.8
+item 23); elaboration with the new modules, 0 errors.
+
+## 6.10 The board: two rungs
+
+**Rung 1 - the transceiver, the devices and the clock.** With
+`boot2.rom` in place, the ADB initialisation finds the keyboard and
+mouse and releases the loop at `$40806DD8` (`PADB`: the transactions of
+6.7 item 4, then the auto-poll's Talk `$3C` repeating); InitUtil runs
+against the clock (`PRTC`); the start-up goes on toward the `.Sony` Open
+(`PSWM` PH = 7, 5.11 item 6) and, with no disk, the question mark. With
+no `boot2.rom`, the machine stops at `$40806DD8` as compile 16 did.
+
+**Rung 2 - input.** Keys and the mouse reach the ROM: the mouse moves the
+pointer wherever the ROM shows one, and keys reach the event queue - which
+this ROM cannot show much of without a boot device, so the fuller test
+waits for a disk (SWIM rung 2) or SCSI.
+
+## 6.11 Risks and open items
+
+- **`342s0440-b.bin` is not on hand.** Daniel's MAME `MacSE30` set predates
+  it (MAME's `adbmodem` device carries it). Everything in 6.3.3 is
+  secondary until it is read. Its CRC and SHA1 (6.1) identify it.
+- **The PIC1654S data sheet** (Microchip, 16 pp., about 502 KB, only found
+  on `alldatasheet.com`): would make the divider, the 28-pin assignment,
+  the pull-ups and the reset vector primary. Needs Daniel's OK to fetch.
+  Until then: the divider from the *Guide*'s timings (6.3.1), the pins from
+  the scan plus two independent witnesses (6.2), the reset vector from the
+  dump.
+- **The pull-ups**: kept on every line (6.3.1); the unconnected RB0/RB1
+  read 1 because of them.
+- **DIO contention** and **MAME's race** (6.3.2, 6.8): watched on the
+  bench, not assumed away.
+- **The keyboard model** (6.4.3): Extended proposed, Daniel's choice.
+- **Write protect and the extended command** (6.5.1): the manual's rule
+  followed; the secondary claim recorded.
+- **`1HZ`'s duty cycle** and **the test register's effect**: undocumented,
+  tier 2 (6.5.1-6.5.2).
+- **The time zone**: `TIMESTAMP` is what Main sends; Main's DST handling
+  for the MacPlus core (fixed upstream in Main #1321) applies unchanged.
+- **PRAM persistence**: later, by decision.
+- **C3M's pattern**: GLUE's 15-in-64 accumulator (2.11.3, "pattern OPEN")
+  makes the PIC's instruction period vary by one C16M period in 32. ADB's
+  tolerances (+/-3% host) are 30 times wider.
+
+## 6.12 The work
+
+1. ~~Write this section.~~ **Done 2026-09-28.**
+2. **Obtain `342s0440-b.bin`** (Daniel) and, with his OK, the PIC1654S
+   data sheet. Read the dump: its layout, its reset vector, its use of
+   RTCC, and its loops against 6.3.3 - the dump replaces the port as the
+   map, and this section is corrected where they differ.
+3. **`sim/pic/`** items 1-4, failing, then **`rtl/se30_pic1654.v`** until
+   they pass.
+4. **`sim/adb/`** items 3-7 with the device engines stubbed silent (the
+   no-device ReInit first), then **`rtl/se30_adb_xcvr.v`** (the PIC, its
+   program RAM, the pins and the line) and **`rtl/se30_adb_dev.v`** with
+   the keyboard and mouse until they pass.
+5. **`sim/rtc/`** items 8-12, failing, then **`rtl/se30_rtc.v`**.
+6. **The machine and the top** (6.6): the wiring, `boot2.rom`, `hps_io`'s
+   PS/2 and `TIMESTAMP`, `PADB` and `PRTC`, the README; elaboration.
+7. The compile (Daniel's go-ahead), the 3.6 ritual and `sta_corners.tcl`;
+   the board: rung 1 (6.10).
+8. Rung 2 when a boot device exists; PRAM persistence (Daniel's call on
+   how: the framework's file interface to a `.sav` beside the ROMs is the
+   usual MiSTer way).
+
 ---
 
 ## Appendix - where the sources are
@@ -5806,6 +6488,7 @@ TG68K kernel, ALU, PMMU and FPU headers all say LGPL-3 or later (1.12).
 | **`se30.pdf`** in `C:\temp\Mac\SE30\Docs` | **Apple drawing 050-0253-01, the SE/30 main logic board schematic**, 8 of 9 D-size sheets, raster scan. Sheet titles in 2.1. Read by extracting the page images with pypdf/PIL and cropping at full resolution |
 | `github.com/mishimasensei/macse30mlb` | **KiCad redraw of 050-0253-01, MIT.** All 9 sheets plus a pin-matrix sheet, and per-sheet PDF exports with real text. Snapshot at `C:/Git/MiSTer-devel/macse30mlb` (tarball - a filename with a colon defeats `git clone` on NTFS). `scripts/kicad_nets.py` prints pin-to-net tables from its v5 sheets; `ROM+RAM Muxes.kicad_sch` is v6 and is not parsed (UH7 was read from the scan) |
 | **The SWIM documents** (Section 5) | `C:\temp\Mac\SE30\Docs\swim`, from bitsavers `/pdf/apple/disk/sony/` (`trailing-edge` mirror): `SWIM_343S0061-A_1988.pdf` (the production drawing), `SWIM_chip_spec_198707.pdf`, `SWIM_Chip_Users_Ref_198801.pdf`, `ISM_ASIC_spec_198707.pdf`, `IWM_undoco_features.pdf`, `Software_control_of_IWM.pdf`, `IOP_SWIM_Driver_ERS_199001.pdf`, `Hand_notes_on_floppy_stuff.pdf`, `Apple_3.5_Drive_Schematic.pdf`, `Apple_drive_command_and_status_codes.pdf` (secondary), `SWIM_regs.txt` (SWIM III, not ours); `.txt` beside each is `pdftotext -layout`. Standing in 5.1 |
+| **The ADB and RTC documents** (Section 6) | `C:\temp\Mac\SE30\Docs\adb`, from the bitsavers `trailing-edge` mirror: `1983_PIC_Series_Microcomputer_Data_Manual.pdf` (`components/gi/PIC/`), `Inside_Macintosh_Hardware_198502.pdf` (`pdf/apple/mac/`), `FDB_Specification_Rev_B_Proposal_19850613.pdf` (`pdf/apple/adb/fdb/`); and `macseadb88.asm` (github `lampmerchant/macseadb88`, secondary). The transceiver's program `342s0440-b.bin` (CRC32 `cffb33eb`) is MAME's `adbmodem` device ROM, not yet on hand. Standing in 6.1 |
 | Macintosh Repository, item 875 | "Macintosh SE/30 Schematics and Repair": `se30schems.zip` (4.1MB) and `Repair_Macintosh_SE30.zip`. Downloads sit behind an HTML interstitial; not fetched. The redraw's notes point to the same scans' origin at `museo.freaknet.org` (Andreas Kann) |
 
 **Emulators and software references.**
