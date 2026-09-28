@@ -97,7 +97,8 @@ module se30_swim (
   output        wrreq_n,
   output        hdsel,
 
-  output [47:0] dbg                    // PSWM (plan 5.8)
+  output [47:0] dbg,                   // PSWM (plan 5.8)
+  output        dbg_vread              // a valid data read: a byte the processor took (PFLP counts them)
 );
 
   // 2^23 + 100 FCLK: how long /ENBLx outlives MotorOn with the timer on
@@ -304,6 +305,7 @@ module se30_swim (
   assign wrreq_n = 1'b1;
   assign hdsel   = ism_setup[0] && ism_mode[5];
 
+  assign dbg_vread = vread;
   assign dbg = {ism, l7, l6, drvsel, motor, ph_lvl, iwm_mode, motor_d, enbl1_n, enbl2_n, sense,
                 iwm_test, sw_cnt, ism_mode | (ism ? 8'h40 : 8'h00), ism_setup, ph_dir, iwm_cfg, 4'b0};
 

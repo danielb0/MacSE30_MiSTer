@@ -50,7 +50,7 @@ assign AUDIO_L = 0;
 assign AUDIO_R = 0;
 assign AUDIO_MIX = 0;
 
-assign LED_DISK  = 0;
+// LED_DISK: the internal drive's motor, under THE MACHINE
 assign LED_POWER = 0;
 assign LED_USER  = ioctl_download;
 assign BUTTONS   = 0;
@@ -66,6 +66,8 @@ assign VIDEO_ARY = (!ar) ? 12'd171 : 12'd0;
 `include "build_id.v"
 localparam CONF_STR = {
 	"MACSE30;;",
+	"-;",
+	"S0,DSKIMG,Mount Floppy;",
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"-;",
@@ -85,7 +87,22 @@ wire  [26:0] ioctl_addr;
 wire  [15:0] ioctl_dout;
 wire         ioctl_wait;
 
-hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
+// the internal drive's image: one S slot, 512-byte blocks read only (plan
+// 5.12.5; writing is rung 3's)
+wire         img_mounted, img_readonly;
+wire  [63:0] img_size;
+wire  [31:0] sd_lba[1];
+wire   [5:0] sd_blk_cnt[1];
+wire  [15:0] sd_buff_din[1];
+wire         sd_rd, sd_ack, sd_buff_wr;
+wire  [12:0] sd_buff_addr;
+wire  [15:0] sd_buff_dout;
+wire  [31:0] flp_sd_lba;
+assign sd_lba[0]      = flp_sd_lba;
+assign sd_blk_cnt[0]  = 6'd0;
+assign sd_buff_din[0] = 16'd0;
+
+hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(1)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -98,6 +115,19 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	.ps2_key(ps2_key),
 	.ps2_mouse(ps2_mouse),
 	.TIMESTAMP(TIMESTAMP),
+
+	.img_mounted(img_mounted),
+	.img_readonly(img_readonly),
+	.img_size(img_size),
+	.sd_lba(sd_lba),
+	.sd_blk_cnt(sd_blk_cnt),
+	.sd_rd(sd_rd),
+	.sd_wr(1'b0),
+	.sd_ack(sd_ack),
+	.sd_buff_addr(sd_buff_addr),
+	.sd_buff_dout(sd_buff_dout),
+	.sd_buff_din(sd_buff_din),
+	.sd_buff_wr(sd_buff_wr),
 
 	.ioctl_download(ioctl_download),
 	.ioctl_index(ioctl_index),
@@ -204,6 +234,57 @@ always @(posedge clk_sys) begin
 	end
 end
 
+///////////////////////   THE FLOPPY   ///////////////////////////
+// The internal drive's disk (plan 5.12.5, 5.12.5b): the loader streams the
+// mounted image into SDRAM at word $800000 and says when a whole GCR disk
+// is in; the encoder lays the head's cylinder out as the ROM's formatter
+// would, a bit a cell, into the track buffers the drive plays; the two
+// share the SDRAM's disk port.  They run on the PLL's lock, not the
+// machine's reset: a reset keeps the disk in, as it does on a Mac.
+
+wire        flp_reset_n = lock_s[1];
+wire        disk_in, img_ds, img_800k, img_tags, flp_readonly, flp_loading, disk_eject;
+wire  [6:0] disk_cyl, trk_cyl;
+wire        trk_valid, trk_side, trk_bit;
+wire [16:0] trk_addr;
+wire        ld_req, ld_ack, en_req, en_ack;
+wire [23:0] ld_addr, en_addr;
+wire [15:0] ld_wdata, en_rdata;
+wire        dk_req, dk_we, dk_ack;
+wire [23:0] dk_addr;
+wire [15:0] dk_wdata, dk_rdata;
+wire [15:0] ld_dbg, en_dbg;
+
+se30_flp_loader flp_loader
+(
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.img_mounted(img_mounted), .img_size(img_size), .img_readonly(img_readonly),
+	.sd_lba(flp_sd_lba), .sd_rd(sd_rd), .sd_ack(sd_ack),
+	.sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr),
+	.mem_req(ld_req), .mem_addr(ld_addr), .mem_wdata(ld_wdata), .mem_ack(ld_ack),
+	.eject(disk_eject),
+	.disk_in(disk_in), .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags),
+	.readonly(flp_readonly), .loading(flp_loading), .dbg(ld_dbg)
+);
+
+se30_flp_encoder flp_encoder
+(
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_800k),
+	.cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
+	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+	.mem_req(en_req), .mem_addr(en_addr), .mem_rdata(en_rdata), .mem_ack(en_ack),
+	.dbg(en_dbg)
+);
+
+se30_flp_dkmux flp_dkmux
+(
+	.clk(clk_sys), .reset_n(flp_reset_n), .loading(flp_loading),
+	.ld_req(ld_req), .ld_addr(ld_addr), .ld_wdata(ld_wdata), .ld_ack(ld_ack),
+	.en_req(en_req), .en_addr(en_addr), .en_rdata(en_rdata), .en_ack(en_ack),
+	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack)
+);
+
 ///////////////////////   SDRAM   ////////////////////////////////
 // rtl/se30_sdram.v (plan 3.3).  Its reset is the PLL's lock alone: the
 // ladder is content-preserving and the ROM stays in SDRAM across resets,
@@ -242,7 +323,7 @@ se30_sdram sdram
 	.cpu_be(pk_hold ? pk_be : mem_be), .cpu_wdata(pk_hold ? pk_wdata : mem_wdata),
 	.cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
-	.dk_req(1'b0), .dk_we(1'b0), .dk_addr(24'd0), .dk_wdata(16'd0), .dk_rdata(), .dk_ack(),   // the drive's image: plan 5.12.12 item 7
+	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
 	.raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
 	.dbg_dqm_force(dqm_force),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),
@@ -261,6 +342,7 @@ wire [31:0] dbg_via;
 wire [63:0] dbg_regs;
 wire [63:0] dbg_swim, dbg_adb;
 wire [31:0] dbg_rtc;
+wire        dbg_swim_vread;
 
 se30_machine machine
 (
@@ -274,8 +356,13 @@ se30_machine machine
 	.dbg_dsack_n(dbg_dsack_n), .dbg_berr(dbg_berr), .dbg_halted(dbg_halted), .reset_out_n(reset_out_n),
 	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse), .timestamp(TIMESTAMP),
 	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
-	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_swim(dbg_swim), .dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc)
+	.disk_in(disk_in), .disk_eject(disk_eject), .disk_cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
+	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_swim(dbg_swim), .dbg_swim_vread(dbg_swim_vread),
+	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc)
 );
+
+assign LED_DISK = {1'b0, dbg_swim[15]};               // the internal drive's motor (se30_fdhd's dbg[15])
 
 ///////////////////////   VIDEO   ////////////////////////////////
 // The pixel clock is C16M: one pixel every other clk_sys.  The syncs are
@@ -299,6 +386,17 @@ assign VGA_B  = {8{~vidout}};
 // 3.8 item 18: the reset vector should read $4080002A)
 reg [31:0] mem_last_rdata = 0;
 always @(posedge clk_sys) if (mem_req && mem_ack && !mem_we) mem_last_rdata <= mem_rdata;
+
+// PFLP (plan 5.12.8): the loader's and the encoder's states, the words the
+// disk port has moved, and the bytes the ROM has taken from the SWIM's
+// data register (its valid reads)
+reg  [15:0] flp_words = 0, flp_bytes = 0;
+reg         dk_ack_q = 0;
+always @(posedge clk_sys) begin
+	dk_ack_q <= dk_ack;
+	if (dk_ack && !dk_ack_q) flp_words <= flp_words + 1'd1;
+	if (dbg_swim_vread) flp_bytes <= flp_bytes + 1'd1;
+end
 
 // The peek and poke.  PPEK's source word is {go, hold, we, raw, 5'b0,
 // longword address[22:0]}; PPOK's is {26'b0, DQM force, odd, byte enables
@@ -359,7 +457,8 @@ dbg_probes probes
 	.peek_stat({pk_cnt, 2'b0, raw_ack, pk_hold, pk_req_r, pk_st}),
 	.poke_src(pok_src), .raw_src(praw_src),
 	.rom_loaded(rom_loaded), .via_state(dbg_via), .cpu_regs(dbg_regs), .swim_state(dbg_swim),
-	.adb_state(dbg_adb), .rtc_state(dbg_rtc)
+	.adb_state(dbg_adb), .rtc_state(dbg_rtc),
+	.flp_state({ld_dbg, en_dbg, flp_words, flp_bytes})
 );
 `else
 assign pk_hold = 1'b0;

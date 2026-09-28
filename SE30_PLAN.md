@@ -4401,7 +4401,7 @@ has them; nothing on this board exercises them.
 ### 4.2.4 Timers
 
 Both count `E` (the *Guide*, p. 182: "the timer counter is decremented
-once every 1.2766 µs"; cell spec 7.0: "decrements at the C783K clock
+once every 1.2766 Âµs"; cell spec 7.0: "decrements at the C783K clock
 rate").
 
 **T1** (cell spec 7.0-7.2, R6522 tables). Two latches and a 16-bit counter.
@@ -4498,16 +4498,16 @@ The *Guide*, p. 149, on the SE/30 and the II family specifically: "the
 general logic circuits synchronize the VIA clock signal with the accesses
 of the main processor so that the main processor can make VIA accesses
 without any delay. As a result, a VIA access for these computers takes an
-average of 0.5 µs as compared to 1.0 µs for the Macintosh SE and classic
+average of 0.5 Âµs as compared to 1.0 Âµs for the Macintosh SE and classic
 Macintosh. The general logic circuits maintain an average frequency for
 the E clock of 783.36 kHz." And p. 148: the SE/30's GLUE generates "both
 the clock signal to the VIAs and the VIA device-enable signals".
 
 That is not the mechanism 2.11 row 3 built. Row 3 has the access wait for
 the next E-high phase of a free-running E - the 68000 machines' scheme,
-"12 to 32 clocks by alignment", 1.4 µs on average. The *Guide* says the
+"12 to 32 clocks by alignment", 1.4 Âµs on average. The *Guide* says the
 SE/30's GLUE moves **E** to the access instead, and gives two numbers
-that constrain any implementation: an access averages **0.5 µs**, and E
+that constrain any implementation: an access averages **0.5 Âµs**, and E
 **averages** 783.36 kHz - the word "average" being the admission that E
 is not a clean divider on this machine. There is still no SE/30 source
 for GLUE's state machine (2.11's standing caveat), so what follows is a
@@ -4518,7 +4518,7 @@ OPEN where a number is chosen.
 valid before E rises (T_ACR, 180 ns on the NMOS part), read data valid
 T_CDR after the rise, write data latched at the fall (T_DCW before it),
 and a minimum E-high width T_C. The NMOS 1 MHz part needs 470 ns high;
-a 0.5 µs *average access* is only possible with a part rated well above
+a 0.5 Âµs *average access* is only possible with a part rated well above
 that, which the 65C22 pinout and the "65C22" label say this is. **The
 minimum phase width used below, 4 C16M clocks (255 ns), is OPEN**: it is
 what makes the *Guide*'s average come out, and no data sheet in hand
@@ -4540,8 +4540,8 @@ drives is that reference displaced by a bounded phase shift:
    high phase. Cycle lengths in the GLUE bench's convention (AS* low to
    DSACK* inclusive, plus S4/S5): **7 clocks when E was low with room,
    up to 16 when it was high and had just risen**, a mean of 10 over a
-   uniform phase sweep (4.11 item 3) = 0.64 µs, against the *Guide*'s
-   "average of 0.5 µs" - the 4-clock phase minimum, OPEN, is most of the
+   uniform phase sweep (4.11 item 3) = 0.64 Âµs, against the *Guide*'s
+   "average of 0.5 Âµs" - the 4-clock phase minimum, OPEN, is most of the
    gap.
 3. **Each reference period has exactly one E rise**, nominally at its
    midpoint. An access may take it early - any time from the period's
@@ -4554,7 +4554,7 @@ drives is that reference displaced by a bounded phase shift:
    that follows is the next period's, taken at its earliest. (Written
    first as a shift counter worked off one clock per phase; replaced by
    this before the RTL, 4.11 item 3.)
-4. **The bound follows:** over any window of 20N clocks E rises N ± 1
+4. **The bound follows:** over any window of 20N clocks E rises N Â± 1
    times whatever the VIA traffic - the timers' rate is exactly C16M/20,
    which is what "maintain an average frequency of 783.36 kHz" has to
    mean for the Time Manager to keep time. A run of back-to-back accesses
@@ -4721,7 +4721,7 @@ to show, through `PVIA` and `PIRQ`.
 
 **What the machine bench can reach.** Steps 1-4 happen within a few ms
 of machine time; the RAM tests over 8 MB take of the order of a second,
-and steps 6-10 lie beyond them. ModelSim gives 215 µs in 9 s (3.7), so
+and steps 6-10 lie beyond them. ModelSim gives 215 Âµs in 9 s (3.7), so
 the bench holds steps 1-4 and the start of the RAM tests, and predicts the
 probes there; the rest is the board's (4.9).
 
@@ -4820,7 +4820,7 @@ bench-made 10/10 E and GLUE-shaped strobes, held to 4.2:
 2. ports: DDR gates the pin; a read gives the pin for an input bit and OR
    for an output bit; a write to an input bit leaves OR unchanged
    (4.2.3's rule); register 15 is register 1 without the flag clears;
-3. T1 one-shot: written N, IFR6 sets N+1 E cycles (±½) after the T1CH
+3. T1 one-shot: written N, IFR6 sets N+1 E cycles (Â±Â½) after the T1CH
    write, once; T1CL read clears it; the latches reload and it keeps
    counting; T1LH write clears the flag without a transfer;
 4. T1 free-run: IFR6 at N+1 then every N+2 cycles; with ACR7 PB7 inverts
@@ -4846,7 +4846,7 @@ bench-made 10/10 E and GLUE-shaped strobes, held to 4.2:
 **`sim/glue/tb_se30_glue.v`** item 5 rewritten to 4.4: the select is high
 before every E rise that serves an access and through the high phase; the
 access lengths over a sweep of phases sit in 7-14 clocks with a mean of
-8-10; E's phases are never shorter than 4 clocks; E rises 1000 ± 1 times
+8-10; E's phases are never shorter than 4 clocks; E rises 1000 Â± 1 times
 in 20,000 clocks with sparse accesses, and again with back-to-back
 accesses (the bound); the strobe is still one device cycle per bus cycle
 with the byte on `D31-D24` (item 6 unchanged).
@@ -5178,8 +5178,8 @@ latches *as that access leaves them*:
 
 **The mode register** (User's Ref p. 12, production 6.7.2): bit 0 latch
 mode; 1 asynchronous handshake; **2 timer disable** (0: `/ENBLx` held for
-2^23 + 100 FCLK after MotorOn clears); 3 fast (2 µs cell descriptor) /
-slow; **4 the 8 MHz descriptor** (FCLK divided by 8, not 7, for 1 µs
+2^23 + 100 FCLK after MotorOn clears); 3 fast (2 Âµs cell descriptor) /
+slow; **4 the 8 MHz descriptor** (FCLK divided by 8, not 7, for 1 Âµs
 internal timing); 5 test mode; **6 the ISM select** (5.2.3); 7 reserved.
 "The mode register is not accessible for up to one second when the timer
 is enabled and counting down", because it is selected through the
@@ -5289,7 +5289,7 @@ record it in 5.10. The ROM sets every line to an output (`$F5`-`$F7`,
   after a transition (6 FCLK in 8 MHz fast mode, 5 in 7 MHz fast, twice
   that slow); the shift register filling LSB-first until a one reaches the
   MSB, then latched into the read data register and cleared; in
-  asynchronous mode the latched byte "cleared 14 FCLK periods (about 2 µs)
+  asynchronous mode the latched byte "cleared 14 FCLK periods (about 2 Âµs)
   after a valid data read" (`/DEV` low with D7 = 1 for at least one FCLK).
   GCR's self-sync (ten-bit sync bytes, a five-byte lock) from `Software
   control of IWM`.
@@ -5303,7 +5303,7 @@ record it in 5.10. The ROM sets every line to an output (`$F5`-`$F7`,
   GCR bypass) and the User's Ref's parameter arithmetic (pp. 13-17), whose
   15.6672 MHz worked example gives the values the ROM's table should hold
   (5.6 item 5).
-- **The drive's flux**: 800K GCR at 2 µs cells over five speed zones (12
+- **The drive's flux**: 800K GCR at 2 Âµs cells over five speed zones (12
   down to 8 sectors, User's Ref p. 6); MFM 720K/1.44MB with the index
   pulse; the SuperDrive's GCR/MFM mode register (5.5).
 
@@ -5887,7 +5887,7 @@ and three of its "chosen" entries are now documented.
   each `1` of the track bitstream, the bitstream advancing one cell per
   32 FCLK; a head switch takes effect at once (inside T2).
 - **Rotation** (2.4 and p. 39): five speed groups, **394, 429, 472, 525
-  and 590 rpm** for tracks 0-15, 16-31, 32-47, 48-63, 64-79, "± 2.5%" -
+  and 590 rpm** for tracks 0-15, 16-31, 32-47, 48-63, 64-79, "Â± 2.5%" -
   with the data rate fixed at 489.6 kbit/s, so the cells per revolution
   are **74,558 / 68,476 / 62,237 / 55,954 / 49,790**. The model runs at
   the nominal speeds exactly.
@@ -6478,7 +6478,89 @@ The probes say where it stops.
      (run.log fresh, exit 0); the top ties them off too until item 7.
      `vlog` compiles all four changed files clean.
 6. `sim/gcrread`, the gate.
+   **Built 2026-09-28; two machine bugs found and fixed; `+quick` result
+   below.** The chain is the machine's: the HPS model -> `se30_flp_loader`
+   -> `se30_flp_dkmux` (new: the port's owner follows `loading`, changing
+   only while the port is quiet) -> the SDRAM -> `se30_flp_encoder` ->
+   `se30_fdhd` -> `se30_swim` -> **`se30_glue`'s device port -> a 68030
+   bus model**, with the real VIA1 (the head select, PA5, by the ROM's own
+   `bset`/`bclr` on ORA). The bus model replays the ROM's routines
+   instruction by instruction, disassembled for the purpose: Open's SWIM
+   probe (`$4082E6A2`), the drive enable (`$4082E3D6`, vector `$B40`), the
+   ISM entry's GCR path (`$4082E712`), the mode loop (`$4082E2F2`), the
+   power-up (`$4082E376`), the recalibrate (`$4082E29E`), the seek
+   (`$4082E17A`) with its settle (`$4082E1FE`), and RdAddr (`$40831BE8`)
+   and RdData (`$40831CC2`) byte for byte - every SWIM, VIA1, ROM (the
+   decode table at `$40831E08` and the marks) and RAM (the decoded bytes)
+   access a real bus cycle through GLUE, the rest of each instruction its
+   68030 cache-case time. The `.Sony` driver's timing words are Open's copy
+   of `$4082D76E` to `$2A(a1)` (`$34` 300, `$38` 4000, `$3C` 120, tenths
+   of a millisecond: `$4082E246` divides by ten before PrimeTime); the
+   drive's `$F` reading 1 sets the flag (`$13`) that makes the ROM poll
+   `/READY` every millisecond up to 1,000 times.
+   - **Bug 1, the SWIM acted twice per access in the machine.** GLUE's
+     `dev_strobe` is one C16M, two `clk`; the VIA qualifies it with
+     `c16_en`, `se30_swim.v` did not, and `sim/swim` (clk = FCLK, `c16_en`
+     tied high) could not see it. Latch accesses are idempotent; the ISM
+     switch's count of `$57 $17 $57 $57` never reached four, so **Open's
+     probe never found the SWIM** (`$134` clear: the ROM would drive it as
+     an IWM and never try MFM). The gate failed both checks (13 of 13
+     probe cycles doubled); `hit` now carries `c16_en`; 2 PASS, `sim/swim`
+     118 PASS.
+   - **Bug 2, the processor took bytes the SWIM never saw read.** The
+     SWIM counts a valid read (which arms its 14-FCLK clear) at the strobe;
+     GLUE handed the device's byte to the processor live, two C16M later.
+     A byte latching in between reached the ROM uncleared and was read
+     again: five duplicates in 48 bytes, `D5 AA 96` missed, 73 errors on
+     cylinder 0 (`$BD`, `$BB`, `$B8`, `$B9`). A monitor proved it (bytes
+     with the MSB taken with no valid read at the chip). **Daniel chose A
+     (2026-09-28): GLUE registers a device's byte on the capture clock** -
+     the clock the device acts on the strobe - and holds it for the
+     processor (`se30_glue.v`; the device port's contract, "the device ...
+     must present" at the strobe, made exact). The alternative, the
+     drawing's valid read over the whole select, would clear bytes never
+     taken, GLUE holding the select an FCLK past the processor's latch.
+     `sim/glue`'s device model registered its answer a clock late; it now
+     answers combinationally, as chips drive their pins: 97 PASS.
+   - **Run time, and the split (Daniel, 2026-09-28).** With the real
+     controller on the chip model the bench runs 0.44 ms of machine time a
+     second; the gate is about 25 s of machine time (the ERS's times, a
+     revolution a side), so 16 hours. **The gate runs on a behavioural
+     clk_sys memory (`-DBEHAV_MEM`, the controller's two contracts; about
+     three hours), and the real controller runs Open, the load, the
+     recalibrate and a cylinder of each group (`+groups +no56`; about two
+     hours).** `./run.sh quick` is the working gate; the full runs go in
+     the background and do not block the board (Daniel: the board for what
+     happens, the bench for why).
+   - **`+quick`** (cylinders 0, 15, 16, 31, 32, 47, 48, 63, 64, 79; the
+     400K and Disk605.dsk parts), 85 minutes, 9.9 s of machine time:
+     **every sector the ROM read is right** - the 800K DiskCopy image's
+     200 sectors of those cylinders, every speed group, tags at `$2FC` and
+     data in RAM byte for byte, the address fields' cylinder, side and
+     `$22`, no error code, each side inside one revolution (1.00); the
+     power-up's `/READY` after 519 of the ROM's polls; `/STEP` answered
+     within 6 of its 81; the 400K image's side 0 (58 sectors, `$02`) and
+     its side 1 without flux (`$BE`, six of six); `Disk605.dsk`'s 84
+     sectors as the file holds them; no byte taken unread, one chip access
+     a SWIM cycle, the port's handshake clean. **One check failed, the
+     bench's**: "no valid read inside a pending clear" counted 1,225 -
+     the drive addressing's latch accesses, which with L6 and L7 clear read
+     the data register too and re-arm its clear (the chip's documented
+     behaviour, and Daniel's pinned reading of 5.12.12 item 2). The check
+     now counts what it meant: **a byte the ROM's data-register reads took
+     twice** (a second MSB byte before the shifter latched another); the
+     re-arms are reported, not failed.
 7. The top, the machine, `PFLP`; elaboration; `sim/machine` unchanged.
+   **Done 2026-09-28.** `MacSE30.sv`: an `S0,DSKIMG,Mount Floppy` slot
+   (`hps_io` `VDNUM` 1, 512-byte blocks, read only), the loader, the mux
+   and the encoder on the PLL's lock (a machine reset keeps the disk in),
+   the controller's `dk_*` port, `LED_DISK` the drive's motor. The machine
+   takes the drive's disk interface as ports; `sim/machine` ties them off.
+   **`PFLP`** (64 bits): the loader's and the encoder's states, the port's
+   words moved, and the bytes the ROM has taken (the SWIM's valid data
+   reads, a new `dbg_vread`); `read_probes.tcl` decodes it. `sim/machine`
+   17 PASS (run.log fresh); Analysis & Synthesis clean (0 errors).
+   **The M10K count** (item 4's open question) waits for the fitter.
 8. The compile (Daniel's go-ahead) and the board: an 800K image mounted.
 9. **5.13 - the ISM's MFM read** (720K, 1.44 MB), from the ISM ASIC spec,
    written when GCR is on the board.

@@ -33,11 +33,15 @@
 //   The RESET instruction resets the VIAs, RESET* being shared on the
 //   board (2.11.6).
 //
-// THE SWIM (plan 5.3, 5.8) - rung 1: the register sets and the internal
-//   FDHD with no disk.  The drives' SEL is VIA1 PA5 (HDSEL), not the
+// THE SWIM (plan 5.3, 5.8, 5.12) - the register sets, the IWM's read path
+//   and the internal FDHD.  The drives' SEL is VIA1 PA5 (HDSEL), not the
 //   SWIM's HEDSEL; SENSE is the internal drive's line, and the absent
 //   external drive's reads 1.  The RESET instruction resets the SWIM as
 //   it does the VIAs; the drive is not on RESET* and sees only power-up.
+//   The disk itself is outside: the drive's disk interface (disk_in,
+//   eject, the cylinder and the track buffers' read port) goes to the
+//   loader and the encoder in MacSE30.sv, beside hps_io and the SDRAM
+//   (plan 5.12.12 item 7).
 //
 // THE ADB (plan 6.2-6.4, 6.6) - the transceiver is a PIC1654S running
 //   Apple's program (boot2.rom, adb_pm_*), clocked by GLUE's C3M and reset
@@ -56,8 +60,7 @@
 // NOT HERE YET - what the VIAs' inputs and the device bus hold until
 //   their sections: the SCC's W/REQ*, the ASC's and SCSI's interrupt and
 //   DRQ lines, all at their idle levels (plan 4.7); every other I/O device
-//   answers $00 and raises no interrupt.  No disk: the SWIM's data path is
-//   rung 2's.
+//   answers $00 and raises no interrupt.
 
 `timescale 1ns/1ps
 
@@ -105,6 +108,16 @@ module se30_machine #(
   input   [8:0] adb_pm_waddr,
   input  [11:0] adb_pm_wdata,
 
+  // the internal drive's disk (se30_fdhd's disk interface; plan 5.12.5b)
+  input         disk_in,               // the loader: a whole image is in SDRAM
+  output        disk_eject,            // the drive's eject command: one clock
+  output  [6:0] disk_cyl,              // the head's cylinder
+  input   [6:0] trk_cyl,               // the encoder: the cylinder its buffers hold
+  input         trk_valid,
+  output [16:0] trk_addr,              // the cell under the head
+  output        trk_side,
+  input         trk_bit,               // its bit, a clock after trk_addr
+
   // for the probe deck and the benches
   output [31:0] dbg_addr,
   output  [2:0] dbg_fc,
@@ -117,6 +130,7 @@ module se30_machine #(
   output [31:0] dbg_via,               // {overlay, ramsiz, vsyncen_n, VIA1 IER, IFR, VIA2 IER, IFR} (plan 4.8)
   output [63:0] dbg_regs,              // {D6, D7}: the test manager's failure code and flags (plan 3.8 item 23)
   output [63:0] dbg_swim,              // {the SWIM's 48, the drive's 16} (plan 5.8)
+  output        dbg_swim_vread,        // the SWIM's valid data reads (PFLP counts them)
   output [63:0] dbg_adb,               // PADB: the transceiver's PIC, the line, the devices (plan 6.6)
   output [31:0] dbg_rtc                // PRTC: the clock chip (plan 6.6)
 );
@@ -297,13 +311,13 @@ module se30_machine #(
     .ph_out(swim_ph), .ph_oe(swim_ph_oe), .ph_in(swim_ph_pin),
     .enbl1_n(enbl1_n), .enbl2_n(enbl2_n), .sense(swim_sense),
     .wrdata(), .wrreq_n(), .hdsel(),                                // HEDSEL goes to TP3 only
-    .dbg(swim_dbg));
+    .dbg(swim_dbg), .dbg_vread(dbg_swim_vread));
 
   se30_fdhd fdhd_int (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
     .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
-    .sense(fdhd_sense), .disk_in(1'b0), .eject(),                   // no disk until plan 5.12.12 item 7
-    .cyl(), .trk_cyl(7'h7F), .trk_valid(1'b0), .trk_addr(), .trk_side(), .trk_bit(1'b0),
+    .sense(fdhd_sense), .disk_in(disk_in), .eject(disk_eject),
+    .cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .dbg(fdhd_dbg));
 
   // ------------------------------------------------------------ video

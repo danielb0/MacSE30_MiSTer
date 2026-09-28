@@ -67,6 +67,13 @@
 //   PRTC  32 bits: the clock chip's {seconds[7:0], last command[7:0],
 //         transactions[7:0], write protect, test register[7:1]}: did
 //         InitUtil talk to it, is the second ticking
+// and, since plan 5.12.12 item 7 (the internal drive's disk):
+//   PFLP  64 bits, registered here on clk: the loader's {disk in, loading,
+//         double-sided, 800K, tags, DiskCopy, state[2:0], LBA[6:0]}, the
+//         encoder's {track valid, side, state[3:0], slot[3:0], cylinder
+//         [5:0]}, the disk port's words moved[15:0] and the bytes the ROM
+//         has taken from the SWIM[15:0] (valid data reads): is the image
+//         in, is the head's track built, is the ROM reading it
 
 module dbg_probes (
 	input  wire        clk,
@@ -93,7 +100,8 @@ module dbg_probes (
 	input  wire [63:0] cpu_regs,          // PREG: {D6, D7} from the kernel's register file (plan 3.8 item 23)
 	input  wire [63:0] swim_state,        // PSWM: se30_machine's dbg_swim (plan 5.8)
 	input  wire [63:0] adb_state,         // PADB: se30_machine's dbg_adb (plan 6.6)
-	input  wire [31:0] rtc_state          // PRTC: se30_machine's dbg_rtc (plan 6.6)
+	input  wire [31:0] rtc_state,         // PRTC: se30_machine's dbg_rtc (plan 6.6)
+	input  wire [63:0] flp_state          // PFLP: the floppy's (plan 5.12.12 item 7)
 );
 
 	reg        as_q = 1;
@@ -177,6 +185,15 @@ module dbg_probes (
 		.instance_id ("PRTC"), .probe_width (32), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_prtc (.probe(prtc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the floppy (the header's PFLP)
+	reg [63:0] pflp_r = 0;
+	always @(posedge clk) pflp_r <= flp_state;
+
+	altsource_probe #(
+		.instance_id ("PFLP"), .probe_width (64), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(
 		.instance_id ("PACT"), .probe_width (32), .source_width (1),
