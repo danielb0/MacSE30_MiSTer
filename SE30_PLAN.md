@@ -7515,6 +7515,92 @@ the ASC).
    PASS; Analysis & Synthesis clean. (The RTL was written before its bench
    this once; the empty-module run restores the order of evidence.)
 
+# Section 8 - The 68882
+
+Opened 2026-09-28 by the first boot's stop (5.12.12 item 8). Plan 1.9 item
+7 committed the 68882 as base-machine work "gated after first boot"; the
+first boot has happened, and it is what stops it. **Daniel: build the 68882
+as fully as possible now - "bypassing it will not exempt us from
+implementing it at some point."**
+
+## 8.1 Why the machine stops without it (the board, compile 21)
+
+- `PFLN`: every F-line exception is **`$F280` at `$000131A4`** - `FNOP`
+  (`FBF.W` with a zero displacement), in System code in RAM, some 30 times a
+  second, each re-drawing the Welcome box.
+- **This ROM declares an FPU unconditionally**: `$4080032A` writes `$DC00`
+  to `HWCfgFlags` (`$B22`) in the start-up path - bit 12, `hwCbFPU`, among
+  SCSI, the clock, the MMU and ADB - and nothing clears it (every access to
+  `$B22` in the ROM: that write, bit tests, `bset #5` at `$4080DC88`). The
+  ROM's one F-line vector swap (`$40803ACE`) guards a PMMU probe (`PMOVE
+  TC`), not an FPU one. The ROM is the Mac II FDHD's, IIx's, IIcx's and
+  SE/30's; all four shipped an FPU.
+- The kernel behaves as a 68030 with no coprocessor: every FPU instruction
+  (`$F2xx`, `$F3xx`) takes the F-line exception (vector 11) after the
+  privilege check (MC68030 UM 6.5-6.6), the stacked PC the instruction's.
+  An SE/30 with its 68882 removed would stop the same way.
+
+## 8.2 Sources, and their standing
+
+| Source | What it is | Standing |
+|---|---|---|
+| *MC68881/MC68882 Floating-Point Coprocessor User's Manual*, **2nd edition 1989** (NXP's `MC68881UM.pdf`, 9,440,147 bytes; `Docs\fpu\MC68881UM_NXP.pdf`, text alongside) | the programming model, data formats, instruction set, exception processing, the coprocessor interface, instruction timing, the state frames | **primary** |
+| the same, **1st edition 1987** (bitsavers via the Internet Archive; `Docs\fpu\MC68881_MC68882_UM_1ed_1987.pdf`, 23,895,950 bytes, OCR text alongside) | as above | primary; for differences between the editions |
+| *MC68030 UM* 3ed, section 10 (coprocessor interface) | how the 030 and the 68882 converse; what software can and cannot see of it | primary |
+| IIcx BOM, line 291 | **`337S6510` "IC,MICRO,68882,16MHZ,68P"** (21 Sep 1988) - the nearest paper for the SE/30's part: a 16 MHz 68882, PLCC; the mask is not stated | primary for the part and speed |
+| *Guide* 2e, Table 3-6 and p. 107 | the SE/30 has an MC68882 as standard | primary |
+| **Errata**: none found (bitsavers, a web search, 2026-09-28; the only bug lists are emulators', e.g. Musashi's `m68kfpu.c`) | - | so, by the fidelity rule, **tier 2: build to the manual**; its stated accuracy bounds are the spec for the transcendentals |
+| upstream's FPU, `030_mmu2_fpu2` (`9e9a36a..bd9d8f1`, 22-23 May 2026) | nine `TG68K_FPU*.vhd` files (~9,100 lines) and ~1,270 kernel lines, ~150 in `TG68K_Pack.vhd` | **donor**, a first draft (1.12): its benches are modelled on WinUAE, its transcendentals compiled out, its tip "Perhaps this will fix it" |
+| WinUAE's `cputest` 6888x corpus | test vectors run on real 68k/68882 hardware | independent check, silicon-derived where its data came from silicon |
+
+**The state frames** (manual 5.2.1 Table 5-8, 6.4.2, Figures 6-4 and 6-5),
+the part of the chip software reads to tell 68881 from 68882: null 4 bytes
+(format `$00`), **idle 60 bytes (size byte `$38`), busy 216 (`$D4`)** -
+the 68881's 28 and 184 plus 32 bytes of the conversion unit's state at the
+top of the frame. The manual's own test is `CMPI #$18,D0 ; MC68881?`.
+
+## 8.3 The approach
+
+The donor is the whole chip in outline - the arithmetic unit, the
+converter, packed decimal, the transcendentals, `FMOVEM`, the exception
+handler, the frames - wired into the kernel's F-line decode, which is how a
+68882 looks to software (the coprocessor protocol's CPU-space cycles are
+invisible above the chip; GLUE never sees them either, 2.11.2 row 14). It
+is taken as a starting point, never as evidence: each part is read against
+the manual before it is trusted, and its benches are rewritten against the
+manual, not WinUAE.
+
+## 8.4 The work
+
+1. ~~Write this section.~~ **Done 2026-09-28.**
+2. **Area first**: a standalone Quartus synthesis of the donor FPU with its
+   transcendentals enabled. The machine uses 55% of the logic (23,028 of
+   41,910 ALMs), 36% of the DSP blocks, 39% of the RAM blocks - it likely
+   fits, and the transcendental unit is the unknown.
+   **Done 2026-09-28** (a scratch `quartus_map` of the donor's nine files
+   and its package, top `TG68K_FPU`, both generics 1, every port a virtual
+   pin): **9,364 ALMs estimated** - 13,523 ALUTs, 4,473 registers, 8 DSP
+   blocks, no block RAM. By unit: the top (control, decode, the register
+   file) 4,291 ALUTs; the arithmetic unit 4,406 (no DSP: its multiply is
+   logic); the transcendental unit 4,524, 8 DSP, two inferred dividers
+   (683 ALUTs); the rest ~300. With the machine, **about 32,400 of 41,910
+   (77%)**: it fits; the fit and its timing will be tighter, and the first
+   integrated fit gives the real figure.
+3. **Audit the donor against the manual**, file by file: what it does,
+   what the manual says, the differences - before any of it is merged.
+4. **Merge forward** onto our kernel: the ~1,270 kernel lines and the
+   package's, re-applied by hand where the audited kernel has moved; the
+   FPU files as they are, corrected by item 3.
+5. **Benches**, failing first: `sim/fpu` (ModelSim, VHDL) against the
+   manual - the data formats and conversions, the arithmetic and rounding
+   modes, the exceptions and their vectors (48-54), `FSAVE`/`FRESTORE`
+   and the frames, `FMOVEM`, the conditionals - and the `cputest` corpus.
+   `sim/busfault` and `sim/machine` unchanged.
+6. The compile and the board: past the Welcome box.
+7. **Instruction timing** (the manual's section 8) - measure what the
+   merged FPU takes against the manual's counts, then decide, as for the
+   CPU (1.9 item 8).
+
 ---
 
 ## Appendix - where the sources are
