@@ -242,6 +242,7 @@ se30_sdram sdram
 	.cpu_be(pk_hold ? pk_be : mem_be), .cpu_wdata(pk_hold ? pk_wdata : mem_wdata),
 	.cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
+	.dk_req(1'b0), .dk_we(1'b0), .dk_addr(24'd0), .dk_wdata(16'd0), .dk_rdata(), .dk_ack(),   // the drive's image: plan 5.12.12 item 7
 	.raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
 	.dbg_dqm_force(dqm_force),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),

@@ -210,6 +210,14 @@
 //   dl_*    the HPS download (boot0.rom): 16-bit words, a level request
 //           acknowledged by a level held until the request drops; served
 //           when the CPU port is idle, never touching cpu_ack.
+//   dk_*    the internal drive's image (plan 5.12.5): one 16-bit word read
+//           or written, the same level handshake, a read's word on
+//           dk_rdata with the acknowledge.  Issued only in the idle window
+//           after a CPU start (clocks 10-15: its eight clocks end by 23,
+//           as refresh's six from 17 do, before a back-to-back start needs
+//           the chip) or when no start has come for 63 clocks - where a
+//           start arriving mid-access waits for it, which GLUE (waiting
+//           on the acknowledge) takes as a wait state.
 //   ready   the power-up ladder and the training have run.
 //   cap_sel the capture in use: 0 = A, 1 = B.  cap_ok {A clean, B clean};
 //           cap_fail_a/b the failure counts, saturating at 16,383.
@@ -246,6 +254,12 @@ module se30_sdram #(
   input      [23:0] dl_addr,           // word address
   input      [15:0] dl_data,
   output reg        dl_ack,
+  input             dk_req,
+  input             dk_we,
+  input      [23:0] dk_addr,           // word address
+  input      [15:0] dk_wdata,
+  output reg [15:0] dk_rdata,
+  output reg        dk_ack,
 
   // the raw experiment port (clk_sys domain; the header)
   input             raw_req,
@@ -286,6 +300,7 @@ module se30_sdram #(
   localparam REF_FORCE   = 10'd1023;           // overdue: refresh even with a CPU start pending
   localparam WIN_LO      = 6'd10;              // the idle window after a cycle, in clocks since its start:
   localparam WIN_HI      = 6'd17;              //   a refresh issued here completes before a back-to-back start needs the chip
+  localparam DK_HI       = 6'd15;              //   and a disk word's (ACT_BUSY, two clocks longer) issued here
   localparam ACT_BUSY    = 4'd8;               // clocks from ACTIVE to the next ACTIVE or refresh
   localparam REF_BUSY    = 4'd6;               // tRFC 63 ns
   // the training (the header): the pair, where it lives, how many reads
@@ -371,6 +386,9 @@ module se30_sdram #(
   reg        xs_raw_req;
   reg [63:0] xs_raw_ctl;
   reg [23:0] xs_raw_addr;
+  reg        xs_dk_req, xs_dk_we;
+  reg [23:0] xs_dk_addr;
+  reg [15:0] xs_dk_wdata;
   always @(posedge clk) begin
     xs_start_evt <= 0;
     if (sample_en) begin
@@ -379,10 +397,11 @@ module se30_sdram #(
       xs_addr <= cpu_addr; xs_be <= cpu_be; xs_wdata <= cpu_wdata;
       xs_dl_req <= dl_req; xs_dl_addr <= dl_addr; xs_dl_data <= dl_data;
       xs_raw_req <= raw_req; xs_raw_ctl <= raw_ctl; xs_raw_addr <= raw_addr;
+      xs_dk_req <= dk_req; xs_dk_we <= dk_we; xs_dk_addr <= dk_addr; xs_dk_wdata <= dk_wdata;
     end
   end
   wire       start_rise = xs_start_evt;
-  wire       req_q = xs_req, we_q = xs_we, dl_req_q = xs_dl_req, raw_req_q = xs_raw_req;
+  wire       req_q = xs_req, we_q = xs_we, dl_req_q = xs_dl_req, raw_req_q = xs_raw_req, dk_req_q = xs_dk_req;
   // the experiment's fields (the header)
   wire [15:0] r_w0 = xs_raw_ctl[15:0], r_w1 = xs_raw_ctl[31:16];
   wire  [7:0] r_dqm = xs_raw_ctl[39:32];
@@ -403,9 +422,12 @@ module se30_sdram #(
   wire  [1:0] d_bank  = xs_dl_addr[23:22];
   wire [12:0] d_row   = xs_dl_addr[21:9];
   wire  [8:0] d_col   = xs_dl_addr[8:0];
+  wire  [1:0] k_bank  = xs_dk_addr[23:22];
+  wire [12:0] k_row   = xs_dk_addr[21:9];
+  wire  [8:0] k_col   = xs_dk_addr[8:0];
 
   // --------------------------------------------------- the sequencer
-  localparam [2:0] S_INIT = 3'd0, S_IDLE = 3'd1, S_ACC = 3'd2, S_DONE = 3'd3, S_DL = 3'd4, S_TRAIN = 3'd5, S_RAW = 3'd6;
+  localparam [2:0] S_INIT = 3'd0, S_IDLE = 3'd1, S_ACC = 3'd2, S_DONE = 3'd3, S_DL = 3'd4, S_TRAIN = 3'd5, S_RAW = 3'd6, S_DK = 3'd7;
   reg  [2:0] state;
   reg  [3:0] seq;                      // clocks since the ACTIVE
   wire [1:0] r_k = seq[1:0] - 2'd2;    // the schedule's index on clocks 2..5 of a raw experiment
@@ -420,6 +442,10 @@ module se30_sdram #(
   reg  [8:0] a_col_r;
   reg  [3:0] a_be;
   reg [31:0] a_wdata;
+  reg        k_we_r;                   // the disk word in flight, latched at its ACTIVE
+  reg  [1:0] k_bank_r;
+  reg  [8:0] k_col_r;
+  reg [15:0] k_wdata_r;
   reg [14:0] init_cnt;
   reg  [3:0] init_step;                // 0 pause, 1 precharge, 2-9 refreshes, 10 mode, 11 settle
   reg  [1:0] tr_step;                  // the training: 0 write the pair, 1 read it, 2 judge and switch
@@ -440,8 +466,10 @@ module se30_sdram #(
       state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0;
       cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_out <= 0; dq_oe <= 0;
       cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; raw_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
+      dk_ack <= 0; dk_rdata <= 0;
       since_start <= 6'd63;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
+      k_we_r <= 0; k_bank_r <= 0; k_col_r <= 0; k_wdata_r <= 0;
       cap_sel <= 0; cap_ok <= 2'b00; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
       cap_fail_a <= 0; cap_fail_b <= 0;
     end else begin
@@ -456,6 +484,7 @@ module se30_sdram #(
       else if (since_start != 6'd63) since_start <= since_start + 1'b1;
       if (!dl_req_q) dl_ack <= 0;
       if (!raw_req_q) raw_ack <= 0;
+      if (!dk_req_q) dk_ack <= 0;
       if (state != S_INIT) sd_addr[12:11] <= 2'b00;                 // the mask: 00 unless a command says otherwise
 
       case (state)
@@ -554,6 +583,13 @@ module se30_sdram #(
               cmd <= CMD_ACTIVE; sd_ba <= d_bank; sd_addr <= d_row;
               seq <= 1; busy <= ACT_BUSY;
               state <= S_DL;
+            end else if (dk_req_q && !dk_ack &&
+                         ((since_start >= WIN_LO && since_start <= DK_HI) || since_start == 6'd63)) begin
+              // a disk word: in the window after a start, or on an idle bus
+              cmd <= CMD_ACTIVE; sd_ba <= k_bank; sd_addr <= k_row;
+              k_we_r <= xs_dk_we; k_bank_r <= k_bank; k_col_r <= k_col; k_wdata_r <= xs_dk_wdata;
+              seq <= 1; busy <= ACT_BUSY;
+              state <= S_DK;
             end else if (raw_req_q && !raw_ack) begin
               // an experiment (the header): every row is closed here, so
               // a LOAD MODE may follow a PRECHARGE ALL at once
@@ -654,6 +690,23 @@ module se30_sdram #(
             dq_out <= xs_dl_data; dq_oe <= 1; dl_ack <= 1;
           end
           if (seq == 4'd4) state <= S_IDLE;
+        end
+
+        // ------------------------------------------ a disk word
+        // A write is the download's: one single-location WRITE,
+        // auto-precharged, acknowledged as posted.  A read is auto-
+        // precharged too; its burst's first beat is the addressed word
+        // (an odd column's pair wraps to the even one after it), on dq_m
+        // at 7 as a CPU read's first word is.  Either way the next ACTIVE
+        // waits for busy, set at the ACTIVE.
+        S_DK: begin
+          seq <= seq + 1'b1;
+          if (seq == 4'd2) begin
+            cmd <= k_we_r ? CMD_WRITE : CMD_READ; sd_ba <= k_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, k_col_r};
+            if (k_we_r) begin dq_out <= k_wdata_r; dq_oe <= 1; dk_ack <= 1; end
+          end
+          if (k_we_r && seq == 4'd4) state <= S_IDLE;
+          if (!k_we_r && seq == 4'd7) begin dk_rdata <= dq_m; dk_ack <= 1; state <= S_IDLE; end
         end
 
         // ------------------------------------- a raw experiment (the header)

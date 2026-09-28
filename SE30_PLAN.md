@@ -6036,6 +6036,48 @@ Where they refine or correct the list above:
 - **The HPS side**: one `S` mount slot for the internal drive (`VDNUM` 1,
   `BLKSZ` 512 bytes, `WIDE` 1) - the external drive stays absent (5.5).
 
+**Read for item 5 (2026-09-28).** The donor is MacLC's `floppy_loader`
+(`rtl/floppy_sd.v` at `045f896`): MacPlus's, plus the DiskCopy 4.2 strip
+(a name length of 1-63 and the magic `$0100` at `$52` recognise the header;
+its 84 bytes never reach SDRAM) and the medium sniff offset past it. It is
+lifted with its comments; four changes, each for a reason on record:
+
+- **A request waits for the last acknowledge to fall.** MacLC raises the
+  next word as soon as its own request is low; this controller clears an
+  acknowledge only once it has sampled the request low, so the next word
+  could be counted written on the old acknowledge (MacPlus phase 7's
+  stale-pulse trap, and the encoder's rule, 5.12.5b).
+- **A mount during a load is not dropped** (MacPlus's `mount_pending`;
+  MacLC accepts a mount only when idle). It takes effect between sectors,
+  never inside an `hps_io` transfer; the old disk is out from the pulse.
+- **The DC42 header's sizes**: data at `$40`, tags at `$44` (32 bits,
+  big-endian). Tags count only when their size is exactly 12 per block of
+  the data; anything else is a tagless image (MacLC phase 1: four of
+  nineteen real DC42s were damaged).
+- **What the SE/30 needs out**: `disk_in` (the whole image resident, a GCR
+  geometry recognised), `img_ds` by the three ceilings of MacPlus phase 7
+  - the SuperDrive is double-sided; an 800K file (819,200 raw, or a DC42's
+  data 819,200) can be; the medium's MDB says whether it is - `img_800k`
+  (the file's data region, which places a DC42's tags), `img_tags`,
+  `readonly`. The drive's eject takes the disk out; the OSD mounts it again.
+  **Rung 2 is GCR**: a 720K or 1440K image (raw 737,280 or 1,474,560, DC42
+  format 2 or 3) loads but does not count as in (5.13).
+
+**The disk port** (`dk_*` on `se30_sdram`): one 16-bit word read or
+written, the level request and acknowledge of `dl_*`, the read's word with
+the acknowledge. Below a CPU start, refresh and the download in priority,
+and issued only where refresh is: **in the idle window after a CPU start**
+(clocks 10-15 - an access holds the chip 8 clocks, so it ends by 23, where
+refresh's 6-clock one issued by 17 does, before a back-to-back start needs
+the chip) **or when no start has come for 63 clocks**. In the second case a
+start that arrives during the access waits for it: GLUE waits on the
+acknowledge, so that costs the cycle a wait state, never its data. The
+ROM's GCR loops run from the 68030's cache polling the SWIM, which is where
+the encoder's reads mostly land; `sim/sdram` counts the collisions. The
+loader and the encoder share the port through a mux in the machine (item
+7): the loader while loading (the disk is out, so the encoder is idle),
+the encoder otherwise.
+
 ### 5.12.5b The encoder
 
 When the head settles on a cylinder (or a disk is inserted), the encoder
@@ -6368,6 +6410,68 @@ The probes say where it stops.
      must check the fitter's M10K count** against the plan's estimate.
 5. `sim/flpload` and `sim/sdram`'s disk port, failing, then
    `se30_flp_loader.v` and the port.
+   **Done 2026-09-28.** What was read first is under 5.12.5 ("Read for
+   item 5").
+   - **`sim/flpload`** (new, 45 checks, about 9 minutes - it loads 27
+     images): raw 800K and 400K; DC42 800K with tags, 400K without, a
+     damaged tag size; the three ceilings; MacPlus phase 7's eleven sniff
+     images; GCR only (1440K raw and 720K DC42 load but are not a disk); a
+     mount during a load; a mount on the very clock a load completes;
+     unmount; the drive's eject; `readonly` from the slot's own pulse; no
+     sector transferred twice; the handshake; and Daniel's `Disk605.dsk`
+     resident byte for byte (a smoke test: untagged, double-sided, 800K).
+     **Against a stub with the same ports, 31 of the first 43 failed.**
+   - **Three loader faults found on the way**, two by reading the RTL
+     before trusting a green run: the drain's registered buffer read would
+     have written the word before on a request raised the clock after
+     `drain_idx` moved - the first data word of every DC42 (now raised
+     only once the buffer's read is of this word); `loading` dipped for a
+     clock between an abandoned load and its successor (it now rises at the
+     pulse); and **a mount pulse on the clock `S_DONE` completes would have
+     left the old image in** while the new one loaded (its assignments came
+     after the pulse's). An edit of mine also turned `S_NEXT`'s end-of-image
+     test into a comment, which the bench caught as every load running
+     forever.
+   - **`sim/sdram`** gains the port (193 checks, and the three training
+     runs): words written read back as the CPU's longwords, words read (even
+     and odd) are the CPU's; alongside back-to-back CPU cycles 80 words in
+     84 cycles with **none late**; requests timed to arrive late in the
+     window never issue outside it (a monitor on every disk ACTIVE: clocks
+     10-15 after a start, or an idle bus); on an idle bus a CPU stream
+     starting into the traffic loses **one wait state on its first cycle**.
+     **Against a controller with the ports that never serves them, the
+     bench times out.** Two faults of the BENCH, both old kinds: an
+     expected value computed at 32 bits against a 16-bit word, and two fork
+     branches sharing one loop counter (as `sim/swim`'s did, item 2).
+   - **A finding about the controller's refresh, not the port**: after a
+     long idle bus a refresh falls due and goes "at the first idle clock";
+     a CPU start arriving during it waits one C16M. The bench caught it
+     once its sections' timing shifted. The header's "never costs the CPU a
+     wait state" holds for back-to-back streams, not after an idle bus. The
+     real GLUE's own refresh stalls the CPU too (5.9's late-request case),
+     so this is not worse than the machine; left as it is, for Daniel.
+   - **Mutation test.** The port: a window to clock 17 (caught by the
+     monitor; it also made a CPU cycle late), no window (2 fail), an idle
+     bus only (the disk starves: timeout), the second beat taken (2), a read
+     without auto-precharge (the model's datasheet check), the acknowledge
+     never cleared (timeout); **one equivalent**: reading the request's
+     fields live rather than latched - a requester cannot change them
+     before it has seen the acknowledge, and a write leaves `S_DK` before
+     any change is sampled; the latch stays as defence. **The loader**, all
+     caught: a request over a stale acknowledge (7 fail), no guard on the
+     buffer's read (2 - the DC42 first word), a mount dropped while busy
+     (MacLC's behaviour, 3), the DC42 header not skipped (1), no byte swap
+     (14), the sniff ignored (5), the file ceiling dropped (1), tags
+     without the size check (2), the disk in before the last acknowledge
+     (a timeout), the `S_DONE` race unfixed (1 - the new check), GCR
+     unchecked (3), and `sd_rd` held through the drain (16 - every sector
+     transferred six times). A first form of that last, `sd_rd` dropped as
+     the transfer ends rather than as it starts, survived: nearly
+     equivalent, since no poll can fall in the one clock between; the
+     hazard MacLC's comment names is holding it past the transfer.
+   - **`sim/machine` 17 PASS** with the controller's new ports tied off
+     (run.log fresh, exit 0); the top ties them off too until item 7.
+     `vlog` compiles all four changed files clean.
 6. `sim/gcrread`, the gate.
 7. The top, the machine, `PFLP`; elaboration; `sim/machine` unchanged.
 8. The compile (Daniel's go-ahead) and the board: an 800K image mounted.

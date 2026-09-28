@@ -35,7 +35,8 @@
 // THE IMAGE (5.12.5b)
 //   Word BASE + k holds image bytes 2k (high) and 2k+1 (low), the header
 //   stripped: block n's data at BASE + 256n, its tag - when the image has
-//   tags - at BASE + 256 x blocks + 6n.  Cylinder c, side s, sector k is
+//   tags - at BASE + 256 x blocks + 6n, blocks being the FILE's (img_800k:
+//   1600, else 800), not the volume's.  Cylinder c, side s, sector k is
 //   block sides x (sectors before c) + s x spt + k.
 //
 // THE DISK PORT
@@ -55,6 +56,7 @@ module se30_flp_encoder #(
   input             disk_in,           // a whole image is in SDRAM
   input             img_ds,            // 1 = double-sided (1600 blocks), 0 = 800
   input             img_tags,          // the image carries 12 tag bytes a block
+  input             img_800k,          // the FILE's data region is 1600 blocks (its tags follow it)
 
   input       [6:0] cyl,               // the drive's head
   output reg  [6:0] trk_cyl,           // what the buffers hold
@@ -125,7 +127,9 @@ module se30_flp_encoder #(
   wire [3:0] half = (spt - 4'd1) / 2 + 4'd1;
   wire [3:0] sector = slot[0] ? half + (slot >> 1) : (slot >> 1);   // $408321CA
   wire [10:0] blk = (img_ds ? {before_c[9:0], 1'b0} : before_c) + (bside ? {7'd0, spt} : 11'd0) + {7'd0, sector};
-  wire [23:0] tag_base = BASE + (img_ds ? 24'd409600 : 24'd204800) + {blk, 2'b00} + {blk, 1'b0};
+  // the tags follow the file's data region, whatever the volume on it is:
+  // an 800K DiskCopy file may carry a 400K volume (img_ds low)
+  wire [23:0] tag_base = BASE + (img_800k ? 24'd409600 : 24'd204800) + {blk, 2'b00} + {blk, 1'b0};
 
   // the address field: track, sector, side, format, checksum (decoded)
   wire [5:0] h_trk = c[5:0];

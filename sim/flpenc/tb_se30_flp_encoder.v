@@ -67,7 +67,7 @@ module tb_se30_flp_encoder;
 
   se30_flp_encoder #(.BASE(BASE)) dut (
     .clk(clk), .reset_n(reset_n),
-    .disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags),
+    .disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_ds),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .mem_req(mem_req), .mem_addr(mem_addr), .mem_rdata(mem_rdata), .mem_ack(mem_ack),

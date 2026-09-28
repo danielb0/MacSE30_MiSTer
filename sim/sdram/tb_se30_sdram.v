@@ -45,6 +45,12 @@
 //        and the next, blanked beats (the mask on the output, two clocks
 //        later) - the masked-read test of the chip's DQM inputs
 //    11. the model reports no datasheet violation anywhere in the run
+//    12. the disk port (plan 5.12.5): words written land and read back
+//        as the CPU's longwords, words read (even and odd) are the CPU's;
+//        alongside back-to-back CPU cycles it makes progress and no CPU
+//        cycle is late (it waits for the window after a start); on an
+//        idle bus it runs freely, and a CPU stream that starts into it
+//        loses at most one wait state, on its first cycle only
 //
 // HOW IT DRIVES THE DUT
 //   As the wrapper and GLUE do (plan 3.2's timeline): the address, R/W,
@@ -124,6 +130,11 @@ module tb_se30_sdram;
   reg  [63:0] raw_ctl = 0;
   reg  [23:0] raw_addr = 0;
   wire        raw_ack;
+  reg         dk_req = 0, dk_we = 0;
+  reg  [23:0] dk_addr = 0;
+  reg  [15:0] dk_wdata = 0;
+  wire [15:0] dk_rdata;
+  wire        dk_ack;
 
   wire        sd_clk, sd_cke, sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n;
   wire [12:0] sd_addr;
@@ -136,6 +147,7 @@ module tb_se30_sdram;
     .cpu_start(cpu_start), .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr),
     .cpu_be(cpu_be), .cpu_wdata(cpu_wdata), .cpu_rdata(cpu_rdata), .cpu_ack(cpu_ack),
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
+    .dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
     .raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
     .dbg_dqm_force(1'b0),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
@@ -239,6 +251,34 @@ module tb_se30_sdram;
       while (cpu_ack) @(posedge clk_sys);
     end
   endtask
+  // what the chip was doing when each start arrived: 1 a disk word, 2 a
+  // refresh (or its tRFC), 0 free - to put a late cycle to its cause
+  integer start_blocker = 0;
+  always @(posedge clk_mem) #0.1 if (dut.start_rise)
+    start_blocker = (dut.state == 3'd7) ? 1 : (dut.busy != 0 && dut.state == 3'd1) ? 2 : 0;
+  // every disk ACTIVE against the plan's rule: issued at clocks 10-15 after
+  // a start, or on a bus idle 63 clocks.  Seen the edge after it issued:
+  // since_start has moved on by one (11-16), stayed at 63, or been reset
+  // by a start on that same edge (0)
+  integer dk_issues = 0, dk_out_of_window = 0, dk_late_in_window = 0;
+  always @(posedge clk_mem) #0.1 if (dut.state == 3'd7 && dut.seq == 4'd1) begin
+    dk_issues = dk_issues + 1;
+    if (!((dut.since_start >= 11 && dut.since_start <= 16) || dut.since_start == 63 || dut.since_start == 0))
+      dk_out_of_window = dk_out_of_window + 1;
+    if (dut.since_start >= 15 && dut.since_start <= 16) dk_late_in_window = dk_late_in_window + 1;
+  end
+  // a disk word, as the loader and the encoder drive the port: the request
+  // held to the acknowledge, the next only once the acknowledge has fallen
+  integer dk_ops = 0;
+  task dk_op(input we, input [23:0] a, input [15:0] d, output [15:0] q);
+    begin
+      @(posedge clk_sys); #1 dk_addr = a; dk_we = we; dk_wdata = d; dk_req = 1;
+      @(posedge clk_sys); #1;
+      while (!dk_ack) begin @(posedge clk_sys); #1; end
+      q = dk_rdata; dk_req = 0; dk_ops = dk_ops + 1;
+      while (dk_ack) begin @(posedge clk_sys); #1; end
+    end
+  endtask
   task raw_op(input [63:0] ctl, input [23:0] a);
     begin
       @(posedge clk_sys); #1 raw_ctl = ctl; raw_addr = a; raw_req = 1;
@@ -268,6 +308,9 @@ module tb_se30_sdram;
   integer  ack, k, gaps_over, acks_before, cycles_before, late_dl = 0;
   reg [31:0] rd, rd2;
   integer  dl_done = 0;
+  integer  late_dk = 0, dk_done = 0, dk_bad = 0, cpu_bad = 0, ops_before, n_cpu;
+  reg [15:0] q16, w_hi, w_lo;
+  integer  kd, late_ref = 0;
 
   initial begin
     $display("---- reset, power-up and the read-capture training  (CLK_TO_PIN %0.2f  OUT_TO_PIN %0.2f  DQ_TO_REG %0.2f)",
@@ -471,12 +514,109 @@ module tb_se30_sdram;
     cpu_read(23'h006001, rd, ack);
     check(rd == 32'hC0DEF00D, "and the longword is intact after the masked reads");
 
+    // 12. the disk port
+    $display("---- the disk port");
+    for (k = 0; k < 64; k = k + 1) dk_op(1, 24'h460000 + k, 16'hD000 + k[15:0] * 16'h0101, q16);
+    dk_bad = 0;
+    for (k = 0; k < 32; k = k + 1) begin
+      cpu_read(23'h230000 + k, rd, ack);
+      w_hi = 16'hD000 + (2*k) * 16'h0101; w_lo = 16'hD000 + (2*k+1) * 16'h0101;   // 16 bits, as written
+      if (rd != {w_hi, w_lo}) dk_bad = dk_bad + 1;
+    end
+    check(dk_bad == 0, "disk words written read back as the CPU's big-endian longwords");
+    for (k = 0; k < 16; k = k + 1) cpu_write(23'h238000 + k, 4'hF, {16'hE000 + k[15:0], 16'hF000 + k[15:0]}, ack);
+    dk_bad = 0;
+    for (k = 0; k < 32; k = k + 1) begin
+      dk_op(0, 24'h470000 + k, 16'h0, q16);
+      if (q16 != (k[0] ? 16'hF000 + k[15:1] : 16'hE000 + k[15:1])) dk_bad = dk_bad + 1;
+    end
+    check(dk_bad == 0, "disk reads of even and odd words return the CPU's words");
+    // alongside back-to-back CPU cycles: the disk waits for the window
+    acks_before = acks_late; ops_before = dk_ops; dk_done = 0; dk_bad = 0; cpu_bad = 0; n_cpu = 0;
+    fork
+      begin
+        for (k = 0; k < 40; k = k + 1) dk_op(1, 24'h480000 + k, 16'hA000 ^ k[15:0], q16);
+        for (k = 0; k < 40; k = k + 1) begin
+          dk_op(0, 24'h480000 + k, 16'h0, q16);
+          if (q16 != (16'hA000 ^ k[15:0])) dk_bad = dk_bad + 1;
+        end
+        dk_done = 1;
+      end
+      begin
+        while (!dk_done) begin
+          cpu_write(addrs[1], 4'hF, 32'h13572468, ack);
+          cpu_read(addrs[1], rd, ack);
+          if (rd != 32'h13572468) cpu_bad = cpu_bad + 1;
+          n_cpu = n_cpu + 2;
+        end
+      end
+    join
+    vals[1] = 32'h13572468;
+    check(dk_ops - ops_before == 80 && dk_bad == 0, "the disk port's 80 words done and right among back-to-back CPU cycles");
+    check(cpu_bad == 0, "the CPU's data intact alongside it");
+    check(acks_late == acks_before, "no back-to-back CPU cycle late: the disk waits for the window after a start");
+    $display("      80 disk words in %0d CPU cycles", n_cpu);
+    // requests arriving late in the window: timed off since_start, so some
+    // land at clocks 14-18 of a back-to-back stream, where only 14 and 15
+    // may issue
+    acks_before = acks_late; dk_done = 0; cpu_bad = 0;
+    fork
+      begin
+        for (kd = 0; kd < 40; kd = kd + 1) begin
+          @(posedge clk_mem); while (dut.since_start != 6'd11 + kd % 6) @(posedge clk_mem);
+          dk_op(kd[0], 24'h4A0000 + kd[7:0], kd[15:0], q16);
+        end
+        dk_done = 1;
+      end
+      begin
+        while (!dk_done) begin
+          cpu_read(addrs[2], rd, ack);
+          if (rd != vals[2]) cpu_bad = cpu_bad + 1;
+        end
+      end
+    join
+    check(cpu_bad == 0 && acks_late == acks_before, "requests arriving late in the window: no CPU cycle late, data right");
+    check(dk_out_of_window == 0, "every disk ACTIVE in the window after a start (10-15) or on an idle bus");
+    $display("      %0d disk ACTIVEs, %0d of them at clocks 14-15 of the window", dk_issues, dk_late_in_window);
+    check(dk_late_in_window > 0, "(the window's last clocks were exercised)");
+
+    // an idle bus, then a CPU stream starting into the disk traffic
+    acks_before = acks_late; dk_done = 0; cpu_bad = 0; late_ref = 0;
+    fork
+      begin
+        // its own counter: the CPU branch loops on k (a shared one moved
+        // the CPU's address under its expected value)
+        for (kd = 0; kd < 300; kd = kd + 1) dk_op(kd[0], 24'h490000 + kd[7:0], kd[15:0], q16);
+        dk_done = 1;
+      end
+      begin
+        #3000;                                                         // the disk alone on an idle bus
+        for (k = 0; k < 24; k = k + 1) begin
+          cpu_read(addrs[k % 12], rd, ack);
+          if (rd != vals[k % 12]) begin cpu_bad = cpu_bad + 1; $display("      cycle %0d: data %08x, want %08x", k, rd, vals[k % 12]); end
+          if (ack != 2) begin
+            $display("      cycle %0d of the stream: acknowledged at %0d, its start found %0s", k, ack,
+                     start_blocker == 1 ? "a disk word" : start_blocker == 2 ? "a refresh" : "the chip free");
+            if (start_blocker == 1) begin
+              late_dk = late_dk + 1;
+              if (k != 0) cpu_bad = cpu_bad + 1;            // after the first start the window rule holds
+            end else if (start_blocker == 2) late_ref = late_ref + 1;
+            else cpu_bad = cpu_bad + 1;
+            if (ack > 3) cpu_bad = cpu_bad + 1;             // at most one wait state
+          end
+        end
+      end
+    join
+    check(cpu_bad == 0, "a CPU stream into idle-bus disk traffic: right; a disk word delays only its first cycle, by one C16M at most");
+    $display("      %0d CPU cycle(s) of that stream waited for a disk word", late_dk);
+
     // 11. the model's verdict
     check(chip.errors == 0, "no datasheet violation in the whole run");
 
-    check(acks_late == late_dl + 2, "only the two late-request cycles and the download collisions were late");
-    $display("---- %0d bus cycles, %0d acknowledged later than two C16M: the two late-request cases and %0d download collisions",
-             bus_cycles, acks_late, late_dl);
+    check(acks_late == late_dl + 2 + late_dk + late_ref,
+          "only the two late-request cycles, the download collisions, the disk's idle-bus collision and a refresh due after the idle were late");
+    $display("---- %0d bus cycles, %0d acknowledged later than two C16M: the two late-request cases, %0d download collisions, %0d disk, %0d refresh after an idle bus",
+             bus_cycles, acks_late, late_dl, late_dk, late_ref);
     if (fails == 0) $display("==== PASS: %0d checks, the SDRAM controller holds GLUE's contract and the datasheets", pass);
     else $display("==== FAIL: %0d of %0d checks failed", fails, pass + fails);
     $finish;
