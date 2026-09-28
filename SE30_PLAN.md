@@ -6594,6 +6594,20 @@ waits for a disk (SWIM rung 2) or SCSI.
    for every bench: a clock enable comes from the module that makes it,
    or from an exact copy of it - a bench's idealised enable hid a factor
    of two.
+   **Compile 18 (Daniel's go-ahead; tag `c9b1e0eb`, archived
+   `MacSE30_c9b1e0eb_adbclk.rbf`, md5 `7b700080...`)**: 20m34s. **The
+   flow reports timing NOT met: worst slack -0.186 ns, TNS -0.378 ns, in
+   the framework's HDMI domain** (`pll_hdmi`, 148.5 MHz, 6.732 ns) at the
+   slow -40C corner only: six paths inside `sys/ascal.vhd`, the scaler's
+   polyphase luminance arithmetic (`o_vpix_inner`/`o_h_lum_pix` ->
+   `o_poly_lum`). None is the machine's: `sta_corners.tcl` has every
+   corner met with the capture excepted (worst 0.952 ns) and one capture
+   met at every corner (A's hold -0.141 at fast -40C, B's setup -0.337 at
+   slow 100C, as in compiles 15-17). The same domain passed in compile
+   17 (the flow's worst there +0.086 ns): placement noise on a framework
+   path that sits at the edge. By the standing rule this bitstream is
+   **not timing-met**; whether to test it, re-seed the fit, or trim the
+   scaler is Daniel's call.
 8. Rung 2 when a boot device exists; PRAM persistence (Daniel's call on
    how: the framework's file interface to a `.sav` beside the ROMs is the
    usual MiSTer way).
