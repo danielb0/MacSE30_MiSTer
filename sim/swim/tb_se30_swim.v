@@ -36,6 +36,24 @@
 //    13. the ROM's SWIM probe in the .Sony Open ($4082E6A2), end to
 //        end, then Open's drive reads                              5.6.3
 //
+//   and, since rung 2 (plan 5.12.2, 5.12.9 item 1), the IWM's read path:
+//
+//    15. the window table (IWM Spec Rev 19 p. 10) in mode $17 (slow,
+//        8M): an interval of Nclks 7-8 and 23 shifts a 1, 24 and 39 a 01,
+//        40 and 55 a 001, 56 a 0001; the B revision's blanking (SWIM
+//        drawing sheet 53, 12 FCLK in slow mode) ignoring an edge 10 FCLK
+//        after the last and taking one at 14; the data register holding a
+//        byte until a valid read and clearing 14 FCLK after it; self-sync
+//        groups locking the shifter onto D5 AA 96 DE AA from any bit
+//        offset; the fast 8M and slow 7M bands
+//
+//   Rung 2's bytes are read the ROM's way: the data register at $1800
+//   (L6 cleared by the access, L7 and MotorOn as they are), polled until
+//   its MSB is set ($40831C2E: move.b (a4),d5 / bpl).  The flux reaches
+//   the chip on SENSE, which is RDDATA on this board (plan 5.3): the bench
+//   ANDs its own pulses into the drive's line, with the drive addressed
+//   to a register that reads 1.
+//
 // THE BUS
 //   GLUE's device port (plan 5.4): the select is up for the access, the
 //   strobe is its one latch clock, and the read is taken there.  The chip
@@ -70,7 +88,8 @@ module tb_se30_swim;
   wire       enbl1_n, enbl2_n, wrdata, wrreq_n, hdsel;
   reg        via_sel = 0;                  // VIA1 PA5, HDSEL on sheet 6
   wire       sense_int;
-  wire       sense = sense_int & 1'b1;     // the external drive is absent: its line reads 1
+  reg        flux_n = 1;                  // rung 2: the bench's flux pulses, low-going (plan 5.12.3)
+  wire       sense = sense_int & flux_n;   // the external drive is absent: its line reads 1
   wire [47:0] dbg_swim;
   wire [15:0] dbg_drive;
 
@@ -153,6 +172,117 @@ module tb_se30_swim;
   integer i, bad;
   reg [7:0] b;
 
+  // ------------------------------------------------ rung 2: flux and bytes
+  // set the IWM mode register the ROM's way (MotorOn off first; the timer
+  // is disabled by every mode used here, bit 2)
+  task set_mode(input [7:0] m);
+    begin rd(16'h1000); rd(16'h1A00); wr(16'h1E00, m); rd(16'h1C00); rd(16'h1800); end
+  endtask
+  // one falling transition now: the line low 8 FCLK (the ERS's 0.3-0.8 us)
+  task edge_now;
+    begin #1 flux_n = 0; repeat (8) @(posedge clk); #1 flux_n = 1; end
+  endtask
+  // wait so that the next edge falls `gap` FCLK after the previous one
+  // (edge_now spends 8 of them low)
+  task gap_then_edge(input integer gap);
+    begin repeat (gap - 8) @(posedge clk); edge_now; end
+  endtask
+  // the ROM's poll: read $1800 until the MSB is set; limit in FCLK.  After
+  // a byte the ROM spends well over 14 FCLK before its next read of the
+  // chip (table lookups and the VIA1 PA7 poll, $40831C48-$40831C70) - the
+  // data register has cleared by then; so does the bench
+  reg [7:0] got;
+  task poll_byte(input integer limit);
+    integer t;
+    begin
+      t = cyc; got = 8'h00;
+      while (!got[7] && cyc - t < limit) begin rd(16'h1800); got = q; end
+      if (got[7]) repeat (20) @(posedge clk);
+    end
+  endtask
+  // a long quiet stretch: any partial byte drains (zeros shift it out, a
+  // stray one latches), and the latch is read away
+  task idle_flush;
+    begin
+      repeat (600) @(posedge clk);
+      rd(16'h1800); repeat (20) @(posedge clk); rd(16'h1800);
+    end
+  endtask
+  // a leading 1, the interval under test, then 1s every `cw` FCLK until the
+  // byte is complete; the byte the ROM would read is checked
+  task band(input integer x, input integer cw, input [7:0] want, input [8*88-1:0] what);
+    integer k;
+    begin
+      idle_flush;
+      fork
+        begin
+          edge_now;                                    // the leading 1 (after the long gap: 0s, then 1)
+          gap_then_edge(x);                            // the interval under test
+          for (k = 0; k < 8; k = k + 1) gap_then_edge(cw);
+        end
+        poll_byte(40000);
+      join
+      check(got == want, what, got, want);
+    end
+  endtask
+  // the blanking: a leading 1, an extra edge `extra` FCLK later, then an
+  // edge 48 FCLK after the extra one; the 1s at 32 FCLK complete the byte.
+  // Ignored: from the leading 1 the next edge is at extra + 48 (a 01), then
+  // 1s: 1 01 11111 = $BF.  Taken: 1 1 01 1111 = $DF.
+  task blank_test(input integer extra, input [7:0] want, input [8*88-1:0] what);
+    integer k;
+    begin
+      idle_flush;
+      fork
+        begin
+          edge_now;
+          repeat (extra - 8) @(posedge clk); edge_now;
+          gap_then_edge(48);
+          for (k = 0; k < 8; k = k + 1) gap_then_edge(32);
+        end
+        poll_byte(40000);
+      join
+      check(got == want, what, got, want);
+    end
+  endtask
+  // play `n` bits MSB first at the 32-FCLK cell, a 1 as an edge
+  task play_bits(input [31:0] bits, input integer n);
+    integer k;
+    begin
+      for (k = n - 1; k >= 0; k = k - 1)
+        if (bits[k]) begin edge_now; repeat (24) @(posedge clk); end
+        else repeat (32) @(posedge clk);
+    end
+  endtask
+  // self-sync: `off` bits of noise, five ten-bit groups (FF and two 0s),
+  // then D5 AA 96 DE AA; the bytes the ROM would read must end with them
+  reg [7:0] seen [0:31];
+  integer nseen;
+  task sync_test(input integer off);
+    integer k;
+    reg [39:0] tail;
+    begin
+      idle_flush;
+      nseen = 0;
+      fork
+        begin
+          play_bits(32'b101, off);
+          for (k = 0; k < 5; k = k + 1) play_bits(32'b1111111100, 10);
+          play_bits(32'hD5AA96DE, 32); play_bits(32'hAA, 8);
+          repeat (64) @(posedge clk);
+        end
+        begin
+          for (k = 0; k < 12; k = k + 1) begin
+            poll_byte(4000);
+            if (got[7] && nseen < 32) begin seen[nseen] = got; nseen = nseen + 1; end
+          end
+        end
+      join
+      tail = (nseen >= 5) ? {seen[nseen-5], seen[nseen-4], seen[nseen-3], seen[nseen-2], seen[nseen-1]} : 40'h0;
+      check(tail == 40'hD5AA96DEAA, "self-sync locks: D5 AA 96 DE AA after the sync groups", tail[31:0], 32'hAA96DEAA);
+    end
+  endtask
+
   initial begin
     repeat (10) @(posedge clk); #1 reset_n = 1;
     repeat (3) @(posedge clk);
@@ -196,7 +326,7 @@ module tb_se30_swim;
     rd(16'h1C00); rd(16'h1800);                          // L7 0, L6 0, MotorOn 0
     rd(16'h1000);   check(q == 8'hFF, "000: read all ones", q, 8'hFF);
     rd(16'h1200);   rd(16'h1800);
-                    check(q == 8'h00, "001: read data (no flux: the latch is 0)", q, 0);
+                    check(q == swim.sr, "001: read data (mode 0 is synchronous: the live shift register)", q, swim.sr);
     rd(16'h1000);   rd(16'h1A00); rd(16'h1C00);
                     check(q[4:0] == 5'h04 && q[6] == 0 && q[7] == sense, "01x: status = {SENSE, 0, enable, mode[4:0]}", q, {sense, 7'h04});
     wr(16'h1E00, 8'h1F);                                 // L7 set with L6 = 1, A0 = 1: the mode register
@@ -411,6 +541,57 @@ module tb_se30_swim;
     drv_read(4'h5); check(sns == 1, "Open: a SuperDrive", sns, 1);
     rd(16'h1600);
     drv_read(4'hD); check(sns == 1, "Open: drive 2 absent", sns, 1);
+
+    // ---- 15. rung 2: the IWM's read path
+    $display("---- 15. the IWM read path: windows, blanking, the latch, self-sync (5.12.2)");
+    reset_n = 0; repeat (3) @(posedge clk); #1 reset_n = 1; @(posedge clk);
+    set_mode(8'h17);                                     // slow, 8M: the ROM's mode
+    rd(16'h1200);                                        // MotorOn: /ENBL1, the data register selected
+    drv_addr(4'h1);                                      // the drive at RdData0: reads 1 with no disk
+    rd(16'h1C00); rd(16'h1800);                          // L7 and L6 clear: the read state
+
+    // 8 ones at the cell: $FF
+    band(32, 32, 8'hFF, "eight 1s at the 32-FCLK cell: $FF");
+    // the bands, each after a leading 1, then 1s: 1 X 1... (slow 8M: CLK = FCLK/2)
+    band(2*7,  32, 8'hFF, "Nclks 7 (below the table, above the blanking): a 1");
+    band(2*8,  32, 8'hFF, "Nclks 8: a 1");
+    band(2*23, 32, 8'hFF, "Nclks 23: a 1");
+    band(2*24, 32, 8'hBF, "Nclks 24: a 01");
+    band(2*39, 32, 8'hBF, "Nclks 39: a 01");
+    band(2*40, 32, 8'h9F, "Nclks 40: a 001");
+    band(2*55, 32, 8'h9F, "Nclks 55: a 001");
+    band(2*56, 32, 8'h8F, "Nclks 56: a 0001 (past the table: one more window)");
+
+    // the blanking: an extra falling edge 10 FCLK after a transition is
+    // ignored, one 14 FCLK after is taken (then a 01 either way follows)
+    blank_test(10, 8'hBF, "an edge 10 FCLK after the last is ignored (blanking 12 FCLK)");
+    blank_test(14, 8'hDF, "an edge 14 FCLK after the last is taken");
+
+    // the latch: held until read, cleared 14 FCLK after a valid read
+    idle_flush;
+    play_bits(8'b11010101, 8);                          // $D5, no reads while it plays
+    repeat (400) @(posedge clk);
+    rd(16'h1800);
+    check(q == 8'hD5, "the byte holds in the data register until it is read", q, 8'hD5);
+    rd(16'h1800);
+    check(q == 8'hD5, "and still reads within 14 FCLK of the valid read", q, 8'hD5);
+    repeat (20) @(posedge clk);
+    rd(16'h1800);
+    check(q == 8'h00, "then clears: 14 FCLK after a valid read", q, 0);
+
+    // self-sync from three bit offsets
+    for (i = 0; i < 3; i = i + 1) sync_test(i);
+
+    // the fast 8M and slow 7M bands (CLK = FCLK; FCLK/2 with the 7M windows)
+    set_mode(8'h1F);                                    // fast, 8M
+    rd(16'h1200); drv_addr(4'h1); rd(16'h1C00); rd(16'h1800);
+    band(23, 16, 8'hFF, "fast 8M: Nclks 23 a 1 (the 16-FCLK cell)");
+    band(24, 16, 8'hBF, "fast 8M: Nclks 24 a 01");
+    set_mode(8'h07);                                    // slow, 7M
+    rd(16'h1200); drv_addr(4'h1); rd(16'h1C00); rd(16'h1800);
+    band(2*20, 28, 8'hFF, "slow 7M: Nclks 20 a 1 (the 28-FCLK cell)");
+    band(2*21, 28, 8'hBF, "slow 7M: Nclks 21 a 01");
+    rd(16'h1000);
 
     // ---- verdict
     if (fails == 0) $display("==== PASS: %0d checks, the SWIM holds to plan 5.2 and 5.5", checks);

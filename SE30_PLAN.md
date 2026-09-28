@@ -6149,6 +6149,37 @@ The probes say where it stops.
 1. ~~Write this section.~~ **Done 2026-09-28.**
 2. `sim/swim` items (5.12.9 item 1), failing, then the IWM read path in
    `se30_swim.v`.
+   **IN PROGRESS at the end of the 2026-09-28 session (committed as work
+   in progress).** The bench's new item 15 (20 checks: the window bands at
+   Nclks 7/8/23/24/39/40/55/56, the blanking at 10 and 14 FCLK, the latch
+   and its clear, self-sync from three offsets, the fast 8M and slow 7M
+   bands) **failed all 20 against the rung-1 chip, as it should**. The
+   read path is written in `se30_swim.v` (CLK = FCLK or FCLK/2, RDDATA
+   sampled on it, a window-boundary counter shifting 0s and each accepted
+   transition a 1, the B-revision blanking, the latch into the data
+   register, the asynchronous clear 14 FCLK after a valid read - re-armed
+   by each valid read - and synchronous mode's live register with its
+   stall). **Result: 109 of 113 pass.** The four failures are understood
+   and are the bench's, not the chip's; the fixes are written but were
+   NOT applied (the session ended):
+   - **rung 1's item 3 check "001: read data (no flux: the latch is 0)"**
+     now reads `$0B`: out of reset the mode is 0, synchronous, where the
+     data register is the live shift register, and the drive's status
+     changes on RDDATA have shifted bits into it. Replace the check with
+     `q == swim.sr` ("mode 0 is synchronous: the live shift register").
+   - **the three self-sync checks** read `FF FF FF FF`: the bench's poller
+     re-reads `$1800` within 14 FCLK of a valid read, sees the same byte
+     again (and each valid read re-arms the clear), and uses up its twelve
+     polls on the first `FF`. The ROM never reads that fast: after a byte
+     it does table lookups and a VIA1 PA7 poll (`$40831C48`-`$40831C70`),
+     well over 14 FCLK (0.89 us at C16M - the documents' "about 2 us" is
+     at 7 MHz). In `poll_byte`, after a byte with the MSB set, wait 20
+     clocks (`if (got[7]) repeat (20) @(posedge clk);`) with a comment
+     saying why.
+   Then rerun `sim/swim/run.sh` (about a minute), expect 113 PASS, and
+   mutation-test the read path (a window boundary one CLK off, the
+   blanking removed, the clear not re-armed / not cancelled by a new
+   byte, the zero-then-one order on a boundary transition).
 3. `sim/fdhd`, failing, then `se30_fdhd.v`'s drive of 5.12.3.
 4. `sim/flpenc`, failing, then `se30_flp_encoder.v`.
 5. `sim/flpload` and `sim/sdram`'s disk port, failing, then

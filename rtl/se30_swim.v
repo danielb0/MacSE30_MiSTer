@@ -1,5 +1,7 @@
 // se30_swim.v - Apple's SWIM (343S0061-A) at UJ11, to the contract of
-// SE30_PLAN.md 5.2 - rung 1: both register sets, no data path.
+// SE30_PLAN.md 5.2 and 5.12 - both register sets, and the IWM's read path
+// (rung 2, GCR).  The ISM's data path (5.13) and writing (rung 3) are to
+// come.
 //
 // WHAT IT IS
 //   An IWM and an ISM in one package, one register set selected at a time
@@ -14,10 +16,38 @@
 //   pp. 20-26).  The switch between them and the three extra IWM bits
 //   (chip spec).  Held to sim/swim/tb_se30_swim.v.
 //
-//   Rung 1 has no data path: no flux reaches the read shift registers, so
-//   the IWM's read data latch stays 0 and the ISM's FIFO stays empty with
-//   ACTION never set; the write side idles (/WRREQ high, the handshake
-//   "empty, no underrun").  Rungs 2 and 3 (plan 5.2.4) add them.
+//   The ISM's FIFO stays empty with ACTION never set; the write side idles
+//   (/WRREQ high, the handshake "empty, no underrun").
+//
+// THE IWM READ PATH (plan 5.12.2)
+//   In the read state (L6 = L7 = 0) RDDATA - SENSE on this board - is
+//   sampled on CLK, which is FCLK in fast mode and FCLK/2 in slow.  "A
+//   falling transition within a bit cell window is considered to be a
+//   one, and no falling transition within a bit cell window is considered
+//   to be a zero"; "each falling transition resets the read data windows".
+//   The windows are the IWM Spec's (Rev 19, p. 10), in CLK periods since
+//   the last transition: 8M 8-23 a 1, 24-39 a 01, 40-55 a 001 (a 16-CLK
+//   window); 7M 7-20, 21-34, 35-48 (14).  Here that is a zero shifted at
+//   each window boundary (24, 40, 56, ... in 8M) and a one at each
+//   transition; past the table's last band the boundaries go on every
+//   window, the one-shot's continuation (the table stops where GCR does).
+//   The SWIM drawing's B revision ignores a falling transition within
+//   6 CLK of the last in 8M (5 in 7M) - "6 FCLK periods" in fast mode, "twice
+//   as long" in slow; an accepted one below the table's first band (6-7)
+//   is a one.  Bits enter the shift register at the LSB; "a full data
+//   nibble is considered to be shifted in when a one shifted into the MSB",
+//   and it is then latched into the read data register and the shift
+//   register cleared.
+//
+//   Asynchronous mode (mode bit 1, the ROM's): the data register holds the
+//   byte and "will be cleared 14 FCLK periods (about 2 us) after a valid
+//   data read takes place (a valid data read being defined as both /DEV
+//   being low and D7 (the msb) outputting a one from the data register for
+//   at least one FCLK period)"; a new byte arriving first supersedes the
+//   pending clear.  Synchronous mode: "the shift register is readable in
+//   any intermediate state", except that after a one reaches the MSB it
+//   "will appear ... to be stalled for a period of two bit times plus four
+//   CLK periods".
 //
 // THE BUS (plan 5.4)
 //   GLUE's device port.  THE CHIP HAS NO R/W PIN: the address decides.
@@ -83,7 +113,8 @@ module se30_swim (
   reg [24:0] timer;                    // the MotorOn timer, counting FCLK
   reg  [2:0] iwm_cfg;                  // {OVERRIDE, M16/M8, MODIFY}
   reg  [1:0] sw_cnt;                   // mode writes matched so far of 1, 0, 1, 1 (bit 6)
-  wire [7:0] rd_latch = 8'h00;         // the read data register: no flux on rung 1 (rung 2's shift register)
+  reg  [7:0] rd_latch;                 // the read data register
+  reg  [7:0] sr;                       // the read shift register
   reg  [7:0] ism_mode;                 // bit 6 is not stored: it reads 1 while the ISM is selected
   reg  [7:0] ism_setup, ism_error;
   reg  [7:0] param [0:15];
@@ -117,11 +148,73 @@ module se30_swim (
   reg  [7:0] iwm_q;
   always @* begin
     case ({l7_n, l6_n})
-      2'b00: iwm_q = motor_dn ? rd_latch : 8'hFF;                   // read data / read all ones
+      2'b00: iwm_q = motor_dn ? rd_val : 8'hFF;                     // read data / read all ones
       2'b01: iwm_q = {sense, 1'b0, motor_dn, iwm_mode};             // status: bit 6 is MZ, reads 0
       2'b10: iwm_q = 8'hFF;                                         // write-handshake: empty, no underrun, bits 5-0 read 1
       2'b11: iwm_q = 8'hFF;                                         // a write state: no register is read
     endcase
+  end
+
+  // ------------------------------------------------ the IWM read path
+  wire       fast    = iwm_mode[3];
+  wire       m8      = iwm_mode[4];
+  wire       async_m = iwm_mode[1];
+  reg        cdiv;                                          // FCLK/2's phase
+  wire       clk_en  = c16_en && (fast || cdiv);            // one CLK period
+  wire [6:0] blank   = m8 ? 7'd6  : 7'd5;
+  wire [6:0] first0  = m8 ? 7'd24 : 7'd21;
+  wire [6:0] win     = m8 ? 7'd16 : 7'd14;
+  wire       rstate  = !ism && !l6 && !l7;                  // the read state
+  reg        rd_s;                                          // RDDATA at the last CLK
+  reg  [6:0] ncl;                                           // CLK periods since the last transition, saturating
+  reg  [6:0] nb;                                            // CLK periods to the next window boundary
+  wire       fall    = rd_s && !sense;
+  wire       take    = rstate && clk_en && fall && ncl >= blank;
+  wire       bound   = rstate && clk_en && nb == 7'd1;
+  // the bits this CLK shifts in: a zero at a boundary, then a one at a
+  // transition - both when a transition lands on a boundary (Nclks 24: 01)
+  wire [8:0] sh0     = {sr, 1'b0};                          // after a zero
+  wire       lat0    = bound && sh0[7];                     // the zero completes a byte
+  wire [7:0] sr0     = !bound ? sr : (lat0 ? 8'h00 : sh0[7:0]);
+  wire [7:0] sh1     = {sr0[6:0], 1'b1};
+  wire       lat1    = take && sh1[7];
+  wire [7:0] sr_n    = !take ? sr0 : (lat1 ? 8'h00 : sh1);
+  reg  [3:0] clr_cnt;                                       // FCLK to the clear after a valid read, 0 = none
+  reg  [6:0] stall;                                         // synchronous mode's stall, in CLK
+  reg  [7:0] stall_v;
+  wire [7:0] rd_val  = async_m ? rd_latch : (stall != 0 ? stall_v : sr);
+  wire       rd_sel  = !ism && !l7_n && !l6_n && motor_dn;  // the data register as this access leaves the latches
+  wire       vread   = hit && rd_sel && async_m && rd_latch[7];
+
+  always @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+      cdiv <= 0; rd_s <= 1; ncl <= 7'h7F; nb <= 0; sr <= 0; rd_latch <= 0;
+      clr_cnt <= 0; stall <= 0; stall_v <= 0;
+    end else begin
+      if (c16_en) cdiv <= !cdiv;
+      if (clk_en) begin
+        rd_s <= sense;
+        if (take) begin ncl <= 0; nb <= first0; end
+        else begin
+          if (ncl != 7'h7F) ncl <= ncl + 1'b1;
+          if (rstate) nb <= (nb <= 7'd1) ? win : nb - 1'b1;
+        end
+        if (stall != 0) stall <= stall - 1'b1;
+      end
+      sr <= sr_n;
+      if (lat0 || lat1) begin
+        rd_latch <= lat1 ? sh1 : sh0[7:0];
+        stall_v  <= lat1 ? sh1 : sh0[7:0];
+        stall    <= {win[5:0], 1'b0} + 7'd4;                // two bit times plus four CLK
+        clr_cnt  <= 0;                                      // a new byte: no clear pending for it
+      end else begin
+        if (vread) clr_cnt <= 4'd14;
+        else if (c16_en && clr_cnt != 0) begin
+          clr_cnt <= clr_cnt - 1'b1;
+          if (clr_cnt == 4'd1) rd_latch <= 8'h00;
+        end
+      end
+    end
   end
 
   // ------------------------------------------------------ the ISM reads
