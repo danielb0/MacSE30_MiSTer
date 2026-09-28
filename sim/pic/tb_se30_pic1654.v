@@ -1,17 +1,20 @@
-// tb_se30_pic1654.v - the PIC1654S core held to General Instrument's 1983
-// PIC Series Microcomputer Data Manual, item by item of SE30_PLAN.md 6.9
-// items 1-4 (the CPU alone; no firmware).
+// tb_se30_pic1654.v - the PIC1654S core held to its data sheet (Microchip
+// DS33013A, 1990) and General Instrument's 1983 PIC Series Microcomputer
+// Data Manual, item by item of SE30_PLAN.md 6.9 items 1-4 (the CPU alone;
+// no firmware).  Where the two differ the data sheet wins: the PIC1654S
+// has no OV bit, and port A's high bits read 0.
 //
 // WHAT THIS PROVES
 //   rtl/se30_pic1654.v executes the PIC1650-family instruction set as the
-//   manual's chapter 3 defines it, at the manual's cycle counts, with the
-//   register file of section 2.1 and the I/O lines of Figure 7:
+//   manual's chapter 3 and the data sheet's summary (pp. 4-41, 4-42)
+//   define it, at the data sheet's cycle counts, with its register file
+//   (p. 4-40) and I/O lines (p. 4-44):
 //
 //     1. every instruction of the p. 48 table: result, destination (W or
 //        f), the status bits it sets and the ones it must leave alone -
 //        the manual's own worked examples where it gives one (ADDWF
-//        242+117, SUBWF 104-50 and 50-104, RLF 65, COMF 166, INCF 127),
-//        and OV per its definition in 2.1.7                     ch. 3, 2.1.7
+//        242+117, SUBWF 104-50 and 50-104, RLF 65, COMF 166, INCF 127);
+//        status bits 7-3 "defined as logic ones" (no OV)     ch. 3, p. 4-40
 //     2. cycle counts: one machine cycle each, two for GOTO, CALL, RETLW,
 //        a write to F2 and a taken skip ("ADDWF PC ... Two Cycles"), and a
 //        machine cycle of eight OSC1 periods                p. 47, 6.3.1
@@ -22,7 +25,8 @@
 //        wrapping without carry                 2.1.2-2.1.4, 2.1.8, p. 64
 //     4. the ports: a read returns the pin; a latched 0 pulls the pin low;
 //        a latched 1 lets an external 0 through; a read-modify-write reads
-//        the pins (the p. 29 warning); MCLR sets every latch high  2.1.9
+//        the pins (p. 4-42 note 2); port A's high bits read 0 (p. 4-40);
+//        MCLR sets every latch high and the PC to 777 octal     p. 4-39
 //
 // THE PROGRAM MEMORY
 //   A 512 x 12 array read synchronously, as the core's BRAM will be: the
@@ -123,7 +127,7 @@ module tb_se30_pic1654;
   localparam F_IND = 5'd0, F_RTCC = 5'd1, F_PC = 5'd2, F_ST = 5'd3, F_FSR = 5'd4,
              F_A = 5'd5, F_B = 5'd6, R10 = 5'd10, R11 = 5'd11, R12 = 5'd12, R20 = 5'd20;
   localparam W_ = 1'b0, F_ = 1'b1;
-  localparam C = 0, DC = 1, Z = 2, OV = 3;
+  localparam C = 0, DC = 1, Z = 2;
 
   // ------------------------------------------------ running programs
   integer a;                                   // the assembly pointer
@@ -170,13 +174,13 @@ module tb_se30_pic1654;
     is("MCLR: port B latches high", rb_latch, 8'hFF);
 
     // ======================== the reset vector, as a parameter (6.3.1: the dump decides)
-    // MAME and the 16C5x start at the last word; the GI manual does not
-    // say for the 1654.  The core takes it as a parameter (777 octal).
+    // "Master Clear.  Used to initialize the internal ROM program to
+    // address 777(8)" (p. 4-39)
     org(511); emit(GOTO(9'd5));
     org(0);   emit(GOTO(9'd0));
     org(5);   halt;
     run_to(hpc, 200);
-    check(pc == 9'd5 || pc == 9'd6, "reset starts at 777 octal (the parameter)", pc, 5);
+    check(pc == 9'd5 || pc == 9'd6, "reset starts at 777 octal", pc, 5);
     pm[511] = GOTO(9'd0);
 
     // ======================== 1: the instructions, results and flags
@@ -206,7 +210,7 @@ module tb_se30_pic1654;
     run_to(hpc, 400);
     is("ADDWF d=1: 7F+01 -> F10 = 80", dut_ram(R10), 8'h80);
     b8 = unswap(R12);
-    is("ADDWF 7F+01: OV 1 (carry into MSB, none out)", b8[OV], 1);
+    is("status bits 7-3 read as ones (no OV on the PIC1654S)", b8[7:3], 5'b11111);
     is("ADDWF 7F+01: C 0", b8[C], 0);
     is("ADDWF 7F+01: DC 1", b8[DC], 1);
 
@@ -218,14 +222,14 @@ module tb_se30_pic1654;
     is("ADDWF 80+80 = 00", dut_ram(R10), 8'h00);
     is("ADDWF 80+80: C 1", b8[C], 1);
     is("ADDWF 80+80: Z 1", b8[Z], 1);
-    is("ADDWF 80+80: OV 1 (carry out, none into MSB)", b8[OV], 1);
+    is("status bits 7-3 still ones after a carry out", b8[7:3], 5'b11111);
 
     org(0);
     emit(MOVLW(8'h01)); emit(MOVWF(R10)); emit(ADDWF(R10, F_));
     emit(SWAPF(F_ST, W_)); emit(MOVWF(R12)); halt;
     run_to(hpc, 400);
     b8 = unswap(R12);
-    is("ADDWF 01+01: OV 0", b8[OV], 0);
+    is("ADDWF 01+01: C 0, Z 0", b8[2:0], 3'b000);
 
     // SUBWF: the manual's examples.  104 - 50 octal = 34 octal, C 1, DC 0
     org(0);
@@ -513,7 +517,7 @@ module tb_se30_pic1654;
     ra_ext = 4'b0111;
     run_to(hpc, 400);
     is("port A latch", ra_latch, 4'hA);
-    is("port A read = {1111, pins}", dut_ram(R10), 8'hF2);
+    is("port A read = {0000, pins} (RA4-RA7 read as zeros)", dut_ram(R10), 8'h02);
     ra_ext = 4'hF;
     // MCLR sets the latches high again
     mclr_n = 0; repeat (8) @(posedge clk);
