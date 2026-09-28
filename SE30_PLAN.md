@@ -5743,8 +5743,15 @@ reach, and the board is the verdict either way (5.11 item 4).
      (`$40802A3C`) between the ROM's faulted read of `$58000000` and the
      frame; now the frame follows the faulted cycle at once, as 8.2 says.
      The prediction's `PACT` moves 3815 -> 3814 and nothing else.
-   - **Next**: elaboration, the compile with Daniel's go-ahead, the
-     board: past the Slot Manager to the `.Sony` Open (`PSWM` PH = 7).
+   - **Compile 16 (Daniel's go-ahead; tag `91f56454`, archived
+     `MacSE30_91f56454_berr.rbf`, md5 `798607f4...`)**: 21m11s, the flow's
+     worst slack +0.068 ns; `sta_corners.tcl`: every corner met with the
+     capture excepted (worst 0.906 ns), one of the two captures met at
+     every corner. (Its slow-100C line shows capture B's setup at -0.335
+     ns - as in compile 15, identical: capture A serves the slow corners,
+     1.6 ns, and the training picks it.) For the board: past the Slot
+     Manager to the `.Sony` Open (`PSWM` PH = 7), the target the
+     question-mark disk.
 7. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
    when rung 1 is on the board, from 5.2.4's sources.
 
