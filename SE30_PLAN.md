@@ -6134,7 +6134,7 @@ both readings see it.
 
 | command | register |
 |---|---|
-| `z0000001`, `z0000101`, `z0001001`, `z0001101` | seconds 0 (lowest) to 3 |
+| `z00x0001`, `z00x0101`, `z00x1001`, `z00x1101` | seconds 0 (lowest) to 3 - *Inside Macintosh* gives x = 0; **the ROM reads the time with x = 1** (`$9D`, `$99`, `$95`, `$91` at `$4080DCAE`) and writes it with x = 0 (`$4080DCEA`), so the chip ignores x (found by `sim/rtc`, 6.12 item 5) |
 | `00110001` (`$31`) | test register, write only |
 | `00110101` (`$35`) | write-protect register, write only |
 | `z010aa01` | RAM `$10`-`$13` of the original 20 bytes |
@@ -6437,13 +6437,32 @@ waits for a disk (SWIM rung 2) or SCSI.
    data sheet. Read the dump: its layout, its reset vector, its use of
    RTCC, and its loops against 6.3.3 - the dump replaces the port as the
    map, and this section is corrected where they differ.
-3. **`sim/pic/`** items 1-4, failing, then **`rtl/se30_pic1654.v`** until
-   they pass.
+3. ~~**`sim/pic/`** items 1-4, failing, then **`rtl/se30_pic1654.v`** until
+   they pass.~~ **Done 2026-09-28: 88 checks** (iverilog, a few seconds),
+   failing against an empty stub first, and mutation-tested (a /4 divider,
+   a one-level stack, F2 reading the current address, no OV, a skip that
+   does not discard, an inverted BTFSC - each caught). The manual leaves
+   five things open, and the core's choices are **checks to make on the
+   dump** (item 2): the reset address (a parameter, 777 octal, MAME's and
+   the 16C5x's); status bits 7-4 and the unused high bits of port A read
+   as 1 (the FSR's documented rule, generalised - MAME agrees); OV (bit 3)
+   set by ADDWF and SUBWF only, per 2.1.7's definition (MAME's PIC1654S
+   has no OV); an FSR of 0 through F0 reads 0 and writes nothing; the
+   unused words 0001-0037 octal run as NOP. The dump shows whether it
+   ever reads status bits 3-7, port A's high bits or F0 with FSR 0, or
+   uses those words - if it does not, the choices cannot matter.
 4. **`sim/adb/`** items 3-7 with the device engines stubbed silent (the
    no-device ReInit first), then **`rtl/se30_adb_xcvr.v`** (the PIC, its
    program RAM, the pins and the line) and **`rtl/se30_adb_dev.v`** with
    the keyboard and mouse until they pass.
-5. **`sim/rtc/`** items 8-12, failing, then **`rtl/se30_rtc.v`**.
+5. ~~**`sim/rtc/`** items 8-12, failing, then **`rtl/se30_rtc.v`**.~~
+   **Done 2026-09-28: 59 checks.** Two things the bench found, both read
+   from the ROM: the seconds decode ignores command bit 4 (the table in
+   6.5.1, corrected), and the ROM makes PB0 an output again before it
+   raises CS* - one VIA access in which both drive, the ROM's own order;
+   the machine's pin takes the VIA's (4.5). *Inside Macintosh*'s reader
+   (clock low) runs beside the ROM's (clock high): only it can tell a
+   falling-edge chip from a rising-edge one, and the mutation proves it.
 6. **The machine and the top** (6.6): the wiring, `boot2.rom`, `hps_io`'s
    PS/2 and `TIMESTAMP`, `PADB` and `PRTC`, the README; elaboration.
 7. The compile (Daniel's go-ahead), the 3.6 ritual and `sta_corners.tcl`;
