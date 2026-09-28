@@ -5385,7 +5385,7 @@ level = rung 1's internal FDHD with no disk):
 | `$9` | 0 110 | `rDoubleSidedAdr` | 1 = double-sided drive | **1** | **ROM** (Open) + secondary |
 | `$D` | 0 111 | `rNoDriveAdr` | 0 = drive present | **0** | **ROM** (Open) + secondary |
 | `$2` | 1 000 | `rNoDiskInPlAdr` | 1 = no disk | **1** | **ROM** (VBL task) + secondary |
-| `$6` | 1 001 | `rNoWrProtectAdr` | 0 = write-protected | 1 | secondary; not read without a disk |
+| `$6` | 1 001 | `rNoWrProtectAdr` | 0 = write-protected | 1 (rung 1); **0 from rung 2** | secondary; not read without a disk; the 800K ERS (3.2.4.9) reads 0 with no diskette (5.12.3) |
 | `$A` | 1 010 | `rNotTrack0Adr` | 0 = head at track 0 | 0 at power-up | secondary; power-up chosen |
 | `$E` | 1 011 | `rNoTachPulseAdr` | GCR tach (60 per turn) / MFM index | 1 while stopped | secondary |
 | `$3` | 1 100 | `rRdData1Adr` | read data, upper head (selects it) | 1 | secondary; level chosen |
@@ -5928,6 +5928,43 @@ and three of its "chosen" entries are now documented.
   back (`$4082E386`); RD at `$1`/`$3` reads 1 with the motor off or no
   disk.
 
+**Read from the page images for item 3 (2026-09-28, sheets 17-28).**
+Where they refine or correct the list above:
+
+- **/STEP** (3.4.3.1, sheet 26): T2, the low time, is **0.5 us min, 72 us
+  max** - the drive sets /STEP high within 72 us of the falling edge. The
+  model holds it low the maximum, **72 us**. A step command while /STEP is
+  still low writes a 0 over a 0: no falling edge, so no count (the ROM
+  polls `$4` for the 1 before the next step).
+- **/READY after a step** (3.4.3.3, sheet 27): high within 150 us of
+  /STEP (T1; the model: at once); low 36 ms max after, 152 ms across a
+  speed-block change, **600 ms max "for any case when step pulses are
+  sent at the maximum rate"**. The model: each step sets the settle
+  deadline to the later of the one pending and now + 36 ms (152 ms when
+  the step crosses a group).
+- **/READY for motor-on or disk-in** (3.4.4, sheet 28): T1 **600 ms max**
+  from /MOTORON low; T2 0.5 us max to go high when /CSTIN goes high; **T3
+  1.0 s max from a disk-in with the motor on** (the 600 ms above is
+  motor-on only); T4 50 ms max to go high after /MOTORON goes high (the
+  model: at once).
+- **/WRTPRT** (3.2.4.9) reads **0 with no diskette** as well as with a
+  protected one; rung 1's table had 1 ("not read without a disk", which
+  the ROM confirms), so rung 2's constant 0 is the ERS's for both.
+- **/ENBL high** (3.2.2) presets the control latches: /DIRTN to 0 and
+  /MOTORON to high - **deselection stops the motor**. The ROM agrees: its
+  VBL task (`$4082E444`) returns without touching the SWIM while the
+  driver is busy (`$19(a1)`) or its motor-off countdown (`$1A(a1)`) is
+  running, and drops MotorOn (`$1000`) only after the countdown's command
+  `$9` or with the motor already off.
+- **Register `$C`** is EJECT in the 800K ERS (`0011`: high from the
+  command until /CSTIN rises, or 2 s). The SuperDrive's is a **latch the
+  ROM resets** with command `$3` (`$4082E4E2`, only for a drive its flag
+  `$5(a1,d1)` marks), which the 800K drive has no command for. The ROM
+  outranks the other drive's ERS here: the model keeps rung 1's latch,
+  **set by the eject command, cleared by `$3`**. What sets it on a real
+  SuperDrive (the eject, or also an insertion) is not documented; both
+  readings drive the ROM's VBL paths the same way.
+
 ### 5.12.4 The track, as the ERS formats it
 
 "Sector Format" (pp. 40-42) and the User's Ref (pp. 5-6):
@@ -6191,6 +6228,44 @@ The probes say where it stops.
    (it reads each byte once, 256 FCLK apart). Without the checks both
    mutants survived; with them each fails exactly its own check.
 3. `sim/fdhd`, failing, then `se30_fdhd.v`'s drive of 5.12.3.
+   **Done 2026-09-28: 63 checks PASS** (`sim/fdhd/run.sh`, about 3.5
+   minutes - the ERS's times run at full length: 600 ms, 1.0 s and five
+   revolutions). The ERS was read from the page images first; what it
+   changed is under 5.12.3 ("Read from the page images for item 3").
+   The bench has ten parts (no disk; a disk in; motor-on /READY; RD's
+   pulses by side; /STEP; /READY after a step, within and across a
+   group; each group's revolution and /TACH; deselection; disk out and
+   in; eject and the SuperDrive registers). **Against the rung-1 drive,
+   given the new ports and nothing behind them, 32 of its 63 checks
+   failed**; the 31 that passed are registers rung 1 already had.
+   - **The encoder's side** (5.12.5b), fixed here for item 4: the drive
+     shows `cyl`; the encoder answers `trk_cyl` and `trk_valid`; /READY
+     and RD's data wait for `trk_valid && trk_cyl == cyl`. The cell under
+     the head is `trk_addr` (0 to the group's length - 1) on `trk_side`
+     (= SEL); `trk_bit` is expected a clock later. `eject` pulses one
+     clock at the command, for the loader.
+   - **One RTL fault found by the bench**: a disk arriving with the motor
+     on loads the 1.0 s spin-up a clock after `disk_in` rises, so /READY
+     read low for that clock. /READY now also waits for the registered
+     `disk_in`.
+   - **`sim/swim`'s rung-1 step checks** stepped back to back; with
+     /STEP held low 72 us a second step inside it is (rightly) not
+     counted. The bench now polls `$4` between steps as the ROM's seek
+     does (`$4082E17A`); 118 PASS.
+   - **Found on the way, in item 2's committed RTL**: `se30_swim.v` used
+     `rd_val` before declaring it. Icarus accepts that; ModelSim does not,
+     so **`sim/machine` had been failing to compile since `5ab493c`**
+     (its PASS on disk was the morning's run). `rd_val` is now declared
+     ahead of its use; `sim/machine` 17 PASS again. From here, a change
+     to an RTL file is not done until `sim/machine` (ModelSim) has been
+     rerun and its `run.log` is newer than the change.
+   - **Mutation test**, all caught: the group's 152 ms not applied (2
+     fail), a step's settle overwriting a longer one pending (1), RD's
+     pulse 7 FCLK (2), deselection keeping the motor (2) or the direction
+     (1), /TACH at 59 pulses (5), a step counted while /STEP is low (3),
+     one group's revolution a cell long (1), /READY without the track
+     buffers (2), no 1.0 s for a disk-in (1), the heads swapped (3), /STEP
+     low 64 us (1).
 4. `sim/flpenc`, failing, then `se30_flp_encoder.v`.
 5. `sim/flpload` and `sim/sdram`'s disk port, failing, then
    `se30_flp_loader.v` and the port.

@@ -145,6 +145,7 @@ module se30_swim (
   wire       iwm_wr   = l6_n && l7_n && v;
   wire       mode_wr  = iwm_wr && !motor_dn;
 
+  wire [7:0] rd_val;                   // the data register as read (the read path, below)
   reg  [7:0] iwm_q;
   always @* begin
     case ({l7_n, l6_n})
@@ -182,7 +183,7 @@ module se30_swim (
   reg  [3:0] clr_cnt;                                       // FCLK to the clear after a valid read, 0 = none
   reg  [6:0] stall;                                         // synchronous mode's stall, in CLK
   reg  [7:0] stall_v;
-  wire [7:0] rd_val  = async_m ? rd_latch : (stall != 0 ? stall_v : sr);
+  assign     rd_val  = async_m ? rd_latch : (stall != 0 ? stall_v : sr);
   wire       rd_sel  = !ism && !l7_n && !l6_n && motor_dn;  // the data register as this access leaves the latches
   wire       vread   = hit && rd_sel && async_m && rd_latch[7];
 

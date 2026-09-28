@@ -459,9 +459,12 @@ for {set n 0} {$n < $samples} {incr n} {
 			[expr {$imode == 0x17 ? " (the ROM's start-up value)" : ""}]]
 		puts [format "        delayed MotorOn=%d /ENBL1=%d /ENBL2=%d SENSE=%d  ISM mode=%02X setup=%02X dirs=%X" \
 			$mtrd $en1 $en2 $sense $smode $setup $phdir]
-		puts [format "        internal drive: motor=%d dir=%d eject latch=%d %s track=%d" \
+		puts [format "        internal drive: motor=%d dir=%d eject latch=%d %s track=%d disk=%d /READY=%d%s%s%s" \
 			[expr {($d >> 15) & 1}] [expr {($d >> 14) & 1}] [expr {($d >> 13) & 1}] \
-			[expr {(($d >> 12) & 1) ? "MFM" : "GCR"}] [expr {$d & 0x7F}]]
+			[expr {(($d >> 12) & 1) ? "MFM" : "GCR"}] [expr {$d & 0x7F}] \
+			[expr {($d >> 11) & 1}] [expr {($d >> 10) & 1}] \
+			[expr {(($d >> 9) & 1) ? " stepping" : ""}] [expr {(($d >> 8) & 1) ? " settling" : ""}] \
+			[expr {(($d >> 7) & 1) ? " spinning up" : ""}]]
 	}
 	if {[have PADB]} {
 		# plan 6.6: the transceiver's PIC, the line, the devices -- see

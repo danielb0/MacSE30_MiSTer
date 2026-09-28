@@ -53,8 +53,9 @@
 //         ISM mode[7:0], ISM
 //         setup[7:0], phase directions[3:0], IWM configuration[2:0], 0000}
 //         and the internal drive's {motor, direction, eject latch, MFM,
-//         disk in, 0000, track[6:0]}: did the ROM's mode-set loop set $17,
-//         did the .Sony Open find the SWIM and an empty SuperDrive
+//         disk in, /READY, stepping, settling, spinning up, track[6:0]}:
+//         did the ROM's mode-set loop set $17, did the .Sony Open find the
+//         SWIM and the SuperDrive, and where the drive is in a seek
 // and, since plan 6.6 (the ADB and the clock chip):
 //   PADB  64 bits, registered here on clk: the transceiver's {PIC PC[8:0],
 //         W[7:0]}, {the ADB line, INT*, SCLK, DIO, ST1, ST0}, who pulls the

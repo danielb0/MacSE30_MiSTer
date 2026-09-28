@@ -103,7 +103,9 @@ module tb_se30_swim;
   se30_fdhd drive (
     .clk(clk), .c16_en(1'b1), .reset_n(reset_n),
     .enbl_n(enbl1_n), .ph(ph_pin), .sel(via_sel),
-    .sense(sense_int), .disk_in(1'b0), .dbg(dbg_drive));
+    .sense(sense_int), .disk_in(1'b0), .eject(),
+    .cyl(), .trk_cyl(7'h7F), .trk_valid(1'b0), .trk_addr(), .trk_side(), .trk_bit(1'b0),
+    .dbg(dbg_drive));
 
   // ------------------------------------------------------------ scoring
   integer checks = 0, fails = 0;
@@ -157,6 +159,17 @@ module tb_se30_swim;
   // $4082E150: PH3 high, two NOPs, PH3 low
   task drv_cmd(input [3:0] n);
     begin drv_addr(n); rd(16'h0E00); repeat (4) @(posedge clk); rd(16'h0C00); end
+  endtask
+  // the ROM's seek ($4082E17A): a step, then $4 polled until /STEP reads 1
+  // (the drive holds it low up to 72 us, and a step inside that is not
+  // counted - plan 5.12.3)
+  task drv_step;
+    integer w;
+    begin
+      drv_cmd(4'h4); w = 0;
+      drv_read(4'h4);
+      while (!sns && w < 1000) begin drv_read(4'h4); w = w + 1; end
+    end
   endtask
 
   // --------------------------------------------------- timing helpers
@@ -511,13 +524,13 @@ module tb_se30_swim;
     rd(16'h1400); rd(16'h1200);
     drv_cmd(4'h8);  drv_read(4'h8); check(sns == 0, "command $8 motor on: $8 reads 0", sns, 0);
     drv_cmd(4'h9);  drv_read(4'h8); check(sns == 1, "command $9 motor off: $8 reads 1", sns, 1);
-    drv_cmd(4'h0);  drv_cmd(4'h4);
+    drv_cmd(4'h0);  drv_step;
     drv_read(4'hA); check(sns == 1, "direction inward, a step: off track 0", sns, 1);
     check(drive.track == 1, "(track 1)", drive.track, 1);
     drv_read(4'h0); check(sns == 0, "$0 reads the direction: inward", sns, 0);
     drv_cmd(4'h1);  drv_read(4'h0); check(sns == 1, "direction outward", sns, 1);
-    drv_cmd(4'h4);  drv_read(4'hA); check(sns == 0, "a step out: track 0", sns, 0);
-    drv_cmd(4'h4);  check(drive.track == 0, "no step below track 0", drive.track, 0);
+    drv_step;       drv_read(4'hA); check(sns == 0, "a step out: track 0", sns, 0);
+    drv_step;       check(drive.track == 0, "no step below track 0", drive.track, 0);
     drv_cmd(4'h6);  drv_read(4'h7); check(sns == 1, "command $6: MFM mode", sns, 1);
     drv_cmd(4'h7);  drv_read(4'h7); check(sns == 0, "command $7: GCR mode", sns, 0);
     drv_cmd(4'h3);  drv_read(4'hC); check(sns == 0, "command $3 (the eject-latch reset): $C still 0", sns, 0);

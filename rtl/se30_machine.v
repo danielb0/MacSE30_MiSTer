@@ -302,7 +302,9 @@ module se30_machine #(
   se30_fdhd fdhd_int (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
     .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
-    .sense(fdhd_sense), .disk_in(1'b0), .dbg(fdhd_dbg));
+    .sense(fdhd_sense), .disk_in(1'b0), .eject(),                   // no disk until plan 5.12.12 item 7
+    .cyl(), .trk_cyl(7'h7F), .trk_valid(1'b0), .trk_addr(), .trk_side(), .trk_bit(1'b0),
+    .dbg(fdhd_dbg));
 
   // ------------------------------------------------------------ video
   // slot $E: GLUE's slot select at $FExxxxxx (plan 2.10 item 2: A23-A17
