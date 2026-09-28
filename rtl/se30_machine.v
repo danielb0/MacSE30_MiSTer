@@ -57,10 +57,14 @@
 //   otherwise.  Battery-backed: no reset reaches it.  Its time is the HPS's
 //   TIMESTAMP, taken once.
 //
+// THE ASC (plan Section 7) - a stub until its section: the version, the
+//   registers read back, the FIFOs always empty, SNDINT* (VIA2 CB1) in FIFO
+//   mode only, so a System waiting on the chip does not hang; no sound.
+//
 // NOT HERE YET - what the VIAs' inputs and the device bus hold until
-//   their sections: the SCC's W/REQ*, the ASC's and SCSI's interrupt and
-//   DRQ lines, all at their idle levels (plan 4.7); every other I/O device
-//   answers $00 and raises no interrupt.
+//   their sections: the SCC's W/REQ*, the SCSI's interrupt and DRQ lines,
+//   all at their idle levels (plan 4.7); every other I/O device answers
+//   $00 and raises no interrupt.
 
 `timescale 1ns/1ps
 
@@ -212,7 +216,8 @@ module se30_machine #(
   wire        via_reset_n = reset_n && reset_out_n;
   wire        adb_int_n, adb_sclk, adb_dio, via1_cb2_out, via1_cb2_oe;   // VIA1 and the ADB transceiver
   wire        rtc_d_out, rtc_d_oe, rtc_1hz, rtc_d;                       // VIA1 and the clock chip
-  wire  [7:0] via1_rdata, via2_rdata, swim_rdata;
+  wire  [7:0] via1_rdata, via2_rdata, swim_rdata, asc_rdata;
+  wire        asc_irq_n;
   wire  [7:0] via1_pa_out, via1_pa_oe, via1_pb_out, via1_pb_oe;
   wire  [7:0] via2_pa_out, via2_pa_oe, via2_pb_out, via2_pb_oe;
   wire  [6:0] via1_ifr, via1_ier, via2_ifr, via2_ier;
@@ -228,7 +233,8 @@ module se30_machine #(
   assign vid_page  = via1_pa_pin[6];
   assign vsyncen_n = via1_pb_pin[6];
   assign ramsiz    = via2_pa_pin[7:6];
-  assign dev_rdata = via1_sel ? via1_rdata : via2_sel ? via2_rdata : swim_sel ? swim_rdata : 8'h00;
+  assign dev_rdata = via1_sel ? via1_rdata : via2_sel ? via2_rdata : swim_sel ? swim_rdata :
+                     asc_sel ? asc_rdata : 8'h00;
   assign dbg_via   = {overlay, ramsiz, vsyncen_n, via1_ier, via1_ifr, via2_ier, via2_ifr};
 
   se30_via via1 (
@@ -251,7 +257,7 @@ module se30_machine #(
     .pb_in(via2_pb_pin), .pb_out(via2_pb_out), .pb_oe(via2_pb_oe),
     .ca1(slot_irq_or_n),                                 // SLOTIRQ*: GLUE's OR of the slot lines
     .ca2_in(1'b0), .ca2_out(), .ca2_oe(),                // SCSIDRQ: none until the SCSI section
-    .cb1_in(1'b1), .cb1_out(), .cb1_oe(),                // SNDINT*: none until the ASC section
+    .cb1_in(asc_irq_n), .cb1_out(), .cb1_oe(),           // SNDINT*: the ASC stub's (plan 7.3)
     .cb2_in(1'b0), .cb2_out(), .cb2_oe(),                // SCSIIRQ
     .dbg_ifr(via2_ifr), .dbg_ier(via2_ier));
 
@@ -295,6 +301,14 @@ module se30_machine #(
     .clk(clk), .timestamp(timestamp),
     .cs_n(via1_pb_pin[2]), .sck(via1_pb_pin[1]), .d_in(via1_pb_pin[0]),
     .d_out(rtc_d_out), .d_oe(rtc_d_oe), .one_hz(rtc_1hz), .dbg(dbg_rtc));
+
+  // ------------------------------------------------------------- ASC
+  // a stub until its section (plan Section 7): version $00, registers read
+  // back, the FIFOs always empty, SNDINT* in FIFO mode only; no sound
+  se30_asc_stub asc (
+    .clk(clk), .c16_en(phi1), .reset_n(via_reset_n),
+    .sel(asc_sel), .strobe(dev_strobe), .rw(dev_rw), .addr(dev_addr[11:0]), .wdata(dev_wdata),
+    .rdata(asc_rdata), .irq_n(asc_irq_n));
 
   // ------------------------------------------------------------ SWIM
   wire  [3:0] swim_ph, swim_ph_oe;

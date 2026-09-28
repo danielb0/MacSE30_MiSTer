@@ -4401,7 +4401,7 @@ has them; nothing on this board exercises them.
 ### 4.2.4 Timers
 
 Both count `E` (the *Guide*, p. 182: "the timer counter is decremented
-once every 1.2766 Âµs"; cell spec 7.0: "decrements at the C783K clock
+once every 1.2766 µs"; cell spec 7.0: "decrements at the C783K clock
 rate").
 
 **T1** (cell spec 7.0-7.2, R6522 tables). Two latches and a 16-bit counter.
@@ -4498,16 +4498,16 @@ The *Guide*, p. 149, on the SE/30 and the II family specifically: "the
 general logic circuits synchronize the VIA clock signal with the accesses
 of the main processor so that the main processor can make VIA accesses
 without any delay. As a result, a VIA access for these computers takes an
-average of 0.5 Âµs as compared to 1.0 Âµs for the Macintosh SE and classic
+average of 0.5 µs as compared to 1.0 µs for the Macintosh SE and classic
 Macintosh. The general logic circuits maintain an average frequency for
 the E clock of 783.36 kHz." And p. 148: the SE/30's GLUE generates "both
 the clock signal to the VIAs and the VIA device-enable signals".
 
 That is not the mechanism 2.11 row 3 built. Row 3 has the access wait for
 the next E-high phase of a free-running E - the 68000 machines' scheme,
-"12 to 32 clocks by alignment", 1.4 Âµs on average. The *Guide* says the
+"12 to 32 clocks by alignment", 1.4 µs on average. The *Guide* says the
 SE/30's GLUE moves **E** to the access instead, and gives two numbers
-that constrain any implementation: an access averages **0.5 Âµs**, and E
+that constrain any implementation: an access averages **0.5 µs**, and E
 **averages** 783.36 kHz - the word "average" being the admission that E
 is not a clean divider on this machine. There is still no SE/30 source
 for GLUE's state machine (2.11's standing caveat), so what follows is a
@@ -4518,7 +4518,7 @@ OPEN where a number is chosen.
 valid before E rises (T_ACR, 180 ns on the NMOS part), read data valid
 T_CDR after the rise, write data latched at the fall (T_DCW before it),
 and a minimum E-high width T_C. The NMOS 1 MHz part needs 470 ns high;
-a 0.5 Âµs *average access* is only possible with a part rated well above
+a 0.5 µs *average access* is only possible with a part rated well above
 that, which the 65C22 pinout and the "65C22" label say this is. **The
 minimum phase width used below, 4 C16M clocks (255 ns), is OPEN**: it is
 what makes the *Guide*'s average come out, and no data sheet in hand
@@ -4540,8 +4540,8 @@ drives is that reference displaced by a bounded phase shift:
    high phase. Cycle lengths in the GLUE bench's convention (AS* low to
    DSACK* inclusive, plus S4/S5): **7 clocks when E was low with room,
    up to 16 when it was high and had just risen**, a mean of 10 over a
-   uniform phase sweep (4.11 item 3) = 0.64 Âµs, against the *Guide*'s
-   "average of 0.5 Âµs" - the 4-clock phase minimum, OPEN, is most of the
+   uniform phase sweep (4.11 item 3) = 0.64 µs, against the *Guide*'s
+   "average of 0.5 µs" - the 4-clock phase minimum, OPEN, is most of the
    gap.
 3. **Each reference period has exactly one E rise**, nominally at its
    midpoint. An access may take it early - any time from the period's
@@ -4554,7 +4554,7 @@ drives is that reference displaced by a bounded phase shift:
    that follows is the next period's, taken at its earliest. (Written
    first as a shift counter worked off one clock per phase; replaced by
    this before the RTL, 4.11 item 3.)
-4. **The bound follows:** over any window of 20N clocks E rises N Â± 1
+4. **The bound follows:** over any window of 20N clocks E rises N ± 1
    times whatever the VIA traffic - the timers' rate is exactly C16M/20,
    which is what "maintain an average frequency of 783.36 kHz" has to
    mean for the Time Manager to keep time. A run of back-to-back accesses
@@ -4721,7 +4721,7 @@ to show, through `PVIA` and `PIRQ`.
 
 **What the machine bench can reach.** Steps 1-4 happen within a few ms
 of machine time; the RAM tests over 8 MB take of the order of a second,
-and steps 6-10 lie beyond them. ModelSim gives 215 Âµs in 9 s (3.7), so
+and steps 6-10 lie beyond them. ModelSim gives 215 µs in 9 s (3.7), so
 the bench holds steps 1-4 and the start of the RAM tests, and predicts the
 probes there; the rest is the board's (4.9).
 
@@ -4820,7 +4820,7 @@ bench-made 10/10 E and GLUE-shaped strobes, held to 4.2:
 2. ports: DDR gates the pin; a read gives the pin for an input bit and OR
    for an output bit; a write to an input bit leaves OR unchanged
    (4.2.3's rule); register 15 is register 1 without the flag clears;
-3. T1 one-shot: written N, IFR6 sets N+1 E cycles (Â±Â½) after the T1CH
+3. T1 one-shot: written N, IFR6 sets N+1 E cycles (±½) after the T1CH
    write, once; T1CL read clears it; the latches reload and it keeps
    counting; T1LH write clears the flag without a transfer;
 4. T1 free-run: IFR6 at N+1 then every N+2 cycles; with ACR7 PB7 inverts
@@ -4846,7 +4846,7 @@ bench-made 10/10 E and GLUE-shaped strobes, held to 4.2:
 **`sim/glue/tb_se30_glue.v`** item 5 rewritten to 4.4: the select is high
 before every E rise that serves an access and through the high phase; the
 access lengths over a sweep of phases sit in 7-14 clocks with a mean of
-8-10; E's phases are never shorter than 4 clocks; E rises 1000 Â± 1 times
+8-10; E's phases are never shorter than 4 clocks; E rises 1000 ± 1 times
 in 20,000 clocks with sparse accesses, and again with back-to-back
 accesses (the bound); the strobe is still one device cycle per bus cycle
 with the byte on `D31-D24` (item 6 unchanged).
@@ -5178,8 +5178,8 @@ latches *as that access leaves them*:
 
 **The mode register** (User's Ref p. 12, production 6.7.2): bit 0 latch
 mode; 1 asynchronous handshake; **2 timer disable** (0: `/ENBLx` held for
-2^23 + 100 FCLK after MotorOn clears); 3 fast (2 Âµs cell descriptor) /
-slow; **4 the 8 MHz descriptor** (FCLK divided by 8, not 7, for 1 Âµs
+2^23 + 100 FCLK after MotorOn clears); 3 fast (2 µs cell descriptor) /
+slow; **4 the 8 MHz descriptor** (FCLK divided by 8, not 7, for 1 µs
 internal timing); 5 test mode; **6 the ISM select** (5.2.3); 7 reserved.
 "The mode register is not accessible for up to one second when the timer
 is enabled and counting down", because it is selected through the
@@ -5289,7 +5289,7 @@ record it in 5.10. The ROM sets every line to an output (`$F5`-`$F7`,
   after a transition (6 FCLK in 8 MHz fast mode, 5 in 7 MHz fast, twice
   that slow); the shift register filling LSB-first until a one reaches the
   MSB, then latched into the read data register and cleared; in
-  asynchronous mode the latched byte "cleared 14 FCLK periods (about 2 Âµs)
+  asynchronous mode the latched byte "cleared 14 FCLK periods (about 2 µs)
   after a valid data read" (`/DEV` low with D7 = 1 for at least one FCLK).
   GCR's self-sync (ten-bit sync bytes, a five-byte lock) from `Software
   control of IWM`.
@@ -5303,7 +5303,7 @@ record it in 5.10. The ROM sets every line to an output (`$F5`-`$F7`,
   GCR bypass) and the User's Ref's parameter arithmetic (pp. 13-17), whose
   15.6672 MHz worked example gives the values the ROM's table should hold
   (5.6 item 5).
-- **The drive's flux**: 800K GCR at 2 Âµs cells over five speed zones (12
+- **The drive's flux**: 800K GCR at 2 µs cells over five speed zones (12
   down to 8 sectors, User's Ref p. 6); MFM 720K/1.44MB with the index
   pulse; the SuperDrive's GCR/MFM mode register (5.5).
 
@@ -5887,7 +5887,7 @@ and three of its "chosen" entries are now documented.
   each `1` of the track bitstream, the bitstream advancing one cell per
   32 FCLK; a head switch takes effect at once (inside T2).
 - **Rotation** (2.4 and p. 39): five speed groups, **394, 429, 472, 525
-  and 590 rpm** for tracks 0-15, 16-31, 32-47, 48-63, 64-79, "Â± 2.5%" -
+  and 590 rpm** for tracks 0-15, 16-31, 32-47, 48-63, 64-79, "± 2.5%" -
   with the data rate fixed at 489.6 kbit/s, so the cells per revolution
   are **74,558 / 68,476 / 62,237 / 55,954 / 49,790**. The model runs at
   the nominal speeds exactly.
@@ -6561,6 +6561,7 @@ The probes say where it stops.
    reads, a new `dbg_vread`); `read_probes.tcl` decodes it. `sim/machine`
    17 PASS (run.log fresh); Analysis & Synthesis clean (0 errors).
    **The M10K count** (item 4's open question) waits for the fitter.
+   With it, Section 7's ASC stub (Daniel: before this bitstream).
 8. The compile (Daniel's go-ahead) and the board: an 800K image mounted.
 9. **5.13 - the ISM's MFM read** (720K, 1.44 MB), from the ISM ASIC spec,
    written when GCR is on the board.
@@ -7405,6 +7406,77 @@ waits for a disk (SWIM rung 2) or SCSI.
 8. Rung 2 when a boot device exists; PRAM persistence (Daniel's call on
    how: the framework's file interface to a `.sav` beside the ROMs is the
    usual MiSTer way).
+
+# Section 7 - The ASC: a stub, until its section
+
+Opened 2026-09-28 with rung 2 of the floppy (5.12.12 item 7) ready for its
+compile. **Daniel: before the bitstream that reads a disk, a stub for the
+Apple Sound Chip, so a booting System cannot hang on the missing sound
+chip; "we will do more precise work when we actually implement the
+ASC".** The real ASC (four voices, wavetables, the FIFOs playing, the Sony
+sound chips) is its own section later.
+
+## 7.1 What can hang, and what cannot
+
+- **The ROM cannot.** Its `.Sound` driver (`$4082F02A`-`$4082F46C`, the
+  base from `ASCBase`, `$CC0`) reads only the version register (`tst.b
+  $800`: `$00` picks the original ASC's settings, `$4082F0B2`,
+  `$4082F0F2`, `$4082F13A`) and the mode register it wrote (`$801`); it
+  clears the FIFO by `bset`/`bclr #7,$803` and feeds the FIFO blind, 370
+  bytes from a Time Manager task (`$4082F3FE`), with no status poll and no
+  interrupt. The boot chime (`$40805E4A`) is software-timed (the machine bench's
+  finding, 4.11 item 5). The machine has answered every ASC cycle since
+  3.5: GLUE's 5-clock read and 4-clock write (2.11.3), every register `$00`
+  (the version the ROM wants), `SNDINT*` idle.
+- **A System can.** A Sound Manager that waits on the FIFO status (`$804`)
+  for "half empty", or for the ASC's interrupt (VIA2 CB1, `SNDINT*`; the
+  *Guide*, chapter 3, p. 95: the ASC interrupts "when the sound buffers
+  are half empty and when they are completely empty"), would wait for ever
+  on `$00` and an idle line.
+
+## 7.2 Sources, and their standing
+
+No Apple document of the ASC's registers was found (bitsavers
+`/pdf/apple/mac/` and `ers/`, a web search, 2026-09-28: emulator code only).
+The *Guide* (chapter 13, pp. 436-437) describes the chip's modes and its
+2 KB of buffers, not its registers. So the stub's few facts are
+**secondary, from MacLC's `rtl/asc.sv`** (Daniel's choice; itself MAME's
+`asc_v8_device`, the V8's variant, and its earlier stub): `$804` bit 0 =
+FIFO A half empty, bit 1 = FIFO A empty or full, bits 2-3 the same for
+FIFO B; the interrupt raised at a sample tick while a FIFO is half empty,
+cleared by a read of `$804` - raised every clock instead, it storms (MacLC's
+finding). **Not lifted**: the V8's version `$E8` and its hardwired
+readbacks; the SE/30's ROM branches on `$00`, the original ASC's, which is
+this machine's (the *Guide*'s chapter 1 table of models: the SE/30 has
+the ASC).
+
+## 7.3 The stub (`rtl/se30_asc_stub.v`)
+
+- `$800` reads `$00`; `$801`-`$80F` read back what was written (the ROM
+  reads `$801` back); `$804` reads `$0F` - both FIFOs empty, which answers a
+  wait for "half empty" and a wait on "empty or full" alike.
+- Writes to the FIFOs (`$000`-`$7FF`) and the wavetable RAM are taken and
+  dropped: no sound.
+- `SNDINT*`: only while the mode register is 1 (FIFO mode), raised on a
+  sample tick - every 704 C16M, 22,254.5 Hz, the Mac's rate - and cleared
+  by a read of `$804`. In mode 0 (off) and 2 (wavetable: the boot chime)
+  it never asserts.
+- The window is GLUE's `asc_sel` ($50F14000, A11-A0 decoded); an access
+  lands at the strobe on the C16M edge, as the VIA's and the SWIM's do
+  (5.12.12 item 6).
+
+## 7.4 The work
+
+1. ~~Write this section.~~ **Done 2026-09-28.**
+2. `sim/asc`, failing against an empty module, then the stub; the machine
+   wiring (`dev_rdata`, VIA2 CB1); `sim/machine` unchanged.
+   **Done 2026-09-28: 15 checks PASS; against an empty module 9 fail** (the
+   6 that pass are what the machine already did: `$00`, `SNDINT*` idle).
+   Mutants caught: the interrupt cleared by the wrong register (2 fail),
+   raised every clock - the storm (2), the status `$0E` (3). Wired: GLUE's
+   `asc_sel`, `dev_rdata`, VIA2 CB1, RESET* as the VIAs; `sim/machine` 17
+   PASS; Analysis & Synthesis clean. (The RTL was written before its bench
+   this once; the empty-module run restores the order of evidence.)
 
 ---
 

@@ -42,7 +42,7 @@ for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; d
   "$MODELSIM/vcom.exe" -quiet -93 -work work "$RTL/tg68k/$f" || exit 1
 done
 "$MODELSIM/vlog.exe" -quiet +define+SIMULATION -work work \
-  "$RTL/tg68k/tg68k.v" "$RTL/se30_glue.v" "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/se30_video.v" "$RTL/se30_sdram.v" "$RTL/se30_machine.v"   "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" \
+  "$RTL/tg68k/tg68k.v" "$RTL/se30_glue.v" "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/se30_video.v" "$RTL/se30_sdram.v" "$RTL/se30_machine.v"   "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc_stub.v" \
   ../sdram/sdram_model.v tb_se30_machine.v || exit 1
 T0=$(date +%s)
 "$MODELSIM/vsim.exe" -c -quiet -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_machine > run.log 2>&1
