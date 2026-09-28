@@ -6368,6 +6368,10 @@ skips with a message if the file is absent.
    as INT\* in state 2 - the *Guide*'s polling protocol (p. 325) end to end.
 7. SendReset and Flush; Listen register 2 setting the keyboard's LEDs.
 
+**`sim/adbdev/`** (iverilog; added 2026-09-28, 6.12 item 4) - the keyboard
+and mouse alone, with a bench host that speaks Table 8-14 at its nominal
+timing: item 6's device half and item 7, runnable before the dump.
+
 **`sim/rtc/`** (iverilog) - the chip behind a driver that replays the
 ROM's bit-bang routines (`$4080DE32`, `$4080DE44`, `$40803502`) exactly:
 
@@ -6418,7 +6422,10 @@ waits for a disk (SWIM rung 2) or SCSI.
   read 1 because of them.
 - **DIO contention** and **MAME's race** (6.3.2, 6.8): watched on the
   bench, not assumed away.
-- **The keyboard model** (6.4.3): Extended proposed, Daniel's choice.
+- **The keyboard model** (6.4.3): Extended proposed, Daniel's choice; and
+  the modifier mapping by position (6.12 item 4).
+- **Talk register 3's address field**: the real address (Table 8-15), not
+  the FDB proposal's random one (6.12 item 4).
 - **Write protect and the extended command** (6.5.1): the manual's rule
   followed; the secondary claim recorded.
 - **`1HZ`'s duty cycle** and **the test register's effect**: undocumented,
@@ -6455,6 +6462,28 @@ waits for a disk (SWIM rung 2) or SCSI.
    no-device ReInit first), then **`rtl/se30_adb_xcvr.v`** (the PIC, its
    program RAM, the pins and the line) and **`rtl/se30_adb_dev.v`** with
    the keyboard and mouse until they pass.
+   **Part done 2026-09-28, the part that needs no dump.**
+   `rtl/se30_adb_dev.v` (the device engine, the Extended Keyboard, the
+   Standard Mouse) against a new bench, **`sim/adbdev/`: 54 checks**
+   (iverilog, seconds) with a host that speaks Table 8-14 at its nominal
+   timing - Talk register 3, the reply's timing measured on the wire (140-
+   260 us to the start bit, 35/65 us lows, the 100 us cell, the 70 us stop),
+   key transitions two to a reply, Caps Lock locking, the Service Request
+   (300 us) and its absence for the device being addressed, the mouse's
+   clamp and remainder with Y inverted, Listen register 3 ($FE move,
+   handlers stored or ignored, handler 3's right-hand codes, handler 2's
+   doubled counts), Listen register 2's LEDs, Flush, SendReset, Global
+   Reset, and a collision between two keyboards at one address (the loser
+   keeps its key for the next Talk). Mutation-tested (no collision
+   detection, no SRQ, no $FE move, Y not inverted, a reply at 300 us - each
+   caught). `rtl/se30_adb_xcvr.v` (the PIC, its 512 x 12 store, the pins of
+   6.3.2) is written and elaborates; **`sim/adb/` waits for the dump.**
+   Two choices made here, for Daniel: PC modifiers map **by key position**
+   onto Figure 8-10 (Alt = Command, the Windows key = Option - the MacPlus
+   donor maps Alt the same way), and Talk register 3 returns the device's
+   real address (the Guide's Table 8-15), not the random one the FDB
+   specification's pre-release text describes (the ROM does not read the
+   field).
 5. ~~**`sim/rtc/`** items 8-12, failing, then **`rtl/se30_rtc.v`**.~~
    **Done 2026-09-28: 59 checks.** Two things the bench found, both read
    from the ROM: the seconds decode ignores command bit 4 (the table in
@@ -6463,8 +6492,26 @@ waits for a disk (SWIM rung 2) or SCSI.
    the machine's pin takes the VIA's (4.5). *Inside Macintosh*'s reader
    (clock low) runs beside the ROM's (clock high): only it can tell a
    falling-edge chip from a rising-edge one, and the mutation proves it.
-6. **The machine and the top** (6.6): the wiring, `boot2.rom`, `hps_io`'s
-   PS/2 and `TIMESTAMP`, `PADB` and `PRTC`, the README; elaboration.
+6. ~~**The machine and the top** (6.6): the wiring, `boot2.rom`, `hps_io`'s
+   PS/2 and `TIMESTAMP`, `PADB` and `PRTC`, the README; elaboration.~~
+   **Done 2026-09-28.** The transceiver on `c3m_en` and `via_reset_n`, the
+   line the wired-AND of the three, the devices on no reset (the line's
+   Global Reset reaches them: RESET* holds the PIC's latches high, RA2 turns
+   Q3 on); the clock chip on PB2-PB0 and CA2, on no reset. `boot2.rom`
+   (index `$80`) into the store, low byte first, twelve bits; the README's
+   table. Probes `PADB` (64) and `PRTC` (32) in `dbg_probes.sv`, decoded
+   by `read_probes.tcl`. **Analysis & Synthesis: 0 errors**, the RTC's RAM
+   and the transceiver's store inferred as block RAM; one Quartus internal
+   error on the way (the RTC's RAM read inside a function has no single
+   read port - restructured to one registered read port and one write
+   port, the byte loaded two clocks after the command, long before the
+   first falling edge; the bench's mutation of that pipeline fails 3
+   checks). **`sim/machine`: 17 PASS unchanged**, the same prediction, 59 s.
+   With no `boot2.rom` the store is all NOPs and RA2's reset latch holds
+   the line low: the machine waits at `$40806DD8` as compile 16 did, and
+   `PADB` says so (W 0, the line low, no falls). **A compile now would
+   show the board nothing new**: it waits for item 2's dump and
+   `sim/adb/`.
 7. The compile (Daniel's go-ahead), the 3.6 ritual and `sta_corners.tcl`;
    the board: rung 1 (6.10).
 8. Rung 2 when a boot device exists; PRAM persistence (Daniel's call on

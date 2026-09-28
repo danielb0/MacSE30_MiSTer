@@ -21,6 +21,7 @@ folder on the SD card:
 |---|---|---|
 | `boot0.rom` | the SE/30 ROM - the image shared with the Macintosh II FDHD, IIx and IIcx, checksum `97221136` | 256 KB |
 | `boot1.rom` | the video declaration ROM, Apple part 341-0650 | 8 KB |
+| `boot2.rom` | the ADB transceiver's program, Apple part 342S0440-B (a PIC1654S; MAME's `342s0440-b.bin`, CRC32 `cffb33eb`). Without it the keyboard and mouse do not work and start-up waits in the ADB initialisation | 1 KB |
 
 ## Building
 

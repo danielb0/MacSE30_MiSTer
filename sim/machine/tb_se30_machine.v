@@ -125,7 +125,9 @@ module tb_se30_machine;
     .nmi_n(1'b1),
     .dbg_addr(cpu_addr), .dbg_fc(cpu_fc), .dbg_as_n(cpu_as_n), .dbg_rw_n(cpu_rw_n),
     .dbg_dsack_n(dsack_n), .dbg_berr(berr), .dbg_halted(halted), .reset_out_n(reset_out_n),
-    .dbg_via(), .dbg_regs(), .dbg_swim());
+    .ps2_key(11'd0), .ps2_mouse(25'd0), .timestamp(33'd0),
+    .adb_pm_we(1'b0), .adb_pm_waddr(9'd0), .adb_pm_wdata(12'd0),
+    .dbg_via(), .dbg_regs(), .dbg_swim(), .dbg_adb(), .dbg_rtc());
 
   // -------------------------------------------------- the ROM's vector
   reg [15:0] romw [0:131071];

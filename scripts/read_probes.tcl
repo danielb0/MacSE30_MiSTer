@@ -463,6 +463,25 @@ for {set n 0} {$n < $samples} {incr n} {
 			[expr {($d >> 15) & 1}] [expr {($d >> 14) & 1}] [expr {($d >> 13) & 1}] \
 			[expr {(($d >> 12) & 1) ? "MFM" : "GCR"}] [expr {$d & 0x7F}]]
 	}
+	if {[have PADB]} {
+		# plan 6.6: the transceiver's PIC, the line, the devices -- see
+		# rtl/dbg_probes.sv for the layout
+		set padb [rd PADB]
+		set pc    [expr {($padb >> 55) & 0x1FF}]
+		set w     [expr {($padb >> 47) & 0xFF}]
+		set lines [expr {($padb >> 38) & 0x1FF}]
+		set kst   [expr {($padb >> 34) & 0xF}]
+		set mst   [expr {($padb >> 30) & 0xF}]
+		set kcmd  [expr {($padb >> 22) & 0xFF}]
+		set falls [expr {($padb >> 6) & 0xFFFF}]
+		puts [format "  PADB  %016llX   PIC PC=%03o W=%02X  line=%d INT*=%d SCLK=%d DIO=%d ST=%d%d" $padb 			$pc $w [expr {($lines >> 8) & 1}] [expr {($lines >> 7) & 1}] [expr {($lines >> 6) & 1}] 			[expr {($lines >> 5) & 1}] [expr {($lines >> 4) & 1}] [expr {($lines >> 3) & 1}]]
+		puts [format "        pulling: transceiver=%d keyboard=%d mouse=%d  engines: kbd=%d mouse=%d  last command=%02X  falls=%d%s" 			[expr {($lines >> 2) & 1}] [expr {($lines >> 1) & 1}] [expr {$lines & 1}] $kst $mst $kcmd $falls 			[expr {$w == 0 && (($lines >> 8) & 1) == 0 && $falls == 0 ? "   (line held low, no traffic: boot2.rom absent?)" : ""}]]
+	}
+	if {[have PRTC]} {
+		# plan 6.6: the clock chip
+		set prtc [rd PRTC]
+		puts [format "  PRTC  %08X   seconds low=%02X  last command=%02X  transactions=%d  write protect=%d" $prtc 			[expr {($prtc >> 24) & 0xFF}] [expr {($prtc >> 16) & 0xFF}] [expr {($prtc >> 8) & 0xFF}] [expr {($prtc >> 7) & 1}]]
+	}
 	puts ""
 	if {$n + 1 < $samples} { after [expr {int($delay * 1000)}] }
 }
@@ -503,3 +522,11 @@ puts "  * PIFA past 408006E6 and PSWM IWM mode=17: the ROM's mode-set loop is do
 puts "  * PSWM phase dirs=F with PH=7 left over: the .Sony Open's SWIM probe"
 puts "    ran (\$F5-\$F7 echoed); the drive's motor/track show its commands."
 puts "  * The screen is the target: the flashing question-mark disk."
+puts "Since Section 6 (the ADB and the clock chip, SE30_PLAN.md 6.7 and 6.10):"
+puts "  * PADB W changing and the line released: the transceiver runs its program"
+puts "    (with no boot2.rom the PC runs through NOPs, W stays 0, the line stays low)."
+puts "  * PADB falls climbing by roughly 900 a second (about ten per Talk, one Talk"
+puts "    every 11 ms: the auto-poll), last command 3C (Talk R0 to the mouse):"
+puts "    the ADB Manager's initialisation is done."
+puts "  * PRTC transactions > 0 and seconds low ticking: InitUtil talked to the"
+puts "    clock chip and the one-second interrupt has a source."

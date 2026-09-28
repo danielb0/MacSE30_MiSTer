@@ -1,6 +1,7 @@
 // se30_machine.v - the SE/30's logic board: the CPU, GLUE, the video, the
-// two VIAs and the SWIM with its internal drive today; the ASC, SCC, SCSI,
-// ADB and RTC as their sections land (SE30_PLAN.md 3.5, 4.8, 5.8).
+// two VIAs, the SWIM with its internal drive, the ADB with its keyboard
+// and mouse, and the clock chip today; the ASC, SCC and SCSI as their
+// sections land (SE30_PLAN.md 3.5, 4.8, 5.8, 6.6).
 //
 // WHAT IT IS
 //   Everything of the machine that is not the MiSTer framework's, behind
@@ -38,12 +39,25 @@
 //   external drive's reads 1.  The RESET instruction resets the SWIM as
 //   it does the VIAs; the drive is not on RESET* and sees only power-up.
 //
+// THE ADB (plan 6.2-6.4, 6.6) - the transceiver is a PIC1654S running
+//   Apple's program (boot2.rom, adb_pm_*), clocked by GLUE's C3M and reset
+//   by RESET*; its INT* is VIA1 PB3, SCLK CB1, DIO CB2 both ways, ST1-ST0
+//   PB5-PB4.  The line is the wired-AND of the transceiver and the two
+//   devices - the Apple Extended Keyboard at 2 and the Apple Standard Mouse
+//   at 3, fed from the PS/2 ports.  The devices see no machine reset,
+//   only the line: RESET* holds the transceiver's latches high, which
+//   holds the line low, which is an ADB Global Reset when it lasts 3 ms.
+//
+// THE CLOCK CHIP (plan 6.5) - on VIA1 PB2-PB0 (CS*, clock, data) and CA2
+//   (1 Hz); its data line is the pin while it drives and the port's
+//   otherwise.  Battery-backed: no reset reaches it.  Its time is the HPS's
+//   TIMESTAMP, taken once.
+//
 // NOT HERE YET - what the VIAs' inputs and the device bus hold until
-//   their sections: the SCC's W/REQ*, the ADB transceiver's interrupt,
-//   clock and data, the RTC's data and 1 Hz, the ASC's and SCSI's
-//   interrupt and DRQ lines, all at their idle levels (plan 4.7); every
-//   other I/O device answers $00 and raises no interrupt.  No disk: the
-//   SWIM's data path is rung 2's.
+//   their sections: the SCC's W/REQ*, the ASC's and SCSI's interrupt and
+//   DRQ lines, all at their idle levels (plan 4.7); every other I/O device
+//   answers $00 and raises no interrupt.  No disk: the SWIM's data path is
+//   rung 2's.
 
 `timescale 1ns/1ps
 
@@ -81,6 +95,16 @@ module se30_machine #(
   // the programmer's switch
   input         nmi_n,
 
+  // the keyboard, the mouse and the time, from hps_io
+  input  [10:0] ps2_key,
+  input  [24:0] ps2_mouse,
+  input  [32:0] timestamp,
+
+  // the ADB transceiver's program (boot2.rom)
+  input         adb_pm_we,
+  input   [8:0] adb_pm_waddr,
+  input  [11:0] adb_pm_wdata,
+
   // for the probe deck and the benches
   output [31:0] dbg_addr,
   output  [2:0] dbg_fc,
@@ -92,7 +116,9 @@ module se30_machine #(
   output        reset_out_n,           // the RESET instruction: the peripherals' reset
   output [31:0] dbg_via,               // {overlay, ramsiz, vsyncen_n, VIA1 IER, IFR, VIA2 IER, IFR} (plan 4.8)
   output [63:0] dbg_regs,              // {D6, D7}: the test manager's failure code and flags (plan 3.8 item 23)
-  output [63:0] dbg_swim               // {the SWIM's 48, the drive's 16} (plan 5.8)
+  output [63:0] dbg_swim,              // {the SWIM's 48, the drive's 16} (plan 5.8)
+  output [63:0] dbg_adb,               // PADB: the transceiver's PIC, the line, the devices (plan 6.6)
+  output [31:0] dbg_rtc                // PRTC: the clock chip (plan 6.6)
 );
 
   // ---------------------------------------------------------- the bus
@@ -170,12 +196,14 @@ module se30_machine #(
 
   // ------------------------------------------------------------- VIAs
   wire        via_reset_n = reset_n && reset_out_n;
+  wire        adb_int_n, adb_sclk, adb_dio, via1_cb2_out, via1_cb2_oe;   // VIA1 and the ADB transceiver
+  wire        rtc_d_out, rtc_d_oe, rtc_1hz, rtc_d;                       // VIA1 and the clock chip
   wire  [7:0] via1_rdata, via2_rdata, swim_rdata;
   wire  [7:0] via1_pa_out, via1_pa_oe, via1_pb_out, via1_pb_oe;
   wire  [7:0] via2_pa_out, via2_pa_oe, via2_pb_out, via2_pb_oe;
   wire  [6:0] via1_ifr, via1_ier, via2_ifr, via2_ier;
   wire  [7:0] via1_pa_ext = 8'hFF;                       // PA7 SCCWREQ* idle; PA6-0 undriven (ALTVID, HDSEL, OVERLAY, SYNC out; PDS straps)
-  wire  [7:0] via1_pb_ext = 8'hFF;                       // PB3 ADB-INT* and PB0 RTC data idle; the rest undriven or outputs
+  wire  [7:0] via1_pb_ext = {4'b1111, adb_int_n, 2'b11, rtc_d};   // PB3 ADB-INT*, PB0 the clock's data; the rest undriven or outputs
   wire  [7:0] via2_pa_ext = {2'b11, irq6_n, 5'b11111};   // RAMSIZ undriven; IRQ*6 the video's latch; IRQ*5-1 the empty PDS
   wire  [7:0] via2_pb_ext = 8'b1011_0111;                // PB6 SNDEXT* and PB3 tied low; TM0A*/TM1A* the empty PDS
   wire  [7:0] via1_pa_pin = (via1_pa_oe & via1_pa_out) | (~via1_pa_oe & via1_pa_ext);
@@ -196,9 +224,9 @@ module se30_machine #(
     .pa_in(via1_pa_pin), .pa_out(via1_pa_out), .pa_oe(via1_pa_oe),
     .pb_in(via1_pb_pin), .pb_out(via1_pb_out), .pb_oe(via1_pb_oe),
     .ca1(via2_pb_pin[7]),                                // VBLK*: VIA2's PB7, T1's output
-    .ca2_in(1'b1), .ca2_out(), .ca2_oe(),                // RTC-1HZ: no edges until the RTC section
-    .cb1_in(1'b1), .cb1_out(), .cb1_oe(),                // ADB-SCLK: idle until the ADB section
-    .cb2_in(1'b1), .cb2_out(), .cb2_oe(),                // ADB-DIO
+    .ca2_in(rtc_1hz), .ca2_out(), .ca2_oe(),             // RTC-1HZ
+    .cb1_in(adb_sclk), .cb1_out(), .cb1_oe(),            // ADB-SCLK: the transceiver clocks the shift register
+    .cb2_in(adb_dio), .cb2_out(via1_cb2_out), .cb2_oe(via1_cb2_oe),   // ADB-DIO
     .dbg_ifr(via1_ifr), .dbg_ier(via1_ier));
 
   se30_via via2 (
@@ -212,6 +240,47 @@ module se30_machine #(
     .cb1_in(1'b1), .cb1_out(), .cb1_oe(),                // SNDINT*: none until the ASC section
     .cb2_in(1'b0), .cb2_out(), .cb2_oe(),                // SCSIIRQ
     .dbg_ifr(via2_ifr), .dbg_ier(via2_ier));
+
+  // ------------------------------------------------------------- ADB
+  wire        xcvr_pull, kbd_pull, mouse_pull;
+  wire        adb_line = !(xcvr_pull | kbd_pull | mouse_pull);   // R31's pull-up, and everyone's pull-down
+  wire [63:0] xcvr_dbg;
+  wire [15:0] kbd_dbg, mouse_dbg;
+  // falling edges on the line: ADB traffic at a glance
+  reg  [15:0] adb_falls = 0;
+  reg         adb_line_q = 1;
+  always @(posedge clk) begin
+    adb_line_q <= adb_line;
+    if (adb_line_q && !adb_line) adb_falls <= adb_falls + 1'b1;
+  end
+  // PADB: {PIC PC, W, the line, INT*, SCLK, DIO, ST1, ST0, who pulls
+  // (transceiver, keyboard, mouse), the keyboard's and mouse's engine
+  // states, the last command the keyboard heard, the falls, 6'b0}
+  assign dbg_adb = {xcvr_dbg[63:55], xcvr_dbg[54:47],
+                    adb_line, adb_int_n, adb_sclk, adb_dio, via1_pb_pin[5], via1_pb_pin[4],
+                    xcvr_pull, kbd_pull, mouse_pull,
+                    kbd_dbg[15:12], mouse_dbg[15:12], kbd_dbg[11:4], adb_falls, 6'd0};
+
+  se30_adb_xcvr xcvr (
+    .clk(clk), .osc_en(c3m_en), .reset_n(via_reset_n),
+    .pm_we(adb_pm_we), .pm_waddr(adb_pm_waddr), .pm_wdata(adb_pm_wdata),
+    .st0(via1_pb_pin[4]), .st1(via1_pb_pin[5]), .int_n(adb_int_n), .sclk(adb_sclk),
+    .via_cb2_out(via1_cb2_out), .via_cb2_oe(via1_cb2_oe), .dio(adb_dio),
+    .line(adb_line), .pull(xcvr_pull), .dbg(xcvr_dbg));
+
+  se30_adb_kbd kbd (
+    .clk(clk), .reset(1'b0), .ps2_key(ps2_key), .line(adb_line), .pull(kbd_pull), .dbg(kbd_dbg));
+
+  se30_adb_mouse mouse (
+    .clk(clk), .reset(1'b0), .ps2_mouse(ps2_mouse), .line(adb_line), .pull(mouse_pull), .dbg(mouse_dbg));
+
+  // ------------------------------------------------------------- RTC
+  assign      rtc_d = rtc_d_oe ? rtc_d_out : 1'b1;
+
+  se30_rtc rtc (
+    .clk(clk), .timestamp(timestamp),
+    .cs_n(via1_pb_pin[2]), .sck(via1_pb_pin[1]), .d_in(via1_pb_pin[0]),
+    .d_out(rtc_d_out), .d_oe(rtc_d_oe), .one_hz(rtc_1hz), .dbg(dbg_rtc));
 
   // ------------------------------------------------------------ SWIM
   wire  [3:0] swim_ph, swim_ph_oe;

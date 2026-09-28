@@ -117,18 +117,27 @@ module se30_rtc #(
     end
   endtask
 
-  function [7:0] read_target(input [2:0] k, input [7:0] a);
-    case (k)
-      K_SECS:  read_target = secs[8 * a[1:0] +: 8];
-      K_RAM:   read_target = ram[a];
-      default: read_target = 8'hFF;
-    endcase
-  endfunction
+  // the RAM: one read port, registered, one write port - block RAM.  A read
+  // command names its byte on its last rising edge; the byte is wanted at
+  // the next falling edge, microseconds later, so `load2` takes it from
+  // the port two clocks after the address is set (one to register the
+  // address, one for the data).
+  reg  [7:0] raddr = 0, ram_q = 0;
+  reg        we = 0;
+  reg  [7:0] waddr = 0, wdat = 0;
+  reg        load = 0, load2 = 0;
+  always @(posedge clk) begin
+    ram_q <= ram[raddr];
+    if (we) ram[waddr] <= wdat;
+  end
 
   reg [2:0] k1;
   reg [7:0] a1;
 
   always @(posedge clk) begin
+    we <= 0; load <= 0; load2 <= load;
+    if (load2) out <= (kind == K_RAM) ? ram_q : secs[8 * xaddr[1:0] +: 8];
+
     // the seconds
     ts_q <= timestamp[32];
     if (timestamp[32] != ts_q && !loaded) begin
@@ -158,13 +167,13 @@ module se30_rtc #(
               kind <= k1; xaddr <= a1;
               if (inbyte[7]) begin
                 phase <= (k1 == K_SECS || k1 == K_RAM) ? RDATA : DONE;
-                out <= read_target(k1, a1);
+                raddr <= a1; load <= 1;
               end else phase <= WDATA;
             end
           end
           CMD2: begin
             kind <= K_RAM; xaddr <= {cmd1[2:0], inbyte[6:2]};
-            if (cmd1[7]) begin phase <= RDATA; out <= ram[{cmd1[2:0], inbyte[6:2]}]; end
+            if (cmd1[7]) begin phase <= RDATA; raddr <= {cmd1[2:0], inbyte[6:2]}; load <= 1; end
             else phase <= WDATA;
           end
           WDATA: begin
@@ -173,7 +182,7 @@ module se30_rtc #(
             else if (!wp) case (kind)
               K_SECS: secs[8 * xaddr[1:0] +: 8] <= inbyte;
               K_TEST: test <= inbyte;
-              K_RAM:  ram[xaddr] <= inbyte;
+              K_RAM:  begin we <= 1; waddr <= xaddr; wdat <= inbyte; end
               default: ;
             endcase
           end

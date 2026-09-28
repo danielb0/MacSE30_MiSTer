@@ -76,6 +76,9 @@ localparam CONF_STR = {
 
 wire   [1:0] buttons;
 wire [127:0] status;
+wire  [10:0] ps2_key;
+wire  [24:0] ps2_mouse;
+wire  [32:0] TIMESTAMP;
 wire         ioctl_download, ioctl_wr;
 wire  [15:0] ioctl_index;
 wire  [26:0] ioctl_addr;
@@ -91,6 +94,10 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 
 	.buttons(buttons),
 	.status(status),
+
+	.ps2_key(ps2_key),
+	.ps2_mouse(ps2_mouse),
+	.TIMESTAMP(TIMESTAMP),
 
 	.ioctl_download(ioctl_download),
 	.ioctl_index(ioctl_index),
@@ -153,11 +160,23 @@ end
 ///////////////////////   ROM DOWNLOADS   ////////////////////////
 // Main sends bootN.rom with index N << 6 (plan 3.4): boot0.rom, the 256 KB
 // SE/30 ROM, to the SDRAM's ROM region as big-endian words; boot1.rom, the
-// 8 KB declaration ROM, to the video's BRAM a byte at a time.  Each word
-// holds the HPS (ioctl_wait) until the memory has taken it.
+// 8 KB declaration ROM, to the video's BRAM a byte at a time; boot2.rom,
+// the ADB transceiver's program (342S0440-B, plan 6.3.4), 512 words of
+// two bytes, low byte first, twelve bits used, straight into its store.
+// Each word holds the HPS (ioctl_wait) until the memory has taken it.
 
 wire boot0 = (ioctl_index[7:0] == 8'h00);
 wire boot1 = (ioctl_index[7:0] == 8'h40);
+wire boot2 = (ioctl_index[7:0] == 8'h80);
+
+reg         adb_pm_we = 0;
+reg   [8:0] adb_pm_waddr;
+reg  [11:0] adb_pm_wdata;
+always @(posedge clk_sys) begin
+	adb_pm_we <= ioctl_wr && ioctl_download && boot2 && ioctl_addr[26:10] == 0;
+	adb_pm_waddr <= ioctl_addr[9:1];
+	adb_pm_wdata <= ioctl_dout[11:0];                  // byte 0, the low half, is the word's low byte
+end
 
 reg         dl_req = 0;
 reg  [23:0] dl_addr;
@@ -239,7 +258,8 @@ wire  [1:0] dbg_dsack_n;
 wire        dbg_as_n, dbg_rw_n, dbg_berr, dbg_halted, reset_out_n;
 wire [31:0] dbg_via;
 wire [63:0] dbg_regs;
-wire [63:0] dbg_swim;
+wire [63:0] dbg_swim, dbg_adb;
+wire [31:0] dbg_rtc;
 
 se30_machine machine
 (
@@ -251,7 +271,9 @@ se30_machine machine
 	.nmi_n(1'b1),
 	.dbg_addr(dbg_addr), .dbg_fc(dbg_fc), .dbg_as_n(dbg_as_n), .dbg_rw_n(dbg_rw_n),
 	.dbg_dsack_n(dbg_dsack_n), .dbg_berr(dbg_berr), .dbg_halted(dbg_halted), .reset_out_n(reset_out_n),
-	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_swim(dbg_swim)
+	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse), .timestamp(TIMESTAMP),
+	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
+	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_swim(dbg_swim), .dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc)
 );
 
 ///////////////////////   VIDEO   ////////////////////////////////
@@ -335,7 +357,8 @@ dbg_probes probes
 	.peek_src(pk_src), .peek_data({pk_cnt, pk_data}),
 	.peek_stat({pk_cnt, 2'b0, raw_ack, pk_hold, pk_req_r, pk_st}),
 	.poke_src(pok_src), .raw_src(praw_src),
-	.rom_loaded(rom_loaded), .via_state(dbg_via), .cpu_regs(dbg_regs), .swim_state(dbg_swim)
+	.rom_loaded(rom_loaded), .via_state(dbg_via), .cpu_regs(dbg_regs), .swim_state(dbg_swim),
+	.adb_state(dbg_adb), .rtc_state(dbg_rtc)
 );
 `else
 assign pk_hold = 1'b0;
