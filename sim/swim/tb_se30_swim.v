@@ -591,6 +591,33 @@ module tb_se30_swim;
     repeat (20) @(posedge clk);
     rd(16'h1800);                                       // L6 clear: the data register again
     check(q == 8'hD5, "a status read is not a valid read: the byte survives it", q, 8'hD5);
+    // OUR READING, pinned (Daniel 2026-09-28): the drawing says only
+    // "cleared 14 FCLK periods ... after a valid data read", and the ROM,
+    // reading each byte once 256 FCLK apart, reaches neither case below.
+    // The clear counts from the latest valid read (a second one re-arms it)
+    idle_flush;
+    play_bits(8'b11010101, 8);
+    repeat (400) @(posedge clk);
+    rd(16'h1800);                                       // valid read at T
+    repeat (6) @(posedge clk); rd(16'h1800);            // T+10: valid again, re-arms
+    repeat (6) @(posedge clk); rd(16'h1800);            // T+20: past T+14, before T+24
+    check(q == 8'hD5, "our reading: a second valid read re-arms the clear", q, 8'hD5);
+    // and a byte latching while a clear is pending cancels it: the new
+    // byte waits for its own valid read
+    idle_flush;
+    fork
+      begin play_bits(16'hD5FF, 16); repeat (64) @(posedge clk); end
+      begin
+        wait (swim.sr == 8'h7F);                         // seven 1s of $FF: its last edge is 32 FCLK off
+        repeat (24) @(posedge clk);
+        rd(16'h1800);                                    // $D5, a valid read, a few FCLK before $FF latches
+        b = q;
+        repeat (30) @(posedge clk);
+        rd(16'h1800);
+      end
+    join
+    check(b == 8'hD5, "our reading: the first byte read just before the next latches", b, 8'hD5);
+    check(q == 8'hFF, "our reading: a new byte cancels the pending clear", q, 8'hFF);
 
     // self-sync from three bit offsets
     for (i = 0; i < 3; i = i + 1) sync_test(i);

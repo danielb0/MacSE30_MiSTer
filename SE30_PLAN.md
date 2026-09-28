@@ -6153,7 +6153,7 @@ The probes say where it stops.
 1. ~~Write this section.~~ **Done 2026-09-28.**
 2. `sim/swim` items (5.12.9 item 1), failing, then the IWM read path in
    `se30_swim.v`.
-   **Done 2026-09-28: 115 checks PASS.** The bench's item 15 (the window
+   **Done 2026-09-28: 118 checks PASS.** The bench's item 15 (the window
    bands at Nclks 7/8/23/24/39/40/55/56, the blanking at 10, 11 and 14
    FCLK, the latch, its clear and what is not a valid read, self-sync from
    three offsets, the fast 8M and slow 7M bands) **failed all its checks
@@ -6183,12 +6183,13 @@ The probes say where it stops.
    (1: the edge at 11 FCLK, which sheet 53 says is always ignored), any
    register read counted as a valid read (1: a status read with a byte
    latched), a one before the zero on a boundary transition (8).
-   **Survive, by design of the documents:** the clear not re-armed by a
-   second valid read, and a pending clear not cancelled by a new byte
-   latching. The drawing says only "cleared 14 FCLK periods ... after a
-   valid data read", and the ROM reaches neither case (it reads each byte
-   once, 256 FCLK apart). The RTL re-arms and cancels; whether to pin that
-   with checks as our reading, or leave it free, is Daniel's call.
+   **Two cases the documents leave open**, pinned as OUR READING by
+   Daniel 2026-09-28 (three checks, 118 PASS): the clear counts from the
+   latest valid read (a second one re-arms it), and a byte latching while
+   a clear is pending cancels it. The drawing says only "cleared 14 FCLK
+   periods ... after a valid data read", and the ROM reaches neither case
+   (it reads each byte once, 256 FCLK apart). Without the checks both
+   mutants survived; with them each fails exactly its own check.
 3. `sim/fdhd`, failing, then `se30_fdhd.v`'s drive of 5.12.3.
 4. `sim/flpenc`, failing, then `se30_flp_encoder.v`.
 5. `sim/flpload` and `sim/sdram`'s disk port, failing, then
