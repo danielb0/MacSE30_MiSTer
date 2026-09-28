@@ -133,6 +133,7 @@ module se30_machine #(
   output        reset_out_n,           // the RESET instruction: the peripherals' reset
   output [31:0] dbg_via,               // {overlay, ramsiz, vsyncen_n, VIA1 IER, IFR, VIA2 IER, IFR} (plan 4.8)
   output [63:0] dbg_regs,              // {D6, D7}: the test manager's failure code and flags (plan 3.8 item 23)
+  output [24:0] dbg_exc,               // {an exception taken, its vector, the opcode}: PEXC and PTRP (plan 5.12.12 item 8)
   output [63:0] dbg_swim,              // {the SWIM's 48, the drive's 16} (plan 5.8)
   output        dbg_swim_vread,        // the SWIM's valid data reads (PFLP counts them)
   output [63:0] dbg_adb,               // PADB: the transceiver's PIC, the line, the devices (plan 6.6)
@@ -150,7 +151,7 @@ module se30_machine #(
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .reset_out_n(reset_out_n), .halted(halted),
-    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]));
+    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_exc(dbg_exc));
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;
   assign dbg_rw_n = cpu_rw_n;  assign dbg_dsack_n = dsack_n;  assign dbg_berr = berr;

@@ -495,6 +495,26 @@ for {set n 0} {$n < $samples} {incr n} {
 			[expr {($en >> 15) & 1}] [expr {($en >> 14) & 1}] [expr {($en >> 10) & 0xF}] [expr {($en >> 6) & 0xF}] \
 			[expr {$en & 0x3F}] [expr {($pflp >> 16) & 0xFFFF}] [expr {$pflp & 0xFFFF}]]
 	}
+	if {[have PEXC]} {
+		# plan 5.12.12 item 8: the CPU's exceptions -- see rtl/dbg_probes.sv
+		set pexc [rd PEXC]
+		set ring [expr {$pexc & 0xFFFFFFFFFFFFFFFF}]
+		set vecs {}
+		for {set k 0} {$k < 8} {incr k} { lappend vecs [format %d [expr {($ring >> (8 * $k)) & 0xFF}]] }
+		puts [format "  PEXC  exceptions=%d  A-line=%d  interrupts=%d  F-line=%d  address=%d  illegal=%d  bus error=%d  other=%d" \
+			[expr {($pexc >> 144) & 0xFFFF}] [expr {($pexc >> 128) & 0xFFFF}] [expr {($pexc >> 112) & 0xFFFF}] \
+			[expr {($pexc >> 96) & 0xFFFF}] [expr {($pexc >> 88) & 0xFF}] [expr {($pexc >> 80) & 0xFF}] \
+			[expr {($pexc >> 72) & 0xFF}] [expr {($pexc >> 64) & 0xFF}]]
+		puts "        the last 8 other vectors, newest first: $vecs   (2 bus error, 3 address, 4 illegal, 11 F-line, 32-47 TRAP #n)"
+	}
+	if {[have PTRP]} {
+		set ptrp [rd PTRP]
+		set words {}
+		for {set k 0} {$k < 16} {incr k} { lappend words [format %04X [expr {($ptrp >> (16 * $k)) & 0xFFFF}]] }
+		puts "  PTRP  the last 16 A-line trap words, newest first:"
+		puts "        [lrange $words 0 7]"
+		puts "        [lrange $words 8 15]"
+	}
 	if {[have PRTC]} {
 		# plan 6.6: the clock chip
 		set prtc [rd PRTC]
@@ -541,12 +561,17 @@ puts "  * PSWM phase dirs=F with PH=7 left over: the .Sony Open's SWIM probe"
 puts "    ran (\$F5-\$F7 echoed); the drive's motor/track show its commands."
 puts "  * The screen is the target: the flashing question-mark disk."
 puts "Since plan 5.12.12 item 7 (GCR reading, rung 2):"
-puts "  * PFLP loader disk in=1 after a mount: the whole image is in SDRAM (an 800K"
-puts "    file loads in well under a second)."
+puts "  * PFLP loader disk in=1 after a mount: the whole image is in SDRAM (the HPS"
+puts "    delivers an 800K file in some tens of seconds; loading=1 until then)."
 puts "  * encoder track valid=1 with its cylinder = PSWM's track: the head's track is"
 puts "    built; port words climb by about 6,300 a side at each seek."
 puts "  * bytes taken climbing by thousands: the ROM is reading the disk. The screen"
 puts "    is the verdict: the happy Mac, then as far as the machine goes."
+puts "Since plan 5.12.12 item 8 (the stop at \"Welcome to Macintosh\"):"
+puts "  * PEXC's counts over several samples: which exception is climbing (F-line"
+puts "    with no 68882; address or illegal from an unsupported instruction), and"
+puts "    the last vectors that were neither interrupts nor Toolbox traps."
+puts "  * PTRP: the Toolbox/OS calls being made - a loop repeats its trap words."
 puts "Since Section 6 (the ADB and the clock chip, SE30_PLAN.md 6.7 and 6.10):"
 puts "  * PADB W changing and the line released: the transceiver runs its program"
 puts "    (with no boot2.rom the PC runs through NOPs, W stays 0, the line stays low)."

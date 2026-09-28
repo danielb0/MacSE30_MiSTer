@@ -6563,6 +6563,29 @@ The probes say where it stops.
    **The M10K count** (item 4's open question) waits for the fitter.
    With it, Section 7's ASC stub (Daniel: before this bitstream).
 8. The compile (Daniel's go-ahead) and the board: an 800K image mounted.
+   **Compile 19 (tag `9b365e8f`, `MacSE30_9b365e8f_gcrread.rbf`, md5
+   `b68e60a6...`)**: 23m30s, the flow's timing met (+0.088 ns),
+   `sta_corners.tcl` met at every corner with the capture excepted (0.992
+   ns; the capture as in compiles 15-18); 218 of 553 RAM blocks (39%).
+   **THE BOARD (2026-09-28, Daniel): the grey screen, the disk icon, the
+   happy Mac with the pointer moving - then "Welcome to Macintosh". The
+   SE/30 read its System from the floppy image: 5.12.10's target met.**
+   A few seconds later the Welcome box redraws in a continuous loop with
+   no pointer; a second disk does the same. The probes: the CPU runs (no
+   halt, no bus error, the VBL at 60/s), the disk idle at cylinder 53 with
+   60,000 bytes read, and 60 samples of the fetch address spread across
+   QuickDraw writing the box's rows of video RAM - no device polled (not
+   the SCC, SCSI, the ASC or the SWIM). The Welcome box is the System
+   Error Handler's own greeting alert, so a loop re-entering that code
+   fits; what re-enters it (an exception - the missing 68882's F-line, an
+   address error, an illegal instruction - or a trap retried) the fetch
+   address cannot say. **Daniel: build both instruments** - **`PEXC`**
+   (the CPU's exceptions: counts by class and the last 8 vectors that were
+   neither interrupts nor A-line) and **`PTRP`** (the last 16 A-line trap
+   words), from a one-clock pulse the kernel now exports as its vector
+   fetch step (`trap3`) advances (`debug_exc_take`, with `debug_trap_vector`
+   and `debug_opcode`). `sim/busfault` holds the pulse: once per bus error,
+   vector 2, no other exception (13 PASS); `sim/machine` 17 PASS.
 9. **5.13 - the ISM's MFM read** (720K, 1.44 MB), from the ISM ASIC spec,
    written when GCR is on the board.
 

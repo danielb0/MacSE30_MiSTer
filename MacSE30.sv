@@ -343,6 +343,7 @@ wire [63:0] dbg_regs;
 wire [63:0] dbg_swim, dbg_adb;
 wire [31:0] dbg_rtc;
 wire        dbg_swim_vread;
+wire [24:0] dbg_exc;
 
 se30_machine machine
 (
@@ -358,7 +359,7 @@ se30_machine machine
 	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
 	.disk_in(disk_in), .disk_eject(disk_eject), .disk_cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
 	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
-	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_swim(dbg_swim), .dbg_swim_vread(dbg_swim_vread),
+	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_swim(dbg_swim), .dbg_swim_vread(dbg_swim_vread),
 	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc)
 );
 
@@ -458,7 +459,8 @@ dbg_probes probes
 	.poke_src(pok_src), .raw_src(praw_src),
 	.rom_loaded(rom_loaded), .via_state(dbg_via), .cpu_regs(dbg_regs), .swim_state(dbg_swim),
 	.adb_state(dbg_adb), .rtc_state(dbg_rtc),
-	.flp_state({ld_dbg, en_dbg, flp_words, flp_bytes})
+	.flp_state({ld_dbg, en_dbg, flp_words, flp_bytes}),
+	.exc_state(dbg_exc)
 );
 `else
 assign pk_hold = 1'b0;

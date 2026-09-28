@@ -74,6 +74,16 @@
 //         [5:0]}, the disk port's words moved[15:0] and the bytes the ROM
 //         has taken from the SWIM[15:0] (valid data reads): is the image
 //         in, is the head's track built, is the ROM reading it
+// and, since plan 5.12.12 item 8 (the first boot's stop at "Welcome to
+// Macintosh"), the CPU's exceptions, one pulse each from the kernel:
+//   PEXC  160 bits: counts of {every exception[15:0], A-line traps[15:0],
+//         interrupts (vectors 24-31)[15:0], F-line[15:0], address errors
+//         [7:0], illegal instructions[7:0], bus errors[7:0], the rest
+//         [7:0]} (the 8-bit ones saturate), then the last 8 vectors that
+//         were neither interrupts nor A-line traps, newest in [7:0]: what
+//         went wrong
+//   PTRP  256 bits: the last 16 A-line trap words, newest in [15:0]: which
+//         Toolbox and OS calls the machine is making
 
 module dbg_probes (
 	input  wire        clk,
@@ -101,7 +111,8 @@ module dbg_probes (
 	input  wire [63:0] swim_state,        // PSWM: se30_machine's dbg_swim (plan 5.8)
 	input  wire [63:0] adb_state,         // PADB: se30_machine's dbg_adb (plan 6.6)
 	input  wire [31:0] rtc_state,         // PRTC: se30_machine's dbg_rtc (plan 6.6)
-	input  wire [63:0] flp_state          // PFLP: the floppy's (plan 5.12.12 item 7)
+	input  wire [63:0] flp_state,         // PFLP: the floppy's (plan 5.12.12 item 7)
+	input  wire [24:0] exc_state          // PEXC, PTRP: {an exception taken, its vector, the opcode} (item 8)
 );
 
 	reg        as_q = 1;
@@ -185,6 +196,44 @@ module dbg_probes (
 		.instance_id ("PRTC"), .probe_width (32), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_prtc (.probe(prtc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the CPU's exceptions (the header's PEXC, PTRP): one pulse per
+	// exception from the kernel, with its vector number and the opcode
+	wire       exc_take = exc_state[24];
+	wire [7:0] exc_vec  = exc_state[23:16];
+	wire       exc_irq  = (exc_vec >= 8'd24) && (exc_vec <= 8'd31);   // spurious and the autovectors
+	reg [15:0] n_exc = 0, n_aline = 0, n_irq = 0, n_fline = 0;
+	reg  [7:0] n_addr = 0, n_ill = 0, n_berr = 0, n_other = 0;
+	reg [63:0] exc_ring = 0;                  // the last 8 vectors, not interrupts or A-line, newest [7:0]
+	reg [255:0] trp_ring = 0;                 // the last 16 A-line trap words, newest [15:0]
+	always @(posedge clk) if (exc_take) begin
+		n_exc <= n_exc + 1'd1;
+		if (exc_vec == 8'd10) begin
+			n_aline  <= n_aline + 1'd1;
+			trp_ring <= {trp_ring[239:0], exc_state[15:0]};
+		end else if (exc_irq) n_irq <= n_irq + 1'd1;
+		else begin
+			exc_ring <= {exc_ring[55:0], exc_vec};
+			case (exc_vec)
+				8'd11:   n_fline <= n_fline + 1'd1;
+				8'd3:    if (n_addr  != 8'hFF) n_addr  <= n_addr  + 1'd1;
+				8'd4:    if (n_ill   != 8'hFF) n_ill   <= n_ill   + 1'd1;
+				8'd2:    if (n_berr  != 8'hFF) n_berr  <= n_berr  + 1'd1;
+				default: if (n_other != 8'hFF) n_other <= n_other + 1'd1;
+			endcase
+		end
+	end
+
+	altsource_probe #(
+		.instance_id ("PEXC"), .probe_width (160), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pexc (.probe({n_exc, n_aline, n_irq, n_fline, n_addr, n_ill, n_berr, n_other, exc_ring}),
+	           .source(), .source_clk(clk), .source_ena(1'b1));
+
+	altsource_probe #(
+		.instance_id ("PTRP"), .probe_width (256), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_ptrp (.probe(trp_ring), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the floppy (the header's PFLP)
 	reg [63:0] pflp_r = 0;

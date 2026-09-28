@@ -67,7 +67,9 @@ module tg68k (
   output        reset_out_n,           // the RESET instruction
   output        halted,                // double bus fault
   output [31:0] dbg_d6,                // D6 and D7, for the probe deck: the ROM's test manager
-  output [31:0] dbg_d7                 //   keeps a failed test's code there (plan 3.8 item 23)
+  output [31:0] dbg_d7,                //   keeps a failed test's code there (plan 3.8 item 23)
+  output [24:0] dbg_exc                // {an exception taken (one clk), its vector number, the opcode}:
+                                       //   the probe deck's PEXC and PTRP (plan 5.12.12 item 8)
 );
 
   // ------------------------------------------------------------- kernel
@@ -77,6 +79,9 @@ module tg68k (
   wire        k_nwr, k_nreset_out, k_clr_berr;
   wire  [2:0] k_fc;
   wire        k_pmmu_busy, k_pmmu_fault, k_make_berr, k_trap_berr, k_halted;
+  wire        k_exc_take;
+  wire [31:0] k_trap_vector;
+  wire [15:0] k_opcode;
   wire        w_req, w_we, w_berr;
   wire [31:0] w_addr, w_wdat;
   reg         w_ack;
@@ -95,8 +100,10 @@ module tg68k (
     .pmmu_walker_ack(w_ack), .pmmu_walker_data(w_data), .pmmu_walker_berr(w_berr),
     .debug_pmmu_busy(k_pmmu_busy), .debug_pmmu_fault(k_pmmu_fault),
     .debug_make_berr(k_make_berr), .debug_trap_berr(k_trap_berr), .debug_cpu_halted(k_halted),
-    .debug_regfile_d6(dbg_d6), .debug_regfile_d7(dbg_d7)
+    .debug_regfile_d6(dbg_d6), .debug_regfile_d7(dbg_d7),
+    .debug_exc_take(k_exc_take), .debug_trap_vector(k_trap_vector), .debug_opcode(k_opcode)
   );
+  assign dbg_exc = {k_exc_take, k_trap_vector[9:2], k_opcode};
   assign reset_out_n = k_nreset_out;
   assign halted = k_halted;
 
