@@ -259,7 +259,8 @@ module tb_se30_swim;
   reg [7:0] seen [0:31];
   integer nseen;
   task sync_test(input integer off);
-    integer k;
+    integer k, p;                                      // one counter per fork branch: a shared one
+                                                       // let the poller cut the sync groups short
     reg [39:0] tail;
     begin
       idle_flush;
@@ -272,7 +273,7 @@ module tb_se30_swim;
           repeat (64) @(posedge clk);
         end
         begin
-          for (k = 0; k < 12; k = k + 1) begin
+          for (p = 0; p < 12; p = p + 1) begin
             poll_byte(4000);
             if (got[7] && nseen < 32) begin seen[nseen] = got; nseen = nseen + 1; end
           end
@@ -564,7 +565,10 @@ module tb_se30_swim;
 
     // the blanking: an extra falling edge 10 FCLK after a transition is
     // ignored, one 14 FCLK after is taken (then a 01 either way follows)
+    // (sheet 53: in slow mode under 12 FCLK always ignored, 12-14 "sometimes",
+    // over 14 always taken - the RTL ignores 12 and 13; neither is checked)
     blank_test(10, 8'hBF, "an edge 10 FCLK after the last is ignored (blanking 12 FCLK)");
+    blank_test(11, 8'hBF, "an edge 11 FCLK after the last is ignored (under 12: always)");
     blank_test(14, 8'hDF, "an edge 14 FCLK after the last is taken");
 
     // the latch: held until read, cleared 14 FCLK after a valid read
@@ -578,6 +582,15 @@ module tb_se30_swim;
     repeat (20) @(posedge clk);
     rd(16'h1800);
     check(q == 8'h00, "then clears: 14 FCLK after a valid read", q, 0);
+    // a valid read is D7 = 1 out of the data register (sheet 53): reading
+    // the status register with the byte latched starts no clear
+    idle_flush;
+    play_bits(8'b11010101, 8);
+    repeat (400) @(posedge clk);
+    rd(16'h1A00);                                       // L6 set: the status register
+    repeat (20) @(posedge clk);
+    rd(16'h1800);                                       // L6 clear: the data register again
+    check(q == 8'hD5, "a status read is not a valid read: the byte survives it", q, 8'hD5);
 
     // self-sync from three bit offsets
     for (i = 0; i < 3; i = i + 1) sync_test(i);

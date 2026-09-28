@@ -5851,8 +5851,12 @@ From the IWM spec (pp. 2-4, 10) and the SWIM drawing (sheets 52-53):
   transition of RDDATA there is a window during which subsequent falling
   transitions are ignored. In 8M FAST mode this window is 6 FCLK periods
   ... For SLOW mode the windowing is twice as long" - **12 FCLK** here.
-  The SWIM is the later part, so this applies; Nclks 6-7 (between the
-  blanking and the table's first band) are taken as `1`.
+  The SWIM is the later part, so this applies. The same passage states
+  the edge's uncertainty: RDDATA is synchronised to CLK, so in slow 8M a
+  transition under 12 FCLK after the last is always ignored, one between
+  12 and 14 FCLK "sometimes", and one over 14 always taken (7M slow: 10,
+  12). The RTL ignores Nclks 6 and takes Nclks 7 (14 FCLK) and up, as `1`
+  until the table's first band.
 - **The shift register**: data enters at the LSB; "a full data nibble is
   considered to be shifted in when a one shifted into the MSB"; it is then
   latched into the read data register and the shift register cleared.
@@ -6149,37 +6153,42 @@ The probes say where it stops.
 1. ~~Write this section.~~ **Done 2026-09-28.**
 2. `sim/swim` items (5.12.9 item 1), failing, then the IWM read path in
    `se30_swim.v`.
-   **IN PROGRESS at the end of the 2026-09-28 session (committed as work
-   in progress).** The bench's new item 15 (20 checks: the window bands at
-   Nclks 7/8/23/24/39/40/55/56, the blanking at 10 and 14 FCLK, the latch
-   and its clear, self-sync from three offsets, the fast 8M and slow 7M
-   bands) **failed all 20 against the rung-1 chip, as it should**. The
-   read path is written in `se30_swim.v` (CLK = FCLK or FCLK/2, RDDATA
-   sampled on it, a window-boundary counter shifting 0s and each accepted
-   transition a 1, the B-revision blanking, the latch into the data
-   register, the asynchronous clear 14 FCLK after a valid read - re-armed
-   by each valid read - and synchronous mode's live register with its
-   stall). **Result: 109 of 113 pass.** The four failures are understood
-   and are the bench's, not the chip's; the fixes are written but were
-   NOT applied (the session ended):
-   - **rung 1's item 3 check "001: read data (no flux: the latch is 0)"**
-     now reads `$0B`: out of reset the mode is 0, synchronous, where the
-     data register is the live shift register, and the drive's status
-     changes on RDDATA have shifted bits into it. Replace the check with
-     `q == swim.sr` ("mode 0 is synchronous: the live shift register").
-   - **the three self-sync checks** read `FF FF FF FF`: the bench's poller
-     re-reads `$1800` within 14 FCLK of a valid read, sees the same byte
-     again (and each valid read re-arms the clear), and uses up its twelve
-     polls on the first `FF`. The ROM never reads that fast: after a byte
-     it does table lookups and a VIA1 PA7 poll (`$40831C48`-`$40831C70`),
-     well over 14 FCLK (0.89 us at C16M - the documents' "about 2 us" is
-     at 7 MHz). In `poll_byte`, after a byte with the MSB set, wait 20
-     clocks (`if (got[7]) repeat (20) @(posedge clk);`) with a comment
-     saying why.
-   Then rerun `sim/swim/run.sh` (about a minute), expect 113 PASS, and
-   mutation-test the read path (a window boundary one CLK off, the
-   blanking removed, the clear not re-armed / not cancelled by a new
-   byte, the zero-then-one order on a boundary transition).
+   **Done 2026-09-28: 115 checks PASS.** The bench's item 15 (the window
+   bands at Nclks 7/8/23/24/39/40/55/56, the blanking at 10, 11 and 14
+   FCLK, the latch, its clear and what is not a valid read, self-sync from
+   three offsets, the fast 8M and slow 7M bands) **failed all its checks
+   against the rung-1 chip first, as it should**. The read path in
+   `se30_swim.v`: CLK = FCLK or FCLK/2, RDDATA sampled on it, a
+   window-boundary counter shifting 0s and each accepted transition a 1,
+   the B-revision blanking, the latch into the data register, the
+   asynchronous clear 14 FCLK after a valid read, and synchronous mode's
+   live register with its stall. Three bench faults found on the way,
+   none the chip's:
+   - rung 1's item 3 check assumed a zero data register out of reset; mode
+     0 is synchronous, where the data register is the live shift register
+     (`q == swim.sr`).
+   - the poller re-read `$1800` within 14 FCLK of a valid read, faster than
+     the ROM ever does (after a byte it does table lookups and a VIA1 PA7
+     poll, `$40831C48`-`$40831C70`; 14 FCLK = 0.89 us at C16M, the
+     documents' "about 2 us" is at 7 MHz); `poll_byte` now waits 20 clocks
+     after a byte.
+   - `sync_test`'s player and poller shared one loop counter across the
+     `fork`, so the poller cut the five sync groups to three: enough to
+     lock from offset 0, not from 1 or 2. A trace showed the chip decoding
+     exactly what it was given. Each branch has its own counter now.
+
+   **Mutation test** (a scratch copy of the RTL each, the whole bench):
+   caught - the first window boundary one CLK late (5 fail), the window
+   one CLK short (2), the blanking removed (2), the blanking one CLK short
+   (1: the edge at 11 FCLK, which sheet 53 says is always ignored), any
+   register read counted as a valid read (1: a status read with a byte
+   latched), a one before the zero on a boundary transition (8).
+   **Survive, by design of the documents:** the clear not re-armed by a
+   second valid read, and a pending clear not cancelled by a new byte
+   latching. The drawing says only "cleared 14 FCLK periods ... after a
+   valid data read", and the ROM reaches neither case (it reads each byte
+   once, 256 FCLK apart). The RTL re-arms and cancels; whether to pin that
+   with checks as our reading, or leave it free, is Daniel's call.
 3. `sim/fdhd`, failing, then `se30_fdhd.v`'s drive of 5.12.3.
 4. `sim/flpenc`, failing, then `se30_flp_encoder.v`.
 5. `sim/flpload` and `sim/sdram`'s disk port, failing, then
