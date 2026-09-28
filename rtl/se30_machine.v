@@ -262,7 +262,7 @@ module se30_machine #(
                     kbd_dbg[15:12], mouse_dbg[15:12], kbd_dbg[11:4], adb_falls, 6'd0};
 
   se30_adb_xcvr xcvr (
-    .clk(clk), .osc_en(c3m_en), .reset_n(via_reset_n),
+    .clk(clk), .c16_en(phi1), .c3m_en(c3m_en), .reset_n(via_reset_n),
     .pm_we(adb_pm_we), .pm_waddr(adb_pm_waddr), .pm_wdata(adb_pm_wdata),
     .st0(via1_pb_pin[4]), .st1(via1_pb_pin[5]), .int_n(adb_int_n), .sclk(adb_sclk),
     .via_cb2_out(via1_cb2_out), .via_cb2_oe(via1_cb2_oe), .dio(adb_dio),

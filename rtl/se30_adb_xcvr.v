@@ -23,9 +23,13 @@
 //             shifts out
 //   RB4       INT* out, to VIA1 PB3
 //   RB0, RB1, RB5-RB7  unconnected: read 1
-//   OSC1      C3M, GLUE's 3.672 MHz (osc_en, one clk per period)
+//   OSC1      C3M, GLUE's 3.672 MHz: c3m_en qualified by c16_en.  GLUE
+//             updates c3m_en only on C16M's enable, so it is high for a
+//             whole C16M period (two clk); taken alone it counted twice,
+//             ran the PIC at twice its speed and halved every ADB timing -
+//             compile 17's mouse that did not move (plan 6.12 item 7)
 //   MCLR      RESET*, which the RESET instruction pulses, as the VIAs'
-//   With MCLR low the latches are high (the GI manual, p. 41), so RA2 turns
+//   With MCLR low the latches are high (the data sheet, p. 4-39), so RA2 turns
 //   Q3 on and the line is held low for as long as RESET* is - a long reset
 //   is an ADB Global Reset (3 ms or more), as on the board.
 
@@ -33,7 +37,8 @@
 
 module se30_adb_xcvr (
   input         clk,
-  input         osc_en,               // C3M
+  input         c16_en,               // GLUE's clock enables: C16M,
+  input         c3m_en,               // and C3M, meaningful with it
   input         reset_n,              // RESET*
   // the program, from the boot2.rom download
   input         pm_we,
@@ -68,7 +73,7 @@ module se30_adb_xcvr (
   wire  [7:0] rb_pin  = {rb_latch[7:4], dio_net, rb_latch[2:0]};
 
   se30_pic1654 pic (
-    .clk(clk), .osc_en(osc_en), .mclr_n(reset_n),
+    .clk(clk), .osc_en(c16_en && c3m_en), .mclr_n(reset_n),
     .pm_addr(pm_addr), .pm_data(pm_q),
     .ra_latch(ra_latch), .ra_pin(ra_pin), .rb_latch(rb_latch), .rb_pin(rb_pin),
     .rtcc_pin(line), .dbg(dbg));

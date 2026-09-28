@@ -66,13 +66,18 @@ module tb_se30_adb;
   reg [4:0] ecnt = 0;
   always @(posedge clk) if (c16) ecnt <= (ecnt == 5'd19) ? 5'd0 : ecnt + 1'b1;
   wire e_clk = ecnt >= 10;
+  // GLUE's C3M, exactly as rtl/se30_glue.v makes it: 15 pulses in 64
+  // C16M, the register updated only on C16M's enable - so c3m_en is high
+  // for a whole C16M period (two clk), an enable to be qualified with
+  // c16_en, as every consumer of GLUE's clocks must (compile 17's mouse,
+  // plan 6.12 item 7)
   reg [6:0] c3m_acc = 0;
   reg       c3m_en = 0;
-  always @(posedge clk)                    // GLUE's C3M: 15 pulses in 64 C16M
+  always @(posedge clk)
     if (c16) begin
       if (c3m_acc + 7'd15 >= 7'd64) begin c3m_acc <= c3m_acc + 7'd15 - 7'd64; c3m_en <= 1; end
       else begin c3m_acc <= c3m_acc + 7'd15; c3m_en <= 0; end
-    end else c3m_en <= 0;
+    end
 
   reg reset_n = 0;
 
@@ -105,7 +110,7 @@ module tb_se30_adb;
   wire [63:0] xdbg;
 
   se30_adb_xcvr xcvr (
-    .clk(clk), .osc_en(c3m_en), .reset_n(reset_n),
+    .clk(clk), .c16_en(c16), .c3m_en(c3m_en), .reset_n(reset_n),
     .pm_we(pm_we), .pm_waddr(pm_waddr), .pm_wdata(pm_wdata),
     .st0(pb_pin[4]), .st1(pb_pin[5]), .int_n(int_n), .sclk(sclk),
     .via_cb2_out(cb2_out), .via_cb2_oe(cb2_oe), .dio(dio),

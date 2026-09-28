@@ -6575,6 +6575,25 @@ waits for a disk (SWIM rung 2) or SCSI.
    last command `3C`; `PRTC` with transactions counted and the seconds'
    low byte ticking; `PSWM` PH = 7 (the `.Sony` Open reached); the screen,
    the flashing question-mark disk.
+   **THE BOARD (compile 17, 2026-09-28): THE FLASHING QUESTION-MARK DISK -
+   Section 5's rung 1 target - and a mouse cursor on the screen, but the
+   mouse does not move it.** Start-up now runs past the ADB initialisation
+   and the `.Sony` Open to the question mark. The frozen cursor had one
+   cause, found before any probe was read: **GLUE's `c3m_en` is updated
+   only on C16M's enable, so it is high for a whole C16M period - two
+   `clk_sys` - and the transceiver took it unqualified**: the PIC counted
+   each C3M pulse twice and ran at 7.3 MHz, halving every ADB timing. The
+   devices decoded nothing, answered nothing, and the ROM's ReInit
+   completed with an empty bus - which is why the start-up went on (6.7:
+   "an ADB with nothing on it is a working ADB"). `sim/adb` had not seen
+   it because its bench made its own one-clock C3M; **with GLUE's C3M
+   modelled exactly it fails as the board did** (Attention 397 us, the
+   cell 50 us, no device answers). The fix: the transceiver takes
+   `c16_en` and `c3m_en` and runs on both, GLUE's convention for its
+   clock enables. `sim/adb` 31 PASS again, `sim/machine` 17 PASS. Lesson
+   for every bench: a clock enable comes from the module that makes it,
+   or from an exact copy of it - a bench's idealised enable hid a factor
+   of two.
 8. Rung 2 when a boot device exists; PRAM persistence (Daniel's call on
    how: the framework's file interface to a `.sav` beside the ROMs is the
    usual MiSTer way).
