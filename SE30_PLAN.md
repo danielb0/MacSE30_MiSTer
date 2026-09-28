@@ -5836,10 +5836,12 @@ matters.
 | MAME `src/mame/apple/adbmodem.cpp`, `src/devices/cpu/pic16c5x/pic16c5x.cpp` | R. Belmont's device around the dump, with a pin table; MAME's PIC1654S core | cross-check only; an emulator's model (`feedback-se30-specs-from-documentation`) |
 | MacPlus `rtl/adb.sv`, `rtl/rtc.v` | a behavioural transceiver-plus-devices, and a 20-byte RTC | donors, read last (6.8) |
 
-Wanted and not yet fetched: **Microchip's PIC1654S data sheet** (16 pp.,
-about 502 KB; found only on `alldatasheet.com`). It would settle the
-clock divider, the 28-pin assignments and the I/O pull-ups outright. The
-download needs Daniel's OK (6.11).
+**Fetched 2026-09-28 with Daniel's OK: Microchip's PIC1654S data sheet**
+(DS33013A, 1990, 16 pp., as page images from `alldatasheet.com`, in
+`adb\PIC1654S_datasheet\`). **Primary for the part**, over the family
+manual where they differ (6.3.1). And **the program itself**, supplied by
+Daniel as `C:\temp\Mac\ROMS\MacSE30\342s0440-b.bin` - CRC32 and SHA1
+match MAME's (6.3.3).
 
 ## 6.2 The wiring (sheet 4)
 
@@ -5957,7 +5959,20 @@ A Harvard machine, 512 x 12 program ROM, 32 x 8 register file:
   (Fig. 9) is for the PIC1650A/1655A; where the 1654 starts after reset is
   not stated for it in the manual - **the reset vector is read from the
   dump** (its first instructions), not assumed (6.11).
-- **The clock divider - OPEN, and the dump decides it.** The manual gives
+- **SETTLED BY THE DATA SHEET (2026-09-28)**, which differs from the
+  family manual in two places the core follows: **status bits 3-7 "are
+  defined as logic ones"** - the PIC1654S has no OV - and **port A's
+  "four MSB's are always read as logic 0's"**. It confirms the rest: the
+  FSR's high bits read as ones, the reset to **777 octal** with every
+  latch high, a read-modify-write taking the pins (note 2), a store to F1
+  winning over an edge, the two-cycle list (GOTO, CALL, RETLW, MOVWF F2,
+  ADDWF F2, a true skip), and **"The frequency of oscillation is 8 times
+  the instruction cycle frequency"**. Two mask options it names: the
+  RTCC counting the instruction clock instead of its pin, and open-drain
+  lines without the pull-up. The first cannot matter (the program never
+  touches F1); the second is 6.3.2's reading (the unconnected RB0/RB1
+  read 1). It lists a PLCC package - UL11's 28 pins.
+- **The clock divider - was OPEN; the dump decided it.** The manual gives
   divide-by-4 for the PIC1650A and PIC1655A (2.1.12) and divide-by-16 for
   the PIC1656 (2.6.6); for the PIC1654 it gives only "2 us" in the family
   table (1.2), against the 1650A's "4 us" at its 1 MHz maximum. Tashtari
@@ -5993,9 +6008,17 @@ the ROM between them should never cause one.
 
 ### 6.3.3 The program
 
-What the dump does is read from the dump. Until it is in hand, Tashtari's
-annotated port is the map, and it says (secondary, to be confirmed
-line-for-line):
+**Read 2026-09-28** (`scripts/pic_dis.py`, which prints the program in
+the data sheet's mnemonics with sheet 4's wiring beside each port bit).
+512 words, low byte first, twelve bits used; **`GOTO 0` at 777 octal**,
+the reset address. What it uses, counted: no RTCC (F1 never read or
+written), status only as C and Z, port A always masked (`ANDLW 03`) or
+bit-tested on RA3, no unused opcodes; the line pulled by writing `F7` to
+port A (RA3 low **and** RA2 high) and released by `FB`; its RAM cleared
+and its receive buffer (F30-F37) walked by `INCFSZ FSR` loops that end
+on the FSR's high bits reading as ones. Its structure is the one
+Tashtari's port describes, which stands as the map to it
+(secondary):
 
 - A main loop reads ST1-ST0 and, on a change, dispatches on {last command
   type, new state}: in **state 0** it clocks a command byte out of the VIA
@@ -6440,10 +6463,13 @@ waits for a disk (SWIM rung 2) or SCSI.
 ## 6.12 The work
 
 1. ~~Write this section.~~ **Done 2026-09-28.**
-2. **Obtain `342s0440-b.bin`** (Daniel) and, with his OK, the PIC1654S
+2. ~~**Obtain `342s0440-b.bin`** (Daniel) and, with his OK, the PIC1654S
    data sheet. Read the dump: its layout, its reset vector, its use of
    RTCC, and its loops against 6.3.3 - the dump replaces the port as the
-   map, and this section is corrected where they differ.
+   map, and this section is corrected where they differ.~~ **Done
+   2026-09-28** (6.1, 6.3.1, 6.3.3): the file matches; the data sheet
+   removes OV and makes port A's high bits 0, and the core and `sim/pic`
+   follow it.
 3. ~~**`sim/pic/`** items 1-4, failing, then **`rtl/se30_pic1654.v`** until
    they pass.~~ **Done 2026-09-28: 88 checks** (iverilog, a few seconds),
    failing against an empty stub first, and mutation-tested (a /4 divider,
@@ -6462,7 +6488,7 @@ waits for a disk (SWIM rung 2) or SCSI.
    no-device ReInit first), then **`rtl/se30_adb_xcvr.v`** (the PIC, its
    program RAM, the pins and the line) and **`rtl/se30_adb_dev.v`** with
    the keyboard and mouse until they pass.
-   **Part done 2026-09-28, the part that needs no dump.**
+   **Done 2026-09-28.** First the part that needs no dump:
    `rtl/se30_adb_dev.v` (the device engine, the Extended Keyboard, the
    Standard Mouse) against a new bench, **`sim/adbdev/`: 54 checks**
    (iverilog, seconds) with a host that speaks Table 8-14 at its nominal
@@ -6477,7 +6503,29 @@ waits for a disk (SWIM rung 2) or SCSI.
    keeps its key for the next Talk). Mutation-tested (no collision
    detection, no SRQ, no $FE move, Y not inverted, a reply at 300 us - each
    caught). `rtl/se30_adb_xcvr.v` (the PIC, its 512 x 12 store, the pins of
-   6.3.2) is written and elaborates; **`sim/adb/` waits for the dump.**
+   6.3.2) is written and elaborates.
+   **Then `sim/adb/` with the dump: 31 checks, all passing on the first
+   run** (iverilog, a minute), mutation-tested (the PIC at /4, VIA1's CB2
+   not reaching the PIC - each fails the first Talk). Apple's program on
+   the core, behind the real `se30_via.v`, with the devices on the line,
+   driven by the ROM's own VIA sequences (the transaction mechanics of
+   the handler at `$40807002`, the send at `$408073E6`, the state writes
+   at `$408073C0`; the ADB Manager's table and queue are not replayed):
+   the command's timing on the wire **Attention 795 us, "0" 65 us, "1" 34
+   us, the cell 101 us** - Table 8-14 from the program's own loops at C3M
+   / 8; Talk register 3 to all sixteen addresses, **$6202 from 2 and
+   $6301 from 3, INT\* low after state 1's first byte everywhere else**
+   (the ROM's time-out, `$408070DA`), never in state 0; the Listen
+   register 3 `$FE` move to 15 and back, each confirmed; Listen register
+   2's LEDs; the auto-poll's entry and the transceiver polling on its own
+   in state 3; the mouse's motion delivered through it (**$8085**, INT\*
+   low after the pair); and a key pressed while the mouse is polled: INT\*
+   low in state 1's first byte and in state 2 (the ROM's "no data" and
+   its service-request flags, `$408070DA`, `$4080711C`), then the ROM's
+   Talk to the keyboard bringing **$00FF**. No contention on DIO.
+   **One number differs from the Guide:** the auto-poll repeats every
+   **10.2 ms** against the Guide's "every 11 ms" (p. 314) - the program's
+   own countdowns at C3M; recorded, not adjusted.
    Two choices made here, for Daniel: PC modifiers map **by key position**
    onto Figure 8-10 (Alt = Command, the Windows key = Option - the MacPlus
    donor maps Alt the same way), and Talk register 3 returns the device's
@@ -6509,9 +6557,7 @@ waits for a disk (SWIM rung 2) or SCSI.
    checks). **`sim/machine`: 17 PASS unchanged**, the same prediction, 59 s.
    With no `boot2.rom` the store is all NOPs and RA2's reset latch holds
    the line low: the machine waits at `$40806DD8` as compile 16 did, and
-   `PADB` says so (W 0, the line low, no falls). **A compile now would
-   show the board nothing new**: it waits for item 2's dump and
-   `sim/adb/`.
+   `PADB` says so (W 0, the line low, no falls).
 7. The compile (Daniel's go-ahead), the 3.6 ritual and `sta_corners.tcl`;
    the board: rung 1 (6.10).
 8. Rung 2 when a boot device exists; PRAM persistence (Daniel's call on
