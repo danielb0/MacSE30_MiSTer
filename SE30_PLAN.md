@@ -5775,7 +5775,389 @@ reach, and the board is the verdict either way (5.11 item 4).
      it (`PSWM` PH still 0). **Next: the ADB section (with the RTC), from
      its documentation first**; the SWIM's rungs 2-3 after it.
 7. **Rung 2** (read) and **rung 3** (write): written as 5.12 and 5.13
-   when rung 1 is on the board, from 5.2.4's sources.
+   when rung 1 is on the board, from 5.2.4's sources. **5.12 written
+   2026-09-28 (GCR first; MFM becomes 5.13, and rung 3 follows it).**
+
+## 5.12 Rung 2: reading - GCR first
+
+Opened 2026-09-28, after compile 18 put the flashing question-mark disk on
+the screen with a working mouse (6.12 item 7). Written before any RTL,
+documentation first; the donors were read after the documents, as
+cross-checks and for their bug histories.
+
+**Daniel's decisions, 2026-09-28.**
+
+- **The whole image lives in SDRAM**, loaded from the card when it is
+  mounted - the MacPlus design (`FLOPPY_WRITE_PLAN.md` phase 1), which
+  MacLC took over - through a new disk port on `se30_sdram` in the region
+  3.3 reserved for it. **The drive plays each track as a bitstream held in
+  BRAM**, built by an encoder when the head arrives - the structure of the
+  Apple-IIgs core's flux path. Seeks read SDRAM in a burst; the rest of
+  the time the drive touches nothing but its own BRAM.
+- **GCR first, then MFM.** 800K and 400K GCR, which the ROM reads through
+  the IWM (5.12.6), are built, benched and put on the board first; the
+  ISM's MFM read (720K and 1.44 MB) is 5.13, from the ISM ASIC spec, after
+  that. Nothing here is fitted to a particular image: Daniel's first test
+  disk is a raw 819,200-byte 800K image, and it is a test, not a target.
+
+### 5.12.1 Sources, and their standing
+
+New in `C:\temp\Mac\SE30\Docs\swim`, downloaded 2026-09-28 with Daniel's
+OK and size-checked:
+
+| source | what | standing |
+|---|---|---|
+| **`IWM_Spec_Rev19_1982.pdf`** (18 pp.; brutaldeluxe.fr, also archive.org), Apple's *Integrated Woz Machine Device Specification*, revision 19, 24 Sep 1982 | the IWM's registers, modes, timing, and **page 10's "Read data bit cell windows" table** - the data separator's windows by mode, which the SWIM drawing's section 6.6 refers to ("the data patterns noted above") and does not carry | **primary for the IWM's read path**; the SWIM drawing (343S0061-A) outranks it where they differ (the B revision's blanking, 5.12.2) |
+| **`669-0452-A_800K_Double-Sided_ERS_Sep86.pdf`** (47 pp., bitsavers `sony/MP-F51_specs/`), Apple's engineering requirement specification for the 800K double-sided drive; and its earlier revision `699-0321_800K_Double-Sided_ERS_Aug85.pdf` (46 pp.) | the drive's interface: the register and command table, every signal's meaning, **the timing** (step, settle, motor start, READY, RD pulses), **the zone speeds and the 489.6 kbit/s data rate**, the tach, and the **track format** (sector layout, fields, GCR table, checksum, interleave) | **primary for the drive in GCR mode.** The SE/30's drive is a Sony MP-F75W-01G SuperDrive (the BOMARC set names it); in GCR mode it presents the 800K drive's interface, and its MFM additions are 5.5's and 5.13's |
+| The SWIM drawing's sheets 52-53 (page images; the OCR garbles them) | the cell time per mode ("in 8M and slow mode the cell time will be 32 periods"), the read rules, the B revision's blanking window | primary |
+| The ROM: the `.Sony` power-up, recalibrate and seek (`$4082E17A`-`$4082E3CA`), the ISM entry (`$4082E712`), **the GCR read routines** (`$40831BE8` address field, `$40831CC2` data field) | what the machine does with the chip and the drive | documentation tier (1.11) |
+| `Mac_v_IIgs_sectors.pdf`, `superdriveDD.png`, `superdriveHD.png` | a two-page sector note; two screenshots of a modern analysis tool | background; the images are not Apple documents and are not used |
+| MacPlus `FLOPPY_WRITE_PLAN.md`, `rtl/floppy_loader.v`, `floppy_track_encoder.v`, `floppy_track_decoder.v`, `floppy.v` | our own lineage: the block-device loader, the byte-level GCR encoder and its decoder, phases 0-8 and the defects each hardware run found | donor for image handling; its bug history becomes bench checks |
+| MacLC `floppy-write` branch: `docs/floppy_write_plan.md`, `docs/findings_mame_floppy_groundtruth_2026-07-02.md` (F1-F12), `docs/swim_ism_read_reference.md`; `rtl/floppy_sd.v` | the same lineage moved to a SWIM machine, with a register-by-register comparison against MAME traces of the LC ROM | donor and bug list; the findings are **MAME-derived (secondary)** and are used as test cases, not as evidence |
+| Apple-IIgs core `rtl/flux_drive.v`, `iwm_flux.v`, `woz_floppy_controller.sv` (GPLv3, Alan Steremberg, "Reference: MAME iwm.cpp") | a bit-level IWM and a drive that plays per-track bitstreams from BRAM and loads tracks on seek | the architecture only; its behaviour is MAME's reading and carries no weight |
+
+### 5.12.2 The IWM's read path
+
+From the IWM spec (pp. 2-4, 10) and the SWIM drawing (sheets 52-53):
+
+- **The read state** is L6 = L7 = 0. "A falling transition within a bit
+  cell window is considered to be a one, and no falling transition within
+  a bit cell window is considered to be a zero." RDDATA is synchronised to
+  CLK (FCLK in fast mode, FCLK/2 in slow).
+- **The windows** (IWM spec p. 10). *Nclks* is the number of CLK periods
+  between one synchronised falling transition and the next; "each falling
+  transition resets the read data windows for subsequent data to be
+  relative to that transition":
+
+  | mode | CLK | Nclks | shifted in |
+  |---|---|---|---|
+  | slow, 8M | FCLK/2 | 8-23 | `1` |
+  | | | 24-39 | `01` |
+  | | | 40-55 | `001` |
+  | | | (window 16 clks) | |
+  | fast, 8M | FCLK | 8-23 / 24-39 / 40-55 | the same |
+  | slow, 7M | FCLK/2 | 7-20 / 21-34 / 35-48 | (window 28 FCLK) |
+  | fast, 7M | FCLK | 7-20 / 21-34 / 35-48 | (window 14 clks) |
+
+  **The ROM's mode is `$17`: slow and 8M** (5.6 item 1), so CLK is FCLK/2
+  = 7.8336 MHz and the window is 16 CLK = **32 FCLK = 2.0425 us** - the
+  drawing's "in 8M and slow mode the cell time will be 32 periods" - and
+  the 800K drive's data rate is **489.6 kbit/s = one bit per 32 FCLK
+  exactly** (ERS p. 39). The machine's clock was chosen for the drive.
+  Past 55 the table stops (GCR never writes three zeros); the model goes
+  on shifting a zero at each further window boundary (72, 88, ...), the
+  one-shot's natural continuation, and records it as an extrapolation.
+- **The B revision's blanking** (drawing sheet 53): "after falling
+  transition of RDDATA there is a window during which subsequent falling
+  transitions are ignored. In 8M FAST mode this window is 6 FCLK periods
+  ... For SLOW mode the windowing is twice as long" - **12 FCLK** here.
+  The SWIM is the later part, so this applies; Nclks 6-7 (between the
+  blanking and the table's first band) are taken as `1`.
+- **The shift register**: data enters at the LSB; "a full data nibble is
+  considered to be shifted in when a one shifted into the MSB"; it is then
+  latched into the read data register and the shift register cleared.
+- **Asynchronous mode** (the ROM's mode has bit 1 set): "the data register
+  will latch the shift register when one is shifted into the MSB and will
+  be cleared 14 FCLK periods (about 2 us) after a valid data read takes
+  place (a valid data read being defined as both /DEV being low and D7
+  (the msb) outputting a one from the data register for at least one FCLK
+  period)". Latch mode (bit 0, set) is what makes the register hold until
+  that read. The synchronous mode's stall rule is not used by the ROM and
+  is built only as far as the spec states it.
+- **Where it is read**: the data register is selected at L7 = 0, L6 = 0,
+  MotorOn = 1 (5.2.1); the ROM reads it at `$1800` (L6 cleared by the
+  access itself, 5.12.6).
+- **RDDATA and SENSE** are one line on this board (5.3): the drive's RD
+  output carries either a status bit or, when the drive is addressed to
+  register `$1`/`$3`, the read data of the head SEL picks (5.5).
+
+### 5.12.3 The drive, as the 800K ERS specifies it
+
+Sheet numbers are the ERS's (669-0452-A); the rung 1 table of 5.5 stands,
+and three of its "chosen" entries are now documented.
+
+- **RD in data mode** (3.2.4.5, 3.4.1.2): the data from the side SEL
+  selects. Each flux transition is a low pulse of **0.3-0.8 us** (T4),
+  spaced 2, 4 or 6 us nominally (T5); data is valid **100 us at most**
+  after SEL changes (T2). The model: a low pulse of 8 FCLK (0.51 us) at
+  each `1` of the track bitstream, the bitstream advancing one cell per
+  32 FCLK; a head switch takes effect at once (inside T2).
+- **Rotation** (2.4 and p. 39): five speed groups, **394, 429, 472, 525
+  and 590 rpm** for tracks 0-15, 16-31, 32-47, 48-63, 64-79, "± 2.5%" -
+  with the data rate fixed at 489.6 kbit/s, so the cells per revolution
+  are **74,558 / 68,476 / 62,237 / 55,954 / 49,790**. The model runs at
+  the nominal speeds exactly.
+- **/TACH** (3.2.4.11): **60 pulses per rotation**. None of the ROM's
+  drive-register reads that load a constant register number reads it
+  (5.12.6); others take the number from a register, so it is built to the
+  ERS regardless.
+- **/STEP** (3.2.4.2): "At the falling edge of this signal the destination
+  track counter is counted up or down depending on the /DIRTN level. After
+  the destination counter in the drive received the falling edge of
+  /STEP, the drive sets /STEP to high" - the ROM polls register `$4`
+  until it reads 1. **LSTRB acts on its rising edge** (3.2.3: "At the
+  rising edge of LSTRB the level of CA2 will be set into the latch") - the
+  edge rung 1 already takes (5.10).
+- **/READY** (3.2.4.12): "a zero when the head position is settled on
+  desired track, motor is at the desired speed, and a diskette is in the
+  drive". Its times are the ERS's **maxima**, as the timing that any drive
+  the ROM was written for would meet: after a step **36 ms** in the same
+  speed group, **152 ms** across a group change (3.4.3.3 T2; the settling
+  table gives 30 ms track-to-track); after motor-on or disk-in **600 ms**
+  (3.4.4 T1). These are "build to spec" values (`feedback-replicate-bugs-
+  else-spec`, tier 2), not measurements of a drive.
+- **/CSTIN** (3.2.4.8): 0 when a diskette is in. **/WRTPRT** (3.2.4.9): 0
+  for a write-protected diskette or none - **rung 2 reports every disk
+  write-protected**, so the Mac never writes (the MacPlus and MacLC
+  starting point, and the handshake a write needs is rung 3's).
+- **/TK0** (3.2.4.10): 0 at track 0.
+- **/DIRTN** (3.2.4.1): 0 = toward the centre; "When /ENBL is high /DIRTN is
+  set to zero". **/MOTORON** (3.2.4.3): "When /ENBL is high, /MOTORON is set
+  to high" - the drive's latches return to their idle states when it is
+  deselected, which rung 1's model does not yet do.
+- **EJECT** (3.2.4.4): set by the command, cleared at the rising edge of
+  /CSTIN or 2 s after.
+- **The SuperDrive's own** (5.5, the ROM and MacLC's F3/F4/F12, which
+  agree): `$5` reads 1 (a SuperDrive); `$F` reads **1 for a double-density
+  medium, 0 for high density** - so an 800K disk reads 1; `$7` (MFM mode
+  on) follows commands `$6` (MFM) and `$7` (GCR) and the ROM reads it
+  back (`$4082E386`); RD at `$1`/`$3` reads 1 with the motor off or no
+  disk.
+
+### 5.12.4 The track, as the ERS formats it
+
+"Sector Format" (pp. 40-42) and the User's Ref (pp. 5-6):
+
+- **Header sync**: at least 5 self-sync bytes - each an `FF` followed by
+  two zero bits, a ten-bit group (the byte-level `FF 3F CF F3 FC FF`); the
+  formatter "should make this field as large as possible".
+- **Header field** (11 bytes): `D5 AA 96`, track (low 6 bits), sector,
+  side (bit 5 the side, bit 0 the track's high bit), **format** ("decoded
+  bits 0-4 define the format interleave: standard 2:1 interleave formats
+  have a 2 in the field"; bit 5 the double-sided flag - `$22` for an 800K
+  disk, `$02` for 400K, the value MacPlus and MacLC emit and the LC ROM
+  was traced accepting), checksum (the XOR of the four), `DE AA`, and a pad
+  byte "where the write electronics were turned off".
+- **Data sync**: at least 5 self-sync bytes.
+- **Data field** (710 bytes): `D5 AA AD`, sector, the 524 bytes (12 tag,
+  512 data) nibblised into 699 codes, the 24-bit checksum in 4 codes,
+  `DE AA`, a pad. The checksum and the 6-and-2 split are the ERS's steps
+  1-9 (p. 42); the codeword table is the ERS's (p. 42) and the User's
+  Ref's.
+- **Interleave** (p. 40), 2:1: 12 sectors `0 6 1 7 2 8 3 9 4 10 5 11`; 11
+  `0 6 1 7 2 8 3 9 4 10 5`; 10 `0 5 1 6 2 7 3 8 4 9`; 9 `0 5 1 6 2 7 3 8
+  4`; 8 `0 4 1 5 2 6 3 7`. (The OCR garbles the first two lines; these
+  are the standard 2:1 sequences the others follow.)
+- **Spacing**: "the sectors are written so that they are spaced evenly
+  around each track" (User's Ref p. 6). The encoder divides the zone's
+  cells per revolution among its sectors and fills each sector's header
+  sync to its share, so the track is exactly one revolution long.
+- **Blocks and sides** (p. 39): block *n* is side 0 then side 1 of each
+  cylinder ("blocks 0-11 will be on side 0, track 0, blocks 12-23 will be
+  on side 1 track 0"); a 400K (single-sided) image is side 0 only, 800
+  blocks.
+- **The bitstream**: bits as they pass the head, 1 = a transition, one per
+  32 FCLK. The self-sync groups are ten bits, not eight - the reason the
+  IWM's shift-until-MSB rule locks onto them.
+
+### 5.12.5 The image, the loader and the disk port
+
+- **Formats**: raw sector images (819,200 bytes = 800K double-sided,
+  409,600 = 400K single-sided) and **DiskCopy 4.2** (an 84-byte header -
+  name, data size, tag size, checksums, the disk-format byte at offset
+  `$50`: 0 = 400K, 1 = 800K, 2 = 720K, 3 = 1440K - then the data, then 12
+  tag bytes per sector). The DC42 layout is from MacLC's reference
+  appendix and MacPlus's loader (secondary; Apple's own description is in
+  the Apple II file-type note for `$E0/$0005`, not on hand). A DC42's size
+  never matches a raw size test once its tags are present (MacLC's
+  838,400-byte payload lesson); geometry comes from its format byte.
+- **The loader** (MacPlus `floppy_loader.v`, as MacLC carried it): on the
+  slot's `img_mounted`, stream every 512-byte block through `sd_rd` into a
+  staging BRAM and out to SDRAM at word `$800000`, the header stripped;
+  **the disk counts as inserted only when the load is complete** (MacPlus
+  phase 1: the Mac must never see a partial image); clear-on-mount; the
+  read-only flag latched at the slot's own mount pulse.
+- **Sidedness** (MacPlus phase 7): the medium's own volume says whether
+  it is 400K or 800K - the MDB at file sector 2, `drNmAlBlks x drAlBlkSiz`
+  against 1200 blocks - under two ceilings: the drive (the SuperDrive is
+  double-sided) and the file (a 409,600-byte file is never double-sided).
+  The encoder's format byte and the geometry both come from that one
+  verdict.
+- **The disk port** on `se30_sdram`: 16-bit words, a level request with
+  address, write flag and data frozen by the requester until the level
+  acknowledge (3.3's contract, and MacPlus phase 1's two bugs - a request
+  torn down before the column was sampled, and a data mux keyed on a
+  pulse - are exactly what a level handshake held to the acknowledge
+  prevents); reads return the word with the acknowledge. Scheduled like
+  the download port, in idle windows between CPU cycles. The loader
+  writes through it at mount; the encoder reads through it at a seek.
+- **The HPS side**: one `S` mount slot for the internal drive (`VDNUM` 1,
+  `BLKSZ` 512 bytes, `WIDE` 1) - the external drive stays absent (5.5).
+
+### 5.12.5b The encoder
+
+When the head settles on a cylinder (or a disk is inserted), the encoder
+reads that cylinder's sectors for both sides from SDRAM - 12 x 524 bytes
+a side at most, tags included when the image has them, zeros when it has
+none - and writes the two sides' bitstreams into two BRAM track buffers
+(74,558 bits each at most, fifteen M10Ks for the pair). At the machine's
+clock this takes a few milliseconds, inside the settle time /READY
+already covers; **/READY stays high until both buffers are written**, so
+the ROM can never read a half-built track. The drive's playback position
+is a cell counter modulo the zone's cells per revolution, running
+whenever the motor turns, carried across a step (the disk keeps
+spinning; a zone change rescales it).
+
+### 5.12.6 What the ROM does to read a GCR disk
+
+1. **Insertion**: the VBL task (`$4082E444`, every 30 ticks) reads `$2`
+   (disk in place) and, on a 0, posts a disk-inserted event; the File
+   Manager mounts through the `.Sony` driver.
+2. **The ISM entry** (`$4082E712`): probes the ISM's phase register; for
+   a GCR disk (`$17(a1,d1)` clear) it returns to the IWM (`$F8` to
+   write-zeros, L7 cleared) and re-runs the mode `$17` loop (`$4082E2F2`).
+   Nothing new for the chip: rung 1 handles every step.
+3. **Power-up** (`$4082E376`): read `$7` (MFM mode), command `$7` (GCR,
+   or `$6` for MFM), read `$8` (motor), command motor on when it was off
+   or the mode changed, then poll `$B` (/READY) up to 1000 delays of the
+   ROM's timer.
+4. **Recalibrate** (`$4082E29E`): direction outward (`$1`), then step
+   (`$4` strobed) until `$A` (/TK0) reads 0, at most 80 times.
+5. **Seek** (`$4082E17A`): direction, steps, `$4` polled until the step
+   is taken, then the settle wait on `$B`; with the ISM present, the
+   parameter check `$4082E7CC` first.
+6. **The read** (`$40831BE8`): the drive addressed to `$1` or `$3` (the
+   head), `a4` = the SWIM base + `$1800`, **`move.b (a4),d5 / bpl`** until
+   a byte with the MSB set; `D5 AA 96` sought within `$5DC` bytes
+   (`$5BC` for one drive kind), the header's five nibbles through the
+   decode table at `$40831E08`, the checksum, `DE AA`; the data field
+   (`$40831CC2`) the same way. Between bytes it polls VIA1 PA7 for the SCC
+   (`$50F01E00`, reads 1 with no SCC - harmless). The error codes it
+   returns (`noNybErr` `$BE`, `noAdrMkErr` `$BD`, `badCksmErr` `$BB`,
+   `badBtSlpErr` `$BA`, `noDtaMkErr` `$B9`) name each stage for the
+   probes.
+
+### 5.12.7 The donors' bugs, carried as checks
+
+From MacPlus's plan and MacLC's findings, each already paid for once:
+
+- **Loader**: a request torn down before the SDRAM sampled its column;
+  a data mux keyed on a pulse (MacPlus phase 1); the DC42 tag payload
+  that passes no raw size test; four damaged DC42s among nineteen real
+  ones - **verify a fixture before gating on it** (MacLC phase 1).
+- **Encoder**: the nibbler's one-group lookback (both); a stream that
+  must be generated with sparse fetches, not every clock (MacPlus phase
+  0); negative tests on **one revolution only** - a capture of two holds
+  every sector twice and "recovers" a corrupted one from the other copy
+  (MacLC phases 0 and 2).
+- **Sidedness**: the format byte from the file size (MacPlus phase 7);
+  a latch that outlives its disk.
+- **Drive** (MacLC F3, F4, F12): `$F` inverted; `$7` constant instead of
+  following its commands; RD at `$1`/`$3` not 1 with the motor off.
+- **Benches**: an uninitialised `integer` that makes the DUT look dead
+  (MacLC phase 2); a `wait (done)` that falls through on the previous
+  pulse (MacPlus phase 7); a reset deasserted on the DUT's own edge.
+
+### 5.12.8 The RTL
+
+- **`rtl/se30_swim.v`**: the IWM read path of 5.12.2 - RDDATA
+  synchronised, the 12-FCLK blanking, the window counter and shifter, the
+  read data register with the asynchronous latch-and-clear, the mode's
+  fast/slow and 7M/8M bits choosing the counts.
+- **`rtl/se30_fdhd.v`**: the drive of 5.12.3 - disk in, motor with its
+  start time, rotation and /TACH by zone, step with the destination
+  counter and /STEP, /READY by its three conditions and times, /TK0,
+  /WRTPRT (always 0 on rung 2), EJECT, the SuperDrive registers, the latch
+  reset on deselection, and **RD in data mode played from the BRAM
+  bitstream of the head SEL picks**.
+- **`rtl/se30_flp_encoder.v`** (new): SDRAM sectors -> the two track
+  bitstreams, 5.12.4 and 5.12.5b; the GCR table, checksum and nibbling
+  written from the ERS, with MacPlus's `floppy_track_encoder.v` as the
+  cross-check its bench compares against.
+- **`rtl/se30_flp_loader.v`** (new): the loader and sidedness sniff,
+  lifted from MacPlus/MacLC's `floppy_loader` and adapted to the disk port.
+- **`rtl/se30_sdram.v`**: the disk port (5.12.5).
+- **The top and the machine**: the `S` slot and `hps_io`'s block-device
+  signals, the loader and encoder beside the controller, the drive's disk
+  interface into the machine; a probe `PFLP` (the drive's track, side,
+  motor, READY, the encoder's state, the loader's progress, the sectors
+  the IWM has delivered).
+
+### 5.12.9 The benches
+
+1. **`sim/swim`** gains the read path: each band of the window table
+   (Nclks 7, 8, 23, 24, 39, 40, 55, 56) shifting what p. 10 says; the
+   12-FCLK blanking; the latch and its clear 14 FCLK after a valid read,
+   and not after an invalid one; self-sync groups locking the shifter
+   within five of them from any bit offset.
+2. **`sim/fdhd`** (new): the zone lengths and /TACH at 60 per revolution
+   for each group; /STEP and the destination counter; /READY's three
+   conditions and times; the SuperDrive registers (MacLC F3, F4, F12);
+   RD's data pulses 8 FCLK wide on the bitstream's ones; the latches reset
+   on deselection.
+3. **`sim/flpenc`** (new): a synthetic self-identifying image (MacLC's
+   pattern: bytes 0-2 of each sector are its track, side and sector), every
+   track of both sides encoded, and **a reference decoder in the bench**
+   recovering all 1600 sectors byte for byte, their tags, the interleave
+   and the format byte - plus MacPlus's encoder run on the same image as a
+   second opinion; negative cases on one revolution only.
+4. **`sim/flpload`** (new): raw 800K and 400K, DC42 with and without tags,
+   the sidedness sniff's cases (MacPlus phase 7's eleven), the disk counted
+   in only at the end of the load, a remount.
+5. **`sim/sdram`**: the disk port against the real controller with the CPU
+   port running - reads and writes interleaved, nothing lost or torn.
+6. **`sim/gcrread`** (new, the gate): image -> loader -> SDRAM model ->
+   encoder -> drive -> SWIM, and a driver that replays the ROM's own
+   sequences (the power-up of 5.12.6 item 3, a recalibrate, seeks, and the
+   read loops of item 6 byte for byte) - every sector of the synthetic
+   image recovered through the ROM's decode table, at every zone.
+
+### 5.12.10 The board
+
+With an 800K image mounted in the slot: the flashing question mark gives
+way to the disk being read - the happy Mac and a boot attempt. How far
+the boot goes then depends on the machine beyond the floppy (4.10, the
+ASC, SCC and SCSI still absent), and that is the next section's to find.
+The probes say where it stops.
+
+### 5.12.11 Risks and open items
+
+- **The window table's upper end** (beyond Nclks 55) is extrapolated
+  (5.12.2); GCR never exercises it.
+- **/READY's times** are the ERS's maxima (5.12.3); a real drive is
+  faster, and a slower boot is the cost of not guessing.
+- **Rotation at exact nominal speed**, no jitter and no peak shift: the
+  IWM's windows have margin to spare for a perfect stream; the timing
+  margin the ERS specifies (2.10) is a drive property this model does not
+  need to reproduce to read.
+- **The self-sync count** per sector is set by spacing the sectors
+  evenly; the ERS gives only minimums. The ROM searches `$5DC` bytes for
+  an address mark - more than a whole sector's length - so any even
+  spacing is found.
+- **DiskCopy 4.2's layout** comes from secondary sources; the loader's
+  header checks (name length, the `$0100` magic) and the fixtures'
+  checksums guard it.
+- **The SDRAM disk port** is new traffic on a controller that took five
+  board rounds to get right; its bench runs the CPU port alongside, and
+  `sta_corners.tcl` judges the compile as always.
+- **Eject**: the command ejects the image logically (/CSTIN high); the OSD
+  remount is the next insertion. A mount under a live volume is hostile
+  on a real Mac too (MacLC's note); tested guest-eject first.
+
+### 5.12.12 The work
+
+1. ~~Write this section.~~ **Done 2026-09-28.**
+2. `sim/swim` items (5.12.9 item 1), failing, then the IWM read path in
+   `se30_swim.v`.
+3. `sim/fdhd`, failing, then `se30_fdhd.v`'s drive of 5.12.3.
+4. `sim/flpenc`, failing, then `se30_flp_encoder.v`.
+5. `sim/flpload` and `sim/sdram`'s disk port, failing, then
+   `se30_flp_loader.v` and the port.
+6. `sim/gcrread`, the gate.
+7. The top, the machine, `PFLP`; elaboration; `sim/machine` unchanged.
+8. The compile (Daniel's go-ahead) and the board: an 800K image mounted.
+9. **5.13 - the ISM's MFM read** (720K, 1.44 MB), from the ISM ASIC spec,
+   written when GCR is on the board.
 
 # Section 6 - The ADB and the RTC
 
