@@ -6608,6 +6608,12 @@ waits for a disk (SWIM rung 2) or SCSI.
    path that sits at the edge. By the standing rule this bitstream is
    **not timing-met**; whether to test it, re-seed the fit, or trim the
    scaler is Daniel's call.
+   **THE BOARD (compile 18, 2026-09-28, flashed by Daniel knowing the
+   scaler path): THE MOUSE MOVES THE CURSOR** at the flashing
+   question-mark disk. Rung 1 of 6.10 is met: Apple's transceiver
+   program, on the PIC1654S core, finds the mouse through the ROM's
+   ReInit and delivers its motion through the auto-poll. The keyboard
+   waits for a boot device to show itself (rung 2).
 8. Rung 2 when a boot device exists; PRAM persistence (Daniel's call on
    how: the framework's file interface to a `.sav` beside the ROMs is the
    usual MiSTer way).
