@@ -6449,7 +6449,12 @@ The probes say where it stops.
      once its sections' timing shifted. The header's "never costs the CPU a
      wait state" holds for back-to-back streams, not after an idle bus. The
      real GLUE's own refresh stalls the CPU too (5.9's late-request case),
-     so this is not worse than the machine; left as it is, for Daniel.
+     but that stall is modelled separately: this one is the SDRAM's, an
+     artefact on top of it - one C16M, one cycle, only after several us
+     with no RAM/ROM start, the data always right. **Daniel, 2026-09-28:
+     leave it unless it becomes obvious that it is harmful.** The
+     alternative (holding refresh for a CPU window) risks the SDRAM's own
+     refresh deadline.
    - **Mutation test.** The port: a window to clock 17 (caught by the
      monitor; it also made a CPU cycle late), no window (2 fail), an idle
      bus only (the disk starves: timeout), the second beat taken (2), a read
