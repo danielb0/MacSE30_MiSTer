@@ -7559,16 +7559,54 @@ the part of the chip software reads to tell 68881 from 68882: null 4 bytes
 the 68881's 28 and 184 plus 32 bytes of the conversion unit's state at the
 top of the frame. The manual's own test is `CMPI #$18,D0 ; MC68881?`.
 
-## 8.3 The approach
+## 8.3 The approach - decided 2026-09-28: the 68882's own architecture
 
-The donor is the whole chip in outline - the arithmetic unit, the
-converter, packed decimal, the transcendentals, `FMOVEM`, the exception
-handler, the frames - wired into the kernel's F-line decode, which is how a
-68882 looks to software (the coprocessor protocol's CPU-space cycles are
-invisible above the chip; GLUE never sees them either, 2.11.2 row 14). It
-is taken as a starting point, never as evidence: each part is read against
-the manual before it is trusted, and its benches are rewritten against the
-manual, not WinUAE.
+**Daniel: "Absolutely do the microcoded FPU. Also, aim for optimisation
+while maintaining authenticity, as the microcoded FPU would. Some things
+can be left out if necessary, like support for DC42 diskettes."**
+
+**The chip as the manual describes it** (1.2, 3.x, 8.x): a bus interface
+unit; on the 68882 a conversion unit (CU) that converts operands to the
+internal extended format while the arithmetic unit is busy; and the
+arithmetic processing unit (APU) - "a high-speed 67-bit arithmetic unit
+used for both mantissa and exponent calculations, a barrel shifter that can
+shift from 1 bit to 67 bits", a two-level microcoded sequencer with its
+microcode ROM, and a constant ROM. There is no transcendental hardware: the
+transcendentals are microcode on the one datapath, which is why the timing
+table gives about 35-56 clocks for FADD, 55-76 FMUL, 87-108 FDIV, 89-110
+FSQRT and 385-530 for FATAN, FETOX, FLOGN, FSINCOS and FTAN. Their accuracy
+is the manual's (3.x): worst case one unit in the last place of double
+precision, typically about 64 in extended - by the fidelity rule, the spec.
+
+**So we build that**: one 67-bit datapath (adder/subtractor, a 67-bit
+barrel shifter, a multiplier of a few DSP blocks over several cycles), a
+microcoded sequencer with **the microcode and the constants in block RAM**
+(we use 39% of it), the CU, the register file, and the state frames as the
+manual gives them. Every instruction is microcode, the transcendentals
+included; their algorithms (Motorola's are unpublished) are chosen to meet
+the manual's error bounds and, where they can, its cycle counts, and are
+proven first in a **Python reference model** at high precision - the test
+oracle the microcode must match bit for bit. Estimated 3,000-5,000 ALMs
+against the donor's ~9,400; the saving is structural, and the first
+synthesis replaces the estimate.
+
+**Why area rules here**: the Quadra 800 core
+(`C:/Git/MiSTer-devel/MacQuadra800_MiSTer`, its `RESUME-*` notes) fits a 68040 with its FPU, caches, SCSI, CD-ROM, Ethernet and
+sound in 38,329 ALMs, timing-clean, and its fits at 39,000-41,000 failed
+routing with the LABs full - the practical ceiling on this part is about
+38,000-39,000, not 41,910. The complete SE/30 estimates at ~34,000 with
+this FPU (~37,000 with a CD-ROM target of the Quadra's size), and ~39,000
+without CD-ROM with the donor's. Its first lesson - arrays silently built
+as registers (its first fit was 143%) - was checked on compile 21: every
+array in our design is block RAM; the CPU holds none (its 11,586 ALMs are
+the kernel 4,782, the ALU 1,834, the PMMU 4,829 with 3,278 registers - the
+PMMU's 22-entry ATC data, not its tags, could move to block RAM as the
+Quadra's does, behaviour unchanged, if a later fit needs it).
+
+**The donor** stays a reference for the kernel's side - how an F-line
+instruction reaches the FPU, the `FSAVE`/`FRESTORE`/`FMOVEM` memory
+transfers - read against the manual before anything is taken; its decoder
+is already known to differ from the manual in three ways (8.5).
 
 ## 8.4 The work
 
@@ -7586,20 +7624,52 @@ manual, not WinUAE.
    (683 ALUTs); the rest ~300. With the machine, **about 32,400 of 41,910
    (77%)**: it fits; the fit and its timing will be tighter, and the first
    integrated fit gives the real figure.
-3. **Audit the donor against the manual**, file by file: what it does,
-   what the manual says, the differences - before any of it is merged.
-4. **Merge forward** onto our kernel: the ~1,270 kernel lines and the
-   package's, re-applied by hand where the audited kernel has moved; the
-   FPU files as they are, corrected by item 3.
-5. **Benches**, failing first: `sim/fpu` (ModelSim, VHDL) against the
-   manual - the data formats and conversions, the arithmetic and rounding
-   modes, the exceptions and their vectors (48-54), `FSAVE`/`FRESTORE`
-   and the frames, `FMOVEM`, the conditionals - and the `cputest` corpus.
-   `sim/busfault` and `sim/machine` unchanged.
-6. The compile and the board: past the Welcome box.
-7. **Instruction timing** (the manual's section 8) - measure what the
-   merged FPU takes against the manual's counts, then decide, as for the
-   CPU (1.9 item 8).
+3. ~~Audit the donor and merge it forward~~ - **superseded 2026-09-28 by
+   8.3's decision**: the FPU is ours, from the manual. What was read of the
+   donor is kept as findings (8.5); its kernel hooks are still read before
+   ours are written.
+4. **The specification, from the manual**, before any code: the programming
+   model (the registers, FPCR/FPSR/FPIAR bit by bit), the data formats and
+   their conversions, the instruction set with every encoding and which are
+   undefined, the exceptions (vectors 48-54, their priorities, what each
+   sets), the state frames, the conditionals, and what the MPU's side of the
+   coprocessor interface does that software can see (the kernel, 7.x).
+5. **The Python reference model** (`tools/fpu_model/`): the 67-bit internal
+   arithmetic and rounding exactly, the conversions, packed decimal, and the
+   transcendental algorithms, each checked against a high-precision library
+   within the manual's bounds. It is the oracle for everything after.
+6. **The architecture and its microcode**: the datapath, the sequencer's
+   microinstruction format, the microcode assembler (a small script that
+   builds the block RAM image), the CU, the register file; area and cycle
+   budgets per instruction from the manual's table.
+7. **The RTL and the benches**, failing first: `sim/fpu` driven by the
+   model's vectors (arithmetic, rounding modes, every data format, the
+   exceptions, `FSAVE`/`FRESTORE` and the frames, `FMOVEM`, the
+   conditionals) and WinUAE's `cputest` 6888x corpus as the independent
+   check; then the kernel integration, `sim/busfault` and `sim/machine`
+   unchanged.
+8. The compile, the fit's area against the budget, and the board: past the
+   Welcome box - the first instruction is `FNOP` at `$000131A4`.
+
+## 8.5 The donor, as far as it was read (2026-09-28)
+
+Its instruction decoder (`TG68K_FPU_Decoder.vhd`, which steers the whole
+FPU's control through `decoder_instruction_type`) differs from the manual
+three ways: it executes operation-word types `110` and `111` as moves,
+which the manual (4.7) lists "(Undefined, Reserved)" - all data movement is
+the general type `000`, told apart by the command word's opclass (Table
+4-11); it treats `FMOVE` of the control registers as privileged, where
+"FSAVE and FRESTORE ... are privileged instructions; all others are
+nonprivileged" (6.x) - and its privilege output is unconnected; and it finds
+`FMOVEM` by two particular first-word patterns ("AmigaOS FMOVEM") rather
+than by the opclass. Its `FSAVE` writes the frame's first longword as
+`fsave_frame_format & X"000000"` - `$60000000` for an idle frame,
+`$D8000000` for a busy one - where the manual's format word carries the
+version number in its upper byte and the frame's size in its lower, `$38`
+idle and `$D4` busy (6.4.2, Figure 6-5): the donor's size byte is zero,
+and its version byte is the frame's length. (The lengths it transfers, 60
+and 216 bytes, are the manual's.) Its comments cite WinUAE's decode table,
+not the manual.
 
 ---
 
