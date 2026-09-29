@@ -155,6 +155,8 @@ expect_error('a mantissa shift in exponent mode', HEAD + "d=T1 a=T1 alu=passa mo
 expect_error('a2 in exponent mode', HEAD + "d=T1 a=T1 alu=passa mode=exp a2=1\n", ['exponent mode'])
 expect_error('SQT with a Booth direction', HEAD + "d=T1 a=T1 b=SQT alu=addsub dir=booth\n", ['SQT'])
 expect_error('RINC without a round mode', HEAD + "d=T1 a=T1 b=RINC alu=add\n", ['rnd='])
+expect_error('an exponent constant read as a mantissa', HEAD + "d=T1 b=K[bias] alu=passb\n", ['exponent'])
+expect_error('a mantissa constant read as an exponent', HEAD + "d=T1 a=T1 b=K[ulp8] alu=add mode=exp\n", ['mantissa'])
 expect_error('two literals in one word', HEAD + "d=T1 b=T0<<3 alu=passb lc=5\n", ['lit'])
 expect_error('two FP registers in one word', HEAD + "d=FP[dst] b=FP[src] alu=passb\n", ['fpsel'])
 expect_error('an unknown constant', HEAD + "d=T1 b=K[tau] alu=passb\n", ['tau'])

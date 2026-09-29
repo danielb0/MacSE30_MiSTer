@@ -9947,6 +9947,39 @@ overflow reports it), a register destination's only for the OVFL/UNFL
 vectors (`fpu.py` `fmove_out` against `_finish_reg`); the microcode follows
 the model, and the difference is a question for silicon with 8.6.14's.
 
+**The transcendentals' arithmetic redefined (Daniel, 2026-09-29: "Redefine
+I67 ops").** 8.7.3's model computed its I67 values - 67 significant bits -
+exactly and chopped each result; the datapath cannot at speed (FMUL's
+radix-8 multiplier takes 64-bit significands, FDIV's divider and FSQRT's
+recurrence 65 and 64, an exact add needs guard bits below 67). The
+operations in `transcend.py` are now what the datapath computes, each by the
+instruction whose machinery it uses: `i_mul` the 64-bit significands' exact
+product, its fixed 67-bit window; `i_div` the operands chopped to 65 bits,
+67 quotient bits; `i_sqrt` the 64-bit radicand, a 64-bit root; `i_add` the
+smaller operand aligned by chopping; FSIN's reduction FMOD's loop with 2pi
+to 65 bits (the documented loss near 10^20 begins a factor of four sooner).
+The first measurement found FETOX, FETOXM1, FSINH and FCOSH at 10,000-
+12,000 units of extended against the 4,096 bound - n up to 16,000 times ln
+2's chopped bits - so their range reductions became **Cody-Waite** (ln 2
+and, for FTENTOX, which now reduces x directly, log10 2 split into a short
+high part - n times it exact on the multiplier - and a low one), after
+which the exponentials are better than before: worst FETOX 21 units (was
+1,150), FTENTOX 18 (1,575), FETOXM1 81 (2,373), FSINH 43 (1,707), FCOSH 17
+(1,751); FCOS near its zeros 562 (52). `check_transcend` 44 PASS, the
+model's suite clean, `mutate.py` 61 of 61 (the reduction mutant retargeted).
+The vectors were regenerated.
+
+**The microcode's helpers** (`ucode/transcend.uc`): `iadd`/`isub`, `imul`,
+`idiv`, `isqrt`, `tofix`, `fromfix` - operands in T11/T12, the result in
+T11 - checked by **`unit.py`**, which calls a subroutine directly on the
+simulator and compares it with the model's function: 13,897 operand sets,
+all bit-exact on the first run. Added for them: `lc=inc` and the conditions
+LCEQ (LC = the literal) and LCSCEQ (LC - SC = the literal) - the CORDIC
+loops count i upward - and the constant ROM's words shared between an
+exponent-only and a mantissa-only constant (the assembler refuses a shared
+constant read by the wrong field); the ROM ends at `$F0` with the
+transcendentals' constants in.
+
 ---
 
 ## Appendix - where the sources are

@@ -245,6 +245,7 @@ class Chip:
             'SAVEREQ': 0, 'ABORT': 0, 'CUHANDOFF': 0,
             'SRCREG': self.opclass == 0, 'SAMEREG': self.rx == self.ry,
             'S': self.S, 'RPEXT': self.RPREC in (0, 3), 'TINY': self.TINY, 'HUGE': self.HUGE,
+            'LCEQ': self.LC == self._lit, 'LCSCEQ': self.LC - self.SC == self._lit,
         }
         if name.startswith('EN_'):
             return bool(self.fpcr & {'EN_BSUN': BSUN, 'EN_SNAN': SNAN, 'EN_OPERR': OPERR,
@@ -302,6 +303,7 @@ class Chip:
         if a == self.unimpl:
             raise Unimplemented('instruction $%04X' % self.cmd)
         m, n = self._decode(a)
+        self._lit = n['lit']                   # LCEQ/LCSCEQ compare with the word's literal
         seq = FD.SEQ.names[m['seq']]
         # the next address, from the flags before this word
         nxt = a + 1
@@ -594,6 +596,8 @@ class Chip:
             self.LC = e['lit']
         elif lc == 'DEC':
             self.LC = (self.LC - 1) & 0xFF
+        elif lc == 'INC':
+            self.LC = (self.LC + 1) & 0xFF
         elif lc == 'ALU':
             if res is None:
                 raise SimError('lc=alu with alu=nop')

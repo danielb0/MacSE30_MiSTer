@@ -133,9 +133,8 @@ MUTANTS = [
      "    s = 0\n    if s >= 34:", 'CORDIC rotation: no scaling for small z'),
     ('transcend.py', "    elif k == 1:\n        sn, cs = c, s.neg()", "    elif k == 1:\n        sn, cs = c, s",
      'sincos: the second quadrant\'s cosine sign'),
-    ('transcend.py', "    e0 = min(x.e, TWOPI.e)\n    r = (x.m << (x.e - e0)) % (TWOPI.m << (TWOPI.e - e0))",
-     "    import constants\n    pm, pe, _ = constants.DOCUMENTED[0x00]\n    e0 = min(x.e, pe + 1)\n"
-     "    r = (x.m << (x.e - e0)) % (pm << (pe + 1 - e0))",
+    ('transcend.py', "    tm, te = TWOPI.m >> 2, TWOPI.e + 2",
+     "    import constants\n    pm, pe, _ = constants.DOCUMENTED[0x00]\n    tm, te = pm, pe + 1",
      'an accurate reduction (a 256-bit 2pi): the documented loss gone'),
     ('transcend.py', "        X, Y, Z = X + asr(Y, i + s), Y - asr(X, i - s), Z + rom_fixed(_ATAN, i, s)\n        elif Y < 0:",
      "        X, Y, Z = X + asr(Y, i + s), Y - asr(X, i - s), Z - rom_fixed(_ATAN, i, s)\n        elif Y < 0:",

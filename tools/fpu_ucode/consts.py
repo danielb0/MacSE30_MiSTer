@@ -106,11 +106,12 @@ def build():
         rom[GAIN_BASE + i] = _fixed(T.gain(i), T.F)
     names['gain'] = GAIN_BASE
 
-    named = [
+    # Full words: every field meant.
+    full = [
         ('fx_one', _fixed(T.ONE, T.F)),               # 1.0 in Q2.64
         ('fx_negone', _fixed(-T.ONE, T.F)),           # -1.0 in Q2.64
         ('pi', _i67(T.PI)),
-        ('twopi', _i67(T.TWOPI)),
+        ('twopi', _i67(T.TWOPI)),                     # FSIN's reduction takes it >> 2 (65 bits)
         ('halfpi', _i67(T.HALFPI)),
         ('quarterpi', _i67(T.QUARTERPI)),
         ('ln2', _i67(T.LN2)),
@@ -118,63 +119,85 @@ def build():
         ('log10_e', _i67(T.LOG10_E)),
         ('log2_e', _i67(T.LOG2_E)),
         ('log2_10', _i67(T.LOG2_10)),
+        ('ln10', _i67(T.LN10)),
+        ('log10_2', _i67(T.LOG10_2)),
+        ('ln2_hi', _i67(T.LN2_HI)),                   # Cody-Waite (transcend._split)
+        ('ln2_lo', _i67(T.LN2_LO)),
+        ('log10_2_hi', _i67(T.LOG10_2_HI)),
+        ('log10_2_lo', _i67(T.LOG10_2_LO)),
         ('almost_one', _i67(T.ALMOST_ONE)),
+        ('two', _ext(0, BIAS + 1, 1 << 63)),          # 2.0 (FTANH's z + 2)
         ('one', _ext(0, BIAS, 1 << 63)),
         ('ten', _ext(0, BIAS + 3, 0xA << 60)),
-        ('two31', _ext(0, BIAS + 31, 1 << 63)),
-        ('two15', _ext(0, BIAS + 15, 1 << 63)),
-        ('two7', _ext(0, BIAS + 7, 1 << 63)),
+        ('nan', _ext(0, 0x7FFF, (1 << 64) - 1)),      # the chip's NaN (UM 6.1.3)
+        ('exp_inf', _exp_word(0x7FFF)),               # an infinity: its mantissa must be 0
+    ]
+    # Exponent-only and mantissa-only constants share words: an exponent-
+    # mode operation reads only the exponent field, a mantissa-mode one only
+    # the mantissa (and a microword that uses a word whole uses a full one).
+    exps = [
         # Exponent limits in the internal (extended-biased) exponent, for
         # 8.6.4's range checks by PREC and destination format.
-        ('ext_emax', _exp_word(0x7FFE)),
-        ('ext_emin', _exp_word(0)),                  # extended is tiny below biased 0 (rounding.py)
-        ('dbl_emax', _exp_word(BIAS + 1023)),
-        ('dbl_emin', _exp_word(BIAS - 1022)),
-        ('sgl_emax', _exp_word(BIAS + 127)),
-        ('sgl_emin', _exp_word(BIAS - 126)),
-        ('dbl_bias', _exp_word(BIAS - 1023)),         # internal - IEEE double
-        ('sgl_bias', _exp_word(BIAS - 127)),
-        ('bias', _exp_word(BIAS)),
-        ('int_exp', _exp_word(BIAS + MANT_BITS - 1)),  # an integer at bit 0 (OPINT)
-        ('exp_inf', _exp_word(0x7FFF)),
-        ('qbit', kword(0, 0, 1 << 65)),               # a NaN's nonsignaling bit (bit 62)
-        ('ulp', kword(0, 0, 1)),                      # bit 0: the sticky bit jammed in
-        ('exp_one', _exp_word(1)),
-        ('fx_half', kword(0, 0, 1 << 63)),            # 1/2 in Q2.64 (the square root's first bit)
-        ('gbit', kword(0, 0, 1 << 2)),                # the guard bit of the internal mantissa
-        ('int63', _exp_word(BIAS + 63)),              # an integer with its LSB at bit 3 (FINT)
-        ('e16', _exp_word(BIAS + 16)),                # FSCALE: |src| >= 2^16
-        ('exp64', _exp_word(64)),                     # FMOD/FREM: a chunk of quotient bits
-        ('k16384', kword(0, 0, 16384)),               # FSCALE's clamp (fpu.py _op_fscale)
-        ('k32832', kword(0, 0, 32832)),
-        ('k65536', kword(0, 0, 65536)),
-        # The stores (fpu.py _to_int, _to_ieee): an image is built at bits
-        # 66-3 of a mantissa, so its bit n is the mantissa's bit n + 3.
-        ('lim_l', kword(0, 0, (1 << 31) << 3)),       # 2^(n-1) << 3: the integer limits
-        ('lim_w', kword(0, 0, (1 << 15) << 3)),
-        ('lim_b', kword(0, 0, (1 << 7) << 3)),
-        ('ulp8', kword(0, 0, 1 << 3)),                # an image's bit 0
-        ('sbit_s', kword(0, 0, 1 << 34)),             # a single's sign
-        ('inf_s', kword(0, 0, 0xFF << 26)),           # a single's maximum exponent
-        ('inf_d', kword(0, 0, 0x7FF << 55)),          # a double's
-        ('b26', kword(0, 0, 1 << 26)),                # a single's hidden bit
-        ('b55', kword(0, 0, 1 << 55)),                # a double's
-        ('b42', kword(0, 0, 1 << 42)),                # FMOVECR's undocumented rows: WinUAE's +/-2^39 of m64
-        ('nan', _ext(0, 0x7FFF, (1 << 64) - 1)),      # the chip's NaN (UM 6.1.3)
+        ('ext_emax', 0x7FFE),
+        ('ext_emin', 0),                              # extended is tiny below biased 0 (rounding.py)
+        ('dbl_emax', BIAS + 1023),
+        ('dbl_emin', BIAS - 1022),
+        ('sgl_emax', BIAS + 127),
+        ('sgl_emin', BIAS - 126),
+        ('dbl_bias', BIAS - 1023),                    # internal - IEEE double
+        ('sgl_bias', BIAS - 127),
+        ('bias', BIAS),
+        ('int_exp', BIAS + MANT_BITS - 1),            # an integer at bit 0 (OPINT)
+        ('exp_one', 1),
+        ('int63', BIAS + 63),                         # an integer with its LSB at bit 3 (FINT)
+        ('e16', BIAS + 16),                           # FSCALE: |src| >= 2^16
+        ('exp64', 64),                                # FMOD/FREM: a chunk of quotient bits
+        ('bias2', BIAS + 2),                          # Q2.64 <-> I67 (transcend.to_fixed/from_fixed)
         # The exceptional operand (6.1.4, 6.1.5; rounding.exceptional_operand):
         # the exponent wrapped by $6000, or 0 past the 17-bit catastrophic
         # limits (biased: overflow above 57343, underflow at -24576 and below).
-        ('xop_bias', _exp_word(0x6000)),
-        ('ovfl_cat', _exp_word(BIAS + 0xA000)),
-        ('unfl_cat', _exp_word(-24575)),
+        ('xop_bias', 0x6000),
+        ('ovfl_cat', BIAS + 0xA000),
+        ('unfl_cat', -24575),
     ]
-    for i, (n, w) in enumerate(named):
+    mants = [
+        ('qbit', 1 << 65),                            # a NaN's nonsignaling bit (bit 62)
+        ('ulp', 1),                                   # bit 0: the sticky bit jammed in
+        ('fx_half', 1 << 63),                         # 1/2 in Q2.64 (the square root's first bit)
+        ('gbit', 1 << 2),                             # the guard bit of the internal mantissa
+        ('k16384', 16384),                            # FSCALE's clamp (fpu.py _op_fscale)
+        ('k32832', 32832),
+        ('k65536', 65536),
+        # The stores (fpu.py _to_int, _to_ieee): an image is built at bits
+        # 66-3 of a mantissa, so its bit n is the mantissa's bit n + 3.
+        ('lim_l', (1 << 31) << 3),                    # 2^(n-1) << 3: the integer limits
+        ('lim_w', (1 << 15) << 3),
+        ('lim_b', (1 << 7) << 3),
+        ('ulp8', 1 << 3),                             # an image's bit 0
+        ('sbit_s', 1 << 34),                          # a single's sign
+        ('inf_s', 0xFF << 26),                        # a single's maximum exponent
+        ('inf_d', 0x7FF << 55),                       # a double's
+        ('b26', 1 << 26),                             # a single's hidden bit
+        ('b55', 1 << 55),                             # a double's
+        ('b42', 1 << 42),                             # FMOVECR's undocumented rows: WinUAE's +/-2^39 of m64
+    ]
+    words = [(n, w) for n, w in full]
+    for i in range(max(len(exps), len(mants))):
+        en, ev = exps[i] if i < len(exps) else (None, 0)
+        mn, mv = mants[i] if i < len(mants) else (None, 0)
+        words.append(((en, mn), kword(0, ev, mv)))
+    for i, (n, w) in enumerate(words):
         rom[NAMED_BASE + i] = w
-        names[n] = NAMED_BASE + i
-    assert NAMED_BASE + len(named) <= KROM_WORDS
+        for name in (n if isinstance(n, tuple) else (n,)):
+            if name is not None:
+                names[name] = NAMED_BASE + i
+    assert NAMED_BASE + len(words) <= KROM_WORDS, 'the constant ROM is full'
+    FIELDS.update({n: 'exp' for n, _ in exps})
+    FIELDS.update({n: 'mant' for n, _ in mants})
     return rom, names
 
 
+FIELDS = {}                 # a shared word's constants: which field each is
 ROM, NAMES = build()
 
 

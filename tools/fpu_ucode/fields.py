@@ -112,7 +112,7 @@ COND = Enum(
     'EN_BSUN', 'EN_SNAN', 'EN_OPERR', 'EN_OVFL', 'EN_UNFL', 'EN_DZ', 'EN_INEX2', 'EN_INEX1',
     'PREC_EXT', 'PREC_SGL', 'PREC_DBL', 'RND_RN', 'RND_RZ', 'RND_RM', 'RND_RP', 'DYNK',
     'SAVEREQ', 'ABORT', 'CUHANDOFF', 'SRCREG', 'SAMEREG',
-    'S', 'RPEXT', 'TINY', 'HUGE',
+    'S', 'RPEXT', 'TINY', 'HUGE', 'LCEQ', 'LCSCEQ',
 )
 
 # Dispatch keys (seq DISP; the `cond` field selects one): the key is ORed
@@ -199,7 +199,10 @@ RNDM = Enum('NONE', 'EXT', 'SGL', 'DBL', 'TRUNC', 'RPREC')
 # found the result inexact; QUOT the quotient byte from Q and the sign;
 # ACCRUE ORs EXC into AEXC at the end (6.1.10).
 FPSR = Enum('NONE', 'CLREXC', 'FPCC', 'ORLIT', 'INEX2R', 'QUOT', 'ACCRUE', 'FPCCINEX')
-LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU')
+# INC: the CORDIC loops count i upward (their shifts and table index are
+# LC-based); their exits test LCEQ (LC = lit) and LCSCEQ (LC - SC = lit,
+# the shift-amount adder's output) - plan 8.8.19.
+LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU', 'INC')
 # END: the instruction is complete - AEXC accrues from EXC (6.1.10) and
 # the BIU takes EXC AND ENABLE as the pending exception (6.1.9's
 # priority), pre-instruction for a register destination, mid-instruction
@@ -235,7 +238,7 @@ NANO = Format(
     Field('bx', 2, BX),
     Field('rnd', 3, RNDM),
     Field('fpsr', 3, FPSR),
-    Field('lcop', 2, LCOP),
+    Field('lcop', 3, LCOP),
     Field('ctl', 4, CTL),
     Field('lit', 8, doc='shared literal: shift amount, LC load, EXC bits'),
 )

@@ -337,9 +337,9 @@ pp_dn:  alu=nop | dispatch RPREC pp_emin
   DBL  pp_nd
   SGLX pp_nx
 .end
-pp_nx:  d=T12 b=K[ext_emin] alu=passb mode=expb | goto pp_dn2
-pp_ns:  d=T12 b=K[sgl_emin] alu=passb mode=expb | goto pp_dn2
-pp_nd:  d=T12 b=K[dbl_emin] alu=passb mode=expb
+pp_nx:  d=T12 a=0 b=K[ext_emin] alu=passb mode=exp | goto pp_dn2
+pp_ns:  d=T12 a=0 b=K[sgl_emin] alu=passb mode=exp | goto pp_dn2
+pp_nd:  d=T12 a=0 b=K[dbl_emin] alu=passb mode=exp
 pp_dn2: d=SC a=T12 b=T0 mode=exp alu=sub                ; the minimum - Eb, at most 127
         d=T5 a=T0 b=T12 alu=passb mode=exp
         d=T5 a=T5 b=T5>>SC alu=passb stk=shift
@@ -967,10 +967,10 @@ ppm_tiny: d=T6 a=T0 b=RINC alu=add rnd=rprec fpsr=orlit exc=UNFL
 ppm_x:  d=EXOP a=T6 alu=passa
 ppm_dn: alu=nop | dispatch RPREC ppm_emin
 .table ppm_emin RPREC
-  EXT  :: d=T12 b=K[ext_emin] alu=passb mode=expb | goto ppm_dn2
-  SGL  :: d=T12 b=K[sgl_emin] alu=passb mode=expb | goto ppm_dn2
-  DBL  :: d=T12 b=K[dbl_emin] alu=passb mode=expb | goto ppm_dn2
-  SGLX :: d=T12 b=K[ext_emin] alu=passb mode=expb | goto ppm_dn2
+  EXT  :: d=T12 a=0 b=K[ext_emin] alu=passb mode=exp | goto ppm_dn2
+  SGL  :: d=T12 a=0 b=K[sgl_emin] alu=passb mode=exp | goto ppm_dn2
+  DBL  :: d=T12 a=0 b=K[dbl_emin] alu=passb mode=exp | goto ppm_dn2
+  SGLX :: d=T12 a=0 b=K[ext_emin] alu=passb mode=exp | goto ppm_dn2
 .end
 ppm_dn2: d=SC a=T12 b=T0 mode=exp alu=sub
         d=T5 a=T0 b=T12 alu=passb mode=exp
@@ -1125,3 +1125,5 @@ cr_rd:  alu=nop | if Z goto cr_r0
 cr_cy:  d=T0 a=T0 b=K[one] alu=passb                    ; carried out
         d=T0 a=T0 b=0 alu=add cin=1 mode=exp
 cr_r0:  stk=clr | ret
+
+.include "transcend.uc"

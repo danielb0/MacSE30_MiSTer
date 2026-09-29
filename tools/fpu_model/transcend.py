@@ -65,14 +65,26 @@ class I67:
         return 'I67(%d,%X,%d)' % (self.s, self.m, self.e)
 
 
+# The operations are what the datapath computes (plan 8.8.19, Daniel's
+# decision 2026-09-29), each defined by the instruction whose machinery it
+# uses, so the microcode reproduces them bit for bit: the operands chopped
+# to the widths the multiplier (64 bits), the divider (65) and the square
+# root (64) take, the results chopped to 67.  Operands are normalized I67s
+# (67-bit mantissas).
+
 def i_add(a: I67, b: I67):
+    """FADD's alignment without the sticky bit: the operand with the smaller
+    exponent shifted right (its bits below the other's chopped), added or
+    subtracted by the signs, the magnitude chopped to 67 bits."""
     if a.m == 0:
         return b
     if b.m == 0:
         return a
-    e = min(a.e, b.e)
-    v = (-1 if a.s else 1) * (a.m << (a.e - e)) + (-1 if b.s else 1) * (b.m << (b.e - e))
-    return I67(1 if v < 0 else 0, abs(v), e)
+    if b.e > a.e:
+        a, b = b, a
+    bm = b.m >> (a.e - b.e) if a.e - b.e < W else 0
+    v = (-1 if a.s else 1) * a.m + (-1 if b.s else 1) * bm
+    return I67(1 if v < 0 else 0, abs(v), a.e)
 
 
 def i_sub(a, b):
@@ -80,24 +92,33 @@ def i_sub(a, b):
 
 
 def i_mul(a, b):
-    return I67(a.s ^ b.s, a.m * b.m, a.e + b.e)
+    """FMUL's multiplier: the two 64-bit significands (the mantissas chopped
+    by 3), the exact product's fixed 67-bit window (>> 61), normalized."""
+    if a.m == 0 or b.m == 0:
+        return I67(a.s ^ b.s, 0, 0)
+    return I67(a.s ^ b.s, ((a.m >> 3) * (b.m >> 3)) >> 61, a.e + b.e + 67)
 
 
 def i_div(a, b):
-    # 67 quotient bits by shift-subtract, the remainder dropped (truncation)
+    """FDIV's divider: the operands chopped to 65 bits (>> 2, so the doubled
+    remainder fits), 67 quotient bits (68 steps when the dividend is the
+    smaller), the remainder dropped."""
     if a.m == 0:
         return I67(a.s ^ b.s, 0, 0)
-    q = (a.m << (W + 1)) // b.m
+    q = ((a.m >> 2) << (W + 1)) // (b.m >> 2)
     return I67(a.s ^ b.s, q, a.e - b.e - (W + 1))
 
 
 def i_sqrt(a):
-    m, e = a.m, a.e
-    if e & 1:
-        m, e = m << 1, e - 1
-    m <<= 2 * W
-    e -= 2 * W
-    return I67(0, math.isqrt(m), e // 2)
+    """FSQRT's recurrence: the radicand's 64-bit significand as x in [1/4, 1)
+    (2x = m >> 3 for an even exponent, m >> 2 for an odd one), the root
+    floor(sqrt(x) 2^64) - 64 bits - with three zero bits below."""
+    if a.m == 0:
+        return I67(0, 0, 0)
+    u = a.e + W - 1                                  # the leading bit's exponent
+    x2 = a.m >> 2 if u & 1 else a.m >> 3             # 2x in Q2.64
+    q = math.isqrt(x2 << 63)                         # floor(sqrt(x) 2^64)
+    return I67(0, q << 3, (u >> 1) - (W - 1))
 
 
 def i_from_ext(x):
@@ -299,10 +320,16 @@ def reduce_2pi(x: I67):
     reduced into it - an exact remainder by the 67-bit 2pi, toward zero,
     like FMOD.  Its error is n (C - 2pi) for n multiples of the constant C,
     and swamps the result near 10^20, as the manual says."""
-    if abs(x.frac()) <= TWOPI.frac():
+    # FMOD's divider takes its operands chopped to 65 bits (i_div): the
+    # constant is 2pi to 65 bits, and x (an extended source, 64 bits) is
+    # exact at that width.  (Plan 8.8.19: the reduction's loss begins a
+    # factor of four sooner than a 67-bit constant's - still near 10^20.)
+    tm, te = TWOPI.m >> 2, TWOPI.e + 2
+    xm, xe = x.m >> 2, x.e + 2
+    if Fraction(xm) * Fraction(2) ** xe <= Fraction(tm) * Fraction(2) ** te:
         return x
-    e0 = min(x.e, TWOPI.e)
-    r = (x.m << (x.e - e0)) % (TWOPI.m << (TWOPI.e - e0))
+    e0 = min(xe, te)
+    r = (xm << (xe - e0)) % (tm << (te - e0))
     return I67(x.s, r, e0)
 
 
@@ -412,6 +439,28 @@ def _const(off):
 LOG10_E = _const(0x0E)
 LOG2_E = i_div(ONE_I, LN2)
 LOG2_10 = i_div(_const(0x31), LN2)
+LN10 = _const(0x31)
+LOG10_2 = _const(0x0B)
+
+
+def _split(v, e, keep):
+    """Cody-Waite: the constant v x 2^e (v a long integer) as hi + lo - hi
+    its leading `keep` bits, so n x hi is exact on the multiplier (64-bit
+    operands) for n below 2^(64 - keep); lo the rest, to 67 bits."""
+    sh = v.bit_length() - keep
+    hi = (v >> sh) << sh
+    return I67(0, hi, e), I67(0, v - hi, e)
+
+
+# n < 2^22 for FETOX (exponent(x) <= 20), n < 2^25 for FTENTOX.
+LN2_HI, LN2_LO = _split(_LNUP[0], -_P, 42)
+def _doc(off):
+    import constants
+    m, e, _ = constants.DOCUMENTED[off]
+    return m, e
+
+
+LOG10_2_HI, LOG10_2_LO = _split(*_doc(0x0B), 39)
 
 
 def _exp_frac(R):
@@ -441,16 +490,25 @@ def _overflowing(x: I67):
     return I67(0, 1 << (W - 1), (1 - W) + (-n if x.s else n))
 
 
+def _reduce(x: I67, n, hi, lo):
+    """x - n c by Cody-Waite: n hi exact, then n lo (plan 8.8.19: the
+    multiplier's 64-bit operands would otherwise put n times the constant's
+    chopped bits into the result - 10,000 units of extended for FETOX)."""
+    if not n:
+        return x
+    N = i_from_int(n)
+    return i_sub(i_sub(x, i_mul(N, hi)), i_mul(N, lo))
+
+
 def etox(x: I67):
-    """FETOX: x = n ln 2 + r with the 67-bit ln 2, e^r by shift-add, times
-    2^n."""
+    """FETOX: x = n ln 2 + r (Cody-Waite), e^r by shift-add, times 2^n."""
     if x.is_zero():
         return ONE_I
     if exponent(x) > 20:
         return _overflowing(x)
     q = i_mul(x, INV_LN2)
     n = math.floor(q.frac())
-    r = i_sub(x, i_mul(i_from_int(n), LN2)) if n else x
+    r = _reduce(x, n, LN2_HI, LN2_LO)
     # The quotient's truncation can leave r a hair outside [0, ln 2).
     while r.s and not r.is_zero():
         n -= 1
@@ -473,10 +531,23 @@ def twotox(x: I67):
 
 
 def tentox(x: I67):
-    """FTENTOX: 2^(x log2 10) (FTENTOX 549 = FETOX + a multiply)."""
+    """FTENTOX: n = floor(x log2 10), r = x - n log10 2 (Cody-Waite) in
+    [0, log10 2), 10^x = 2^n e^(r ln 10) - r ln 10 in [0, ln 2) for the
+    shift-add (FTENTOX 549 = FETOX + a multiply)."""
     if x.is_zero():
         return ONE_I
-    return twotox(i_mul(x, LOG2_10))
+    y = i_mul(x, LOG2_10)
+    if exponent(y) > 24:
+        return _overflowing(y)
+    n = math.floor(y.frac())
+    r = _reduce(x, n, LOG10_2_HI, LOG10_2_LO)
+    while r.s and not r.is_zero():
+        n -= 1
+        r = i_add(r, LOG10_2)
+    while not i_sub(r, LOG10_2).s:
+        n += 1
+        r = i_sub(r, LOG10_2)
+    return _scale2(from_fixed(_exp_frac(to_fixed(i_mul(r, LN10)))), n)
 
 
 def _expm1_small(u: I67):

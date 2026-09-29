@@ -89,6 +89,7 @@ class UInstr:
         self.target = None                  # label, int, or None
         self.addr = None
         self.table_of = None                # set for a table's jump words
+        self.kname = None                   # the named constant read, if any
 
     def setn(self, field, value, what):
         old = self.nano.get(field)
@@ -208,6 +209,7 @@ def parse_b(u, v, knames):
             addr = num(name)
         elif name in knames:
             addr = knames[name]
+            u.kname = name
         else:
             raise AsmError('%s: K[%s]: no such constant (consts.py)' % (u.loc, name))
         if off is not None and off.upper() == 'LC':
@@ -263,7 +265,7 @@ def parse_clause(u, c, knames):
             raise AsmError('%s: %s=%s: 0 or 1' % (u.loc, k, v))
         u.setn(k, int(v), k)
     elif k == 'lc':
-        if v.upper() in ('HOLD', 'DEC', 'ALU'):
+        if v.upper() in ('HOLD', 'DEC', 'ALU', 'INC'):
             u.setn('lcop', v.upper(), 'lc')
         else:
             u.setn('lcop', 'LIT', 'lc')
@@ -315,6 +317,13 @@ def word_rules(u):
         raise AsmError('%s: b=SQT takes its suffix from dir=prevn or dir=dflag' % u.loc)
     if n('bsrc') in ('RINC', 'RMASK') and n('rnd', 'NONE') == 'NONE':
         raise AsmError('%s: b=%s needs a rnd= mode' % (u.loc, n('bsrc')))
+    # A constant sharing its word (consts.py) is read by its own field only.
+    field = consts.FIELDS.get(u.kname)
+    mode, bx = n('emode', 'MANT'), n('bx', 'NONE')
+    if field == 'exp' and not (mode == 'EXP' or bx == 'E2M'):
+        raise AsmError('%s: K[%s] is an exponent: use it in mode=exp (or bx=e2m)' % (u.loc, u.kname))
+    if field == 'mant' and not ((mode == 'MANT' and bx != 'E2M') or (mode == 'EXP' and bx == 'M2E')):
+        raise AsmError('%s: K[%s] is a mantissa: use it in mode=mant (or bx=m2e)' % (u.loc, u.kname))
 
 
 def parse_seq(u, s):
