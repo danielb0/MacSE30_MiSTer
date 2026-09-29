@@ -9980,6 +9980,51 @@ exponent-only and a mantissa-only constant (the assembler refuses a shared
 constant read by the wrong field); the ROM ends at `$F0` with the
 transcendentals' constants in.
 
+**2026-09-29, end of the day: THE MICROCODE IS FUNCTIONALLY COMPLETE - all
+19,484 vectors pass, none fail, none unwritten** (commit `86cdbab`): every
+instruction the model executes, bit for bit - the arithmetic, the stores,
+FMOVECR, the eighteen transcendentals (each also checked directly against
+its `transcend.py` function by `unit.py`, 6,206 cases, bit-exact) and
+packed decimal in and out (Motorola's FPSP decbin/bindec, A1-A16, step for
+step). 2,289 microinstructions, 273 nanowords.
+
+**Added on the way**, none of it software-visible: the **rounding-mode
+register** RMODE (`ctl=rm_*`; FPCR's RND until set - packed decimal's steps
+round in the modes FPSP sets, and quietly: `ppq`, `qmul`, `qdiv`, `qadd`,
+`qint` leave FPSR alone), conditions RMRM/RMRP and a dispatch key on it;
+**`ctl=retag`** (a packed source's tags from its converted value - the CU
+cannot classify packed); the **µROM grown to 4,096 words** (a 12-bit
+target, a 49-bit microword - 25 M10K where 8.8.17 counted 10); the
+nanoword at 62 bits (ctl 5 bits); the constant ROM full, 256 words (FMOVECR's
+32 repeated undocumented rows `$10-$2F` now hold named constants - the
+microcode reads row `$10` for those offsets); and the assembler's
+**checkpoint liveness made context-sensitive** (per-subroutine use/must-def
+summaries, each checkpoint judged per call chain - the merged analysis let
+a return reach callers that never made the call, and flagged registers the
+busy frame need not hold).
+
+**Clocks, measured against the detail tables** (`clocks.py`; normal
+operands, extended): the arithmetic, the stores, FMOVECR and the
+trigonometric group are inside their budgets (FSIN 349 of 380, FTAN 427 of
+462, FASIN 523 of 570, FDIV 98 of 98); packed decimal too (in: 807 at
+most against 954; out: 1,723 against 3,674). **Over**: the logarithms
+(FLOGN 732 against 514, FLOG10/FLOG2 about 765 against 570, FLOGNP1 746
+against 560, FATANH 787 against 682) and some exponentials (FETOX 558
+against 486, FTENTOX 615 against 556, FCOSH 632 against 596, FETOXM1 566
+against 534). Their shift-add loops spend 4-5 clocks a step, most of it
+copying registers.
+
+**The rest of 6c: the timing pass.** (1) Speed the shift-add loops -
+unrolled pairs with the registers' roles alternating (no copies), as the
+CORDIC loops already do - until every instruction is inside its table
+figure; (2) pad every path to the tables with `wait` (8.8.16: the packed
+typical figures; FMOD/FREM's per-chunk formula; the trigonometric
+reduction's added REM time), `clocks.py` extended to check each vector's
+case against its figure; (3) checkpoints in the long loops (8.8.12: every
+~70 clocks - CORDIC, the shift-add loops, packed decimal; today only
+FMOD/FREM's chunks have them) with the liveness check holding. Then item 6
+is done and item 7 (the RTL, written against `sim.py`) begins.
+
 ---
 
 ## Appendix - where the sources are
