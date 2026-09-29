@@ -432,6 +432,17 @@ def run(c: Checks):
     want = Ext(0, (-32000 + BIAS + 0x6000) & 0x7FFF, 1 << 63)
     c.check('UNFL exceptional operand: 2^-32000 wrapped to $%04X' % want.e,
             o.vector == 51 and o.xop == want, '%r' % (o.xop,))
+    # FSCALE by an enormous source (the vectors found the model failing
+    # here, 2026-09-29): "an overflow or underflow always results" (4-93),
+    # the 17-bit intermediate far past its limit - catastrophic.
+    f = fp(enable=F.OVFL)
+    o = dy(f, 0x26, THREE, Ext(0, 0x7FFE, 1 << 63))            # x 2^(2^16383)
+    c.check('FSCALE by 2^16383: OVFL, +inf, a catastrophic exceptional operand ($0000)',
+            o.vector == 53 and f.fp[0] == inf(0) and o.xop.e == 0, '%r %s' % (f.fp[0], o))
+    f = fp(enable=F.UNFL)
+    o = dy(f, 0x26, THREE, Ext(1, 0x7FFE, 1 << 63))            # x 2^-(2^16383)
+    c.check('FSCALE by -2^16383: UNFL, +0, a catastrophic exceptional operand ($0000)',
+            o.vector == 51 and f.fp[0] == zero(0) and o.xop.e == 0, '%r %s' % (f.fp[0], o))
     f = fp(prec=1, rnd=2)
     dy(f, 0x23, Ext(0, BIAS + 100, 1 << 63), Ext(0, BIAS + 100, 1 << 63))
     c.check('6-16\'s example: single/RM positive overflow stores the largest single, '

@@ -434,8 +434,10 @@ def _scale2(y: I67, n):
 
 
 def _overflowing(x: I67):
-    """A result so far out that only its direction matters: 2^(+/-2^21)."""
-    n = 1 << (exponent(x) + 1)
+    """A result so far out that only its direction matters: 2^(+/-2^21) -
+    beyond the catastrophic limit (6-10) whatever x's size, and no further
+    (an x of 10^4000 would otherwise ask for a 2^13000-digit exponent)."""
+    n = 1 << 21
     return I67(0, 1 << (W - 1), (1 - W) + (-n if x.s else n))
 
 

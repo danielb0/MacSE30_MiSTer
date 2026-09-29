@@ -7668,8 +7668,9 @@ is already known to differ from the manual in three ways (8.5).
    within the manual's bounds. It is the oracle for everything after.
    **Started 2026-09-29: 8.7** (design, switches, and 5a - the exact
    arithmetic, rounding, FPSR, traps and FMOVECR - built and checked,
-   8.7.1); 5b packed decimal (8.7.2) and 5c the transcendentals (8.7.3)
-   done the same day; 5d the vectors next.
+   8.7.1); 5b packed decimal (8.7.2), 5c the transcendentals (8.7.3) and
+   5d the test vectors (8.7.4) done the same day. **Item 5 complete
+   2026-09-29.**
 6. **The architecture and its microcode**: the datapath, the sequencer's
    microinstruction format, the microcode assembler (a small script that
    builds the block RAM image), the CU, the register file; area and cycle
@@ -8850,6 +8851,7 @@ again, FNEG twice, FCMP against FSUB's sign).
   **Done 2026-09-29** (8.7.3).
 - **5d** the vector export for `sim/fpu` (item 7): instruction, FPCR,
   operands, and the expected register, FPSR and trap, one line each.
+  **Done 2026-09-29** (8.7.4) - **item 5 complete.**
 
 ### 8.7.1 5a as built (2026-09-29)
 
@@ -9066,6 +9068,54 @@ extended x has 64 bits, so the 67-bit square keeps 1 - 2d exactly). A
 mutant that hung a check in an endless loop for 80 minutes - a precedence
 slip in the mutant, not the model - led to a 300 s limit per check, a hang
 now reported as one.
+
+### 8.7.4 5d as built: the test vectors (2026-09-29)
+
+The RTL's interface does not exist yet (item 6), so a vector describes the
+*instruction*, not a bus protocol: what the bench loads, what it executes,
+what it must find. `vectors.py` writes one vector a line, 17 fixed-width
+hex fields: a group word; G (a command word) or C (a predicate); the
+command; FPCR and FPSR before; FP1 (the source register), FP2 (the
+destination) and FP5 (FSINCOS's cosine register) before, as 80-bit images;
+an opclass-010 operand right-aligned in 96 bits (B W L S D X P as the
+command's format says); Dn for a dynamic k-factor - then expected: FP2 and
+FP5 after, FPSR after, the exception vector (`0B` for an F-line), whether
+it is taken pre- or mid-instruction, a stored value (opclass 011, or a
+conditional's answer), and the exceptional operand. FPIAR is left out (the
+model has no program counter to load it with). The file's header records
+the seed and the model's switches; **the file is generated, not kept** (a
+4.5 MB `out/fpu.vec` at scale 1, `.gitignore`d) - item 7's bench
+regenerates it.
+
+**What is in it** (19,484 vectors at scale 1, in a second): `rounding`
+3,000 register-to-register arithmetic, every PREC and RND, traps enabled
+at random, a prior FPSR the instruction must clear or keep; `convert`
+3,000 - `<ea>` in from every format (the extended's unused bits random:
+don't-cares) and out to every format, packed with static and dynamic k;
+`packed` 800 decimal strings in, specials and non-decimal digits among
+them; `fmovecr` 1,536 - all 128 offsets in every PREC and RND; `transcend`
+3,000 - bit-exact to the model, which is what the microcode must match;
+`special` 6,016 - every operation on every pair of 16 special operands
+(zeros, infinities, NaNs, a signaling NaN, denormals, a pseudo-denormal, an
+unnormal, the largest numbers), all traps on and off; `cond` 2,048 - every
+FPCC value, all 64 predicate codes, BSUN enabled and not; `decode` 84 -
+opmodes `$40-$7F`, opclass 001, the redundant opmodes.
+
+**Proved readable both ways.** `replay.py` parses every line and runs it
+back through the model to the identical line; `vecread.v` reads every field
+of every line through `$fscanf` into registers of its width under Icarus,
+and its per-field checksums equal the Python parser's (`vecsum.py`) - so the
+format item 7's bench will use is known to work before any RTL depends on
+it. `run.sh` does all of it: the four check suites, the vectors, the
+replay, the Verilog read - **six `==== PASS` lines in 29 seconds**.
+
+**The vectors found a model bug on their first run:** FSCALE by an enormous
+source (around 2^16383 - the random checks stopped at 2^14) asked Python for
+an exponent with 2^16383 digits. The scale is now held to +/-2^16 once past
+2^14 - beyond the 17-bit intermediate's catastrophic limit, so nothing a
+program can see changes - and the exponentials' overflow shortcut likewise;
+two checks pin it (FSCALE by +/-2^16383: OVFL or UNFL, the catastrophic
+exceptional operand `$0000`). `check_tables.py` is at 117.
 
 ---
 

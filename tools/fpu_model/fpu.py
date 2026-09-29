@@ -719,11 +719,13 @@ class FPU:
             n = -n
         # "When the absolute value of the source operand is >= 2^14, an
         # overflow or underflow always results" (4-93): the scale is pushed
-        # far enough that it does whatever FPn is.
+        # far enough that it does whatever FPn is, and held to 2^16 - past
+        # the 17-bit intermediate's catastrophic limit ($A000, 6-10), where
+        # a larger scale changes nothing a program can see.
         if n >= 1 << 14:
-            n = max(n, (1 << 15) + 64)
+            n = min(max(n, (1 << 15) + 64), 1 << 16)
         elif n <= -(1 << 14):
-            n = min(n, -((1 << 15) + 64))
+            n = max(min(n, -((1 << 15) + 64)), -(1 << 16))
         s, m, e = d.exact()
         res, exc, xop = self._round(s, m, e + n, False, fmt, rnd, exc, suppress)
         return self._finish_reg(dst, res, exc, src, xop)

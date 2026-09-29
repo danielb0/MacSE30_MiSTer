@@ -1,3 +1,5 @@
 run.log
 mutate.log
 __pycache__/
+out/
+*.vec
