@@ -214,6 +214,7 @@ class Chip:
         self.STK = self.INEX = self.DFLAG = self.LZC = self.KDIR = self.S = 0
         self.TINY = self.HUGE = 0
         self.RPREC = 0
+        self.RMODE = None                      # FPCR's RND until an RM_* sets it
         self.OBUF = 0
         self.EXOP = (0, 0, 0)
         self.stack = []
@@ -246,6 +247,7 @@ class Chip:
             'SRCREG': self.opclass == 0, 'SAMEREG': self.rx == self.ry,
             'S': self.S, 'RPEXT': self.RPREC in (0, 3), 'TINY': self.TINY, 'HUGE': self.HUGE,
             'LCEQ': self.LC == self._lit, 'LCSCEQ': self.LC - self.SC == self._lit,
+            'RMRM': self._rmode() == 2, 'RMRP': self._rmode() == 3,
         }
         if name.startswith('EN_'):
             return bool(self.fpcr & {'EN_BSUN': BSUN, 'EN_SNAN': SNAN, 'EN_OPERR': OPERR,
@@ -271,9 +273,14 @@ class Chip:
             return int(((self.cmd >> 10) & 7) == 7)
         if name == 'RPREC':
             return self.RPREC
+        if name == 'RMODE':
+            return self._rmode()
         if name == 'OPMODE':
             return self.cmd & 0x3F
         raise SimError('dispatch key %s' % name)
+
+    def _rmode(self):
+        return (self.fpcr >> 4) & 3 if self.RMODE is None else self.RMODE
 
     # -- the round logic (8.8.10) -------------------------------------------------------------
     def _round(self, mode, a):
@@ -281,7 +288,7 @@ class Chip:
             lsb = {0: 3, 1: 43, 2: 14, 3: 43}[self.RPREC]
         else:
             lsb = {'EXT': 3, 'SGL': 43, 'DBL': 14, 'TRUNC': 3}[mode]
-        rnd = 1 if mode == 'TRUNC' else (self.fpcr >> 4) & 3
+        rnd = 1 if mode == 'TRUNC' else self._rmode()
         m = a.m
         g = (m >> (lsb - 1)) & 1
         r = (m >> (lsb - 2)) & 1
@@ -629,6 +636,12 @@ class Chip:
             # BIU's logic, as it takes the pending exception.
             self.fpsr = accrue(self.fpsr)
             self.done = True
+        elif c == 'RETAG':
+            if res is None:
+                raise SimError('ctl=retag with alu=nop')
+            self.stag, self.s_snan, self.s_den, self.s_neg = tag(res), is_snan(res), is_den(res), res.s
+        elif c.startswith('RM_'):
+            self.RMODE = None if c == 'RM_FPCR' else {'RM_RN': 0, 'RM_RZ': 1, 'RM_RM': 2, 'RM_RP': 3}[c]
         elif c.startswith('RP_'):
             if c == 'RP_PREC':
                 p = (self.fpcr >> 6) & 3

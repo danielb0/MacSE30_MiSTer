@@ -112,16 +112,16 @@ COND = Enum(
     'EN_BSUN', 'EN_SNAN', 'EN_OPERR', 'EN_OVFL', 'EN_UNFL', 'EN_DZ', 'EN_INEX2', 'EN_INEX1',
     'PREC_EXT', 'PREC_SGL', 'PREC_DBL', 'RND_RN', 'RND_RZ', 'RND_RM', 'RND_RP', 'DYNK',
     'SAVEREQ', 'ABORT', 'CUHANDOFF', 'SRCREG', 'SAMEREG',
-    'S', 'RPEXT', 'TINY', 'HUGE', 'LCEQ', 'LCSCEQ',
+    'S', 'RPEXT', 'TINY', 'HUGE', 'LCEQ', 'LCSCEQ', 'RMRM', 'RMRP',
 )
 
 # Dispatch keys (seq DISP; the `cond` field selects one): the key is ORed
 # into the target's low bits, so a table is aligned to its size.  TAGPAIR
 # is source class x 5 + destination class (25 of 32).
 DISPATCH = Enum('TAGPAIR', 'STAG', 'DTAG', 'RND', 'PREC', 'SFMT', 'DFMT', 'KFACTOR', 'RPREC',
-                'OPMODE')
+                'OPMODE', 'RMODE')
 DISPATCH_BITS = {'TAGPAIR': 5, 'STAG': 3, 'DTAG': 3, 'RND': 2, 'PREC': 2,
-                 'SFMT': 3, 'DFMT': 3, 'KFACTOR': 1, 'RPREC': 2, 'OPMODE': 6}
+                 'SFMT': 3, 'DFMT': 3, 'KFACTOR': 1, 'RPREC': 2, 'OPMODE': 6, 'RMODE': 2}
 
 # Table 8-13's operand classes, in its column order.
 TAG = Enum('NORM', 'UNN', 'ZERO', 'INF', 'NAN')
@@ -132,7 +132,7 @@ FMT = Enum('L', 'S', 'X', 'P', 'W', 'D', 'B', 'PK')
 KFACTOR = Enum('STATIC', 'DYNAMIC')
 
 KEY_ENUM = {'TAGPAIR': None, 'STAG': TAG, 'DTAG': TAG, 'RND': RND, 'PREC': PREC,
-            'SFMT': FMT, 'DFMT': FMT, 'KFACTOR': KFACTOR, 'RPREC': PREC, 'OPMODE': None}
+            'SFMT': FMT, 'DFMT': FMT, 'KFACTOR': KFACTOR, 'RPREC': PREC, 'OPMODE': None, 'RMODE': RND}
 
 MICRO = Format(
     'micro',
@@ -208,9 +208,15 @@ LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU', 'INC')
 # priority), pre-instruction for a register destination, mid-instruction
 # for a store.  RP_*: load the rounding-
 # precision register (PREC codes: 0 EXT, 1 SGL, 2 DBL; FPCR's 3 is EXT).
+# RM_*: the rounding-mode register RMODE the round logic follows - FPCR's
+# RND until set (every instruction starts there), or RN/RZ/RM/RP fixed:
+# packed decimal's steps round in the modes Motorola's FPSP sets (8.8.19).
+# RETAG: the source's tags from this word's result - a packed operand, which
+# the CU cannot classify, after the APU has converted it.
 CTL = Enum('NONE', 'RELEASE', 'OPWANT', 'STORED', 'CHECKPOINT', 'END',
            'HANDOFF', 'SAVED', 'RESTORED',
-           'RP_PREC', 'RP_EXT', 'RP_SGL', 'RP_DBL', 'RP_DFMT', 'RP_SGLX')
+           'RP_PREC', 'RP_EXT', 'RP_SGL', 'RP_DBL', 'RP_DFMT', 'RP_SGLX',
+           'RM_FPCR', 'RM_RN', 'RM_RZ', 'RM_RM', 'RM_RP', 'RETAG')
 
 # Moving a value between B's fields, before the barrel shifter: E2M puts
 # B's exponent (sign-extended) in its mantissa - FGETEXP; M2E puts the low
@@ -239,7 +245,7 @@ NANO = Format(
     Field('rnd', 3, RNDM),
     Field('fpsr', 3, FPSR),
     Field('lcop', 3, LCOP),
-    Field('ctl', 4, CTL),
+    Field('ctl', 5, CTL),
     Field('lit', 8, doc='shared literal: shift amount, LC load, EXC bits'),
 )
 

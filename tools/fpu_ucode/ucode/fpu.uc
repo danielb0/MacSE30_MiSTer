@@ -251,6 +251,51 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
 .entry X     $37 pro_x
 .entry S,D   $37 pro_sd
 .entry B,W,L $37 pro_int
+.entry P     $00 pro_p
+.entry P     $01 pro_p
+.entry P     $02 pro_p
+.entry P     $03 pro_p
+.entry P     $04 pro_p
+.entry P     $06 pro_p
+.entry P     $08 pro_p
+.entry P     $09 pro_p
+.entry P     $0A pro_p
+.entry P     $0C pro_p
+.entry P     $0D pro_p
+.entry P     $0E pro_p
+.entry P     $0F pro_p
+.entry P     $10 pro_p
+.entry P     $11 pro_p
+.entry P     $12 pro_p
+.entry P     $14 pro_p
+.entry P     $15 pro_p
+.entry P     $16 pro_p
+.entry P     $18 pro_p
+.entry P     $19 pro_p
+.entry P     $1A pro_p
+.entry P     $1C pro_p
+.entry P     $1D pro_p
+.entry P     $1E pro_p
+.entry P     $1F pro_p
+.entry P     $20 pro_p
+.entry P     $21 pro_p
+.entry P     $22 pro_p
+.entry P     $23 pro_p
+.entry P     $24 pro_p
+.entry P     $25 pro_p
+.entry P     $26 pro_p
+.entry P     $27 pro_p
+.entry P     $28 pro_p
+.entry P     $30 pro_p
+.entry P     $31 pro_p
+.entry P     $32 pro_p
+.entry P     $33 pro_p
+.entry P     $34 pro_p
+.entry P     $35 pro_p
+.entry P     $36 pro_p
+.entry P     $37 pro_p
+.entry P     $38 pro_p
+.entry P     $3A pro_p
 .entry reg   $23 pro_reg
 .entry X     $23 pro_x
 .entry S,D   $23 pro_sd
@@ -1257,3 +1302,4 @@ cr_cy:  d=T0 a=T0 b=K[one] alu=passb                    ; carried out
 cr_r0:  stk=clr | ret
 
 .include "transcend.uc"
+.include "packed.uc"

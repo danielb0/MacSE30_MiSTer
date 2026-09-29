@@ -187,6 +187,13 @@ def build():
         ('b26', 1 << 26),                             # a single's hidden bit
         ('b55', 1 << 55),                             # a double's
         ('b42', 1 << 42),                             # FMOVECR's undocumented rows: WinUAE's +/-2^39 of m64
+        # Packed decimal (packed.py): the image's fields and small integers.
+        ('k15', 15),
+        ('k16', 16),
+        ('k27', 27),
+        ('k7fff0000', 0x7FFF0000),                    # SE, YY and the $FFF exponent: infinity/NaN
+        ('b30', 1 << 30),                             # SE
+        ('b31', 1 << 31),                             # SM
     ]
     words = [(n, w) for n, w in full]
     for i in range(max(len(exps), len(mants))):
