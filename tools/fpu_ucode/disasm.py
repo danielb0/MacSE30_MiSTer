@@ -108,7 +108,10 @@ def seq_text(m, label=None):
         return '%s %s goto %s' % ('if' if s == 'BRT' else 'unless', FD.COND.name(m['cond']), t)
     if s == 'DISP':
         return 'dispatch %s %s' % (FD.DISPATCH.name(m['cond']), t)
-    return 'wait %d' % m['target']
+    mode = FD.WAITMODE.name(m['cond'])
+    if mode == 'UNTIL':
+        return 'waitb %d' % m['target']
+    return '%s %d' % ('wait' if mode == 'HOLD' else 'budget', m['target'])
 
 
 def format_word(uword, nrom, label=None):

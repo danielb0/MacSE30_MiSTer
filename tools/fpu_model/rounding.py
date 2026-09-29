@@ -47,6 +47,18 @@ DBL_MANT = Fmt('DX', 53, -16383, 16383)
 # The undefined setting is taken as extended here and flagged by the caller.
 PREC_FMT = {0: EXT, 1: SGL, 2: DBL, 3: EXT}
 
+# The timing pass (plan 8.8.19): when a list, post_process appends each
+# rounding's outcome - what Tables 8-17 and 8-18 choose their figures by
+# (tiny, the rounding carrying out of the mantissa, overflow, and whether
+# the carry caused it).  It changes nothing the model computes.
+TRACE = None
+
+
+def _note(fmt, dest, tiny=False, carry=False, ovfl=False, by_round=False, zero=False):
+    if TRACE is not None:
+        TRACE.append(dict(fmt=fmt.name, dest=dest, tiny=tiny, carry=carry, ovfl=ovfl,
+                          by_round=by_round, zero=zero))
+
 
 def round_to_quantum(s, m, e, sticky, q, rnd):
     """Round (-1)^s x (m x 2^e + tail) to a multiple of 2^q.
@@ -152,11 +164,17 @@ def post_process(s, m, e, sticky, fmt, rnd, dest='reg'):
     else:
         q = E - (fmt.p - 1)
     K, inexact = round_to_quantum(s, m, e, sticky, q, rnd)
+    carry = False
+    if TRACE is not None:
+        Kt, _ = round_to_quantum(s, m, e, sticky, q, RZ)
+        carry = K.bit_length() > Kt.bit_length()
     xop = None
     if K == 0:
+        _note(fmt, dest, tiny=True, zero=True)
         return Rounded('zero', s, 0, q, True, False, inexact, E,
                        exceptional_operand(s, m, e, sticky, rnd, E, fmt, dest, False))
     if tiny:
+        _note(fmt, dest, tiny=True, carry=carry)
         xop = exceptional_operand(s, m, e, sticky, rnd, E, fmt, dest, False)
         return Rounded('fin', s, K, q, True, False, inexact, E, xop)
     if K >> fmt.p:                      # carry out of the mantissa
@@ -164,6 +182,7 @@ def post_process(s, m, e, sticky, fmt, rnd, dest='reg'):
         q += 1
     Er = K.bit_length() - 1 + q
     if Er > fmt.emax:
+        _note(fmt, dest, carry=carry, ovfl=True, by_round=E <= fmt.emax)
         xop = exceptional_operand(s, m, e, sticky, rnd, E, fmt, dest, True)
         # 6.1.4's trap-disabled results.
         to_inf = (rnd == RN or (rnd == RM and s) or (rnd == RP and not s))
@@ -171,6 +190,7 @@ def post_process(s, m, e, sticky, fmt, rnd, dest='reg'):
             return Rounded('inf', s, 0, 0, False, True, inexact, E, xop)
         LK, Lq = largest(fmt)
         return Rounded('fin', s, LK, Lq, False, True, inexact, E, xop)
+    _note(fmt, dest, carry=carry)
     return Rounded('fin', s, K, q, False, False, inexact, E, None)
 
 

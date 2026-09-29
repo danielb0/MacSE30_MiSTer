@@ -219,6 +219,7 @@ class Chip:
         self.EXOP = (0, 0, 0)
         self.stack = []
         self.clocks = 0
+        self.BUDGET, self.RB = 0, 1            # the timing pass (8.8.19): fields.WAITMODE
         self.done = False
 
     # -- conditions and dispatch keys ------------------------------------------------------
@@ -333,12 +334,19 @@ class Chip:
         elif seq == 'DISP':
             nxt = m['target'] | self.key(m['cond'])
         elif seq == 'WAIT':
-            hold = m['target']
+            mode = FD.WAITMODE.names[m['cond']]
+            if mode == 'HOLD':
+                hold = m['target']
+            elif mode == 'ADD':
+                self.BUDGET += m['target']
+            else:                               # UNTIL: this word's clock ends it at the earliest
+                hold = max(0, self.BUDGET + m['target'] - (self.clocks + 1))
         if self.trace is not None:
             import disasm
             self.trace.append('%03X  %s' % (a, disasm.format_word(self.urom[a], self.nrom)))
+        self.hold_end = 0
         self.execute(m, n)
-        self.clocks += 1 + hold
+        self.clocks += 1 + hold + self.hold_end
         self.upc = nxt
 
     def execute(self, m, n):
@@ -633,9 +641,21 @@ class Chip:
         c = e['ctl']
         if c == 'END':
             # The instruction's end: AEXC accrues from EXC (6.1.10) - the
-            # BIU's logic, as it takes the pending exception.
+            # BIU's logic, as it takes the pending exception.  It holds
+            # until the budget's clocks have passed (8.8.19).
             self.fpsr = accrue(self.fpsr)
+            self.hold_end = max(0, self.BUDGET - (self.clocks + 1))
             self.done = True
+        elif c == 'BUDGET':
+            self.BUDGET += 2 * e['lit']
+        elif c == 'RBUDGET':
+            self.BUDGET += 2 * e['lit'] * self.RB
+        elif c == 'NORB':
+            self.RB = 0
+        elif c == 'RBON':
+            self.RB = 1
+        elif c == 'RTIME':
+            self.BUDGET += FD.rtime(e['lit'], self.RPREC, self._rmode()) * self.RB
         elif c == 'RETAG':
             if res is None:
                 raise SimError('ctl=retag with alu=nop')

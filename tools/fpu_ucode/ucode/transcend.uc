@@ -118,7 +118,7 @@ tr_fin: a=T11 alu=passa
         b=K[ulp] alu=passb stk=nz
         alu=nop | call pp
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
-tr_z:   d=T0 a=T11 b=0 alu=passb mode=exp | goto wr_t0
+tr_z:   d=T0 a=T11 b=0 alu=passb mode=exp rtime=zero | goto wr_t0   ; an exact zero rounds as one
 tr_one: d=T0 b=K[one] alu=passb mode=mantb sign=zero | goto wr_t0   ; +1.0, exact
 
 ; -- floorint: T7 = floor(T11) as a two's complement integer (|T11| < 2^66;
@@ -284,30 +284,30 @@ te_go:  d=T11 a=T2 alu=passa
 ; +inf -> +inf; else the function through tr_fin.
 .table t_exp STAG
   NAN  nan_m
-  ZERO tr_one
-  INF  exp_inf
+  ZERO :: alu=nop budget=8 | goto tr_one
+  INF  :: alu=nop budget=6 | goto exp_inf
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_etox
 .end
 .table t_twotox STAG
   NAN  nan_m
-  ZERO tr_one
-  INF  exp_inf
+  ZERO :: alu=nop budget=8 | goto tr_one
+  INF  :: alu=nop budget=6 | goto exp_inf
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_twotox
 .end
 .table t_tentox STAG
   NAN  nan_m
-  ZERO tr_one
-  INF  exp_inf
+  ZERO :: alu=nop budget=8 | goto tr_one
+  INF  :: alu=nop budget=6 | goto exp_inf
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_tentox
 .end
 exp_inf: alu=nop | unless SNEG goto mv_copy
         d=T0 b=0 alu=passb sign=zero | goto wr_t0       ; e^-inf = +0
-x_etox: alu=nop | call etox
+x_etox: alu=nop budget=466 | call etox                 ; Table 8-15's calculation times (8.8.19)
         goto tr_fin
-x_twotox: alu=nop | call twotox
-        goto tr_fin
-x_tentox: alu=nop | call tentox
-        goto tr_fin
+x_twotox: alu=nop budget=510 | call twotox
+        alu=nop budget=26 | goto tr_fin                 ; 536
+x_tentox: alu=nop budget=510 | call tentox
+        alu=nop budget=26 | goto tr_fin
 
 ; ============================================================================
 ; expm1s: e^u - 1 for |u| < 1/4, keeping its relative precision
@@ -436,24 +436,24 @@ em_r:   ret
 
 .table t_expm1 STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  em_inf
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: alu=nop budget=6 | goto em_inf
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_expm1
 .end
 em_inf: alu=nop | unless SNEG goto mv_copy
-        d=T0 b=K[one] alu=passb mode=mantb sign=one | goto wr_t0      ; e^-inf - 1 = -1
-x_expm1: alu=nop | call etoxm1
-        goto tr_fin
+        d=T0 b=K[one] alu=passb mode=mantb sign=one budget=2 | goto wr_t0   ; e^-inf - 1 = -1: 8
+x_expm1: alu=nop budget=510 | call etoxm1
+        alu=nop budget=4 | goto tr_fin                  ; 514
 
 ; sinh = sign (z + z/(1 + z))/2, z = e^|x| - 1
 .table t_sinh STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  mv_copy
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: alu=nop budget=6 | goto mv_copy
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_sinh
 .end
-x_sinh: d=T2 a=T2 alu=passa sign=zero | call etoxm1
-        d=T3 a=T11 alu=passa                            ; z
+x_sinh: d=T2 a=T2 alu=passa sign=zero budget=510 | call etoxm1
+        d=T3 a=T11 alu=passa budget=146                 ; z; 656
         d=T12 b=K[one] alu=passb mode=mantb sign=b | call iadd
         d=T12 a=T11 alu=passa
         d=T11 a=T3 alu=passa | call idiv                ; z / (1 + z)
@@ -465,12 +465,12 @@ x_sinh: d=T2 a=T2 alu=passa sign=zero | call etoxm1
 ; cosh = (t + 1/t)/2, t = e^|x|
 .table t_cosh STAG
   NAN  nan_m
-  ZERO tr_one
-  INF  :: d=T0 a=T1 alu=passa sign=zero | goto mk_inf
+  ZERO :: alu=nop budget=8 | goto tr_one
+  INF  :: d=T0 a=T1 alu=passa sign=zero budget=8 | goto mk_inf
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_cosh
 .end
-x_cosh: d=T2 a=T2 alu=passa sign=zero | call etox
-        d=T3 a=T11 alu=passa
+x_cosh: d=T2 a=T2 alu=passa sign=zero budget=510 | call etox
+        d=T3 a=T11 alu=passa budget=66                  ; 576
         d=T12 a=T11 alu=passa
         d=T11 b=K[one] alu=passb mode=mantb sign=b | call idiv   ; 1/t
         d=T12 a=T3 alu=passa | call iadd
@@ -480,12 +480,12 @@ x_cosh: d=T2 a=T2 alu=passa sign=zero | call etox
 ; bounded below 1 (transcend.bounded)
 .table t_tanh STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  :: d=T0 a=T1 b=K[one] alu=passb mode=mantb sign=a | goto wr_t0   ; +/-1
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: d=T0 a=T1 b=K[one] alu=passb mode=mantb sign=a budget=8 | goto wr_t0   ; +/-1
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_tanh
 .end
-x_tanh: d=T2 a=T2 b=K[exp_one] mode=exp alu=add sign=zero   ; 2|x|
-        a=T2 b=K[b7] mode=exp alu=rsub
+x_tanh: d=T2 a=T2 b=K[exp_one] mode=exp alu=add sign=zero budget=510   ; 2|x|
+        a=T2 b=K[b7] mode=exp alu=rsub budget=120       ; 630
         alu=nop | if N goto th_one
         alu=nop | call etoxm1
         d=T3 a=T11 alu=passa
@@ -722,44 +722,47 @@ lognp1: a=T2 b=K[bm66] mode=exp alu=sub
 
 .table t_logn STAG
   NAN  nan_m
-  ZERO log_z
-  INF  log_i
+  ZERO :: alu=nop budget=22 | goto log_z
+  INF  :: alu=nop budget=6 | goto log_i
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_logn
 .end
 .table t_log2 STAG
   NAN  nan_m
-  ZERO log_z
-  INF  log_i
+  ZERO :: alu=nop budget=22 | goto log_z
+  INF  :: alu=nop budget=6 | goto log_i
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_log2
 .end
 .table t_log10 STAG
   NAN  nan_m
-  ZERO log_z
-  INF  log_i
+  ZERO :: alu=nop budget=22 | goto log_z
+  INF  :: alu=nop budget=6 | goto log_i
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_log10
 .end
 log_z:  d=T0 b=0 alu=passb sign=one
         d=T0 a=T0 b=K[exp_inf] alu=passb mode=exp | goto dz   ; -inf, DZ
-log_i:  alu=nop | if SNEG goto operr
-        goto mv_copy
-x_logn: alu=nop | if SNEG goto operr
-        alu=nop | call logn
+log_i:  alu=nop | unless SNEG goto mv_copy
+        alu=nop budget=14 | goto operr                  ; -inf: 20
+; IOP (Table 8-19): 20, 32 for a denormalized source
+tr_iop: alu=nop budget=20 | unless SDEN goto operr
+        alu=nop budget=12 | goto operr
+x_logn: alu=nop | if SNEG goto tr_iop
+        alu=nop budget=494 | call logn
         goto tr_fin
-x_log2: alu=nop | if SNEG goto operr
-        alu=nop | call logn
-        d=T12 b=K[log2_e] alu=passb mode=mantb sign=b | call imul
+x_log2: alu=nop | if SNEG goto tr_iop
+        alu=nop budget=510 | call logn
+        d=T12 b=K[log2_e] alu=passb mode=mantb sign=b budget=40 | call imul   ; 550
         goto tr_fin
-x_log10: alu=nop | if SNEG goto operr
-        alu=nop | call logn
-        d=T12 b=K[log10_e] alu=passb mode=mantb sign=b | call imul
+x_log10: alu=nop | if SNEG goto tr_iop
+        alu=nop budget=510 | call logn
+        d=T12 b=K[log10_e] alu=passb mode=mantb sign=b budget=40 | call imul
         goto tr_fin
 
 ; FLOGNP1: -1 -> NaN with DZ (8.6.14 item 2, the manual's 4-60); below -1:
 ; OPERR.
 .table t_lnp1 STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  log_i
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: alu=nop budget=6 | goto log_i
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_lnp1
 .end
 x_lnp1: alu=nop | unless SNEG goto lp1_go
@@ -767,29 +770,29 @@ x_lnp1: alu=nop | unless SNEG goto lp1_go
         d=T12 b=K[one] alu=passb mode=mantb sign=b | call iadd   ; 1 + x
         a=T11 alu=passa
         alu=nop | if Z goto lp1_m1
-        alu=nop | if S goto operr
-lp1_go: alu=nop | call lognp1
-        goto tr_fin
-lp1_m1: d=T0 b=K[nan] alu=passb mode=mantb sign=zero | goto dz
+        alu=nop | if S goto tr_iop
+lp1_go: alu=nop budget=510 | call lognp1
+        alu=nop budget=30 | goto tr_fin                 ; 540
+lp1_m1: d=T0 b=K[nan] alu=passb mode=mantb sign=zero budget=20 | goto dz   ; IOP (note 4)
 
 ; FATANH: |x| > 1: OPERR; |x| = 1: -sign(x) infinity with DZ (8.6.14 item
 ; 1, as printed); else sign ln(1 + 2|x|/(1 - |x|))/2.
 .table t_atanh STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  operr
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: alu=nop budget=20 | goto operr
   default :: d=T2 a=T1 alu=passa osh=norm sign=zero | goto x_atanh
 .end
 x_atanh: a=T2 b=K[bias] mode=exp alu=sub                ; |x| against 1
         alu=nop | if N goto at_go                       ; below 1
-        alu=nop | unless Z goto operr                   ; 2 or more
+        alu=nop | unless Z goto tr_iop                  ; 2 or more
         a=T2 b=K[one] alu=sub                           ; the mantissa against 1.0
-        alu=nop | unless Z goto operr
-        d=T0 a=T1 alu=passa sign=nota                   ; -sign(x)
+        alu=nop | unless Z goto tr_iop
+        d=T0 a=T1 alu=passa sign=nota budget=20         ; -sign(x); IOP (our reading)
         d=T0 a=T0 b=K[exp_inf] alu=passb mode=exp
         d=T0 a=T0 b=0 alu=passb | goto dz
-at_go:  d=T11 b=K[one] alu=passb mode=mantb sign=b
-        d=T12 a=T2 alu=passa | call isub                 ; 1 - |x|
+at_go:  d=T11 b=K[one] alu=passb mode=mantb sign=b budget=510
+        d=T12 a=T2 alu=passa budget=152 | call isub      ; 1 - |x|; 662
         d=T12 a=T11 alu=passa
         d=T11 a=T2 b=K[exp_one] mode=exp alu=add | call idiv    ; 2|x| / (1 - |x|)
         d=T2 a=T11 alu=passa | call lognp1
@@ -859,8 +862,18 @@ sincos: d=T0 a=T2 alu=passa                             ; x's sign (T0 is free u
         alu=nop | if Z goto sc_q
 sc_red: d=T5 b=K[twopi]>>2 alu=passb dl=1               ; the divisor; DFLAG clear
         d=T4 b=T2>>2 alu=passb q=clear
-        d=T7 a=T2 b=K[twopi] mode=exp alu=sub
-        d=T7 a=T7 b=K[exp_one] mode=exp alu=add | call mr_loop
+        d=T7 a=T2 b=K[twopi] mode=exp alu=sub           ; D
+; Table 8-15's note 3: from 9 up, REM's time - 40, and 70 a whole chunk
+; (mr_loop's).  |x| >= 16 is D >= 2; in [8, 16), 9 is 1.125 x 8.
+        a=T7 b=K[exp_one] mode=exp alu=sub
+        alu=nop | if N goto sc_r1
+        alu=nop | unless Z goto sc_r40
+        d=T13 b=K[one] alu=passb mode=mantb
+        d=T13 a=T13 b=T13>>3 alu=add
+        a=T2 b=T13 alu=sub
+        alu=nop | if C goto sc_r1
+sc_r40: alu=nop budget=40
+sc_r1:  d=T7 a=T7 b=K[exp_one] mode=exp alu=add | call mr_loop
         d=T6 a=T4 b=T5<<1 alu=add | unless DFLAG goto sc_rr
         d=T4 a=T6 alu=passa                             ; the remainder corrected
 sc_rr:  d=T2 a=T2 b=K[twopi] alu=passb mode=exp         ; 2r at 2pi's exponent + 1
@@ -920,46 +933,46 @@ sc_b:   d=T11 a=T4 alu=passa | call bnd
 
 .table t_sin STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  operr
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: alu=nop budget=20 | goto operr
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_sin
 .end
 .table t_cos STAG
   NAN  nan_m
-  ZERO tr_one
-  INF  operr
+  ZERO :: alu=nop budget=8 | goto tr_one
+  INF  :: alu=nop budget=20 | goto operr
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_cos
 .end
 .table t_tan STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  operr
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: alu=nop budget=20 | goto operr
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_tan
 .end
-x_sin:  alu=nop | call sincos
+x_sin:  alu=nop budget=360 | call sincos
         d=T11 a=T10 alu=passa | goto tr_fin
-x_cos:  alu=nop | call sincos
+x_cos:  alu=nop budget=360 | call sincos
         d=T11 a=T4 alu=passa | goto tr_fin
-x_tan:  alu=nop | call sincos
+x_tan:  alu=nop budget=442 | call sincos
         d=T11 a=T10 alu=passa
         d=T12 a=T4 alu=passa | call idiv
         goto tr_fin
 
 .table t_sincos STAG
-  NAN  scs_nan
-  ZERO scs_z
-  INF  scs_inf
+  NAN  :: alu=nop budget=38 | goto scs_nan              ; NAN6
+  ZERO :: alu=nop budget=20 | goto scs_z
+  INF  :: alu=nop budget=26 | goto scs_inf
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_sincos
 .end
-x_sincos: alu=nop | call sincos
-        a=T4 alu=passa
+x_sincos: alu=nop budget=420 | call sincos
+        a=T4 alu=passa ctl=norb                         ; the cosine's rounding: not counted
         d=T0 a=T4 alu=passa | if Z goto scs_cz
         b=K[ulp] alu=passb stk=nz                       ; computed: inexact
         alu=nop | call pp
         d=FP[c] a=T5 alu=passa | goto scs_s
 scs_cz: d=T0 a=T4 b=0 alu=passb mode=exp
         d=FP[c] a=T0 alu=passa
-scs_s:  d=T11 a=T10 alu=passa | goto tr_fin
+scs_s:  d=T11 a=T10 alu=passa ctl=rbon | goto tr_fin    ; the sine's: counted
 scs_z:  d=T0 b=K[one] alu=passb mode=mantb sign=zero
         d=FP[c] a=T0 alu=passa
         d=FP[dst] a=T1 alu=passa fpsr=fpcc ctl=end | goto idle
@@ -968,6 +981,7 @@ scs_w2: d=FP[c] a=T0 alu=passa
         d=FP[dst] a=T0 alu=passa fpsr=fpcc ctl=end | goto idle
 scs_blk: d=EXOP a=T9 alu=passa | goto done
 scs_nan: d=T0 a=T1 b=K[qbit] alu=or | unless SSNAN goto scs_w2
+        alu=nop budget=2                                ; an SNAN: 40
         fpsr=orlit exc=SNAN | if EN_SNAN goto scs_blk
         goto scs_w2
 
@@ -1032,26 +1046,30 @@ av_r:   ret
 
 .table t_atan STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  :: d=T11 a=T1 b=K[halfpi] alu=passb mode=mantb sign=a | goto tr_fin
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: d=T11 a=T1 b=K[halfpi] alu=passb mode=mantb sign=a ctl=norb | goto at_inf
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_atan
 .end
-x_atan: alu=nop | call atan
+at_inf: alu=nop budget=12 | unless SNEG goto at_ip     ; +-pi/2: 12 (-: 14) ...
+        alu=nop budget=2
+at_ip:  alu=nop | if RPEXT goto tr_fin
+        alu=nop budget=8 | goto tr_fin                  ; ... 8 more single or double
+x_atan: alu=nop budget=372 | call atan
         goto tr_fin
 
 .table t_asin STAG
   NAN  nan_m
-  ZERO mv_copy
-  INF  operr
+  ZERO :: alu=nop budget=6 | goto mv_copy
+  INF  :: alu=nop budget=20 | goto operr
   default :: d=T2 a=T1 alu=passa osh=norm | goto as_dom
 .end
 as_dom: a=T2 b=K[bias] mode=exp alu=sub                 ; |x| against 1
         alu=nop | if N goto x_asin
-        alu=nop | unless Z goto operr
+        alu=nop | unless Z goto tr_iop
         a=T2 b=K[one] alu=sub
-        alu=nop | unless Z goto operr
-x_asin: d=T3 a=T2 alu=passa sign=zero                   ; a = |x|
-        d=T11 b=K[one] alu=passb mode=mantb sign=b
+        alu=nop | unless Z goto tr_iop
+x_asin: d=T3 a=T2 alu=passa sign=zero budget=510        ; a = |x|
+        d=T11 b=K[one] alu=passb mode=mantb sign=b budget=40   ; 550
         d=T12 a=T3 alu=passa | call isub                ; 1 - a
         d=T4 a=T11 alu=passa
         d=T11 b=K[one] alu=passb mode=mantb sign=b
@@ -1069,17 +1087,19 @@ as_hp:  d=T11 a=T2 b=K[halfpi] alu=passb mode=mantb sign=a | goto tr_fin
 
 .table t_acos STAG
   NAN  nan_m
-  ZERO :: d=T11 b=K[halfpi] alu=passb mode=mantb sign=b | goto tr_fin
-  INF  operr
+  ZERO :: d=T11 b=K[halfpi] alu=passb mode=mantb sign=b ctl=norb | goto ac_zt
+  INF  :: alu=nop budget=20 | goto operr
   default :: d=T2 a=T1 alu=passa osh=norm | goto ac_dom
 .end
+ac_zt:  alu=nop budget=12 | if RPEXT goto tr_fin        ; pi/2: 12, single or double 20
+        alu=nop budget=8 | goto tr_fin
 ac_dom: a=T2 b=K[bias] mode=exp alu=sub
         alu=nop | if N goto x_acos
-        alu=nop | unless Z goto operr
+        alu=nop | unless Z goto tr_iop
         a=T2 b=K[one] alu=sub
-        alu=nop | unless Z goto operr
-x_acos: d=T11 b=K[one] alu=passb mode=mantb sign=b
-        d=T12 a=T2 alu=passa | call iadd                ; den = 1 + x
+        alu=nop | unless Z goto tr_iop
+x_acos: d=T11 b=K[one] alu=passb mode=mantb sign=b budget=510
+        d=T12 a=T2 alu=passa budget=84 | call iadd      ; den = 1 + x; 594
         a=T11 alu=passa
         d=T4 a=T11 alu=passa | if Z goto ac_pi
         d=T11 b=K[one] alu=passb mode=mantb sign=b

@@ -96,6 +96,16 @@ BIAS = 16383
 
 SEQ = Enum('NEXT', 'JUMP', 'CALL', 'RET', 'BRT', 'BRF', 'DISP', 'WAIT')
 
+# WAIT's modes, in its cond field (the timing pass, 8.8.19): HOLD the
+# sequencer `target` clocks; ADD `target` to the budget, not holding; UNTIL
+# the instruction's elapsed clocks reach the budget plus `target`.  Each
+# path adds its phases' figures to the budget (Tables 8-13 to 8-19) where
+# its case is known - `budget n` here, or ctl=BUDGET's 2 x lit on any word
+# - and the instruction's last word waits UNTIL: each instruction takes
+# its case's figure.  A WAIT word's nanoword runs on its last clock.  The
+# budget and the elapsed count start at 0 with each instruction.
+WAITMODE = Enum('HOLD', 'ADD', 'UNTIL')
+
 # Conditions for BRT/BRF.  The flags are the previous microinstruction's
 # (8.8.9); the tags are Table 8-13's classes of the source and destination
 # operands; KABOVE/KBELOW are the direction bits of the last constant read
@@ -144,7 +154,7 @@ MICRO = Format(
     Field('rd', 5, doc='destination temporary'),
     Field('seq', 3, SEQ),
     Field('cond', 6, doc='condition (BRT/BRF) or dispatch key (DISP)'),
-    Field('target', 12, doc='jump/call/branch target; WAIT: clocks to hold'),
+    Field('target', 12, doc='jump/call/branch target; WAIT: clocks (WAITMODE in cond)'),
 )
 assert MICRO.width == 49
 
@@ -214,11 +224,43 @@ LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU', 'INC')
 # RND until set (every instruction starts there), or RN/RZ/RM/RP fixed:
 # packed decimal's steps round in the modes Motorola's FPSP sets (8.8.19).
 # RETAG: the source's tags from this word's result - a packed operand, which
-# the CU cannot classify, after the APU has converted it.
+# the CU cannot classify, after the APU has converted it.  BUDGET: the
+# budget += 2 x lit (every figure in the tables is even); RBUDGET the same
+# while RB is set - the rounding tail's Table 8-18 figure, which an
+# instruction whose table figure already includes its rounding turns off
+# with NORB, or off and on again with NORB and RBON (FSINCOS: its table
+# figure counts one of its two roundings); RB is set at each instruction's
+# start.  RTIME: the budget +=
+# Table 8-18's figure for the rounding outcome `lit` (RROW) at the rounding
+# precision and mode, while RB is set - a 32-entry table beside the round
+# logic.  END holds until the instruction's elapsed clocks reach the budget
+# (fields.WAITMODE), then ends it.
 CTL = Enum('NONE', 'RELEASE', 'OPWANT', 'STORED', 'CHECKPOINT', 'END',
            'HANDOFF', 'SAVED', 'RESTORED',
            'RP_PREC', 'RP_EXT', 'RP_SGL', 'RP_DBL', 'RP_DFMT', 'RP_SGLX',
-           'RM_FPCR', 'RM_RN', 'RM_RZ', 'RM_RM', 'RM_RP', 'RETAG')
+           'RM_FPCR', 'RM_RN', 'RM_RZ', 'RM_RM', 'RM_RP', 'RETAG',
+           'BUDGET', 'RBUDGET', 'NORB', 'RBON', 'RTIME')
+
+# RTIME's rows: the rounding's outcome (Table 8-18).  CARRY: the rounding
+# carried out of the mantissa; OVFLC an overflow that also carried; OVFLR
+# an overflow only the carry made; ZERO an exact zero result.
+RROW = Enum('NORMAL', 'CARRY', 'TINY', 'TINYC', 'OVFL', 'OVFLC', 'OVFLR', 'ZERO')
+
+
+def rtime(row, rprec, rnd):
+    """Table 8-18 (plan 8.8.19): the clocks for a rounding outcome at the
+    rounding precision (PREC codes; SGLX, FSGLMUL/FSGLDIV's, gives their
+    notes' extended over/underflow times less their base: 52/80 against 34,
+    62/90 against 44) and mode (RND codes)."""
+    r = RROW.names[row] if isinstance(row, int) else row
+    m = rnd in (2, 3)                               # RM or RP
+    if rprec == 3:                                  # SGLX
+        return {'TINY': 46, 'TINYC': 46, 'OVFL': 18, 'OVFLC': 18, 'OVFLR': 18}.get(r, 0)
+    if rprec == 0:
+        return {'NORMAL': 6, 'CARRY': 6, 'TINY': 34, 'TINYC': 34, 'ZERO': 6,
+                'OVFL': 16 if m else 14, 'OVFLC': 18 if m else 16, 'OVFLR': 22 if m else 20}[r]
+    return {'NORMAL': 24, 'CARRY': 28, 'TINY': 56, 'TINYC': 60, 'ZERO': 6,
+            'OVFL': 32 if m else 30, 'OVFLC': 36 if m else 34, 'OVFLR': 36 if m else 34}[r]
 
 # Moving a value between B's fields, before the barrel shifter: E2M puts
 # B's exponent (sign-extended) in its mantissa - FGETEXP; M2E puts the low

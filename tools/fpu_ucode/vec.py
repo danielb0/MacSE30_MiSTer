@@ -152,11 +152,15 @@ def main(argv):
     ap.add_argument('--only', default=None, help='group, or group:key (e.g. rounding:$22.reg)')
     ap.add_argument('--show', type=int, default=3)
     ap.add_argument('--trace', action='store_true')
+    ap.add_argument('--no-clocks', action='store_true', help='skip the clocks against timing.py')
+    ap.add_argument('--show-clk', type=int, default=0, help='print N clock mismatches per instruction')
     a = ap.parse_args(argv)
+    import timing
     r, labels = load(a.sources)
     chip = Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'))
     stats = defaultdict(Counter)
     shown = Counter()
+    worst = Counter()
     for line in open(a.vec):
         if line.startswith('#') or not line.strip():
             continue
@@ -191,14 +195,38 @@ def main(argv):
                     print('\n'.join('    ' + t for t in chip.trace[-60:]))
         else:
             stats[(g, k)]['pass'] += 1
+        # the clocks (plan 8.8.16): the tables' figure for the vector's case
+        if not a.no_clocks:
+            sp = timing.spec(v)
+            if sp is not None and sp[2] and got[7] > sp[0]:
+                stats[(g, k)]['own'] += 1                   # a floor, and our algorithm's own time
+                stats[(g, k)]['clkok'] += 1
+            elif sp is not None:
+                if got[7] != sp[0]:
+                    stats[(g, k)]['clk'] += 1
+                    if got[7] > sp[0]:
+                        stats[(g, k)]['over'] += 1
+                        worst[(g, k)] = max(worst[(g, k)], got[7] - sp[0])
+                    if shown[('clk', g, k)] < a.show_clk:
+                        shown[('clk', g, k)] += 1
+                        print('CLK %s %s: %d clocks, the tables %d (%s)' % (g, k, got[7], sp[0], sp[1]))
+                else:
+                    stats[(g, k)]['clkok'] += 1
     tot = Counter()
-    print('\n%-28s %7s %7s %7s %7s' % ('group:instruction', 'pass', 'fail', 'simerr', 'unimpl'))
+    print('\n%-28s %7s %7s %7s %7s %7s %9s' % ('group:instruction', 'pass', 'fail', 'simerr', 'unimpl',
+                                               'clk', 'over+max'))
     for key in sorted(stats):
         c = stats[key]
         tot.update(c)
         if c['fail'] or c['simerr'] or c['pass']:
-            print('%-28s %7d %7d %7d %7d' % ('%s:%s' % key, c['pass'], c['fail'], c['simerr'], c['unimpl']))
-    print('%-28s %7d %7d %7d %7d' % ('TOTAL', tot['pass'], tot['fail'], tot['simerr'], tot['unimpl']))
+            print('%-28s %7d %7d %7d %7d %7d %9s' % ('%s:%s' % key, c['pass'], c['fail'], c['simerr'],
+                                                     c['unimpl'], c['clk'],
+                                                     '%d+%d' % (c['over'], worst[key]) if c['over'] else ''))
+    print('%-28s %7d %7d %7d %7d %7d %9d' % ('TOTAL', tot['pass'], tot['fail'], tot['simerr'], tot['unimpl'],
+                                             tot['clk'], tot['over']))
+    if not a.no_clocks:
+        print('clocks: %d match the tables (%d of them over a floor: their own time), %d do not (timing.py)'
+              % (tot['clkok'], tot['own'], tot['clk']))
     return 1 if tot['fail'] or tot['simerr'] else 0
 
 

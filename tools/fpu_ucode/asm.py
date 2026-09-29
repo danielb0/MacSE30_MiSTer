@@ -28,10 +28,12 @@ nothing selected, nothing written, flags held):
     alu= mode= dir= cin= osh= q= sign= stk= dl= a2= bx= rnd= fpsr= ctl=  (fields.py's names,
       any case)
     lc=hold|dec|alu|<number>     exc=OPERR,DZ,...  (ORed into lit)    lit=<number>
+    budget=N | rbudget=N   (ctl=BUDGET/RBUDGET, lit = N/2: N even, 0 to 510)
+    rtime=ROW              (ctl=RTIME, lit = fields.RROW: Table 8-18's row)
     sel = src | dst | c | ra
 Sequencing, after `|` (default: next):
     next | goto L | call L | ret | if C goto L | unless C goto L
-    | dispatch KEY L | wait N
+    | dispatch KEY L | wait N | budget N | waitb [N]   (fields.WAITMODE)
 Directives:
     .include "file"          .org N           .align N        .export label
     .table NAME KEY          (entries until .end: `SRC DST label` for TAGPAIR,
@@ -283,6 +285,17 @@ def parse_clause(u, c, knames):
         _lit(u, bits, 'exc')
     elif k == 'lit':
         _lit(u, num(v), 'lit')
+    elif k == 'rtime':
+        if v.upper() not in FD.RROW:
+            raise AsmError('%s: rtime=%s: one of %s' % (u.loc, v, ', '.join(n.lower() for n in FD.RROW.names)))
+        u.setn('ctl', 'RTIME', k)
+        _lit(u, FD.RROW[v.upper()], k)
+    elif k in ('budget', 'rbudget'):
+        n = num(v)
+        if n & 1 or not 0 <= n <= 510:
+            raise AsmError('%s: %s=%d: an even number of clocks, 0 to 510' % (u.loc, k, n))
+        u.setn('ctl', k.upper(), k)
+        _lit(u, n >> 1, k)
     elif k == 'fp':
         sel = FP_SEL.get(v.lower())
         if sel is None:
@@ -292,7 +305,7 @@ def parse_clause(u, c, knames):
         raise AsmError('%s: unknown clause %r' % (u.loc, c))
 
 
-SEQ_WORDS = {'next', 'goto', 'call', 'ret', 'if', 'unless', 'dispatch', 'wait'}
+SEQ_WORDS = {'next', 'goto', 'call', 'ret', 'if', 'unless', 'dispatch', 'wait', 'budget', 'waitb'}
 
 
 def _target(s):
@@ -354,11 +367,17 @@ def parse_seq(u, s):
         if k not in FD.DISPATCH:
             raise AsmError('%s: dispatch key %s: one of %s' % (u.loc, w[1], ', '.join(FD.DISPATCH.names)))
         u.seq, u.cond, u.target = 'DISP', FD.DISPATCH[k], _target(w[2])
-    elif op == 'wait' and len(w) == 2:
+    elif op in ('wait', 'budget') and len(w) == 2:
         n = num(w[1])
         if not 1 <= n < 1 << 12:
-            raise AsmError('%s: wait %d: 1 to 4095 clocks' % (u.loc, n))
+            raise AsmError('%s: %s %d: 1 to 4095 clocks' % (u.loc, op, n))
         u.seq, u.target = 'WAIT', n
+        u.cond = FD.WAITMODE['HOLD' if op == 'wait' else 'ADD']
+    elif op == 'waitb' and len(w) in (1, 2):
+        n = num(w[1]) if len(w) == 2 else 0
+        if not 0 <= n < 1 << 12:
+            raise AsmError('%s: waitb %d: 0 to 4095 clocks' % (u.loc, n))
+        u.seq, u.target, u.cond = 'WAIT', n, FD.WAITMODE['UNTIL']
     else:
         raise AsmError('%s: sequencing %r' % (u.loc, s))
 
