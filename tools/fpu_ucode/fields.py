@@ -99,7 +99,8 @@ SEQ = Enum('NEXT', 'JUMP', 'CALL', 'RET', 'BRT', 'BRF', 'DISP', 'WAIT')
 # Conditions for BRT/BRF.  The flags are the previous microinstruction's
 # (8.8.9); the tags are Table 8-13's classes of the source and destination
 # operands; KABOVE/KBELOW are the direction bits of the last constant read
-# (8.6.14 item 19).
+# (8.6.14 item 19); S is the sign of the last ALU result word; RPEXT the
+# rounding-precision register at extended.
 COND = Enum(
     'TRUE', 'Z', 'N', 'C', 'V', 'STK', 'INEX', 'RCARRY',
     'LCZ', 'Q0', 'DFLAG', 'SCZ', 'KABOVE', 'KBELOW', 'EXCEN', 'PENDING',
@@ -108,14 +109,16 @@ COND = Enum(
     'EN_BSUN', 'EN_SNAN', 'EN_OPERR', 'EN_OVFL', 'EN_UNFL', 'EN_DZ', 'EN_INEX2', 'EN_INEX1',
     'PREC_EXT', 'PREC_SGL', 'PREC_DBL', 'RND_RN', 'RND_RZ', 'RND_RM', 'RND_RP', 'DYNK',
     'SAVEREQ', 'ABORT', 'CUHANDOFF', 'SRCREG', 'SAMEREG',
+    'S', 'RPEXT',
 )
 
 # Dispatch keys (seq DISP; the `cond` field selects one): the key is ORed
 # into the target's low bits, so a table is aligned to its size.  TAGPAIR
 # is source class x 5 + destination class (25 of 32).
-DISPATCH = Enum('TAGPAIR', 'STAG', 'DTAG', 'RND', 'PREC', 'SFMT', 'DFMT', 'KFACTOR')
+DISPATCH = Enum('TAGPAIR', 'STAG', 'DTAG', 'RND', 'PREC', 'SFMT', 'DFMT', 'KFACTOR', 'RPREC',
+                'OPMODE')
 DISPATCH_BITS = {'TAGPAIR': 5, 'STAG': 3, 'DTAG': 3, 'RND': 2, 'PREC': 2,
-                 'SFMT': 3, 'DFMT': 3, 'KFACTOR': 1}
+                 'SFMT': 3, 'DFMT': 3, 'KFACTOR': 1, 'RPREC': 2, 'OPMODE': 6}
 
 # Table 8-13's operand classes, in its column order.
 TAG = Enum('NORM', 'UNN', 'ZERO', 'INF', 'NAN')
@@ -126,7 +129,7 @@ FMT = Enum('L', 'S', 'X', 'P', 'W', 'D', 'B', 'PK')
 KFACTOR = Enum('STATIC', 'DYNAMIC')
 
 KEY_ENUM = {'TAGPAIR': None, 'STAG': TAG, 'DTAG': TAG, 'RND': RND, 'PREC': PREC,
-            'SFMT': FMT, 'DFMT': FMT, 'KFACTOR': KFACTOR}
+            'SFMT': FMT, 'DFMT': FMT, 'KFACTOR': KFACTOR, 'RPREC': PREC, 'OPMODE': None}
 
 MICRO = Format(
     'micro',
@@ -146,7 +149,11 @@ assert MICRO.width == 48
 ASRC = Enum('ZERO', 'T', 'FP', 'CU')
 BSRC = Enum('ZERO', 'T', 'K', 'KLC', 'FP', 'OPINT', 'OPRAW', 'CU', 'BOOTH',
             'RINC', 'RMASK', 'SQT', 'Q', 'SC', 'LC', 'CMD')
-FPSEL = Enum('SRC', 'DST', 'MOVEM', 'RA')
+# The FP register: the instruction's source (RX of opclass 000; RY, the
+# register stored, of opclass 011), its destination (RY), FSINCOS's cosine
+# register (command bits 2-0), or the one the microword's ra names.  FMOVEM
+# of the data registers is the BIU's and the CU's, not the microcode's.
+FPSEL = Enum('SRC', 'DST', 'C', 'RA')
 SHK = Enum('NONE', 'LSL', 'LSR', 'ASR')
 # The shift amount.  LZC also copies the amount into SC, so the exponent
 # can be adjusted by it on the next clock.
@@ -168,15 +175,26 @@ QOP = Enum('HOLD', 'LOAD', 'LOADB', 'CLEAR')
 DST = Enum('NONE', 'T', 'FP', 'MD', 'MD3', 'OBUFH', 'OBUFL', 'OBUFX', 'EXOP', 'SC')
 SGN = Enum('A', 'B', 'XOR', 'N', 'ZERO', 'ONE', 'NOTA', 'NOTB')
 STK = Enum('HOLD', 'CLR', 'SHIFT', 'NZ')
-RNDM = Enum('NONE', 'EXT', 'DBL', 'SGL', 'INT', 'PREC', 'DFMT')
+# The round logic's boundary and mode (8.8.10): EXT/SGL/DBL at bit 3/43/14
+# by FPCR RND; TRUNC at bit 3 toward zero (FINTRZ, the I67 truncations);
+# RPREC by the rounding-precision register, which the CTL codes RP_* load
+# (FPCR PREC for an ordinary result, single for FSGLMUL/FSGLDIV, the
+# destination format for a store) so one post-processing subroutine serves
+# them all.
+RNDM = Enum('NONE', 'EXT', 'SGL', 'DBL', 'TRUNC', 'RPREC')
 # FPSR actions: CLREXC at an instruction's start; FPCC from the result;
 # ORLIT ORs the literal into EXC; INEX2R sets INEX2 if the round logic
 # found the result inexact; QUOT the quotient byte from Q and the sign;
 # ACCRUE ORs EXC into AEXC at the end (6.1.10).
 FPSR = Enum('NONE', 'CLREXC', 'FPCC', 'ORLIT', 'INEX2R', 'QUOT', 'ACCRUE', 'FPCCINEX')
 LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU')
-CTL = Enum('NONE', 'RELEASE', 'OPWANT', 'STORED', 'EXCPEND', 'CHECKPOINT', 'END',
-           'HANDOFF', 'SAVED', 'RESTORED')
+# END: the instruction is complete - the BIU takes EXC AND ENABLE as the
+# pending exception (6.1.9's priority), pre-instruction for a register
+# destination, mid-instruction for a store.  RP_*: load the rounding-
+# precision register (PREC codes: 0 EXT, 1 SGL, 2 DBL; FPCR's 3 is EXT).
+CTL = Enum('NONE', 'RELEASE', 'OPWANT', 'STORED', 'CHECKPOINT', 'END',
+           'HANDOFF', 'SAVED', 'RESTORED',
+           'RP_PREC', 'RP_EXT', 'RP_SGL', 'RP_DBL', 'RP_DFMT')
 
 NANO = Format(
     'nano',

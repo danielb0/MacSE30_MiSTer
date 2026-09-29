@@ -17,7 +17,7 @@ for _n, _a in consts.NAMES.items():
     KADDR.setdefault(_a, _n)
 
 AMOUNT_TEXT = {'SC': 'SC', 'LC': 'LC', 'LZC': 'LZC', 'LCPSC': 'LC+SC', 'LCMSC': 'LC-SC'}
-FP_TEXT = {'SRC': 'src', 'DST': 'dst', 'MOVEM': 'movem', 'RA': 'ra'}
+FP_TEXT = {'SRC': 'src', 'DST': 'dst', 'C': 'c', 'RA': 'ra'}
 ENUM_OUT = [('alu', 'alu'), ('emode', 'mode'), ('dir', 'dir'), ('osh', 'osh'), ('qop', 'q'),
             ('sgn', 'sign'), ('stk', 'stk'), ('rnd', 'rnd'), ('fpsr', 'fpsr'), ('ctl', 'ctl')]
 

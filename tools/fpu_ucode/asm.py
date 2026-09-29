@@ -28,7 +28,7 @@ nothing selected, nothing written, flags held):
     alu= mode= dir= cin= osh= q= sign= stk= dl= rnd= fpsr= ctl=  (fields.py's names,
       any case)
     lc=hold|dec|alu|<number>     exc=OPERR,DZ,...  (ORed into lit)    lit=<number>
-    sel = src | dst | movem | ra
+    sel = src | dst | c | ra
 Sequencing, after `|` (default: next):
     next | goto L | call L | ret | if C goto L | unless C goto L
     | dispatch KEY L | wait N
@@ -36,7 +36,9 @@ Directives:
     .include "file"          .org N           .align N        .export label
     .table NAME KEY          (entries until .end: `SRC DST label` for TAGPAIR,
                               `VALUE label` otherwise, `*` a wildcard,
-                              `default label`)
+                              `default label`; an OPMODE table's
+                              `redundant model` copies 8.6.14 item 6's
+                              opmodes from their bases, as .redundant does)
     .entry KINDS OPMODE label    KINDS: reg, L S X P W D B, `*`, comma lists
     .entry cr label          .entry out.F label      .entry default label
     .redundant model         (the redundant opmodes as the model decodes
@@ -99,6 +101,7 @@ class Table:
         self.bits = FD.DISPATCH_BITS[key]
         self.entries = {}
         self.default = None
+        self.redundant = False
         self.addr = None
 
 
@@ -118,7 +121,7 @@ class Program:
 
 # -- parsing ------------------------------------------------------------------------
 
-FP_SEL = {'src': 'SRC', 'dst': 'DST', 'movem': 'MOVEM', 'ra': 'RA'}
+FP_SEL = {'src': 'SRC', 'dst': 'DST', 'c': 'C', 'ra': 'RA'}
 SHIFT_RE = re.compile(r'^(.*?)(<<|>>>|>>)(.+)$')
 AMOUNTS = {'SC': 'SC', 'LC': 'LC', 'LZC': 'LZC', 'LC+SC': 'LCPSC', 'LC-SC': 'LCMSC'}
 PLAIN_B = {'OPINT', 'OPRAW', 'CU', 'BOOTH', 'RINC', 'RMASK', 'SQT', 'Q', 'SC', 'LC', 'CMD'}
@@ -145,7 +148,7 @@ def _fp(u, s, loc, what):
         return False
     sel = FP_SEL.get(m.group(1).lower())
     if sel is None:
-        raise AsmError('%s: %s: FP[%s]: the selector is src, dst, movem or ra' % (loc, what, m.group(1)))
+        raise AsmError('%s: %s: FP[%s]: the selector is src, dst, c or ra' % (loc, what, m.group(1)))
     u.setn('fpsel', sel, what)
     return True
 
@@ -275,7 +278,7 @@ def parse_clause(u, c, knames):
     elif k == 'fp':
         sel = FP_SEL.get(v.lower())
         if sel is None:
-            raise AsmError('%s: fp=%s: src, dst, movem or ra' % (u.loc, v))
+            raise AsmError('%s: fp=%s: src, dst, c or ra' % (u.loc, v))
         u.setn('fpsel', sel, 'fp')
     else:
         raise AsmError('%s: unknown clause %r' % (u.loc, c))
@@ -286,6 +289,26 @@ SEQ_WORDS = {'next', 'goto', 'call', 'ret', 'if', 'unless', 'dispatch', 'wait'}
 
 def _target(s):
     return num(s) if s[0] == '$' or s[0].isdigit() else s
+
+
+def word_rules(u):
+    """What one microinstruction cannot do (sim.py raises the same at run
+    time): the datapath has one of each."""
+    n = u.nano.get
+    nop = n('alu', 'NOP') == 'NOP'
+    if n('dst', 'NONE') != 'NONE' and nop:
+        raise AsmError('%s: a destination needs an ALU operation (alu=passb for a move)' % u.loc)
+    if nop and (n('osh', 'NONE') != 'NONE' or n('fpsr', 'NONE') in ('FPCC', 'FPCCINEX', 'QUOT')
+                or n('lcop', 'HOLD') == 'ALU'):
+        raise AsmError('%s: osh, fpsr=fpcc/quot and lc=alu need an ALU result' % u.loc)
+    if n('qop', 'HOLD') != 'HOLD' and n('osh', 'NONE') in ('L1Q', 'R3Q'):
+        raise AsmError('%s: q= and a Q-shifting osh in one word' % u.loc)
+    if n('sha') == 'LZC' and n('shk', 'NONE') != 'NONE' and n('dst') == 'SC':
+        raise AsmError('%s: a shift by LZC writes SC; d=SC too' % u.loc)
+    if n('emode', 'MANT') in ('EXP', 'EXPB') and n('osh', 'NONE') != 'NONE':
+        raise AsmError('%s: the output shifter is on the mantissa; not in exponent mode' % u.loc)
+    if n('bsrc') in ('RINC', 'RMASK') and n('rnd', 'NONE') == 'NONE':
+        raise AsmError('%s: b=%s needs a rnd= mode' % (u.loc, n('bsrc')))
 
 
 def parse_seq(u, s):
@@ -337,6 +360,8 @@ def _key_values(key, s, loc):
 
 
 def _enum_code(enum, s, loc):
+    if enum is None:
+        return num(s)
     if s.upper() in enum:
         return enum[s.upper()]
     try:
@@ -399,6 +424,11 @@ def parse_file(prog, path, knames, seen=None):
             if len(parts) != 2:
                 raise AsmError('%s: table entry: keys then a label' % loc)
             keytext, label = parts
+            if keytext.lower() == 'redundant' and label.lower() == 'model':
+                if table.key != 'OPMODE':
+                    raise AsmError('%s: `redundant model` is for an OPMODE table' % loc)
+                table.redundant = True
+                continue
             if keytext.lower() == 'default':
                 table.default = label
                 continue
@@ -464,8 +494,7 @@ def parse_file(prog, path, knames, seen=None):
         for c in body.split():
             parse_clause(u, c, knames)
         parse_seq(u, seq)
-        if u.nano.get('dst', 'NONE') != 'NONE' and u.nano.get('alu', 'NOP') == 'NOP':
-            raise AsmError('%s: a destination needs an ALU operation (alu=passb for a move)' % loc)
+        word_rules(u)
         for name in prog.pending_labels:
             prog.labels[name] = ('code', u)
         prog.pending_labels = []
@@ -508,8 +537,15 @@ def layout(prog):
         if a + size > FD.UROM_WORDS:
             raise AsmError('%s: table %s does not fit the µROM' % (t.loc, t.name))
         t.addr = a
+        if t.redundant:
+            import fpu
+            for red, base in fpu.FPU.REDUNDANT.items():
+                if red not in t.entries and base in t.entries:
+                    t.entries[red] = t.entries[base]
         for code in range(size):
             label = t.entries.get(code, t.default)
+            if label is None and not _possible(t.key, code):
+                label = a + code                  # a code the key never takes: a trap to itself
             if label is None:
                 raise AsmError('%s: table %s: entry %s has no target and there is no default'
                                % (t.loc, t.name, _key_name(t.key, code)))
@@ -520,6 +556,14 @@ def layout(prog):
     prog.code_end = code_end
     prog.rom_end = pc
     return rom
+
+
+def _possible(key, code):
+    """Whether a dispatch key can produce the code at all."""
+    if key == 'TAGPAIR':
+        return code < 25
+    enum = FD.KEY_ENUM[key]
+    return enum is None or code < len(enum.names)
 
 
 def _key_name(key, code):

@@ -127,7 +127,7 @@ def build():
         # Exponent limits in the internal (extended-biased) exponent, for
         # 8.6.4's range checks by PREC and destination format.
         ('ext_emax', _exp_word(0x7FFE)),
-        ('ext_emin', _exp_word(1)),
+        ('ext_emin', _exp_word(0)),                  # extended is tiny below biased 0 (rounding.py)
         ('dbl_emax', _exp_word(BIAS + 1023)),
         ('dbl_emin', _exp_word(BIAS - 1022)),
         ('sgl_emax', _exp_word(BIAS + 127)),
@@ -135,6 +135,16 @@ def build():
         ('dbl_bias', _exp_word(BIAS - 1023)),         # internal - IEEE double
         ('sgl_bias', _exp_word(BIAS - 127)),
         ('bias', _exp_word(BIAS)),
+        ('int_exp', _exp_word(BIAS + MANT_BITS - 1)),  # an integer at bit 0 (OPINT)
+        ('exp_inf', _exp_word(0x7FFF)),
+        ('qbit', kword(0, 0, 1 << 65)),               # a NaN's nonsignaling bit (bit 62)
+        ('nan', _ext(0, 0x7FFF, (1 << 64) - 1)),      # the chip's NaN (UM 6.1.3)
+        # The exceptional operand (6.1.4, 6.1.5; rounding.exceptional_operand):
+        # the exponent wrapped by $6000, or 0 past the 17-bit catastrophic
+        # limits (biased: overflow above 57343, underflow at -24576 and below).
+        ('xop_bias', _exp_word(0x6000)),
+        ('ovfl_cat', _exp_word(BIAS + 0xA000)),
+        ('unfl_cat', _exp_word(-24575)),
     ]
     for i, (n, w) in enumerate(named):
         rom[NAMED_BASE + i] = w

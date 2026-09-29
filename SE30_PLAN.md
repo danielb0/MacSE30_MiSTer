@@ -8597,7 +8597,9 @@ each item is in 8.6.15.)
     write them to FPSR): the manual says only that a conditional "may
     produce an unexpected branch condition" (2.3.1). 8.6.9's default
     evaluates the equations on the bits as written; WinUAE's 6888x truth
-    table disagrees with that for some of them (8.6.15).
+    table disagrees with that for some of them (8.6.15). **The model's
+    default is WinUAE's table** (the rule of 8.6.15 for a silence; the
+    equations are the other setting), and the BIU implements it (8.8.19).
 
 ### 8.6.15 What WinUAE and MAME say (read 2026-09-29)
 
@@ -9259,7 +9261,7 @@ image) is the architecture to mirror:
   the sequencer; the CU; the BIU and its dialog state machines; the frames;
   the timing budgets per instruction; the area estimate against 8.3's.
 - **6b** (built 2026-09-29: 8.8.18, `tools/fpu_ucode/`) the microcode assembler (Python): source to the µROM/nROM images.
-- **6c** an architectural simulator (Python) running the microcode on a
+- **6c** (opened 2026-09-29: 8.8.19, `tools/fpu_ucode/sim.py`, `vec.py`, `ucode/`) an architectural simulator (Python) running the microcode on a
   bit-exact model of the datapath, checked against the reference model on
   all of 8.7.4's vectors and against Table 8-3's clocks.
 - **6d** the MPU side of the protocol, specified for the kernel (item 7).
@@ -9820,6 +9822,87 @@ the sample's disassembly reassembles to the same words field for field.
 data (the tags, the loops, the round outcome), so 6c's simulator measures
 each vector's clocks against the tables instead of the assembler counting
 them statically.
+
+### 8.8.19 6c: the simulator and the microcode (opened 2026-09-29)
+
+**The simulator** (`tools/fpu_ucode/sim.py`) runs the assembled images on a
+bit-exact model of 8.8.10's datapath, one microinstruction a clock, and is
+**the definition of what each field does** - the RTL (item 7) is written
+against it, field by field. Its docstrings state the semantics; the ones a
+reader of the RTL needs first:
+- The next address is chosen from the flags the *previous* word left
+  (8.8.9); the datapath then runs A source, the round logic on A, B
+  source, the barrel shifter on B's mantissa, the ALU, the output shifter,
+  then the writes. `wait n` runs its nanoword once and holds n clocks.
+- The ALU computes exactly and keeps 67 bits (18 in exponent mode): **C is
+  bit 67 of the result** - the carry of an add, the borrow of a subtract;
+  N bit 66; V the signed overflow. `alu=nop` changes nothing.
+- The round logic works on A with the sticky flag: the boundary (bit 3,
+  43 or 14; RPREC's), guard, round and sticky below it, Figure 6-3's
+  decision by RND and A's sign; B = RINC is the increment (or 0), B = RMASK
+  the mask clearing the bits below; INEX is latched.
+- R3Q shifts the exact signed sum right three places, the three bits into
+  Q's top and Q's old bit 2 into QX; the Booth digit is -4q2 + 2q1 + q0 +
+  QX. L1Q shifts left with the quotient bit (1 - N) into Q.
+- SC is written saturated to 0-127; a shift by LZC also copies the count
+  into SC.
+- FPCC is set from the result word's class and sign (Table 2-1); an FP
+  write takes exponent bits 14-0 and mantissa bits 66-3, and refuses an
+  exponent outside 0-$7FFF (a microcode error).
+
+Around it, the parts that are logic, not microcode, as the hardware will
+have them: the BIU's decode (F-line for opmodes and FMOVECR offsets
+`$40-$7F` and opclass 001), **the conditionals** (a 512-bit truth table -
+the model's default for 8.6.14 item 17, WinUAE's, imported from the model
+- plus BSUN), the CU's unpacking of S, D and X (8.8.13; B, W, L as
+magnitude and sign), the tag logic, and the pending exception at END
+(6.1.9's priority; pre-instruction for a register destination,
+mid-instruction for a store).
+
+**The harness** (`vec.py`) runs the model's vectors (8.7.4) through it and
+compares all seven results of each; an instruction whose entry is still
+`unimpl` is counted, not failed. `run.sh` runs the assembler's checks, the
+assembly and the vectors.
+
+**Added to the formats while writing the first microcode** (8.8.11): the
+**rounding-precision register** RPREC (loaded by `ctl=rp_prec/rp_sgl/
+rp_dbl/rp_ext/rp_dfmt`; `rnd=rprec` rounds by it; a dispatch key), so one
+post-processing subroutine serves PREC, FSGLMUL/FSGLDIV's single mantissa
+and the stores; `rnd=trunc` (bit 3, toward zero); the flag **S**, the last
+result's sign; the dispatch key **OPMODE**; the FP selector C (FSINCOS's
+cosine register - FMOVEM is the BIU's and CU's). Codes a dispatch key never
+produces are filled with a word that jumps to itself. The assembler also
+refuses, per word, what the datapath has only one of (a Q-shifting output
+shift with a Q load; a shift by LZC with d=SC; an output shift in exponent
+mode; RINC/RMASK without a round mode).
+
+**The microcode** (`ucode/fpu.uc`), first part: the prologues by source kind
+(register, S/D/X from the CU, B/W/L), dispatching on the opmode; **`pp`,
+the post-processing of 8.6.4** - normalize, the underflow check, round, the
+overflow check at RPREC, 6.1.4's infinity-or-largest by RND and sign,
+6.1.5's denormalization with the sticky bit, and the exceptional operand
+(rounded to 64 bits at its own exponent, wrapped by `$6000`, or exponent 0
+past the catastrophic limits) when the trap is enabled; the monadic NaN
+path (4.5.4, 8.6.14 item 18); FMOVE, FABS, FNEG, FTST and FCMP.
+
+**Result, 2026-09-29: 4,578 vectors pass, none fail** - every `rounding`,
+`convert` and `special` vector of those five instructions (their
+underflow, overflow, trap and exceptional-operand cases included), all
+2,048 conditionals, and every decode vector; 14,906 wait for instructions
+not yet written. 262 microinstructions, 45 nanowords.
+
+**Found on the way:** the model cleared EXC before taking FMOVECR's F-line
+for offsets `$40-$7F` (every other F-line leaves the FPU untouched); fixed
+in `fpu.py` to decode it first, the model's checks rerun clean, and the
+vectors regenerated. And 8.6.14 item 17's text above says the equations are
+the default, but the model's default is WinUAE's table (Daniel's rule of
+8.6.15 for what the manual leaves silent); the BIU follows the model.
+
+**The rest of 6c, in order:** the arithmetic (FADD/FSUB, FMUL/FSGLMUL,
+FDIV/FSGLDIV, FSQRT, FINT/FINTRZ, FGETEXP/FGETMAN, FSCALE, FMOD/FREM, the
+dyadic NaNs); the stores (B/W/L, S, D, X, with their own post-processing);
+FMOVECR; the transcendentals; packed decimal; then the clocks - each path
+padded to the timing tables (8.8.16) and measured per vector.
 
 ---
 

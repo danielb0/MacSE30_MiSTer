@@ -79,9 +79,9 @@ cordic: d=T9 a=T7 b=T8>>>LC+SC alu=subadd dir=dflag
 ; -- FMOVECR: the ROM word by the command's offset --
 fmovecr: d=T0 a=0 b=CMD alu=passb lc=alu
          d=T0 a=0 b=K[fmovecr+LC] alu=passb mode=mantb sign=b | if KABOVE goto cr_above
-         d=FP[dst] a=T0 alu=passa rnd=prec | goto finish
+         d=FP[dst] a=T0 alu=passa rnd=rprec | goto finish
 cr_above:
-         d=T0 a=T0 b=RINC alu=add | goto finish
+         d=T0 a=T0 b=RINC alu=add rnd=ext | goto finish
 
 ; -- a store: the output buffer --
 fmove_out:

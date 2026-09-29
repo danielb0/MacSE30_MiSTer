@@ -78,7 +78,7 @@ for fmt in (FD.MICRO, FD.NANO):
         vals = {n: rng.randrange(1 << f.width) for n, f in fmt.fields.items()}
         inv &= fmt.unpack(fmt.pack(vals)) == vals
 check('pack/unpack are inverse', inv)
-dispatch_ok = all(FD.DISPATCH_BITS[k] <= 5 for k in FD.DISPATCH.names) and 5 * 4 + 4 < 32
+dispatch_ok = (4 * 5 + 4) < (1 << FD.DISPATCH_BITS['TAGPAIR']) and set(FD.DISPATCH_BITS) == set(FD.DISPATCH.names)
 check('TAGPAIR codes fit its 32-entry table', dispatch_ok)
 
 # -- the constant ROM against the model -----------------------------------------------------
@@ -150,6 +150,9 @@ HEAD = """
 expect_error('an undefined label', HEAD + "x: alu=nop | goto nowhere\n.export x\n", ['nowhere', 'not defined'])
 expect_error('a temporary past T31', HEAD + "d=T32 a=0 alu=passa\n", ['T32'])
 expect_error('a destination without an operation', HEAD + "d=T1 a=T0\n", ['destination needs'])
+expect_error('q= with a Q-shifting output shift', HEAD + "d=T1 a=T1 b=T2 alu=add osh=l1q q=clear\n", ['Q-shifting'])
+expect_error('the output shifter in exponent mode', HEAD + "d=T1 a=T1 alu=passa mode=exp osh=r1\n", ['exponent mode'])
+expect_error('RINC without a round mode', HEAD + "d=T1 a=T1 b=RINC alu=add\n", ['rnd='])
 expect_error('two literals in one word', HEAD + "d=T1 b=T0<<3 alu=passb lc=5\n", ['lit'])
 expect_error('two FP registers in one word', HEAD + "d=FP[dst] b=FP[src] alu=passb\n", ['fpsel'])
 expect_error('an unknown constant', HEAD + "d=T1 b=K[tau] alu=passb\n", ['tau'])

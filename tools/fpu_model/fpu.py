@@ -767,6 +767,11 @@ class FPU:
 
     # -- FMOVECR (4-72) -----------------------------------------------------
     def fmovecr(self, off, dst, pc=None):
+        if off >= 0x40 and self.sw.fmovecr_undefined == 'winuae':
+            # WinUAE: offsets $40-$7F take the F-line on a 6888x - decoded
+            # before the instruction starts, like every other F-line, so
+            # EXC is not cleared (fixed 2026-09-29, plan 8.8.19).
+            return Outcome(vector=V_FLINE, when='pre')
         self._begin(pc)
         rnd, fmt = self.rnd, self.prec_fmt
         if off in constants.DOCUMENTED:
