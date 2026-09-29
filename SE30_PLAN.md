@@ -9904,6 +9904,49 @@ dyadic NaNs); the stores (B/W/L, S, D, X, with their own post-processing);
 FMOVECR; the transcendentals; packed decimal; then the clocks - each path
 padded to the timing tables (8.8.16) and measured per vector.
 
+**2026-09-29, later: the arithmetic, the stores and FMOVECR done - 14,702
+vectors pass, none fail**; 4,782 wait (the transcendentals and their
+special operands 3,612, packed decimal 1,170). 1,036 microinstructions, 153
+nanowords.
+
+**The clocks forced a decision (Daniel, 2026-09-29: "add it").** Measured
+against the detail tables (`clocks.py`: Table 8-13's FPm conversion + 8-14/
+8-15's calculation + 8-18's rounding, extended, normal operands), the first
+microcode was over by 2-18 clocks and FSQRT could not run a bit a clock:
+exponents on the one ALU cost a compare and a branch for every range check,
+three words for every normalization, and the post-processing 15 clocks
+where Table 8-18 allows extended rounding 6. Added to 8.8.10's datapath,
+about 100 ALMs, none of it software-visible:
+- **TINY and HUGE**: comparators on each result's exponent against the
+  rounding precision's limits - 8.6.4's range checks become conditions;
+- **`osh=norm`**: normalize in one clock (the shift by the leading zeros
+  and the exponent lowered by the count - a small exponent subtractor);
+- **FSQRT's step**: `a2` (A's mantissa doubled before the ALU), SQT redefined
+  as the nonrestoring root's trial `(Q << 1) | (11 or 01) << LC` by the
+  direction flag, `osh=qbit` (Q |= the root bit at LC), and in exponent mode
+  `osh=r1` (halving an exponent). The recurrence - radicand in [1/4, 1), 63
+  steps to 2^-64, guard and sticky from the remainder - was checked against
+  an exact integer square root on 20,000 cases before it was written;
+- **`bx`**: an exponent into B's mantissa (FGETEXP) or a mantissa into its
+  exponent (FSCALE);
+- the rounding precision's fourth code **SGLX** (single mantissa, extended
+  range: FSGLMUL/FSGLDIV, UM 6.1.4's note);
+- **END accrues AEXC** (the BIU, as it takes the pending exception), and a
+  dispatch table's slot may hold a microinstruction ending in goto or
+  dispatch, not only a jump - two clocks off every instruction.
+With them the post-processing is five clocks, and **every instruction
+written is within the tables' budget** (FDIV 88-98 of 98; FSQRT up to 90 of
+96; FSGLDIV takes FDIV's full quotient when the result may over- or
+underflow - the exceptional operand is rounded to 64 bits - which the
+manual's own FSGLDIV times show, 44 against 62 and 90). The nanoword is 60
+bits.
+
+**Found on the way, recorded rather than changed:** the model gives a
+store's exceptional operand for any trap (an inexact trap that came with an
+overflow reports it), a register destination's only for the OVFL/UNFL
+vectors (`fpu.py` `fmove_out` against `_finish_reg`); the microcode follows
+the model, and the difference is a question for silicon with 8.6.14's.
+
 ---
 
 ## Appendix - where the sources are
