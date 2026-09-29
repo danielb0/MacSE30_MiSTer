@@ -209,6 +209,11 @@ CTL = Enum('NONE', 'RELEASE', 'OPWANT', 'STORED', 'CHECKPOINT', 'END',
            'HANDOFF', 'SAVED', 'RESTORED',
            'RP_PREC', 'RP_EXT', 'RP_SGL', 'RP_DBL', 'RP_DFMT', 'RP_SGLX')
 
+# Moving a value between B's fields, before the barrel shifter: E2M puts
+# B's exponent (sign-extended) in its mantissa - FGETEXP; M2E puts the low
+# 18 bits of B's mantissa (two's complement) in its exponent - FSCALE.
+BX = Enum('NONE', 'E2M', 'M2E')
+
 NANO = Format(
     'nano',
     Field('asrc', 2, ASRC),
@@ -227,6 +232,7 @@ NANO = Format(
     Field('stk', 2, STK),
     Field('dl', 1, doc='latch DFLAG from this result\'s N'),
     Field('a2', 1, doc='A\'s mantissa shifted left one place before the ALU (the square root\'s 2W)'),
+    Field('bx', 2, BX),
     Field('rnd', 3, RNDM),
     Field('fpsr', 3, FPSR),
     Field('lcop', 2, LCOP),

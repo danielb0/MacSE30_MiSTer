@@ -403,6 +403,11 @@ class Chip:
             B = Word(0, self.cmd, self.cmd)
         else:
             raise SimError('bsrc %s' % bsrc)
+        bx = e['bx']
+        if bx == 'E2M':
+            B = Word(B.s, B.e, B.e & M67)
+        elif bx == 'M2E':
+            B = Word(B.s, s18(B.m), B.m)
         # the barrel shifter, on B's mantissa
         shk = e['shk']
         out_bits = 0

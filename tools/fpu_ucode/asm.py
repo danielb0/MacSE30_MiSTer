@@ -25,7 +25,7 @@ nothing selected, nothing written, flags held):
       with an optional shift: <<amt (left), >>amt (logical), >>>amt
       (arithmetic); amt = a number, SC, LC, LZC, LC+SC or LC-SC
     d=Tn | FP[sel] | MD | MD3 | OBUFH | OBUFL | OBUFX | EXOP | SC | -
-    alu= mode= dir= cin= osh= q= sign= stk= dl= a2= rnd= fpsr= ctl=  (fields.py's names,
+    alu= mode= dir= cin= osh= q= sign= stk= dl= a2= bx= rnd= fpsr= ctl=  (fields.py's names,
       any case)
     lc=hold|dec|alu|<number>     exc=OPERR,DZ,...  (ORed into lit)    lit=<number>
     sel = src | dst | c | ra
@@ -128,7 +128,7 @@ SHIFT_RE = re.compile(r'^(.*?)(<<|>>>|>>)(.+)$')
 AMOUNTS = {'SC': 'SC', 'LC': 'LC', 'LZC': 'LZC', 'LC+SC': 'LCPSC', 'LC-SC': 'LCMSC'}
 PLAIN_B = {'OPINT', 'OPRAW', 'CU', 'BOOTH', 'RINC', 'RMASK', 'SQT', 'Q', 'SC', 'LC', 'CMD'}
 DST_NAMED = {'MD', 'MD3', 'OBUFH', 'OBUFL', 'OBUFX', 'EXOP', 'SC'}
-ENUM_CLAUSES = {'alu': ('alu', FD.ALU), 'mode': ('emode', FD.EMODE), 'dir': ('dir', FD.DIR),
+ENUM_CLAUSES = {'bx': ('bx', FD.BX), 'alu': ('alu', FD.ALU), 'mode': ('emode', FD.EMODE), 'dir': ('dir', FD.DIR),
                 'osh': ('osh', FD.OSH), 'q': ('qop', FD.QOP), 'sign': ('sgn', FD.SGN),
                 'stk': ('stk', FD.STK), 'rnd': ('rnd', FD.RNDM), 'fpsr': ('fpsr', FD.FPSR),
                 'ctl': ('ctl', FD.CTL)}

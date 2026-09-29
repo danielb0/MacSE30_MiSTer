@@ -142,6 +142,12 @@ def build():
         ('exp_one', _exp_word(1)),
         ('fx_half', kword(0, 0, 1 << 63)),            # 1/2 in Q2.64 (the square root's first bit)
         ('gbit', kword(0, 0, 1 << 2)),                # the guard bit of the internal mantissa
+        ('int63', _exp_word(BIAS + 63)),              # an integer with its LSB at bit 3 (FINT)
+        ('e16', _exp_word(BIAS + 16)),                # FSCALE: |src| >= 2^16
+        ('exp64', _exp_word(64)),                     # FMOD/FREM: a chunk of quotient bits
+        ('k16384', kword(0, 0, 16384)),               # FSCALE's clamp (fpu.py _op_fscale)
+        ('k32832', kword(0, 0, 32832)),
+        ('k65536', kword(0, 0, 65536)),
         ('nan', _ext(0, 0x7FFF, (1 << 64) - 1)),      # the chip's NaN (UM 6.1.3)
         # The exceptional operand (6.1.4, 6.1.5; rounding.exceptional_operand):
         # the exponent wrapped by $6000, or 0 past the 17-bit catastrophic

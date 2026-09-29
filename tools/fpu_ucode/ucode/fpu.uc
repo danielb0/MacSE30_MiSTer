@@ -53,6 +53,14 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
   $27  :: alu=nop ctl=rp_sglx | dispatch TAGPAIR t_sgm  ; FSGLMUL
   $20  :: alu=nop | dispatch TAGPAIR t_div              ; FDIV
   $24  :: alu=nop ctl=rp_sglx | dispatch TAGPAIR t_sgd  ; FSGLDIV
+  $04  :: alu=nop | dispatch STAG t_sqrt                ; FSQRT
+  $01  :: alu=nop | dispatch STAG t_int                 ; FINT
+  $03  :: alu=nop | dispatch STAG t_intrz               ; FINTRZ
+  $1E  :: alu=nop | dispatch STAG t_gexp                ; FGETEXP
+  $1F  :: alu=nop | dispatch STAG t_gman                ; FGETMAN
+  $26  :: alu=nop | dispatch TAGPAIR t_scale            ; FSCALE
+  $21  :: alu=nop | dispatch TAGPAIR t_mod              ; FMOD
+  $25  :: alu=nop | dispatch TAGPAIR t_rem              ; FREM
   redundant model
   default unimpl
 .end
@@ -81,6 +89,38 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
 .entry X     $22 pro_x
 .entry S,D   $22 pro_sd
 .entry B,W,L $22 pro_int
+.entry reg   $04 pro_reg
+.entry X     $04 pro_x
+.entry S,D   $04 pro_sd
+.entry B,W,L $04 pro_int
+.entry reg   $01 pro_reg
+.entry X     $01 pro_x
+.entry S,D   $01 pro_sd
+.entry B,W,L $01 pro_int
+.entry reg   $03 pro_reg
+.entry X     $03 pro_x
+.entry S,D   $03 pro_sd
+.entry B,W,L $03 pro_int
+.entry reg   $1E pro_reg
+.entry X     $1E pro_x
+.entry S,D   $1E pro_sd
+.entry B,W,L $1E pro_int
+.entry reg   $1F pro_reg
+.entry X     $1F pro_x
+.entry S,D   $1F pro_sd
+.entry B,W,L $1F pro_int
+.entry reg   $26 pro_reg
+.entry X     $26 pro_x
+.entry S,D   $26 pro_sd
+.entry B,W,L $26 pro_int
+.entry reg   $21 pro_reg
+.entry X     $21 pro_x
+.entry S,D   $21 pro_sd
+.entry B,W,L $21 pro_int
+.entry reg   $25 pro_reg
+.entry X     $25 pro_x
+.entry S,D   $25 pro_sd
+.entry B,W,L $25 pro_int
 .entry reg   $23 pro_reg
 .entry X     $23 pro_x
 .entry S,D   $23 pro_sd
@@ -562,3 +602,220 @@ sgd_st: d=T6 a=T4 b=T5<<1 alu=add | if DFLAG goto sgd_sn
 sgd_sn: a=T6 alu=passa stk=nz
 sgd_q:  d=T0 a=T2 b=Q<<40 alu=passb | call pp
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+
+; ============================================================================
+; FSQRT (4-106): the radicand x in [1/4, 1) (the exponent's parity decides
+; m >> 3 or m >> 2 for 2x), the root q in [1/2, 1).  From q = 1/2 and W =
+; 2x - 1/2, 63 nonrestoring steps W' = 2W -/+ (2q + 01/11 at the new bit)
+; give q to 2^-64 - one clock each (a2, SQT, QBIT: Daniel, 2026-09-29) -
+; then the remainder restored if negative, the guard bit G = (W > q) and the
+; sticky bit G or W != 0 (no tie is possible).  Exponent floor(u/2) + bias
+; for the root at bit 66.  -0 stays -0; any other negative: OPERR.
+; ============================================================================
+
+.table t_sqrt STAG
+  NAN  nan_m
+  ZERO mv_zero
+  INF  sq_inf
+  default :: d=T1 a=T1 alu=passa osh=norm | goto sq_fin
+.end
+sq_inf: alu=nop | if SNEG goto operr
+        d=T0 a=T1 alu=passa | goto mk_inf
+sq_fin: d=T2 a=T1 b=K[bias] mode=exp alu=sub | if SNEG goto operr   ; u
+        a=T2 b=K[exp_one] mode=exp alu=and              ; Z: u even
+        d=T2 a=T2 alu=passa mode=exp osh=r1 | if Z goto sq_ev   ; floor(u/2)
+        d=T4 b=T1>>2 alu=passb | goto sq_w              ; u odd: 2x = m >> 2
+sq_ev:  d=T4 b=T1>>3 alu=passb                          ; u even: 2x = m >> 3
+sq_w:   d=T4 a=T4 b=K[fx_half] alu=sub                  ; W = 2x - 1/2 >= 0 (N = 0)
+        b=K[fx_half] q=loadb lc=62                      ; q = 1/2
+sloop:  d=T4 a=T4 b=SQT alu=subadd dir=prevn a2=1 osh=qbit lc=dec | unless LCZ goto sloop
+        d=T5 b=Q<<1 alu=passb | unless N goto sq_r
+        d=T5 a=T5 b=K[ulp] alu=or
+        d=T4 a=T4 b=T5 alu=add                          ; restored: W + 2q + 2^-64
+sq_r:   d=T5 b=Q alu=passb
+        a=T5 b=T4 alu=sub                               ; q - W borrows: G
+        d=T0 b=Q<<3 alu=passb | if C goto sq_g          ; the root's 64 bits
+        a=T4 alu=passa stk=nz | goto sq_e               ; sticky: W != 0
+sq_g:   d=T0 a=T0 b=K[gbit] alu=or
+        b=K[ulp] alu=passb stk=nz                       ; sticky
+sq_e:   d=T0 a=T0 b=T2 alu=passb mode=exp
+        d=T0 a=T0 b=K[bias] mode=exp alu=add | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+
+; ============================================================================
+; FINT, FINTRZ (4-50, 4-52): the value shifted so its integer's LSB is at
+; bit 3, rounded there (by RND, or toward zero), then - the model's default
+; for 8.6.14 item 20 - rounded again to PREC by pp.  A value of 2^63 and
+; more is an integer already; 0 rounds to a signed zero.
+; ============================================================================
+
+.table t_int STAG
+  NAN  nan_m
+  ZERO mv_zero
+  INF  mv_copy
+  default :: d=T1 a=T1 alu=passa osh=norm | goto int_fin
+.end
+.table t_intrz STAG
+  NAN  nan_m
+  ZERO mv_zero
+  INF  mv_copy
+  default :: d=T1 a=T1 alu=passa osh=norm | goto intrz_fin
+.end
+int_fin: d=SC a=T1 b=K[int63] mode=exp alu=rsub         ; 63 - u, at least 0
+        d=T0 a=T1 alu=passa | if N goto wr_pp           ; u > 63: already an integer
+        d=T3 b=T1>>SC alu=passb sign=b stk=shift
+        d=T3 a=T3 b=RINC alu=add rnd=ext
+        d=T0 a=T3 b=RMASK alu=and rnd=ext fpsr=inex2r stk=clr | goto int_e
+intrz_fin: d=SC a=T1 b=K[int63] mode=exp alu=rsub
+        d=T0 a=T1 alu=passa | if N goto wr_pp
+        d=T3 b=T1>>SC alu=passb sign=b stk=shift
+        d=T3 a=T3 b=RINC alu=add rnd=trunc
+        d=T0 a=T3 b=RMASK alu=and rnd=trunc fpsr=inex2r stk=clr
+int_e:  d=T0 a=T0 b=K[int63] alu=passb mode=exp | if Z goto int_z
+        goto wr_pp
+int_z:  d=T0 a=T0 b=0 alu=passb mode=exp | goto wr_t0    ; a signed zero
+
+; ============================================================================
+; FGETEXP (4-46): the normalized input's unbiased exponent as a number (exact
+; at any PREC); FGETMAN (4-48): its mantissa with exponent 0 - unrounded, the
+; model's default for 8.6.14 item 21.  An infinity: OPERR.
+; ============================================================================
+
+.table t_gexp STAG
+  NAN  nan_m
+  ZERO mv_zero
+  INF  operr
+  default :: d=T1 a=T1 alu=passa osh=norm | goto gexp_fin
+.end
+gexp_fin: d=T0 b=T1 bx=e2m alu=passb                    ; Eb as an integer
+        d=T0 a=T0 b=K[bias] bx=e2m alu=sub dl=1         ; E = Eb - bias; DFLAG: E < 0
+        d=T0 a=T0 b=K[int_exp] alu=passb mode=exp | if Z goto gexp_z
+        alu=nop | unless DFLAG goto wr_pp
+        d=T0 a=0 b=T0 alu=sub mode=mantb sign=one | goto wr_pp   ; |E|, negative
+gexp_z: d=T0 b=0 alu=passb sign=zero | goto wr_t0       ; +0
+
+.table t_gman STAG
+  NAN  nan_m
+  ZERO mv_zero
+  INF  operr
+  default :: d=T1 a=T1 alu=passa osh=norm | goto gman_fin
+.end
+gman_fin: d=T0 a=T1 b=K[bias] alu=passb mode=exp | goto wr_t0
+
+; ============================================================================
+; FSCALE (4-92): the source chopped to an integer n, added to FPn's exponent,
+; then pp.  "|src| >= 2^14: an overflow or underflow always results" - the
+; model's clamp: n raised to 32832 and held to 65536 (fpu.py _op_fscale).
+; A source infinity: OPERR; FPn zero or infinite: as it is; a source zero:
+; FPn at PREC.
+; ============================================================================
+
+.table t_scale TAGPAIR
+  NAN  *    nan_d
+  *    NAN  nan_d
+  INF  *    operr
+  *    ZERO wr_t0
+  *    INF  wr_t0
+  ZERO *    wr_pp
+  default   :: d=T1 a=T1 alu=passa osh=norm | goto sc_fin
+.end
+sc_fin: a=T1 b=K[e16] mode=exp alu=sub                  ; u - 16
+        d=T3 b=K[k65536] alu=passb | unless N goto sc_go ; |n| >= 2^16: 65536
+        d=SC a=T1 b=K[int_exp] mode=exp alu=rsub        ; 66 - u
+        d=T3 b=T1>>SC alu=passb                         ; n = |src| chopped
+        a=T3 b=K[k16384] alu=sub
+        alu=nop | if C goto sc_go                       ; below 2^14: as it is
+        a=T3 b=K[k32832] alu=sub
+        alu=nop | unless C goto sc_go
+        d=T3 b=K[k32832] alu=passb                      ; raised to 32832
+sc_go:  d=T3 a=T3 b=T1 alu=passa sign=b                 ; n's sign: the source's
+        d=T0 a=T0 b=T3 bx=m2e mode=exp alu=addsub dir=bsign | goto wr_pp
+
+; ============================================================================
+; FMOD (4-62), FREM (4-86): the quotient N = |FPn / src| bit by bit, the
+; division step of FDIV in chunks of 64 (Table 8-14: 40 + 70 per 64 bits),
+; each chunk a checkpoint (Q parked in T8 so a busy frame holds it); T4 ends
+; as 2r, r the floor remainder.  FREM rounds N to nearest (ties to even):
+; r - |src|.  The quotient byte: N's low 7 bits and the sign FPn^src.  The
+; special cases' quotient byte: WinUAE's (8.6.14 item 5).
+; ============================================================================
+
+.table t_mod TAGPAIR
+  NAN  *    mr_nan
+  *    NAN  mr_nan
+  ZERO *    mr_operr
+  *    INF  mr_operr
+  *    ZERO mr_dz0
+  INF  *    mr_sinf
+  default   :: d=T0 a=T0 alu=passa osh=norm | goto mod_fin
+.end
+.table t_rem TAGPAIR
+  NAN  *    mr_nan
+  *    NAN  mr_nan
+  ZERO *    mr_operr
+  *    INF  mr_operr
+  *    ZERO mr_dz0
+  INF  *    mr_sinf
+  default   :: d=T0 a=T0 alu=passa osh=norm | goto rem_fin
+.end
+mr_nan: alu=nop q=clear
+        a=0 alu=passa fpsr=quot | goto nan_d            ; quotient 0, sign 0
+mr_operr: alu=nop q=clear
+        a=0 alu=passa fpsr=quot | goto operr
+mr_dz0: alu=nop q=clear
+        a=T0 b=T1 alu=passa sign=xor fpsr=quot | goto mk_zero
+mr_sinf: alu=nop q=clear
+        a=T0 b=T1 alu=passa sign=xor fpsr=quot | goto wr_pp     ; FPn at PREC
+
+mod_fin: d=T1 a=T1 alu=passa osh=norm
+        d=T7 a=T0 b=T1 mode=exp alu=sub                 ; D = Ed - Es
+        d=T5 b=T1>>2 alu=passb q=clear dl=1 | if N goto mod_small
+        d=T4 b=T0>>2 alu=passb
+        d=T7 a=T7 b=K[exp_one] mode=exp alu=add | call mr_loop
+        d=T6 a=T4 b=T5<<1 alu=add | unless DFLAG goto mod_r
+        d=T4 a=T6 alu=passa                             ; r + D (the last step went negative)
+mod_r:  a=T4 alu=passa
+        a=T0 b=T1 alu=passa sign=xor fpsr=quot | if Z goto mk_zero
+mr_res: d=T3 a=T1 b=K[exp_one] mode=exp alu=add         ; 2r's exponent: Es + 1
+        d=T3 a=T3 b=T4 alu=passb
+        d=T0 a=T3 b=T0 alu=passa sign=b | goto wr_pp     ; FPn's sign (FREM: flipped already)
+mod_small: a=T0 b=T1 alu=passa sign=xor fpsr=quot | goto wr_pp  ; |FPn| < |src|: N = 0, FPn
+
+; The quotient loop (in: T4 the partial remainder, T5 the divisor, T7 the
+; steps n = D + 1 in its exponent, DFLAG clear: subtract first).
+mr_loop: d=T6 a=T7 b=K[exp64] mode=exp alu=rsub          ; 64 - n
+        d=T8 b=Q alu=passb ctl=checkpoint | unless N goto mr_last   ; n <= 64: the last chunk
+        b=T8 q=loadb lc=63
+        d=T7 a=0 b=T6 mode=exp alu=sub                  ; n - 64
+mr_step: d=T4 a=T4 b=T5 alu=subadd dir=dflag osh=l1q dl=1 lc=dec | unless LCZ goto mr_step
+        goto mr_loop
+mr_last: b=T8 q=loadb
+        d=T6 a=T7 b=K[exp_one] mode=exp alu=sub lc=alu  ; the last n steps
+mr_lstep: d=T4 a=T4 b=T5 alu=subadd dir=dflag osh=l1q dl=1 lc=dec | unless LCZ goto mr_lstep
+        ret
+
+rem_fin: d=T1 a=T1 alu=passa osh=norm
+        d=T7 a=T0 b=T1 mode=exp alu=sub
+        d=T5 b=T1>>2 alu=passb q=clear dl=1 | if N goto rem_small
+        d=T4 b=T0>>2 alu=passb
+        d=T7 a=T7 b=K[exp_one] mode=exp alu=add | call mr_loop
+        d=T6 a=T4 b=T5<<1 alu=add | unless DFLAG goto rem_n
+        d=T4 a=T6 alu=passa
+; To nearest: 2r against |src| (in T5's units); a tie goes to the even N.
+rem_n:  a=T4 b=T5 alu=sub
+        alu=nop | if C goto rem_r                       ; 2r < |src|
+        alu=nop | unless Z goto rem_up                  ; 2r > |src|
+        alu=nop | unless Q0 goto rem_r                  ; a tie, N even
+rem_up: a=0 b=Q alu=add cin=1 q=load                    ; N + 1
+        a=T0 b=T1 alu=passa sign=xor fpsr=quot
+        d=T6 b=T5<<1 alu=passb
+        d=T4 a=T6 b=T4 alu=sub                          ; |r - src| = |src| - r
+        d=T0 a=T0 alu=passa sign=nota | goto mr_res     ; the sign flips
+rem_r:  a=T4 alu=passa
+        a=T0 b=T1 alu=passa sign=xor fpsr=quot | if Z goto mk_zero
+        goto mr_res
+; |FPn| < |src|: N = 0; with D = -1 the nearest may still be N = 1.
+rem_small: d=T4 b=T0>>2 alu=passb                       ; 2r in T5's units when D = -1
+        a=T7 b=K[exp_one] mode=exp alu=add              ; D + 1 = 0?
+        alu=nop | if Z goto rem_n
+        a=T0 b=T1 alu=passa sign=xor fpsr=quot | goto wr_pp
