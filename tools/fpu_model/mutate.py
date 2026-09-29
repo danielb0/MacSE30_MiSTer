@@ -14,9 +14,11 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FILES = ['xreal.py', 'rounding.py', 'fpu.py', 'constants.py', 'switches.py',
-         'packed.py', 'harness.py', 'check_rounding.py', 'check_tables.py',
-         'check_packed.py']
-CHECKS = (('check_rounding.py', ['15']), ('check_tables.py', []), ('check_packed.py', ['1000']))
+         'packed.py', 'transcend.py', 'harness.py', 'check_rounding.py',
+         'check_tables.py', 'check_packed.py', 'check_transcend.py']
+CHECK_TIMEOUT = 300
+CHECKS = (('check_rounding.py', ['15']), ('check_tables.py', []), ('check_packed.py', ['1000']),
+          ('check_transcend.py', ['150']))
 
 MUTANTS = [
     # rounding.py - Figure 6-3 and 6.1.4-6.1.5
@@ -122,6 +124,45 @@ MUTANTS = [
     ('packed.py', "        elif denorm:", "        elif False:", 'bindec: the normal A9 order for denormals',
      "survive: the audit found no input where FPSP's denormal order and the normal one differ "
      "(68,327 cases); kept literal to FPSP (plan 8.7.2)"),
+    # transcend.py and the transcendentals in fpu.py - plan 8.7.3
+    ('transcend.py', "            X, Y, Z = X - asr(Y, i + s), Y + asr(X, i - s), Z - rom_fixed(_ATAN, i, s)",
+     "            X, Y, Z = X - asr(Y, i + s), Y - asr(X, i - s), Z - rom_fixed(_ATAN, i, s)",
+     'CORDIC rotation: y turned the wrong way'),
+    ('transcend.py', "    X = gain(s)\n", "    X = gain(s + 1)\n", 'CORDIC rotation: the gain for the wrong start'),
+    ('transcend.py', "    s = max(0, -exponent(z) - 1)\n    if s >= 34:",
+     "    s = 0\n    if s >= 34:", 'CORDIC rotation: no scaling for small z'),
+    ('transcend.py', "    elif k == 1:\n        sn, cs = c, s.neg()", "    elif k == 1:\n        sn, cs = c, s",
+     'sincos: the second quadrant\'s cosine sign'),
+    ('transcend.py', "    e0 = min(x.e, TWOPI.e)\n    r = (x.m << (x.e - e0)) % (TWOPI.m << (TWOPI.e - e0))",
+     "    import constants\n    pm, pe, _ = constants.DOCUMENTED[0x00]\n    e0 = min(x.e, pe + 1)\n"
+     "    r = (x.m << (x.e - e0)) % (pm << (pe + 1 - e0))",
+     'an accurate reduction (a 256-bit 2pi): the documented loss gone'),
+    ('transcend.py', "        X, Y, Z = X + asr(Y, i + s), Y - asr(X, i - s), Z + rom_fixed(_ATAN, i, s)\n        elif Y < 0:",
+     "        X, Y, Z = X + asr(Y, i + s), Y - asr(X, i - s), Z - rom_fixed(_ATAN, i, s)\n        elif Y < 0:",
+     'CORDIC vectoring: the angle accumulated the wrong way'),
+    ('transcend.py', "        L = rom_fixed(_LNUP, i)\n        if not L:",
+     "        L = rom_fixed(_LNUP, i - 1)\n        if not L:", 'exp: the ln(1 + 2^-i) table off by one'),
+    ('transcend.py', "            D = D + step if up else D - step\n    D = D + R if up else D - R",
+     "            D = D + step if up else D - step\n    D = D", 'expm1: the residual dropped',
+     "survive: the residual is under 2^-66 of the result (about 2 units of extended), below "
+     "the manual's bound; bit-exactness to the microcode is the RTL bench's (plan 8.7.3)"),
+    ('transcend.py', "                L -= rom_fixed(_LNDN, i, s)        # - ln(1 - 2^-i) > 0",
+     "                L += rom_fixed(_LNDN, i, s)        # - ln(1 - 2^-i) > 0", 'log1p: a table term with the wrong sign'),
+    ('transcend.py', "    return i_add(i_mul(i_from_int(E), LN2), lm)", "    return i_add(i_mul(i_from_int(E + 1), LN2), lm)",
+     'logn: the exponent off by one'),
+    ('transcend.py', "    if exponent(r) >= 0 and not r.is_zero():\n        return I67(r.s, ALMOST_ONE.m, ALMOST_ONE.e)\n    return r",
+     "    return r", 'sin/cos/tanh not bounded below 1'),
+    ('transcend.py', "    d = i_mul(i_sub(ONE_I, a), i_add(ONE_I, a))", "    d = i_sub(ONE_I, i_mul(a, a))",
+     'asin: 1 - x^2 computed with cancellation',
+     "survive: an extended x has 64 bits, so x^2 truncated to 67 still holds 1 - 2d exactly - "
+     "the cancellation cannot occur; the product form is kept as the robust one (plan 8.7.3)"),
+    ('fpu.py', "        if not blocked:\n            self.fp[fpc] = cos_r\n            self.fp[fps] = sin_r",
+     "        if not blocked:\n            self.fp[fps] = sin_r\n            self.fp[fpc] = cos_r", 'FSINCOS: FPs = FPc keeps the cosine'),
+    ('fpu.py', "            return self._finish_reg(dst, Ext(0, BIAS, J_BIT), exc, src)\n        if src.is_inf:\n            return self._finish_reg(dst, NAN, exc | OPERR, src)\n        return self._transcend(dst, src, exc, rnd, fmt, lambda v: transcend.sincos(v)[1])",
+     "            return self._finish_reg(dst, src, exc, src)\n        if src.is_inf:\n            return self._finish_reg(dst, NAN, exc | OPERR, src)\n        return self._transcend(dst, src, exc, rnd, fmt, lambda v: transcend.sincos(v)[1])",
+     'FCOS(0) is 0'),
+    ('fpu.py', "        return self._round(r.s, r.m, r.e, True, fmt, rnd, exc)",
+     "        return self._round(r.s, r.m, r.e, False, fmt, rnd, exc)", 'transcendentals without the sticky (INEX2)'),
 ]
 
 
@@ -146,10 +187,17 @@ def main():
                 missed.append(desc)
                 continue
             open(path, 'w', encoding='utf-8').write(text.replace(a, b, 1))
-            fails, crashed = 0, False
+            fails, crashed, hung = 0, False, False
             for script, args in CHECKS:
-                r = subprocess.run([sys.executable, script] + args, cwd=d,
-                                   capture_output=True, text=True)
+                # A check normally takes seconds; a mutant that hangs one (an
+                # endless loop) is stopped and counted as caught by a hang.
+                try:
+                    r = subprocess.run([sys.executable, script] + args, cwd=d,
+                                       capture_output=True, text=True, timeout=CHECK_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    crashed = True
+                    hung = True
+                    continue
                 fails += sum(1 for l in r.stdout.splitlines() if l.startswith('FAIL'))
                 if r.returncode != 0 and 'Traceback' in r.stderr:
                     crashed = True
@@ -160,7 +208,9 @@ def main():
                 continue
             if fails or crashed:
                 caught += 1
-                print('caught %-55s %s' % (desc, '%d FAIL lines' % fails if fails else '(a crash)'),
+                print('caught %-55s %s' % (desc, '%d FAIL lines' % fails if fails else
+                                            ('(a hang, stopped after %d s)' % CHECK_TIMEOUT if hung
+                                             else '(a crash)')),
                       flush=True)
             else:
                 missed.append(desc)

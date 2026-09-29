@@ -7668,8 +7668,8 @@ is already known to differ from the manual in three ways (8.5).
    within the manual's bounds. It is the oracle for everything after.
    **Started 2026-09-29: 8.7** (design, switches, and 5a - the exact
    arithmetic, rounding, FPSR, traps and FMOVECR - built and checked,
-   8.7.1); 5b packed decimal done the same day (8.7.2); 5c the
-   transcendentals and 5d the vectors next.
+   8.7.1); 5b packed decimal (8.7.2) and 5c the transcendentals (8.7.3)
+   done the same day; 5d the vectors next.
 6. **The architecture and its microcode**: the datapath, the sequencer's
    microinstruction format, the microcode assembler (a small script that
    builds the block RAM image), the CU, the register file; area and cycle
@@ -8737,6 +8737,13 @@ built for one setting per item; the switches exist only in the model.
     the magnitude bound. Not a switch: it is what
     the algorithm does; whether the 68882 does the same is a question for
     silicon, with the rest of this list.
+26. **Trigonometric results near their zeros** (found writing 5c). Within
+    [-2pi, 2pi] the quadrant step subtracts multiples of pi/2 held to the
+    datapath's 67 bits, so sin, cos and tan just beside k pi/2 carry that
+    constant's error (about 2^-66 times k) as an *absolute* error: a result
+    of 2^-30 there has lost some 36 of its bits. The manual's bound is
+    stated "in general"; any 67-bit pi does this. Not a switch; reported by
+    the checks.
 
 Item 3 widens with the same reading: **FABS and FNEG** list INEX2 and OVFL
 as "cleared" (4-18, 4-82) exactly as FMOVE does, against 2.2.2 - so the
@@ -8840,6 +8847,7 @@ again, FNEG twice, FCMP against FSUB's sign).
   tan, atan, asin, acos and the hyperbolics, shift-add pseudo-division for
   e^x, 2^x, 10^x and the logarithms; each checked against mpmath within the
   manual's bound, with its iteration count set against Table 8-3.
+  **Done 2026-09-29** (8.7.3).
 - **5d** the vector export for `sim/fpu` (item 7): instruction, FPCR,
   operands, and the expected register, FPSR and trap, one line each.
 
@@ -8961,12 +8969,103 @@ sources** (a tiny intermediate tripped an assertion) - fixed, and the
 denormal check added; and one order difference in A9 for denormals
 (FPSP multiplies by SCALE first, then 10^8 and 10^16 unconditionally) -
 made literal, though no input was found where it matters.
-**`mutate.py`: 48 of 48 caught, 3 known survivors** with their reasons -
+**`mutate.py` (at 5b): 48 of 48 caught, 3 known survivors** with their reasons -
 the reversed RZ table in `decbin` (a few units of extended, below the
 manual's double-precision bound: only bit-exactness to FPSP, which the
 audit covers, would see it), LOG2 for negative logs (A13 re-derives ILOG;
 no output differed in 20,000), and the denormal A9 order (no difference
 in 68,327).
+
+### 8.7.3 5c as built: the transcendentals (2026-09-29)
+
+`transcend.py` is the microcode's arithmetic, written down: **fixed-point
+registers of 67 bits** (two's complement, 64 fraction bits, Q2.64) with
+truncating arithmetic shifts - the adder and the barrel shifter; **I67**,
+the internal floating format the compositions use (a 67-bit mantissa, an
+unbounded exponent), every operation *truncating* its exact result - no
+rounding hardware between steps; **constants as a ROM holds them**, 67-bit
+words. The final result is post-processed (8.6.4) from its 67 bits with the
+sticky bit set, so every computed result sets INEX2 (UM 4.3.2: "INEX2 ...
+may be set even if an exact result is produced"; its FTENTOX #1 example is
+checked).
+
+**The manual fits this design closely.** 4.3.2 attributes the error to
+"the highly recursive nature of the algorithms used" on "an ALU with a
+finite precision of 67 bits", and 67 iterations of truncation on 64
+fraction bits leave about 64 units of extended - its "typical" figure.
+Table 8-3's times read as compositions of four cores, which is how the
+algorithms are built:
+
+| core (67 iterations) | functions | Table 8-3 (tail) |
+|---|---|---|
+| circular CORDIC, rotation | FSIN, FCOS, FSINCOS; FTAN = sin/cos | 373, 373, 433; 455 = 373 + a divide |
+| circular CORDIC, vectoring | FATAN; FASIN = atan(x/sqrt((1-x)(1+x))); FACOS = 2 atan(sqrt((1-x)/(1+x))) | 385; 563 = sqrt + div + 385; 607 |
+| shift-add e^r (factors 1 + 2^-i) | FETOX (x = n ln2 + r); FTWOTOX, FTENTOX (+ a multiply); FETOXM1; FCOSH = (t + 1/t)/2; FSINH, FTANH from e^x - 1 (the FPSP's formulas) | 479; 549; 527; 589 = 479 + div; 669, 643 = 527 + div + adds |
+| shift-add ln (y driven to 1) | FLOGN; FLOG2, FLOG10 (+ a multiply); FLOGNP1; FATANH = ln(1 + 2x/(1-x))/2 | 507; 563 = 507 + 56; 553; 675 |
+
+**Two things the plain algorithms get wrong, and the fixes:**
+- **Small arguments.** Fixed point keeps *absolute* precision, so sin x,
+  atan x, e^x - 1 and ln(1 + x) for small x would lose their relative
+  precision. Each core has a **scaled** form: for |x| < 2^-s the registers
+  hold y 2^s and z 2^s and the iterations run from i = s, 67 of them - the
+  same adder and shifter, a different shift schedule - so the result keeps
+  about 60 relative bits at any size down to where it equals x.
+- **Range limits.** The sticky bit says "a little above", so a result whose
+  true value lies just *below* a bound (tanh of a large argument, cos of a
+  tiny one, sin at pi/2) must never be computed as the bound itself:
+  `bounded()` returns 1 - 2^-67 for them, and no rounding mode carries sin,
+  cos or tanh past 1 (checked in every mode).
+
+**The ROM**: 34 words each of atan(2^-i), ln(1 + 2^-i) and ln(1 - 2^-i),
+and 34 CORDIC gain corrections; beyond i = 33 the shifter synthesizes the
+table entry (2^-i, or +/-2^-i - 2^-(2i+1)), the dropped term under 2^-4 of
+the last bit even at the largest scaling. pi, ln 2, ln 10 and log10(e) at
+67 bits.
+
+**The documented loss is replicated.** FSIN reduces an argument outside
+[-2pi, 2pi] by an exact remainder against **the 67-bit 2pi** (4-102); its
+error n(C - 2pi) grows with the argument - median absolute error 1.8e-17
+near 2^14, 1.5e-9 near 2^40, 1.5e-3 near 2^60, **all accuracy gone near
+2^66-2^70 = "approximately 10^20"** - and both ends are checked, so a more
+accurate (unauthentic) reduction would fail. Near k pi/2 inside the range
+the same 67-bit pi limits small results (8.6.14 item 26, reported).
+
+**The checks** (`check_transcend.py`, 44 PASS at 1,000 operands a
+function): every special case of 8.6.8 for the eighteen functions in every
+RND; items 1 and 2 in both settings; FLOGN(0) with DZ enabled leaves the
+register; **accuracy against mpmath over each function's domain, every one
+within the manual's 4096 units of extended** (log-uniform magnitudes from
+2^-80 up, the edges near 1 for asin, acos, atanh and the logarithms):
+
+| | median | worst | | median | worst |
+|---|---|---|---|---|---|
+| FSIN | 0.0 | 21 | FETOXM1 | 22 | 2373 |
+| FCOS | 0.0 | 52 | FSINH | 17 | 1708 |
+| FTAN | 0.0 | 25 | FCOSH | 0.0 | 1752 |
+| FATAN | 0.7 | 8 | FTANH | 16 | 39 |
+| FASIN | 0.4 | 12 | FLOGN | 0.4 | 124 |
+| FACOS | 2.7 | 12 | FLOG2 | 0.5 | 91 |
+| FETOX | 7.3 | 1151 | FLOG10 | 0.5 | 110 |
+| FTWOTOX | 6.9 | 20 | FLOGNP1 | 2.1 | 73 |
+| FTENTOX | 7.4 | 1575 | FATANH | 26 | 162 |
+
+(units of extended; the large worst cases are the exponentials at large
+|x|, where the 67-bit ln 2 in x = n ln 2 + r costs n x 2^-67);
+INEX2 on every computed result; the ranges in every RND; UNFL for FSIN of a
+denormal; OVFL for e^12000 with its exceptional operand wrapped, and
+**e^60000 catastrophic (exponent `$0000`, 6-10)**; e^-11400 a denormal;
+single PREC; FSINCOS's two registers, FPs = FPc keeping the sine, NaN and
+OPERR for infinity; the documented loss at both ends.
+
+**`mutate.py`: 61 of 61 caught, 5 known survivors** (about 5 minutes).
+Among the new mutants, an *accurate* reduction (a 256-bit 2pi) is caught by
+the documented-loss check - the point of making it a check. The two new
+survivors are below anything the manual specifies: e^x - 1 without its final
+residual (under 2^-66 of the result) and asin's 1 - x^2 unfactored (an
+extended x has 64 bits, so the 67-bit square keeps 1 - 2d exactly). A
+mutant that hung a check in an endless loop for 80 minutes - a precedence
+slip in the mutant, not the model - led to a 300 s limit per check, a hang
+now reported as one.
 
 ---
 

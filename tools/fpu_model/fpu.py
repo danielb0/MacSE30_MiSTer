@@ -24,6 +24,7 @@ from rounding import (RN, RZ, RM, RP, EXT, SGL, DBL, SGL_MANT, DBL_MANT,
                       round_integer)
 import constants
 import packed
+import transcend
 from switches import Switches, DEFAULT
 
 # FPSR (plan 8.6.2).
@@ -252,6 +253,8 @@ class FPU:
                 return self._finish_reg(dst, res, exc, src, write=False)
             if op in (0x21, 0x25) and self.sw.quotient_special == 'winuae':
                 self.fpsr &= ~QUOT_MASK
+            if 0x30 <= op <= 0x37:                  # FSINCOS: the NaN to both
+                return self._sincos_write(dst, op & 7, res, res, exc, src, None)
             return self._finish_reg(dst, res, exc, src)
 
         if op == 0x3A:                          # FTST: FPCC from the source
@@ -259,9 +262,11 @@ class FPU:
         if op == 0x38:
             return self._fcmp(d, src, exc)
 
+        if 0x30 <= op <= 0x37:
+            return self._op_fsincos(dst, op & 7, src, exc, rnd, fmt)
         handler = self.DYADIC_OPS.get(op) if not monadic else self.MONADIC_OPS.get(op)
         if handler is None:
-            raise Unmodelled('opmode $%02X (plan 8.7 work 5c)' % op)
+            raise Unmodelled('opmode $%02X' % op)
         return handler(self, dst, d, src, exc, rnd, fmt)
 
     # -- the rounding step common to them ---------------------------------
@@ -374,9 +379,201 @@ class FPU:
             return self._rounded_value(dst, x, exc, src, rnd, fmt)
         return self._finish_reg(dst, x, exc, src)
 
+    # The transcendentals (8.6.8's table; the algorithms, transcend.py) ------
+    def _computed(self, r, exc, rnd, fmt):
+        """A transcendental's I67 result through the post-processing, with
+        the sticky bit set: INEX2 for every computed result (UM 4.3.2).
+        An exact zero stays a signed zero."""
+        if r.is_zero():
+            return zero(r.s), exc, None
+        return self._round(r.s, r.m, r.e, True, fmt, rnd, exc)
+
+    def _transcend(self, dst, src, exc, rnd, fmt, fn):
+        res, exc, xop = self._computed(fn(transcend.i_from_ext(src)), exc, rnd, fmt)
+        return self._finish_reg(dst, res, exc, src, xop)
+
+    def _halfpi(self, s, exc, rnd, fmt):
+        return self._computed(transcend.HALFPI.neg() if s else transcend.HALFPI, exc, rnd, fmt)
+
+    def _op_fsinh(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero or src.is_inf:
+            return self._finish_reg(dst, src, exc, src)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.sinh)
+
+    def _op_flognp1(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._finish_reg(dst, src, exc, src)
+        if src.is_inf:
+            return self._finish_reg(dst, NAN if src.s else src, exc | (OPERR if src.s else 0), src)
+        v = transcend.i_from_ext(src)
+        if src.s:
+            c = transcend.i_add(transcend.ONE_I, v)          # 1 + x
+            if c.is_zero():                                   # 8.6.14 item 2
+                if self.sw.flognp1_minus_one == 'manual':
+                    return self._finish_reg(dst, NAN, exc | DZ, src)
+                return self._finish_reg(dst, inf(1), exc | DZ, src)
+            if c.s:
+                return self._finish_reg(dst, NAN, exc | OPERR, src)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.lognp1)
+
+    def _op_fetoxm1(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._finish_reg(dst, src, exc, src)
+        if src.is_inf:
+            return self._finish_reg(dst, Ext(1, BIAS, J_BIT) if src.s else src, exc, src)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.etoxm1)
+
+    def _op_ftanh(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._finish_reg(dst, src, exc, src)
+        if src.is_inf:
+            return self._finish_reg(dst, Ext(src.s, BIAS, J_BIT), exc, src)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.tanh)
+
+    def _op_fatan(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._finish_reg(dst, src, exc, src)
+        if src.is_inf:
+            res, exc, xop = self._halfpi(src.s, exc, rnd, fmt)
+            return self._finish_reg(dst, res, exc, src, xop)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.atan)
+
+    def _unit_domain(self, src):
+        """|x| > 1 or an infinity: outside asin's, acos's and atanh's domain."""
+        if src.is_inf:
+            return True
+        s, m, e = src.exact()
+        return (m << e if e >= 0 else 0) > 1 or (e < 0 and m > (1 << -e))
+
+    def _op_fasin(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._finish_reg(dst, src, exc, src)
+        if self._unit_domain(src):
+            return self._finish_reg(dst, NAN, exc | OPERR, src)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.asin)
+
+    def _op_facos(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            res, exc, xop = self._halfpi(0, exc, rnd, fmt)
+            return self._finish_reg(dst, res, exc, src, xop)
+        if self._unit_domain(src):
+            return self._finish_reg(dst, NAN, exc | OPERR, src)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.acos)
+
+    def _op_fatanh(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._finish_reg(dst, src, exc, src)
+        if self._unit_domain(src):
+            return self._finish_reg(dst, NAN, exc | OPERR, src)
+        s, m, e = src.exact()
+        if (m << e if e >= 0 else (m >> -e if not m & ((1 << -e) - 1) else -1)) == 1:
+            # x = +/-1 - 8.6.14 item 1: as printed, +1 gives -inf and -1
+            # gives +inf; 'ieee', sign(x) x inf.  DZ either way.
+            sign = (s ^ 1) if self.sw.fatanh_one == 'manual' else s
+            return self._finish_reg(dst, inf(sign), exc | DZ, src)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.atanh)
+
+    def _trig(self, dst, src, exc, rnd, fmt, fn):
+        if src.is_zero:
+            return self._finish_reg(dst, src, exc, src)
+        if src.is_inf:
+            return self._finish_reg(dst, NAN, exc | OPERR, src)
+        return self._transcend(dst, src, exc, rnd, fmt, fn)
+
+    def _op_fsin(self, dst, d, src, exc, rnd, fmt):
+        return self._trig(dst, src, exc, rnd, fmt, lambda v: transcend.sincos(v)[0])
+
+    def _op_ftan(self, dst, d, src, exc, rnd, fmt):
+        return self._trig(dst, src, exc, rnd, fmt, transcend.tan)
+
+    def _op_fcos(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._finish_reg(dst, Ext(0, BIAS, J_BIT), exc, src)
+        if src.is_inf:
+            return self._finish_reg(dst, NAN, exc | OPERR, src)
+        return self._transcend(dst, src, exc, rnd, fmt, lambda v: transcend.sincos(v)[1])
+
+    def _exp_like(self, dst, src, exc, rnd, fmt, fn):
+        if src.is_zero:
+            return self._finish_reg(dst, Ext(0, BIAS, J_BIT), exc, src)
+        if src.is_inf:
+            return self._finish_reg(dst, zero(0) if src.s else src, exc, src)
+        return self._transcend(dst, src, exc, rnd, fmt, fn)
+
+    def _op_fetox(self, dst, d, src, exc, rnd, fmt):
+        return self._exp_like(dst, src, exc, rnd, fmt, transcend.etox)
+
+    def _op_ftwotox(self, dst, d, src, exc, rnd, fmt):
+        return self._exp_like(dst, src, exc, rnd, fmt, transcend.twotox)
+
+    def _op_ftentox(self, dst, d, src, exc, rnd, fmt):
+        return self._exp_like(dst, src, exc, rnd, fmt, transcend.tentox)
+
+    def _log_like(self, dst, src, exc, rnd, fmt, fn):
+        if src.is_zero:
+            return self._finish_reg(dst, inf(1), exc | DZ, src)
+        if src.s:
+            return self._finish_reg(dst, NAN, exc | OPERR, src)
+        if src.is_inf:
+            return self._finish_reg(dst, src, exc, src)
+        return self._transcend(dst, src, exc, rnd, fmt, fn)
+
+    def _op_flogn(self, dst, d, src, exc, rnd, fmt):
+        return self._log_like(dst, src, exc, rnd, fmt, transcend.logn)
+
+    def _op_flog10(self, dst, d, src, exc, rnd, fmt):
+        return self._log_like(dst, src, exc, rnd, fmt, transcend.log10)
+
+    def _op_flog2(self, dst, d, src, exc, rnd, fmt):
+        return self._log_like(dst, src, exc, rnd, fmt, transcend.log2)
+
+    def _op_fcosh(self, dst, d, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._finish_reg(dst, Ext(0, BIAS, J_BIT), exc, src)
+        if src.is_inf:
+            return self._finish_reg(dst, inf(0), exc, src)
+        return self._transcend(dst, src, exc, rnd, fmt, transcend.cosh)
+
+    def _sincos_write(self, fps, fpc, sin_r, cos_r, exc, src, xop):
+        """FSINCOS's two destinations: FPc gets the cosine, then FPs the sine,
+        so FPs = FPc keeps the sine; FPCC from the sine (4-104)."""
+        self.fpsr |= exc
+        vec = self._trap(exc)
+        blocked = bool(exc & self.fpcr & (SNAN | OPERR | DZ))
+        if not blocked:
+            self.fp[fpc] = cos_r
+            self.fp[fps] = sin_r
+        if not blocked or self.sw.fpcc_on_trap == 'result':
+            self._set_fpcc(sin_r)
+        self._accrue(exc)
+        out = None
+        if vec in (V_SNAN, V_OPERR, V_DZ):
+            out = src
+        elif vec in (V_OVFL, V_UNFL):
+            out = xop
+        return Outcome(vector=vec, when='pre' if vec else None, xop=out)
+
+    def _op_fsincos(self, fps, fpc, src, exc, rnd, fmt):
+        if src.is_zero:
+            return self._sincos_write(fps, fpc, src, Ext(0, BIAS, J_BIT), exc, src, None)
+        if src.is_inf:
+            return self._sincos_write(fps, fpc, NAN, NAN, exc | OPERR, src, None)
+        s, c = transcend.sincos(transcend.i_from_ext(src))
+        sr, exc_s, xop = self._computed(s, exc, rnd, fmt)
+        cr, exc_c, _ = self._computed(c, exc, rnd, fmt)
+        # UNFL is the sine's (the cosine cannot underflow); INEX2 either's.
+        exc = exc_s | (exc_c & INEX2)
+        return self._sincos_write(fps, fpc, sr, cr, exc, src, xop)
+
     MONADIC_OPS = {0x00: _op_fmove, 0x01: _op_fint, 0x03: _op_fintrz,
                    0x04: _op_fsqrt, 0x18: _op_fabs, 0x1A: _op_fneg,
-                   0x1E: _op_fgetexp, 0x1F: _op_fgetman}
+                   0x1E: _op_fgetexp, 0x1F: _op_fgetman,
+                   0x02: _op_fsinh, 0x06: _op_flognp1, 0x08: _op_fetoxm1,
+                   0x09: _op_ftanh, 0x0A: _op_fatan, 0x0C: _op_fasin,
+                   0x0D: _op_fatanh, 0x0E: _op_fsin, 0x0F: _op_ftan,
+                   0x10: _op_fetox, 0x11: _op_ftwotox, 0x12: _op_ftentox,
+                   0x14: _op_flogn, 0x15: _op_flog10, 0x16: _op_flog2,
+                   0x19: _op_fcosh, 0x1C: _op_facos, 0x1D: _op_fcos}
 
     # Dyadic ---------------------------------------------------------------
     def _addsub(self, dst, d, src, exc, rnd, fmt, sub):
