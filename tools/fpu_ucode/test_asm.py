@@ -108,7 +108,8 @@ for base, tab in ((consts.ATAN_BASE, T._ATAN), (consts.LNUP_BASE, T._LNUP), (con
 check('atan/ln tables: every word placed by i - s equals rom_fixed', bad == 0, '%d mismatches' % bad)
 gains = all(FD.kword_fields(consts.ROM[consts.GAIN_BASE + i])[2] == T.gain(i) for i in range(34))
 check('CORDIC gains equal transcend.gain', gains)
-named = {'pi': T.PI, 'twopi': T.TWOPI, 'ln2': T.LN2, 'log10_e': T.LOG10_E, 'inv_ln2': T.INV_LN2}
+named = {'pi': T.PI, 'twopi': T.I67(0, (T.TWOPI.m >> 2) << 2, T.TWOPI.e),  # reduce_2pi's 65 bits
+          'ln2': T.LN2, 'log10_e': T.LOG10_E, 'inv_ln2': T.INV_LN2}
 ok = True
 for n, x in named.items():
     s, e, m, _ = FD.kword_fields(consts.ROM[consts.NAMES[n]])
