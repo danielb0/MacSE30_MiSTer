@@ -13,7 +13,7 @@ space-separated; an 80-bit register image is sign-and-exponent then the
 64-bit mantissa, 20 digits):
 
    1 group     a word (rounding, convert, packed, fmovecr, transcend,
-               special, trap, cond, decode)
+               special, trap, cond, decode, ties)
    2 kind      G a general instruction (command word), C a conditional
                (predicate)
    3 cmd       4   the command word, or the predicate
@@ -239,6 +239,56 @@ def gen(scale=1, seed=1, sw=DEFAULT):
     for _ in range(8):
         rx, ry, rc = base()
         yield ('decode', 'G', 0x2000 | rng.getrandbits(13), 0, 0, rx, ry, rc, 0, 0)
+
+    # Ties: exact halfway cases at every rounding boundary, in every mode.
+    # Random operands almost never make one - an RTL that rounded ties
+    # away from zero failed only 4 of the other vectors (plan 8.9.1) - so
+    # they are built: a register rounded to single or double; half an ulp
+    # added or subtracted at extended, single and double; FINT and integer
+    # stores of n + 1/2; an integer in rounded to single; a store to S or
+    # D.  Last in the file, so the groups above are unchanged.
+    def tie_m(p):                          # p bits kept, the next one set, none below
+        return J_BIT | (rng.getrandbits(p - 1) << (64 - p)) | (1 << (63 - p))
+
+    def exact(n, f):                       # the integer n x 2^f, n > 0
+        bl = n.bit_length()
+        return Ext(rng.getrandbits(1), BIAS + bl - 1 + f, n << (64 - bl))
+
+    def tie(cmd, fpcr, rx, ry, operand=0):
+        rc = rand_ext(rng)
+        return ('ties', 'G', cmd, fpcr, rand_fpsr(rng), rx, ry, rc, operand, 0)
+
+    for _ in range(scale):
+        for rnd in range(4):
+            for prec, p in ((1, 24), (2, 53)):
+                for _ in range(8):
+                    rx = Ext(rng.getrandbits(1), rng.randint(BIAS - 60, BIAS + 60), tie_m(p))
+                    yield tie((RX << 10) | (RY << 7) | 0x00, (prec << 6) | (rnd << 4), rx, rand_ext(rng))
+            for prec, p in ((0, 64), (1, 24), (2, 53)):
+                for op in (0x22, 0x28):
+                    for _ in range(6):
+                        e = rng.randint(BIAS - 60, BIAS + 60)
+                        m = (J_BIT | rng.getrandbits(63)) & ~((1 << (64 - p)) - 1)
+                        a = Ext(rng.getrandbits(1), e, m)
+                        b = Ext(rng.getrandbits(1), e - p, J_BIT)
+                        yield tie((RX << 10) | (RY << 7) | op, (prec << 6) | (rnd << 4), b, a)
+            for _ in range(8):
+                rx = exact(2 * rng.getrandbits(rng.randint(1, 40)) + 1, -1)
+                yield tie((RX << 10) | (RY << 7) | 0x01, rnd << 4, rx, rand_ext(rng))
+            for _ in range(8):
+                k = rng.randint(1, 7)
+                v = (((1 << 23) | rng.getrandbits(23)) << k) | (1 << (k - 1))
+                v = (-v if rng.getrandbits(1) else v) & 0xFFFFFFFF
+                yield tie(0x4000 | (F.FMT_L << 10) | (RY << 7) | 0x00, (1 << 6) | (rnd << 4),
+                          rand_ext(rng), rand_ext(rng), v)
+            for fmt, bits in ((F.FMT_L, 30), (F.FMT_W, 14), (F.FMT_B, 6)):
+                for _ in range(4):
+                    ry = exact(2 * rng.getrandbits(rng.randint(1, bits)) + 1, -1)
+                    yield tie(0x6000 | (fmt << 10) | (RY << 7), rnd << 4, rand_ext(rng), ry)
+            for fmt, p in ((F.FMT_S, 24), (F.FMT_D, 53)):
+                for _ in range(4):
+                    ry = Ext(rng.getrandbits(1), rng.randint(BIAS - 60, BIAS + 60), tie_m(p))
+                    yield tie(0x6000 | (fmt << 10) | (RY << 7), rnd << 4, rand_ext(rng), ry)
 
 
 def write(path, scale=1, seed=1, sw=DEFAULT):

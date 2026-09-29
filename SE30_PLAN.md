@@ -7684,7 +7684,7 @@ is already known to differ from the manual in three ways (8.5).
    **a regression against WinUAE's model, not silicon** (8.6.15); a
    mismatch is a question to settle from the manual or hardware, not a
    verdict; then the kernel integration, `sim/busfault` and `sim/machine`
-   unchanged.
+   unchanged. **Started 2026-09-29: 8.9** (staged 7a-7e).
 8. The compile, the fit's area against the budget, and the board: past the
    Welcome box - the first instruction is `FNOP` at `$000131A4`.
 
@@ -9108,7 +9108,10 @@ them; `fmovecr` 1,536 - all 128 offsets in every PREC and RND; `transcend`
 (zeros, infinities, NaNs, a signaling NaN, denormals, a pseudo-denormal, an
 unnormal, the largest numbers), all traps on and off; `cond` 2,048 - every
 FPCC value, all 64 predicate codes, BSUN enabled and not; `decode` 84 -
-opmodes `$40-$7F`, opclass 001, the redundant opmodes.
+opmodes `$40-$7F`, opclass 001, the redundant opmodes. **Added
+2026-09-29 (8.9.1): `ties` 352** - exact halfway cases at every rounding
+boundary in every mode, which random operands almost never make; 19,836 in
+all.
 
 **Proved readable both ways.** `replay.py` parses every line and runs it
 back through the model to the identical line; `vecread.v` reads every field
@@ -10129,8 +10132,8 @@ exceptional operand is the only thing that needs 64 bits - otherwise the
 exactly, in 44/62/90. FINT at extended precision writes its exact integer
 without `pp`. `timing.py`'s S/D class fix found no microcode error.
 
-**Readings of the tables, recorded for Daniel** (none changes a result;
-each is `timing.py`'s docstring too):
+**Readings of the tables** (none changes a result; each is `timing.py`'s
+docstring too) - **all six accepted by Daniel, 2026-09-29**:
 1. FPm and packed sources take the "Monadic or Dyadic" tables' row by the
    destination register's class for a monadic operation too.
 2. FDIV's "denormalized" and FMUL's "not normalized" intermediate: the
@@ -10147,8 +10150,8 @@ each is `timing.py`'s docstring too):
 6. FSINCOS's one "+": the sine's rounding.
 
 **Own time over a floor - Daniel's packed-decimal rule (8.8.16) carried to
-the other figures our algorithm cannot always meet; for Daniel to
-confirm:**
+the other figures our algorithm cannot always meet - accepted by Daniel,
+2026-09-29:**
 - **FMOD, FREM, the large trigonometric reduction** (35 + 3 vectors, up to
   32 clocks over): the formula counts whole 64-bit chunks of quotient and
   gives the last, partial chunk nothing; our divider takes it a bit a clock
@@ -10192,9 +10195,85 @@ nanowords.
 
 **Item 6 is complete** (6a the architecture, 6b the assembler, 6c the
 simulator and the microcode: all 19,484 vectors bit for bit, every timed
-vector at its figure, the checkpoints). Open for Daniel: the six table
-readings and the own-time floors above. **Next: item 7 - the RTL, written
+vector at its figure, the checkpoints). The six table readings and the
+own-time floors above were accepted by Daniel on 2026-09-29. **Next: item 7 - the RTL, written
 against `sim.py`** (fields.py's `verilog_header()` gives the formats).
+
+## 8.9 The RTL and the benches (8.4 item 7)
+
+Opened 2026-09-29 (Daniel: "start item 7"). Staged so that each step is
+benched before the next depends on it:
+- **7a the APU**: the sequencer, the datapath and the ROMs
+  (`rtl/fpu/se30_fpu_apu.v`), with the CU's unpacking
+  (`se30_fpu_unpack.v`) and the BIU's conditional predicate
+  (`se30_fpu_cond.v`) as small modules; `sim/fpu` does the rest of the
+  BIU's part as `vec.py` does. The gate: **all 19,484 vectors bit for bit
+  and every one at the simulator's clocks**.
+- **7b the CU and the BIU**: the CIRs, the dialogs of 8.8.14 as bus
+  cycles, one instruction at a time (8.8.1's first step); the bench drives
+  CPU-space cycles and the vectors run through them.
+- **7c the frames**: FSAVE/FRESTORE (8.8.15), FMOVEM, FMOVE of the control
+  registers, the checkpoints.
+- **7d the kernel's side** of the protocol (8.8.8, `docs/cp030_mpu_protocol.md`),
+  GLUE's CPU-space decode, `sim/busfault` and `sim/machine` unchanged.
+- **7e the overlap** (8.8.1's second step) and the cputest corpus (8.4 item 7).
+
+### 8.9.1 7a as built (2026-09-29)
+
+**The clock** is 8.8.9's: two `clk` periods an FPU clock, `ce` (C16M) high
+on the second. At the p0 edge the µROM (next address), T (ra, rb), K (rb,
+or rb + LC) and FP port A (the nanoword's FP select) addresses are
+registered; at the p1 edge the datapath's results, the flags and the next
+microword, and the next nanoword's address (from the µROM's output, so the
+nanoword is out for the whole of the next clock - the FP select it holds
+must address port A at p0). Starting takes two FPU clocks before the first
+microinstruction (the entry table and the destination's tags from FP[RY];
+then the first microword), not counted in the instruction's clocks - 7b's
+dialog accounts for them.
+
+**The temporaries are not cleared at start** - block RAM cannot be, and
+need not: every vector passes on the simulator with T0-T31 poisoned at
+each start (a scratch copy of `sim.py`, 2026-09-29), so the microcode never
+reads a temporary it has not written. Every flip-flop sim.py resets is
+reset.
+
+**Added to the tools for it:** `rtlvec.py` - the model's vectors with the
+simulator's clocks as an 18th field (`out/fpu_rtl.vec`), and `--trace N`,
+the state each microinstruction of vector N leaves, in the format the
+bench prints with `+trace=N` (the first differing line is the first wrong
+microinstruction); `fpu_ucode.vh` now also carries the wait modes, the
+tags, Table 8-18 (`FPU_RTIME_TABLE`, from `fields.rtime`), the range
+comparators' limits (`sim.RANGE`) and the conditionals' 512-bit table
+(`sim.predicate`), so the RTL takes nothing from the Python by hand; the
+assembler refuses a holding `wait` with `ctl=end` (sim.py counts END's hold
+from the word's first clock, the RTL from its last; the microcode has
+none), `test_asm` 55. The images the RTL reads are
+`rtl/fpu/ucode/` (committed); `sim/fpu/run.sh` reassembles and fails if
+they are stale.
+
+**Result: the first full run passed - all 19,484 vectors bit for bit, every
+one at the simulator's clocks** (13 minutes under Icarus, 8.9 million FPU
+clocks), and the trace of a 285-microinstruction transcendental identical
+to `rtlvec.py --trace`'s line for line. A first-time pass proves little
+until the bench is seen to fail, so six one-line mutants of the APU were
+run on two slices (400 `rounding`, 60 `transcend`): a clock short at END
+(446 clock mismatches), SUB without its carry-in (43 fail), the shifter's
+sticky dropped (76), the Booth digit without QX (35), DFLAG never latched
+(64) - all caught - and **round-to-nearest with ties away from zero
+instead of to even, which passed**. Over whole groups it failed only 4
+vectors of 13,552: random operands almost never make an exact halfway case.
+
+**So the vectors gained a `ties` group** (`vectors.py`, 8.7.4; appended
+last, so every earlier vector is byte-identical): 352 exact halfway cases
+in all four modes - a register rounded to single and double, half an ulp
+added and subtracted at extended, single and double, FINT of n + 1/2, an
+integer in rounded to single, stores of n + 1/2 to B/W/L and of halfway
+mantissas to S/D. The model's suite passes (19,836 vectors), the microcode
+passes all 352 on the simulator at the tables' clocks (`fpu_ucode/run.sh`
+clean: 19,836, 16,948 timed, no checkpoint gap over 125), the ties-away
+mutant now fails 50 of them, and **the RTL passes all 19,836 vectors bit
+for bit at the simulator's clocks** (`sim/fpu/run.sh`, 13 minutes). **7a
+is done; next 7b, the CU and the BIU.**
 
 ---
 

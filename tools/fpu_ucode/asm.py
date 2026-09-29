@@ -800,6 +800,12 @@ def check(prog, rom):
                 errors.append('%s: continues to $%03X, where there is no microinstruction' % (u.loc, a))
             elif rom[a].table_of is not None and u.seq in ('NEXT', 'WAIT', 'BRT', 'BRF', 'CALL') and a == u.addr + 1:
                 errors.append('%s: falls through into table %s' % (u.loc, rom[a].table_of.name))
+    # A holding wait and END in one word: END's hold counts from the word's
+    # first clock (sim.py) and the RTL's from its last - refused, not defined.
+    for u in rom:
+        if (u is not None and u.seq == 'WAIT' and u.cond != FD.WAITMODE['ADD']
+                and u.nano.get('ctl') == 'END'):
+            errors.append('%s: a holding wait and ctl=end in one word' % u.loc)
     succ, callers, ret_to = cfg(prog, rom)
     for u in rom:
         if u is not None and u.seq == 'RET' and not ret_to.get(u.addr):
@@ -1062,6 +1068,22 @@ def _addr_defines(r):
     out = ['', '// Exported microcode addresses.']
     for label, _ in r.prog.exports:
         out.append('`define UADDR_%s 12\'h%03X' % (label.upper().replace('.', '_'), r.prog.labels[label][1].addr))
+    # The BIU's conditional predicate (8.6.9), sim.predicate's table: bit
+    # FPCC x 32 + predicate[4:0].  Logic, not a ROM: it is 512 bits.
+    import sim
+    cc = 0
+    for c in range(16):
+        for p in range(32):
+            if sim.predicate(p, c):
+                cc |= 1 << (c * 32 + p)
+    out += ['', '// The conditionals\' truth table (sim.predicate): bit FPCC x 32 + predicate[4:0].',
+            '`define FPU_CC_TABLE 512\'h%0128X' % cc]
+    # TINY and HUGE's limits by RPREC (sim.RANGE): the biased exponents a
+    # normalized result may have.
+    out += ['', '// The range comparators\' limits by RPREC (sim.RANGE).']
+    for rp, (lo, hi) in sorted(sim.RANGE.items()):
+        out.append('`define FPU_RANGE_LO_%d 18\'d%d' % (rp, lo))
+        out.append('`define FPU_RANGE_HI_%d 18\'d%d' % (rp, hi))
     return '\n'.join(out) + '\n'
 
 

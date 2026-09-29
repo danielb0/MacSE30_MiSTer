@@ -1,0 +1,4 @@
+# asm.py writes these beside the images; the RTL reads only the images and
+# fpu_ucode.vh (tools/fpu_ucode/out has the listing).
+*.lst
+*.json

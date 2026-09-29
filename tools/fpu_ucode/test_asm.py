@@ -203,6 +203,8 @@ expect_error('two literals in one word', HEAD + "d=T1 b=T0<<3 alu=passb lc=5\n",
 expect_error('two FP registers in one word', HEAD + "d=FP[dst] b=FP[src] alu=passb\n", ['fpsel'])
 expect_error('an unknown constant', HEAD + "d=T1 b=K[tau] alu=passb\n", ['tau'])
 expect_error('wait 0', HEAD + "alu=nop | wait 0\n", ['wait'])
+expect_error('a holding wait with END', HEAD + "x: ctl=end | wait 3\nalu=nop | goto x\n.export x\n",
+             ['holding wait'])
 expect_error('an unknown condition', HEAD + "x: alu=nop | if MAYBE goto x\n", ['MAYBE'])
 expect_error('falling off the end', HEAD + "x: alu=nop\n.export x\n", ['no microinstruction'])
 expect_error('a checkpoint with T11 live', HEAD + """

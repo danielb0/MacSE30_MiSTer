@@ -361,5 +361,18 @@ def verilog_header():
     for i, n in enumerate(DISPATCH.names):
         out.append('`define DISP_%s 6\'d%d' % (n, i))
     out.append('')
+    for enum, p in ((WAITMODE, 'WAIT'), (TAG, 'TAG'), (RROW, 'RROW'), (PREC, 'PREC')):
+        for i, n in enumerate(enum.names):
+            out.append('`define %s_%s %d' % (p, n, i))
+    out.append('')
+    # Table 8-18 as rtime() gives it, 6 bits an entry: index rprec x 16 +
+    # (RND is RM or RP) x 8 + RROW.
+    t = 0
+    for rp in range(4):
+        for m in range(2):
+            for row in range(8):
+                t |= rtime(row, rp, 2 if m else 0) << (6 * (rp * 16 + m * 8 + row))
+    out.append('`define FPU_RTIME_TABLE 384\'h%096X' % t)
+    out.append('')
     out.append('`define KWORD_W %d' % KWORD_BITS)
     return '\n'.join(out) + '\n'
