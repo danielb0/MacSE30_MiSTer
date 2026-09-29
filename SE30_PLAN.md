@@ -9258,7 +9258,7 @@ image) is the architecture to mirror:
   widths and registers; the microinstruction and nanoinstruction formats and
   the sequencer; the CU; the BIU and its dialog state machines; the frames;
   the timing budgets per instruction; the area estimate against 8.3's.
-- **6b** the microcode assembler (Python): source to the µROM/nROM images.
+- **6b** (built 2026-09-29: 8.8.18, `tools/fpu_ucode/`) the microcode assembler (Python): source to the µROM/nROM images.
 - **6c** an architectural simulator (Python) running the microcode on a
   bit-exact model of the datapath, checked against the reference model on
   all of 8.7.4's vectors and against Table 8-3's clocks.
@@ -9756,6 +9756,70 @@ about **26,600 ALMs (63%) and 252 blocks (46%)**, well under the ~38,000
 ceiling of 8.3; the donor's 9,364 ALMs would have been three times this.
 The first synthesis of the RTL (item 8) replaces the estimate, and checks
 that every array here infers to M10K.
+
+### 8.8.18 6b as built: the microcode assembler (2026-09-29)
+
+`tools/fpu_ucode/`, Python, standard library only (it imports the reference
+model from `tools/fpu_model/`); `run.sh` runs it all in a few seconds.
+
+| file | what it is |
+|---|---|
+| `fields.py` | **the one definition of the formats**: every microword and nanoword field, its width, its values; the condition and dispatch-key lists; the constant ROM word; the entry-table index; and `verilog_header()`, which writes the same positions as `` `define``s for the RTL (item 7) - so the assembler, the simulator (6c) and the RTL cannot disagree |
+| `consts.py` | **the constant ROM, built from the model's own tables**: FMOVECR's 64 rows by offset (`rom64` images and directions, 8.6.14 items 7 and 19), the atan, ln(1 + 2^-i) and ln(1 - 2^-i) tables and the CORDIC gains (34 words each), and 26 named constants (pi to 67 bits, ln 2, the format limits ...) |
+| `asm.py` | the assembler: source to the µROM, nROM, entry and constant images (`$readmemh` hex), a listing, a symbol file and `fpu_ucode.vh`, with the checks below |
+| `disasm.py` | images back to source; the listing uses it, and 6c's traces will |
+| `test_asm.py` | 40 checks; `tests/sample.uc` is a program using every construct |
+
+**The source** is one microinstruction a line, register-transfer clauses
+then the sequencing: `d=T9 a=T7 b=T8>>>LC+SC alu=subadd dir=dflag | unless LCZ
+goto cordic`. Directives give dispatch tables (`.table NAME KEY`, entries by
+key with wildcards and a default), the entry table (`.entry reg,S,X $22
+fadd`, `.entry cr`, `.entry out.X`, `.entry default`; `.redundant model`
+fills 8.6.14 item 6's opmodes from the model's own `REDUNDANT` map),
+`.org`, `.align`, `.export` (an address the RTL needs, into
+`fpu_ucode.vh`) and `.include`. The code is laid out from 0 in source order,
+the tables above it, aligned to their size, largest first. Nanowords are
+deduplicated (the sample's 84 microinstructions use 39).
+
+**The checks**, each shown failing on a source made to break it: capacity
+(µROM, nROM, temporaries, constant names); every target defined; dispatch
+tables complete and aligned, and dispatched by their own key; no
+fall-through off the code or into a table; **the µPC stack** - no recursion,
+calls at most four deep; **the checkpoints** - only T0-T10 live after one,
+Q, MD and MD3 dead, by liveness over the whole program with calls and
+returns (context-insensitive, so it can only over-report); the entry table
+filled; and, per word, **one FP register a clock** (the port's one address,
+8.8.9 - `d=FP[dst] b=FP[src]` is refused) and **one literal a word** (the
+shift amount, the LC load and the EXC bits share it). Also checked: the
+constant ROM against the model bit for bit - every table word, shifted into
+place by i - s, equals `transcend.rom_fixed` for all i < 34 and s <= i - and
+the sample's disassembly reassembles to the same words field for field.
+
+**Refinements to 8.8.10-8.8.11 that writing it forced:**
+- **Every field's code 0 is "nothing"** - a zero operand, `alu=nop` (no
+  operation and *no flag change*), nothing written - so the all-zero
+  nanoword is the NOP and an unmentioned field is inert. Any other
+  operation sets the flags; a compare is one with no destination; a
+  destination with no operation is refused.
+- **The shift amount** adds two sources, **LC+SC and LC-SC**: CORDIC's
+  shifts are i + s and i - s (8.7.3's scaled form), and the ROM tables'
+  placement is i - s.
+- **The ROM tables are two's complement, floor(v x 2^(64+i))**, so an
+  arithmetic right shift by i - s gives the model's truncation toward minus
+  infinity exactly, negative entries (ln(1 - 2^-i)) included.
+- **A latched direction flag** (DFLAG, set by `dl=1` from a result's N):
+  CORDIC's three words an iteration all need the direction the *third*
+  word of the previous iteration computed, which the previous-result flags
+  no longer hold by the second.
+- **Two B sources, CMD and ZERO**, and **LZC also copies the amount into
+  SC**, so the exponent is adjusted by it on the next clock.
+- The nanoword is **57 bits** (8.8.11 estimated about 72); the nROM is
+  1,024 x 57.
+
+**Not done here:** path clocks. Paths through the microcode depend on the
+data (the tags, the loops, the round outcome), so 6c's simulator measures
+each vector's clocks against the tables instead of the assembler counting
+them statically.
 
 ---
 

@@ -1,0 +1,881 @@
+"""The 68882 microcode assembler: plan 8.8.18, work 6b.
+
+Source to the four ROM images of plan 8.8.11 - the µROM (2,048 x 48), the
+nROM (1,024 nanowords), the entry table (1,024 x 11) and the constant ROM
+(consts.py) - with a listing, a symbol file and a Verilog header, and the
+checks that make the images safe to run:
+  - capacity (µROM, nROM, constant names and addresses, temporaries);
+  - every target defined, every dispatch table aligned and complete,
+    no fall-through off the end of the code;
+  - the µPC stack: no recursion, calls nested at most four deep;
+  - checkpoints (8.8.12): only T0-T10 live after one, Q, MD and MD3 dead,
+    by liveness over the whole program (context-insensitive, so it can
+    only err towards reporting too much);
+  - the entry table: every index filled.
+
+THE SOURCE.  One microinstruction a line; `;` starts a comment.
+
+    label:  d=T3 a=T1 b=T2>>SC alu=sub stk=shift | if N goto neg
+
+Datapath clauses (any order; what is not said is the nanoword's default -
+nothing selected, nothing written, flags held):
+    a=Tn | FP[sel] | CU | 0
+    b=Tn | K[name] | K[name+n] | K[name+LC] | FP[sel] | OPINT | OPRAW | CU
+      | BOOTH | RINC | RMASK | SQT | Q | SC | LC | CMD | 0
+      with an optional shift: <<amt (left), >>amt (logical), >>>amt
+      (arithmetic); amt = a number, SC, LC, LZC, LC+SC or LC-SC
+    d=Tn | FP[sel] | MD | MD3 | OBUFH | OBUFL | OBUFX | EXOP | SC | -
+    alu= mode= dir= cin= osh= q= sign= stk= dl= rnd= fpsr= ctl=  (fields.py's names,
+      any case)
+    lc=hold|dec|alu|<number>     exc=OPERR,DZ,...  (ORed into lit)    lit=<number>
+    sel = src | dst | movem | ra
+Sequencing, after `|` (default: next):
+    next | goto L | call L | ret | if C goto L | unless C goto L
+    | dispatch KEY L | wait N
+Directives:
+    .include "file"          .org N           .align N        .export label
+    .table NAME KEY          (entries until .end: `SRC DST label` for TAGPAIR,
+                              `VALUE label` otherwise, `*` a wildcard,
+                              `default label`)
+    .entry KINDS OPMODE label    KINDS: reg, L S X P W D B, `*`, comma lists
+    .entry cr label          .entry out.F label      .entry default label
+    .redundant model         (the redundant opmodes as the model decodes
+                              them, 8.6.14 item 6)
+Numbers: decimal, $hex or 0xhex.
+"""
+
+import json
+import os
+import re
+import sys
+from collections import OrderedDict, defaultdict
+
+import fields as FD
+import consts
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'fpu_model'))
+
+
+class AsmError(Exception):
+    pass
+
+
+def num(s):
+    s = s.strip()
+    if s.startswith('$'):
+        return int(s[1:], 16)
+    return int(s, 0)
+
+
+class Loc:
+    def __init__(self, path, line, text):
+        self.path, self.line, self.text = path, line, text
+
+    def __str__(self):
+        return '%s:%d' % (os.path.basename(self.path), self.line)
+
+
+class UInstr:
+    def __init__(self, loc):
+        self.loc = loc
+        self.nano = OrderedDict()           # field -> enum name or int
+        self.ra = self.rb = self.rd = 0
+        self.seq = 'NEXT'
+        self.cond = 0                       # int (COND or DISPATCH code)
+        self.target = None                  # label, int, or None
+        self.addr = None
+        self.table_of = None                # set for a table's jump words
+
+    def setn(self, field, value, what):
+        old = self.nano.get(field)
+        if old is not None and old != value:
+            raise AsmError('%s: %s: %s wants %s=%s, already %s' % (self.loc, what, field, field, value, old))
+        self.nano[field] = value
+
+
+class Table:
+    def __init__(self, name, key, loc):
+        self.name, self.key, self.loc = name, key, loc
+        self.bits = FD.DISPATCH_BITS[key]
+        self.entries = {}
+        self.default = None
+        self.addr = None
+
+
+class Program:
+    def __init__(self):
+        self.code = []                      # UInstr in source order (with .org/.align markers)
+        self.layout_ops = []                # ('instr', UInstr) | ('org', n) | ('align', n)
+        self.labels = {}                    # name -> ('code', UInstr) | ('table', Table) | ('pending',)
+        self.pending_labels = []
+        self.tables = OrderedDict()
+        self.entries = {}                   # index -> (label, loc)
+        self.entry_default = None
+        self.redundant = False
+        self.exports = []
+        self.warnings = []
+
+
+# -- parsing ------------------------------------------------------------------------
+
+FP_SEL = {'src': 'SRC', 'dst': 'DST', 'movem': 'MOVEM', 'ra': 'RA'}
+SHIFT_RE = re.compile(r'^(.*?)(<<|>>>|>>)(.+)$')
+AMOUNTS = {'SC': 'SC', 'LC': 'LC', 'LZC': 'LZC', 'LC+SC': 'LCPSC', 'LC-SC': 'LCMSC'}
+PLAIN_B = {'OPINT', 'OPRAW', 'CU', 'BOOTH', 'RINC', 'RMASK', 'SQT', 'Q', 'SC', 'LC', 'CMD'}
+DST_NAMED = {'MD', 'MD3', 'OBUFH', 'OBUFL', 'OBUFX', 'EXOP', 'SC'}
+ENUM_CLAUSES = {'alu': ('alu', FD.ALU), 'mode': ('emode', FD.EMODE), 'dir': ('dir', FD.DIR),
+                'osh': ('osh', FD.OSH), 'q': ('qop', FD.QOP), 'sign': ('sgn', FD.SGN),
+                'stk': ('stk', FD.STK), 'rnd': ('rnd', FD.RNDM), 'fpsr': ('fpsr', FD.FPSR),
+                'ctl': ('ctl', FD.CTL)}
+
+
+def _temp(s, loc):
+    m = re.match(r'^T(\d+)$', s, re.I)
+    if not m:
+        return None
+    n = int(m.group(1))
+    if n >= FD.TEMPS:
+        raise AsmError('%s: T%d: there are %d temporaries' % (loc, n, FD.TEMPS))
+    return n
+
+
+def _fp(u, s, loc, what):
+    m = re.match(r'^FP\[(\w+)\]$', s, re.I)
+    if not m:
+        return False
+    sel = FP_SEL.get(m.group(1).lower())
+    if sel is None:
+        raise AsmError('%s: %s: FP[%s]: the selector is src, dst, movem or ra' % (loc, what, m.group(1)))
+    u.setn('fpsel', sel, what)
+    return True
+
+
+def _lit(u, value, what):
+    if not 0 <= value <= 0xFF:
+        raise AsmError('%s: %s: literal %d does not fit 8 bits' % (u.loc, what, value))
+    u.setn('lit', value, what)
+
+
+def parse_a(u, v):
+    t = _temp(v, u.loc)
+    if t is not None:
+        u.setn('asrc', 'T', 'a'); u.ra = t
+    elif _fp(u, v, u.loc, 'a'):
+        u.setn('asrc', 'FP', 'a')
+    elif v.upper() == 'CU':
+        u.setn('asrc', 'CU', 'a')
+    elif v == '0':
+        u.setn('asrc', 'ZERO', 'a')
+    else:
+        raise AsmError('%s: a=%s: not an A source' % (u.loc, v))
+
+
+def parse_b(u, v, knames):
+    m = SHIFT_RE.match(v)
+    if m:
+        base, op, amt = m.group(1), m.group(2), m.group(3)
+        u.setn('shk', {'<<': 'LSL', '>>': 'LSR', '>>>': 'ASR'}[op], 'b')
+        a = AMOUNTS.get(amt.upper())
+        if a is not None:
+            u.setn('sha', a, 'b')
+        else:
+            try:
+                n = num(amt)
+            except ValueError:
+                raise AsmError('%s: b=%s: shift amount %r' % (u.loc, v, amt))
+            if not 0 <= n <= 127:
+                raise AsmError('%s: b=%s: shift amount %d outside 0-127' % (u.loc, v, n))
+            u.setn('sha', 'LIT', 'b')
+            _lit(u, n, 'b')
+    else:
+        base = v
+    t = _temp(base, u.loc)
+    if t is not None:
+        u.setn('bsrc', 'T', 'b'); u.rb = t
+        return
+    if _fp(u, base, u.loc, 'b'):
+        u.setn('bsrc', 'FP', 'b')
+        return
+    km = re.match(r'^K\[([\w$]+)(?:\+([\w$]+))?\]$', base, re.I)
+    if km:
+        name, off = km.group(1).lower(), km.group(2)
+        if name[0] == '$' or name[0].isdigit():
+            addr = num(name)
+        elif name in knames:
+            addr = knames[name]
+        else:
+            raise AsmError('%s: K[%s]: no such constant (consts.py)' % (u.loc, name))
+        if off is not None and off.upper() == 'LC':
+            u.setn('bsrc', 'KLC', 'b')
+        else:
+            u.setn('bsrc', 'K', 'b')
+            addr += num(off) if off is not None else 0
+        if not 0 <= addr < FD.KROM_WORDS:
+            raise AsmError('%s: K[%s]: address $%X outside the ROM' % (u.loc, base, addr))
+        u.rb = addr
+        return
+    if base.upper() in PLAIN_B:
+        u.setn('bsrc', base.upper(), 'b')
+        return
+    if base == '0':
+        u.setn('bsrc', 'ZERO', 'b')
+        return
+    raise AsmError('%s: b=%s: not a B source' % (u.loc, v))
+
+
+def parse_d(u, v):
+    t = _temp(v, u.loc)
+    if t is not None:
+        u.setn('dst', 'T', 'd'); u.rd = t
+    elif _fp(u, v, u.loc, 'd'):
+        u.setn('dst', 'FP', 'd')
+    elif v.upper() in DST_NAMED:
+        u.setn('dst', v.upper(), 'd')
+    elif v == '-':
+        u.setn('dst', 'NONE', 'd')
+    else:
+        raise AsmError('%s: d=%s: not a destination' % (u.loc, v))
+
+
+def parse_clause(u, c, knames):
+    if '=' not in c:
+        raise AsmError('%s: %r: expected name=value' % (u.loc, c))
+    k, v = c.split('=', 1)
+    k = k.lower()
+    if k == 'a':
+        parse_a(u, v)
+    elif k == 'b':
+        parse_b(u, v, knames)
+    elif k == 'd':
+        parse_d(u, v)
+    elif k in ENUM_CLAUSES:
+        field, enum = ENUM_CLAUSES[k]
+        if v.upper() not in enum:
+            raise AsmError('%s: %s=%s: one of %s' % (u.loc, k, v, ', '.join(n.lower() for n in enum.names)))
+        u.setn(field, v.upper(), k)
+    elif k in ('cin', 'dl'):
+        if v not in ('0', '1'):
+            raise AsmError('%s: %s=%s: 0 or 1' % (u.loc, k, v))
+        u.setn(k, int(v), k)
+    elif k == 'lc':
+        if v.upper() in ('HOLD', 'DEC', 'ALU'):
+            u.setn('lcop', v.upper(), 'lc')
+        else:
+            u.setn('lcop', 'LIT', 'lc')
+            _lit(u, num(v), 'lc')
+    elif k == 'exc':
+        bits = 0
+        for n in v.upper().split(','):
+            if n not in FD.EXC_BITS:
+                raise AsmError('%s: exc=%s: %s is not an EXC bit' % (u.loc, v, n))
+            bits |= 1 << FD.EXC_BITS[n]
+        _lit(u, bits, 'exc')
+    elif k == 'lit':
+        _lit(u, num(v), 'lit')
+    elif k == 'fp':
+        sel = FP_SEL.get(v.lower())
+        if sel is None:
+            raise AsmError('%s: fp=%s: src, dst, movem or ra' % (u.loc, v))
+        u.setn('fpsel', sel, 'fp')
+    else:
+        raise AsmError('%s: unknown clause %r' % (u.loc, c))
+
+
+SEQ_WORDS = {'next', 'goto', 'call', 'ret', 'if', 'unless', 'dispatch', 'wait'}
+
+
+def _target(s):
+    return num(s) if s[0] == '$' or s[0].isdigit() else s
+
+
+def parse_seq(u, s):
+    w = [x for x in s.split()]
+    if not w:
+        return
+    op = w[0].lower()
+    if op == 'next' and len(w) == 1:
+        u.seq = 'NEXT'
+    elif op == 'goto' and len(w) == 2:
+        u.seq, u.target = 'JUMP', _target(w[1])
+    elif op == 'call' and len(w) == 2:
+        u.seq, u.target = 'CALL', _target(w[1])
+    elif op == 'ret' and len(w) == 1:
+        u.seq = 'RET'
+    elif op in ('if', 'unless') and len(w) == 4 and w[2].lower() == 'goto':
+        c = w[1].upper()
+        if c not in FD.COND:
+            raise AsmError('%s: condition %s: not in fields.COND' % (u.loc, w[1]))
+        u.seq = 'BRT' if op == 'if' else 'BRF'
+        u.cond, u.target = FD.COND[c], _target(w[3])
+    elif op == 'dispatch' and len(w) == 3:
+        k = w[1].upper()
+        if k not in FD.DISPATCH:
+            raise AsmError('%s: dispatch key %s: one of %s' % (u.loc, w[1], ', '.join(FD.DISPATCH.names)))
+        u.seq, u.cond, u.target = 'DISP', FD.DISPATCH[k], _target(w[2])
+    elif op == 'wait' and len(w) == 2:
+        n = num(w[1])
+        if not 1 <= n < 1 << 11:
+            raise AsmError('%s: wait %d: 1 to 2047 clocks' % (u.loc, n))
+        u.seq, u.target = 'WAIT', n
+    else:
+        raise AsmError('%s: sequencing %r' % (u.loc, s))
+
+
+def _key_values(key, s, loc):
+    """The codes a table entry's key text covers."""
+    if key == 'TAGPAIR':
+        parts = s.split()
+        if len(parts) != 2:
+            raise AsmError('%s: a TAGPAIR entry is SRC DST label' % loc)
+        srcs = range(5) if parts[0] == '*' else [_enum_code(FD.TAG, parts[0], loc)]
+        dsts = range(5) if parts[1] == '*' else [_enum_code(FD.TAG, parts[1], loc)]
+        return [a * 5 + b for a in srcs for b in dsts]
+    enum = FD.KEY_ENUM[key]
+    if s == '*':
+        return list(range(1 << FD.DISPATCH_BITS[key]))
+    return [_enum_code(enum, s, loc)]
+
+
+def _enum_code(enum, s, loc):
+    if s.upper() in enum:
+        return enum[s.upper()]
+    try:
+        return num(s)
+    except ValueError:
+        raise AsmError('%s: %s: one of %s' % (loc, s, ', '.join(enum.names)))
+
+
+ENTRY_KINDS = ['reg'] + [f for f in FD.FMT.names if f != 'PK']
+
+
+def parse_entry(prog, args, loc):
+    w = args.split()
+    def put(idx, label):
+        if idx in prog.entries:
+            raise AsmError('%s: entry $%03X already given at %s' % (loc, idx, prog.entries[idx][1]))
+        prog.entries[idx] = (label, loc)
+    if len(w) == 2 and w[0].lower() == 'default':
+        prog.entry_default = (w[1], loc)
+    elif len(w) == 2 and w[0].lower() == 'cr':
+        put(FD.ENTRY_FMOVECR, w[1])
+    elif len(w) == 2 and w[0].lower().startswith('out.'):
+        f = w[0][4:].upper()
+        if f not in FD.FMT:
+            raise AsmError('%s: out.%s: a format of %s' % (loc, f, ', '.join(FD.FMT.names)))
+        put(FD.entry_store(f), w[1])
+    elif len(w) == 3:
+        kinds = ENTRY_KINDS if w[0] == '*' else w[0].split(',')
+        op = num(w[1])
+        if not 0 <= op < 0x40:
+            raise AsmError('%s: opmode $%X: $00-$3F ($40-$7F are the BIU\'s F-line)' % (loc, op))
+        for k in kinds:
+            kk = 'reg' if k.lower() == 'reg' else k.upper()
+            if kk != 'reg' and (kk not in FD.FMT or kk == 'PK'):
+                raise AsmError('%s: source kind %s: reg or one of L S X P W D B' % (loc, k))
+            put(FD.entry_general(kk, op), w[2])
+    else:
+        raise AsmError('%s: .entry %s' % (loc, args))
+
+
+def parse_file(prog, path, knames, seen=None):
+    seen = seen or set()
+    ap = os.path.abspath(path)
+    if ap in seen:
+        raise AsmError('%s: included twice' % path)
+    seen.add(ap)
+    table = None
+    with open(path, encoding='utf-8') as fh:
+        lines = fh.read().splitlines()
+    for n, raw in enumerate(lines, 1):
+        loc = Loc(path, n, raw)
+        text = raw.split(';', 1)[0].strip()
+        if not text:
+            continue
+        if table is not None:
+            if text.lower() == '.end':
+                table = None
+                continue
+            parts = text.rsplit(None, 1)
+            if len(parts) != 2:
+                raise AsmError('%s: table entry: keys then a label' % loc)
+            keytext, label = parts
+            if keytext.lower() == 'default':
+                table.default = label
+                continue
+            wild = '*' in keytext
+            for code in _key_values(table.key, keytext, loc):
+                if code in table.entries:
+                    if wild:
+                        continue                  # a wildcard fills what is not yet given
+                    raise AsmError('%s: table %s: entry %s given twice'
+                                   % (loc, table.name, _key_name(table.key, code)))
+                table.entries[code] = label
+            continue
+        while True:                                        # labels
+            m = re.match(r'^([A-Za-z_][\w.]*):\s*(.*)$', text)
+            if not m:
+                break
+            name = m.group(1)
+            if name in prog.labels or name in prog.pending_labels:
+                raise AsmError('%s: label %s defined twice' % (loc, name))
+            prog.pending_labels.append(name)
+            text = m.group(2)
+        if not text:
+            continue
+        if text.startswith('.'):
+            parts = text.split(None, 1)
+            d, args = parts[0].lower(), (parts[1] if len(parts) > 1 else '')
+            if d == '.include':
+                inc = args.strip().strip('"')
+                parse_file(prog, os.path.join(os.path.dirname(path), inc), knames, seen)
+            elif d == '.org':
+                prog.layout_ops.append(('org', num(args), loc))
+            elif d == '.align':
+                a = num(args)
+                if a & (a - 1):
+                    raise AsmError('%s: .align %d: a power of two' % (loc, a))
+                prog.layout_ops.append(('align', a, loc))
+            elif d == '.export':
+                prog.exports.append((args.strip(), loc))
+            elif d == '.table':
+                w = args.split()
+                if len(w) != 2 or w[1].upper() not in FD.DISPATCH_BITS:
+                    raise AsmError('%s: .table NAME KEY' % loc)
+                if w[0] in prog.labels or w[0] in prog.tables:
+                    raise AsmError('%s: %s defined twice' % (loc, w[0]))
+                table = Table(w[0], w[1].upper(), loc)
+                prog.tables[w[0]] = table
+                prog.labels[w[0]] = ('table', table)
+            elif d == '.entry':
+                parse_entry(prog, args, loc)
+            elif d == '.redundant':
+                if args.strip().lower() != 'model':
+                    raise AsmError('%s: .redundant model' % loc)
+                prog.redundant = True
+            else:
+                raise AsmError('%s: unknown directive %s' % (loc, d))
+            if prog.pending_labels and d not in ('.org', '.align', '.export', '.entry', '.redundant', '.include'):
+                raise AsmError('%s: a label must name a microinstruction' % loc)
+            continue
+        u = UInstr(loc)
+        if '|' not in text and text.split()[0].lower() in SEQ_WORDS:
+            text = '|' + text                      # a line of sequencing alone
+        body, _, seq = text.partition('|')
+        for c in body.split():
+            parse_clause(u, c, knames)
+        parse_seq(u, seq)
+        if u.nano.get('dst', 'NONE') != 'NONE' and u.nano.get('alu', 'NOP') == 'NOP':
+            raise AsmError('%s: a destination needs an ALU operation (alu=passb for a move)' % loc)
+        for name in prog.pending_labels:
+            prog.labels[name] = ('code', u)
+        prog.pending_labels = []
+        prog.code.append(u)
+        prog.layout_ops.append(('instr', u, loc))
+    if table is not None:
+        raise AsmError('%s: .table %s has no .end' % (table.loc, table.name))
+
+
+# -- layout ----------------------------------------------------------------------------
+
+NOP_JUMP = None
+
+
+def layout(prog):
+    """Addresses: the code from 0 in source order (.org/.align move the
+    counter), then the tables above it, largest first, each aligned to its
+    size.  Returns the µROM as a list of UInstr or None."""
+    if prog.pending_labels:
+        raise AsmError('label(s) %s at the end of the source name nothing' % ', '.join(prog.pending_labels))
+    rom = [None] * FD.UROM_WORDS
+    pc = 0
+    for op in prog.layout_ops:
+        if op[0] == 'org':
+            if op[1] < pc:
+                raise AsmError('%s: .org $%X moves backwards (at $%X)' % (op[2], op[1], pc))
+            pc = op[1]
+        elif op[0] == 'align':
+            pc = (pc + op[1] - 1) & ~(op[1] - 1)
+        else:
+            if pc >= FD.UROM_WORDS:
+                raise AsmError('%s: the µROM is full (%d words)' % (op[2], FD.UROM_WORDS))
+            op[1].addr = pc
+            rom[pc] = op[1]
+            pc += 1
+    code_end = pc
+    for t in sorted(prog.tables.values(), key=lambda t: -t.bits):
+        size = 1 << t.bits
+        a = (pc + size - 1) & ~(size - 1)
+        if a + size > FD.UROM_WORDS:
+            raise AsmError('%s: table %s does not fit the µROM' % (t.loc, t.name))
+        t.addr = a
+        for code in range(size):
+            label = t.entries.get(code, t.default)
+            if label is None:
+                raise AsmError('%s: table %s: entry %s has no target and there is no default'
+                               % (t.loc, t.name, _key_name(t.key, code)))
+            u = UInstr(t.loc)
+            u.seq, u.target, u.addr, u.table_of = 'JUMP', label, a + code, t
+            rom[a + code] = u
+        pc = a + size
+    prog.code_end = code_end
+    prog.rom_end = pc
+    return rom
+
+
+def _key_name(key, code):
+    if key == 'TAGPAIR':
+        return '%s %s' % (FD.TAG.name(code // 5), FD.TAG.name(code % 5)) if code < 25 else str(code)
+    return FD.KEY_ENUM[key].name(code) if FD.KEY_ENUM[key] else str(code)
+
+
+def resolve(prog, rom):
+    """Targets to addresses."""
+    def addr_of(label, u):
+        if isinstance(label, int):
+            return label
+        ent = prog.labels.get(label)
+        if ent is None:
+            raise AsmError('%s: %s is not defined' % (u.loc, label))
+        return ent[1].addr
+    for u in rom:
+        if u is None or u.seq in ('NEXT', 'RET'):
+            continue
+        if u.seq == 'WAIT':
+            continue
+        a = addr_of(u.target, u)
+        if u.seq == 'DISP':
+            key = FD.DISPATCH.name(u.cond)
+            ent = prog.labels.get(u.target, ('code',))
+            if ent[0] == 'table' and ent[1].key != key:
+                raise AsmError('%s: dispatch %s into table %s, which is keyed by %s'
+                               % (u.loc, key, u.target, ent[1].key))
+            if a & ((1 << FD.DISPATCH_BITS[key]) - 1):
+                raise AsmError('%s: dispatch %s: %s ($%X) is not aligned to %d'
+                               % (u.loc, key, u.target, a, 1 << FD.DISPATCH_BITS[key]))
+        u.taddr = a
+
+
+# -- encoding --------------------------------------------------------------------------
+
+def nano_word(u):
+    return FD.NANO.pack(u.nano)
+
+
+def encode(prog, rom):
+    nano_index = OrderedDict()
+    nano_index[0] = 0                        # the NOP: nothing selected, nothing written
+    for u in rom:
+        if u is not None:
+            w = nano_word(u)
+            if w not in nano_index:
+                nano_index[w] = len(nano_index)
+    if len(nano_index) > FD.NROM_WORDS:
+        raise AsmError('the nROM is full: %d distinct nanowords of %d' % (len(nano_index), FD.NROM_WORDS))
+    urom, nrom = [0] * FD.UROM_WORDS, [0] * FD.NROM_WORDS
+    for w, i in nano_index.items():
+        nrom[i] = w
+    for a, u in enumerate(rom):
+        if u is None:
+            continue
+        target = u.target if u.seq == 'WAIT' else getattr(u, 'taddr', 0)
+        urom[a] = FD.MICRO.pack({'nano': nano_index[nano_word(u)], 'ra': u.ra, 'rb': u.rb,
+                                 'rd': u.rd, 'seq': u.seq, 'cond': u.cond, 'target': target})
+    entry = [None] * FD.ENTRY_WORDS
+    for idx, (label, loc) in prog.entries.items():
+        entry[idx] = _label_addr(prog, label, loc)
+    if prog.redundant:
+        import fpu
+        for kind in ENTRY_KINDS:
+            for red, base in fpu.FPU.REDUNDANT.items():
+                i, j = FD.entry_general(kind, red), FD.entry_general(kind, base)
+                if entry[i] is None and entry[j] is not None:
+                    entry[i] = entry[j]
+    missing = [i for i, e in enumerate(entry) if e is None]
+    if missing:
+        if prog.entry_default is None:
+            raise AsmError('the entry table has %d empty indices (first $%03X) and no .entry default'
+                           % (len(missing), missing[0]))
+        d = _label_addr(prog, *prog.entry_default)
+        for i in missing:
+            entry[i] = d
+    return urom, nrom, entry, len(nano_index)
+
+
+def _label_addr(prog, label, loc):
+    ent = prog.labels.get(label)
+    if ent is None:
+        raise AsmError('%s: %s is not defined' % (loc, label))
+    return ent[1].addr
+
+
+# -- the checks ------------------------------------------------------------------------
+
+TRACKED_EXTRA = ('Q', 'MD', 'MD3')
+
+
+def uses_defs(u):
+    n = u.nano
+    use, dfn = set(), set()
+    if n.get('asrc') == 'T':
+        use.add('T%d' % u.ra)
+    b = n.get('bsrc')
+    if b == 'T':
+        use.add('T%d' % u.rb)
+    elif b == 'BOOTH':
+        use |= {'MD', 'MD3', 'Q'}
+    elif b in ('Q', 'SQT'):
+        use.add('Q')
+    if n.get('osh') in ('L1Q', 'R3Q'):
+        use.add('Q'); dfn.add('Q')
+    if n.get('qop') in ('LOAD', 'LOADB', 'CLEAR'):
+        dfn.add('Q')
+    d = n.get('dst')
+    if d == 'T':
+        dfn.add('T%d' % u.rd)
+    elif d in ('MD', 'MD3'):
+        dfn.add(d)
+    return use, dfn
+
+
+def cfg(prog, rom):
+    """Successors of every µROM word, with calls to the callee and returns
+    to every call site's successor (context-insensitive)."""
+    succ = {}
+    callers = defaultdict(list)                   # callee address -> call sites
+    for u in rom:
+        if u is not None and u.seq == 'CALL':
+            callers[u.taddr].append(u.addr)
+    # Which subroutine(s) each RET belongs to: the words reachable from the
+    # callee's entry without following a call into its callee.
+    ret_to = defaultdict(set)
+    for entry, sites in callers.items():
+        seen, stack = set(), [entry]
+        while stack:
+            a = stack.pop()
+            if a in seen or rom[a] is None:
+                continue
+            seen.add(a)
+            u = rom[a]
+            if u.seq == 'RET':
+                ret_to[a] |= {s + 1 for s in sites}
+                continue
+            stack.extend(_intra_succ(prog, rom, u))
+    for u in rom:
+        if u is None:
+            continue
+        if u.seq == 'RET':
+            succ[u.addr] = sorted(ret_to.get(u.addr, ()))
+        elif u.seq == 'CALL':
+            succ[u.addr] = [u.taddr]
+        else:
+            succ[u.addr] = _intra_succ(prog, rom, u)
+    return succ, callers, ret_to
+
+
+def _intra_succ(prog, rom, u):
+    s = u.seq
+    if s in ('NEXT', 'WAIT'):
+        return [u.addr + 1]
+    if s == 'JUMP':
+        return [u.taddr]
+    if s in ('BRT', 'BRF'):
+        return [u.taddr, u.addr + 1]
+    if s == 'DISP':
+        return [u.taddr + k for k in range(1 << FD.DISPATCH_BITS[FD.DISPATCH.name(u.cond)])]
+    if s == 'CALL':
+        return [u.addr + 1]                       # after the callee returns
+    return []
+
+
+def check(prog, rom):
+    errors, warnings = [], []
+    # Fall-through into nothing.
+    for u in rom:
+        if u is None:
+            continue
+        for a in _intra_succ(prog, rom, u):
+            if not 0 <= a < FD.UROM_WORDS or rom[a] is None:
+                errors.append('%s: continues to $%03X, where there is no microinstruction' % (u.loc, a))
+            elif rom[a].table_of is not None and u.seq in ('NEXT', 'WAIT', 'BRT', 'BRF', 'CALL') and a == u.addr + 1:
+                errors.append('%s: falls through into table %s' % (u.loc, rom[a].table_of.name))
+    succ, callers, ret_to = cfg(prog, rom)
+    for u in rom:
+        if u is not None and u.seq == 'RET' and not ret_to.get(u.addr):
+            warnings.append('%s: ret reached from no call' % u.loc)
+
+    # The µPC stack: the deepest chain of calls.
+    body = {}
+    for entry in callers:
+        seen, stack, calls = set(), [entry], set()
+        while stack:
+            a = stack.pop()
+            if a in seen or rom[a] is None:
+                continue
+            seen.add(a)
+            u = rom[a]
+            if u.seq == 'CALL':
+                calls.add(u.taddr)
+            if u.seq != 'RET':
+                stack.extend(_intra_succ(prog, rom, u))
+        body[entry] = calls
+    depth = {}
+    def d(e, path):
+        if e in path:
+            raise AsmError('recursion through $%03X (%s): the µPC stack cannot hold it'
+                           % (e, rom[e].loc))
+        if e not in depth:
+            depth[e] = 1 + max((d(c, path | {e}) for c in body.get(e, ())), default=0)
+        return depth[e]
+    worst = max((d(e, frozenset()) for e in callers), default=0)
+    if worst > FD.STACK_DEPTH:
+        errors.append('calls nest %d deep; the µPC stack holds %d' % (worst, FD.STACK_DEPTH))
+
+    # Liveness to a fixed point, then the checkpoints.
+    ud = {u.addr: uses_defs(u) for u in rom if u is not None}
+    live_in = {a: set() for a in ud}
+    changed = True
+    while changed:
+        changed = False
+        for a in sorted(ud, reverse=True):
+            out = set()
+            for s in succ[a]:
+                out |= live_in.get(s, set())
+            use, dfn = ud[a]
+            new = use | (out - dfn)
+            if new != live_in[a]:
+                live_in[a], changed = new, True
+    allowed = {'T%d' % i for i in range(FD.LIVE_AT_CHECKPOINT)}
+    for u in rom:
+        if u is None or u.nano.get('ctl') != 'CHECKPOINT':
+            continue
+        out = set()
+        for s in succ[u.addr]:
+            out |= live_in.get(s, set())
+        bad = sorted(out - allowed, key=lambda r: (len(r), r))
+        if bad:
+            errors.append('%s: checkpoint with %s live (a busy frame holds T0-T%d; Q, MD, MD3 must be dead)'
+                          % (u.loc, ', '.join(bad), FD.LIVE_AT_CHECKPOINT - 1))
+
+    # Reachability, for a warning.
+    roots = {e for e in _entry_roots(prog)}
+    seen, stack = set(), list(roots)
+    while stack:
+        a = stack.pop()
+        if a in seen or a not in succ:
+            continue
+        seen.add(a)
+        stack.extend(succ[a])
+        if rom[a].seq == 'CALL':
+            stack.append(a + 1)
+    for u in rom:
+        if u is not None and u.table_of is None and u.addr not in seen:
+            warnings.append('%s: unreachable' % u.loc)
+    return errors, warnings, worst
+
+
+def _entry_roots(prog):
+    for label, loc in list(prog.entries.values()) + ([prog.entry_default] if prog.entry_default else []):
+        yield _label_addr(prog, label, loc)
+    for label, loc in prog.exports:
+        yield _label_addr(prog, label, loc)
+
+
+# -- output ----------------------------------------------------------------------------
+
+def hexlines(words, bits):
+    w = (bits + 3) // 4
+    return ''.join('%0*X\n' % (w, x) for x in words)
+
+
+class Result:
+    pass
+
+
+def assemble(paths):
+    prog = Program()
+    for p in paths:
+        parse_file(prog, p, consts.NAMES)
+    rom = layout(prog)
+    resolve(prog, rom)
+    for label, loc in prog.exports:
+        if label not in prog.labels:
+            raise AsmError('%s: .export %s: not defined' % (loc, label))
+    urom, nrom, entry, nnano = encode(prog, rom)
+    errors, warnings, depth = check(prog, rom)
+    r = Result()
+    r.prog, r.rom, r.urom, r.nrom, r.entry = prog, rom, urom, nrom, entry
+    r.krom = consts.ROM
+    r.nnano, r.errors, r.warnings, r.depth = nnano, errors, warnings, depth
+    return r
+
+
+def write(r, outdir, stem='ucode'):
+    import disasm
+    os.makedirs(outdir, exist_ok=True)
+    def put(name, text):
+        with open(os.path.join(outdir, name), 'w', newline='\n') as fh:
+            fh.write(text)
+    put(stem + '.urom.hex', hexlines(r.urom, FD.MICRO.width))
+    put(stem + '.nrom.hex', hexlines(r.nrom, FD.NANO.width))
+    put(stem + '.entry.hex', hexlines(r.entry, 11))
+    put(stem + '.krom.hex', hexlines(r.krom, FD.KWORD_BITS))
+    put('fpu_ucode.vh', FD.verilog_header() + _addr_defines(r))
+    sym = {'labels': {n: e[1].addr for n, e in r.prog.labels.items()},
+           'constants': consts.NAMES,
+           'exports': [l for l, _ in r.prog.exports]}
+    put(stem + '.sym.json', json.dumps(sym, indent=1, sort_keys=True) + '\n')
+    lst = ['; %d microinstructions ($000-$%03X code, tables to $%03X), %d nanowords, calls %d deep'
+           % (sum(1 for u in r.rom if u is not None), r.prog.code_end - 1, r.prog.rom_end - 1,
+              r.nnano, r.depth)]
+    byaddr = defaultdict(list)
+    for n, e in r.prog.labels.items():
+        byaddr[e[1].addr].append(n)
+    for a, u in enumerate(r.rom):
+        if u is None:
+            continue
+        for n in sorted(byaddr.get(a, ())):
+            lst.append('%s:' % n)
+        m = FD.MICRO.unpack(r.urom[a])
+        if u.table_of is None:
+            src = u.loc.text.split(';', 1)[0].strip()
+        else:
+            t = u.table_of
+            src = '(table %s: %s)' % (t.name, _key_name(t.key, a - t.addr))
+        lst.append('%03X  %012X  n%03X  %-60s ; %s' % (a, r.urom[a], m['nano'],
+                   disasm.format_word(r.urom[a], r.nrom), src))
+    put(stem + '.lst', '\n'.join(lst) + '\n')
+
+
+def _addr_defines(r):
+    out = ['', '// Exported microcode addresses.']
+    for label, _ in r.prog.exports:
+        out.append('`define UADDR_%s 11\'h%03X' % (label.upper().replace('.', '_'), r.prog.labels[label][1].addr))
+    return '\n'.join(out) + '\n'
+
+
+def main(argv):
+    import argparse
+    ap = argparse.ArgumentParser(description='The 68882 microcode assembler (plan 8.8.18).')
+    ap.add_argument('sources', nargs='+')
+    ap.add_argument('-o', '--out', default='out')
+    ap.add_argument('--stem', default='ucode')
+    a = ap.parse_args(argv)
+    try:
+        r = assemble(a.sources)
+    except AsmError as e:
+        print('error:', e)
+        return 1
+    for w in r.warnings:
+        print('warning:', w)
+    for e in r.errors:
+        print('error:', e)
+    if r.errors:
+        return 1
+    write(r, a.out, a.stem)
+    print('%d microinstructions, %d nanowords, calls %d deep -> %s'
+          % (sum(1 for u in r.rom if u is not None), r.nnano, r.depth, a.out))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
