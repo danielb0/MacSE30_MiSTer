@@ -7599,7 +7599,9 @@ is the manual's (3.x): worst case one unit in the last place of double
 precision, typically about 64 in extended - by the fidelity rule, the spec.
 
 **So we build that**: one 67-bit datapath (adder/subtractor, a 67-bit
-barrel shifter, a multiplier of a few DSP blocks over several cycles), a
+barrel shifter, a multiplier of a few DSP blocks over several cycles -
+*superseded 2026-09-29, 8.8.7: the timing tables show a radix-8
+shift-and-add on the ALU*), a
 microcoded sequencer with **the microcode and the constants in block RAM**
 (we use 39% of it), the CU, the register file, and the state frames as the
 manual gives them. Every instruction is microcode, the transcendentals
@@ -9116,6 +9118,338 @@ an exponent with 2^16383 digits. The scale is now held to +/-2^16 once past
 program can see changes - and the exponentials' overflow shortcut likewise;
 two checks pin it (FSCALE by +/-2^16383: OVFL or UNFL, the catastrophic
 exceptional operand `$0000`). `check_tables.py` is at 117.
+
+## 8.8 The architecture and its microcode (8.4 item 6)
+
+Opened 2026-09-29.
+
+### 8.8.1 The first decision: the conversion unit's overlap
+
+**Daniel (2026-09-29): the 68882 as built - full overlap, staged.** The
+68882 has three units (UM 1.x): the bus interface unit, the conversion
+unit (CU, "special purpose hardware for high-speed conversion of binary
+real memory operands" - BR509) and the arithmetic unit (APU). The CU takes
+the next general instruction and converts its operand while the APU is
+still working on the previous one; only a third instruction makes the MPU
+wait (UM 7.5). Software sees it (8.6.1): an enabled exception from the
+first instruction can be reported *mid-instruction* by the second (frame
+`$9`, the second's PC); FSAVE finds more in-flight states (busy frames);
+the 5.2.2 handler rules exist for it; and Table 8-3's head/tail timing is
+it. Our chip is built with that structure from the start - a CU datapath
+of its own for the binary formats (packed decimal stays the APU's
+microcode, 8.7.2), a two-deep instruction queue, register-conflict checks,
+the mid-instruction report - and **brought up in two steps**: first the
+controller runs one instruction at a time (the MPU still released while
+the FPU computes, as on both chips), then the overlap is enabled, before
+the design is called done. The rejected alternatives: one instruction at a
+time for good (a 68881 in 68882 frames, which Motorola never made), and a
+fully synchronous FPU (the MPU waiting on every instruction, losing even
+the 68881's concurrency).
+
+### 8.8.2 The second decision: the real coprocessor protocol
+
+**Daniel (2026-09-29): the 68030's coprocessor protocol, as real bus
+cycles.** The kernel runs the MPU's side of 030 UM Section 10 (8.6.12):
+it writes the command or condition CIR, reads the response CIR, and acts
+on the primitives - evaluate the effective address and transfer, transfer
+multiple registers, transfer a main-processor register, pass the PC, take
+a pre- or mid-instruction exception, come again (with interrupts) - as
+CPU-space cycles (FC = 7, `$00022000-$0002201F`). GLUE decodes them and
+selects the FPU, which terminates its own cycles (Guide p. 107), with the
+data sheet's DSACK timing (BR509: save and response reads synchronous,
+1.5-2.5 clocks). So MOVES to the CIRs, the bus timing, and "no coprocessor:
+the first access bus-errors, the MPU takes an F-line" (030 UM 10.5) all
+behave as documented. The rejected alternative - the FPU wired into the
+kernel through a private port - would have lost exactly those.
+
+**What the kernel has today** (surveyed 2026-09-29, `TG68KdotC_Kernel.vhd`,
+10,780 lines, 127 micro-states): every F-line opcode except the PMMU's goes
+to vector 11 *at decode*, with no bus cycle (kernel:7534-7623; FSAVE and
+FRESTORE after their privilege check, "No external coprocessor",
+kernel:7590/7610); `fline_is_fpu` is declared and never set; RTE already
+accepts a format `$9` frame (kernel:8838, 8908-8914) but nothing builds
+one. MOVES with SFC/DFC = 7 does make a real CPU-space cycle, which the
+wrapper bus-errors (`tg68k.v`:208-211 - everything in CPU space but
+interrupt acknowledge), and GLUE refuses all of CPU space (glue:150-165).
+The wrapper's comment that its CPU-space bus error "is what makes an F-line
+instruction trap" (tg68k.v:32-35) is wrong - the kernel traps at decode -
+and goes when the protocol arrives. What the protocol can build on: the
+shared EA states, the MOVEM loop (`movem1`/`movem2`, a mask encoder
+clearing a bit per transfer), dynamic bus sizing, and MOVES. **An external
+bus error at FC = 7 does not qualify for the restartable-read path** (only
+FC = 1 data reads do, kernel:4483-4502), so the no-coprocessor F-line must
+be taken on the initiating CIR access by the protocol's own rule, not by
+the generic bus-error frame. The kernel side is about a thousand lines
+(the donor's was ~1,270), specified in 8.8 and built in item 7.
+
+### 8.8.3 The third decision: Table 8-3's clocks
+
+**Daniel (2026-09-29): each instruction takes the manual's documented
+time.** The FPU runs on the C16M clock enable, the SE/30's 15.6672 MHz
+(Guide p. 107: the same clock as the MPU), and every instruction occupies
+the units for the clocks Table 8-3 gives (8.6.13) - head, tail and total -
+padding where the microcode finishes early, so floating-point software runs
+at a real SE/30's speed. The counts are part of the specification; the
+bench measures them. (The datapath fits every budget: FADD about 5 of its
+35 tail clocks, a radix-4 multiply about 34 of FMUL's 55, a nonrestoring
+divide about 67 of FDIV's 87, CORDIC on one adder about 200 of FSIN's
+373.) Where Table 8-3 is a single figure for a data-dependent time (FREM,
+FMOD, the reductions of large arguments), 8.8 derives the rule from the
+68881's detail tables (UM 8.5.2), as 8.6.13 foresaw.
+
+**What "the manual's clocks" can mean** (UM 8.0-8.2, read 2026-09-29).
+The manual calls its times "reasonably accurate execution timing
+guidelines, but not exact timings for every possible circumstance" - worst
+cases measured with a 68020 on the same clock, no wait states, the response
+and save CIRs read in five clocks - and "highly dependent on ... input
+operand values". It splits an instruction into a **start-up phase** (the
+dialog: the command, the PC, the operand), a **conversion phase** (Table
+8-13, by format and data type), a **calculation phase** (Tables 8-14 and
+8-15, by operation and operand types, with footnoted data-dependent parts)
+and a **round/store phase** (by PREC, more for an overflow or underflow).
+So a single number per instruction is not what the chip does. The design:
+the FPU's **internal phases take the detail tables' times** (conversion,
+calculation, round/store, each by the case the tables distinguish); the
+**start-up phase is the dialog itself**, whose length the bus and the
+kernel's protocol produce; head and tail follow from which unit is busy
+when. The check: with the manual's reference conditions the end-to-end
+totals reproduce Table 8-3. The detail tables are the 68881's (UM 8.5.2); the
+68882's summary (Table 8-3) calibrates them where the CU changes the
+picture. The tables are being transcribed from the page images (the OCR
+garbles them) to `Docs\fpu\UM_section8_timing_tables.md`.
+
+### 8.8.4 What the chip is made of (UM Figure 1-9), and the work
+
+**Figure 1-9** (the 68882's simplified block diagram, read from the page
+image) is the architecture to mirror:
+- **APU control**: a clock generator; the **µPC**, a **µPC stack**
+  (microcode subroutines) and a **µPC multiplexer**; the **µPC select PLA**
+  fed by the **instruction decode PLA(s)** and the **instruction decode
+  register**; and two ROMs, **µROM and nROM** - the 68000 family's two-level
+  micro/nanocode, which is what "a two-level microcoded sequencer" (UM 1.2)
+  means; built-in self-test registers (not reachable outside test mode).
+- **APU datapath**: the floating-point data registers (exponent and
+  mantissa halves), the constant ROM, the **barrel shifter**, a second plain
+  **shifter** beside the ALU (the one-bit steps of shift-and-add multiply and
+  divide), temporary registers, the **ALU**, **round logic**, and FPCR,
+  FPSR and FPIAR. (A ⊗ between the barrel shifter and the temporaries is a
+  junction or a multiplier; the figure does not say which, and nothing here
+  depends on it.)
+- **BIU**: CIR select and DSACK control; a box per CIR (control, restore,
+  save, response with its **response PLA** and **status flags**,
+  command/condition, instruction address, register select, operand).
+- **CU**: an **"S, D, X conversion execution unit"** and a **conversion
+  control unit**. So the CU converts single, double and extended only;
+  integers and packed decimal are the APU's - which Table 8-3 shows (FMOVE
+  .S/.D/.X in and out are the fast ones), and UM 1.2 says what it is for:
+  "execute FMOVE instructions concurrently with arithmetic or transcendental
+  operations".
+
+**The work** (item 6, in order):
+- **6a** the architecture, written from UM Sections 1, 5 (the 68882's
+  concurrency, Figures 5-2 and 5-3), 7 (the 68882's own dialogs, Figures
+  7-19, 7-21, 7-28, 7-35) and 8 (interface overhead, the head/tail model,
+  the 68881 detail tables): the units and their interfaces; the datapath's
+  widths and registers; the microinstruction and nanoinstruction formats and
+  the sequencer; the CU; the BIU and its dialog state machines; the frames;
+  the timing budgets per instruction; the area estimate against 8.3's.
+- **6b** the microcode assembler (Python): source to the µROM/nROM images.
+- **6c** an architectural simulator (Python) running the microcode on a
+  bit-exact model of the datapath, checked against the reference model on
+  all of 8.7.4's vectors and against Table 8-3's clocks.
+- **6d** the MPU side of the protocol, specified for the kernel (item 7).
+
+### 8.8.5 The pipeline: what the CU does (UM 5.1.1.2, Tables 5-1 to 5-6)
+
+The BIU hands an instruction that arrives while the APU is busy to the CU,
+which by the instruction's class does one of three things:
+- **Minimum concurrency** (Table 5-1): B, W, L or P operands, FMOVECR,
+  FMOVEM, FMOVE of the control registers, FTST of B/W/L/P, FSINCOS of
+  B/W/L/P. For B, W, L the CU has the BIU fetch the operand, then waits for
+  the APU and hands the instruction over; **a packed operand is not even
+  fetched** until the APU is idle.
+- **Partial concurrency** (Table 5-4): the arithmetic operations (monadic
+  Table 5-2, dyadic Table 5-3, FTST, FSINCOS) with S, D or X sources or a
+  register source: the CU prefetches the operand (the evaluate-and-transfer
+  primitive with **CA = 0**, releasing the MPU as soon as the operand is
+  written), converts S/D to the internal format, **tags its type** (normal,
+  unnormal, denormal, zero, infinity, NaN), and waits to hand off.
+- **Full concurrency** (Table 5-5): FMOVE FPm,FPn (X); FMOVE `<ea>`,FPn (S,
+  D, X); FMOVE FPm,`<ea>` (S, D, X). The CU does these **entirely itself**,
+  writing the register or the memory operand without the APU - except that
+  it waits for, or hands off to, the APU when (a) FPm is the previous
+  instruction's destination, (b) the data is a NaN, unnormal or denormal,
+  (c) PREC is single or double, (d) INEX2 is enabled (stores), (e) the
+  store overflows or underflows, (f) FPn is the previous instruction's
+  destination. Stores use CA = 0 too, releasing the MPU when the operand
+  has been read.
+- **A third instruction** arriving while the APU is busy and the CU busy or
+  waiting gets null CA = 1, IA = 1 until the CU is free - the 68881 waits
+  on the APU, the 68882 on the CU.
+- **Register conflicts** (5.1.2.2) are only: the previous instruction's
+  destination is the next *fully-concurrent* instruction's source or
+  destination.
+- **The conditionals** (Table 5-6: FBcc, FDBcc, FNOP, FScc, FTRAPcc) run
+  only with both units idle and every exception flag clear. With an
+  exception pending in each unit the chip reports them one at a time, the
+  conditional restarted after each handler - "a sequential execution model
+  can be guaranteed".
+- **The floating-point registers are "accessible to both the CU and APU
+  simultaneously"** - a register file with two ports, which is what the
+  FPGA's block RAM is.
+- The effect (Figure 5-3, FMUL, FMUL, FMOVE): three instructions in the
+  time of the first plus the second's computation; the FMOVE hidden
+  entirely.
+
+**The BIU's exception rule** (UM 7.5.4.2, read 2026-09-29): once an
+instruction has made an exception pending, **every** later read of the
+response CIR reports it - as a take pre-instruction exception when the read
+starts an instruction, as a take mid-instruction exception once the
+current instruction has issued its first real response (not the CA = 1
+null a busy CU answers with). The acknowledge written to the control CIR
+does **not** clear it (the 68881's does); only FSAVE, or FRESTORE of a
+null frame, returns the chip to idle. So the response logic is: a pending
+exception overrides whatever the current dialog would answer, from its
+first real response on.
+
+### 8.8.6 The units (a first draft)
+
+**Register file**: FP0-FP7 in one dual-port block RAM (8 x 80 bits: sign,
+15-bit exponent, 64-bit mantissa), port A the APU's, port B the CU's - UM
+5.1.1.2's "accessible to both the CU and APU simultaneously". FPCR, FPSR,
+FPIAR in flip-flops (the BIU reads and writes them for FMOVE of the control
+registers and the frames; the APU updates FPSR at every round/store).
+
+**The APU datapath** (Figure 1-9): 67-bit working registers (the
+temporaries) in flip-flops; one **67-bit ALU** - add, subtract, the logic
+operations masks need, compare - "used for both mantissa and exponent
+calculations" (UM 1.2), so exponents are small integers held in the same
+registers, not a second adder; the **67-bit barrel shifter** (any shift,
+one clock); the **small shifter** at the ALU's output for the shift-and-
+add steps - one bit a clock for divide and square root, three for the
+**radix-8 multiply** (8.8.7); the **round logic** (G, R, S at the PREC or destination boundary,
+the increment decision of Figure 6-3, the overflow/underflow detection of
+8.6.4); the **constant ROM** in block RAM (the 22 FMOVECR constants with
+their direction bits - 8.6.14 item 19 - the powers of ten, the CORDIC and
+logarithm tables of 8.7.3, pi, ln 2 and the rest, about 200 words of 67 bits
+plus exponent); a loop counter for the iterative algorithms. The algorithms
+are 8.7.2's and 8.7.3's, already written in exactly these operations; the
+exact arithmetic of 8.7.1 is the round logic applied to exact shift-and-add
+results.
+
+**The sequencer** (Figure 1-9): a µPC with a small µPC stack (subroutines -
+the rounding tail, the conversions, the CORDIC cores are shared); a **µROM**
+of next-address and nanoword-select words and an **nROM** of wide control
+words, both in block RAM - the two-level scheme that deduplicates the
+control words; an entry-point table (the "µPC select PLA") indexed by the
+opmode, the opclass, the source format and the CU's operand tags;
+conditional branches on the ALU's flags, the loop counter, the tags, FPCR
+bits and the exception state; the checkpoints where an FSAVE may take a busy
+frame (Table 6-5's middle phase).
+
+**The CU** (Figure 1-9: "S, D, X conversion execution unit" and "conversion
+control unit"): unpacks S, D and X into the internal format and tags the
+type; packs S and D out with their own rounding at bit 23 or 52 and their
+overflow/underflow detection (8.8.5's hand-off conditions); does the fully
+concurrent FMOVEs on its own register-file port; holds a converted operand
+for the APU; checks register conflicts against the APU's destination.
+Integers and packed decimal are not the CU's.
+
+**The BIU**: the CIRs of Table 7-2 at CPU space `$22000`, DSACK timing per
+BR509 (the response and save reads synchronous), the response logic (the
+"response PLA": a state machine per dialog of UM 7.5 producing the
+primitives of Table 7-7, the pending-exception override above, protocol
+violation detection per 6.1.12), the operand CIR's assembly of 32-bit
+transfers into operands and frames, the register select CIR for FMOVEM,
+an instruction address per pipeline stage (BIU, CU, APU - the APU's is
+FPIAR), and the save/restore sequencing of the state frames (8.6.11).
+
+### 8.8.7 The timing tables, and what they say the datapath is
+
+**Transcribed 2026-09-29** from the page images to
+`C:\temp\Mac\SE30\Docs\fpu\UM_section8_timing_tables.md` (by an agent;
+all 25 tables of Section 8, every cell checked against the 1st edition, no
+cell unreadable; the three edition differences and four printed oddities
+noted there - Table 8-5's worked example is wrong in the 2nd edition and
+right in the 1st; Table 8-14's operation notes exist only in the 2nd).
+These are the 68881's phase times (UM 8.5.2); the 68882 summary (Table 8-3)
+calibrates them. What they show about the machine:
+- **Divide and square root: one bit a clock.** FDIV's calculation 78+
+  clocks (64 bits and overhead), FSGLDIV 44, FSQRT 76+ - nonrestoring
+  shift-and-subtract on the one ALU.
+- **Multiply: about three bits a clock.** FMUL 46+ against FSGLMUL 34:
+  radix-8 recoding fits both (22 steps for 64 bits, 8 for 24, about 25
+  clocks of fixed work each); radix-4 would need 32 steps and leave 14.
+  **So the multiplier is a radix-8 shift-and-add on the ALU** - Figure
+  1-9's second shifter, three times the multiplicand prepared once - not
+  the DSP blocks 8.3 first assumed; it is the chip's structure, costs no
+  DSP, and fits the budget with margin. (8.3's "a multiplier of a few DSP
+  blocks" is superseded.)
+- **The transcendentals** (Table 8-15): FSIN and FCOS 360+, FTAN 442+,
+  FSINCOS 420+, FATAN 372+, FASIN 550+, FACOS 594+, FETOX 466+, FTWOTOX and
+  FTENTOX 536+, FETOXM1 514+, FLOGN 494+, FLOG2 and FLOG10 550+, FLOGNP1
+  540+, FSINH 656+, FCOSH 576+, FTANH 630+, FATANH 662+ ("+" adds the
+  rounding time, Table 8-18) - room for 8.7.3's 67-iteration cores on one
+  ALU (about 200 clocks of CORDIC) and its compositions. **FSIN, FCOS, FTAN
+  and FSINCOS assume "the source operand is in the range (-9 ... +9)";
+  outside it "the appropriate REM calculation time required to perform the
+  argument reduction must be added"** - the reduction is a remainder, as
+  8.7.3 does it, and its time grows with the argument.
+- **The simple ones**: FMOVE to a register 2+, FABS and FNEG 4+, FADD and
+  FSUB 24+ (the exponents equal and the mantissa smaller), FINT 30 (8 for a
+  zero fraction), FGETMAN 6; the special operand types their own small
+  numbers (Tables 8-14/8-15, NAN1-NAN7 and IOP in Table 8-19).
+- **Conversions**: input by format and type (Table 8-13: extended 8-26,
+  double 14-48, single 16-48, integers 22-38); output S/D 38-80 by the
+  overflow/underflow case (Table 8-17), integers 50-66 (Table 8-16);
+  **packed decimal in 822 typical, 954 at most; out 1,942 typical, 3,674 at
+  most** - 8.7.2's algorithm (up to thirteen multiplies of the powers of
+  ten, a divide, a FINT) fits.
+- **Rounding** (Table 8-18) by PREC, and the exception handling times
+  (Table 8-19), the conditionals (8-7, 8-20), FSAVE/FRESTORE (8-8, 8-22),
+  FMOVEM (8-6, 8-21), the start-up, null and operand-transfer times of the
+  dialog (8-9 to 8-12) and the overlap-allowed times (8-25) complete the
+  set the microcode and the BIU are timed against.
+
+### 8.8.8 The MPU's side (6d): `docs/cp030_mpu_protocol.md`
+
+**Written 2026-09-29** from the MC68030 User's Manual 3ed Section 10 (with
+Section 8's frames and RTE; figures and tables read from the page images)
+and the 68882 manual's Section 7 for the coprocessor's view: 1,170 lines,
+every rule tagged [UM] (the 030 manual states it), [881UM] (only the FPU
+manual), [inferred] or [silent]. It covers the CPU-space addressing and
+the CIR map; decoding the F-line word; the general and conditional
+algorithms, trace-pending, the interrupt points and every control-CIR
+write; each instruction (cpGEN, cpBcc.W/.L, cpScc, cpDBcc, cpTRAPcc, cpSAVE,
+cpRESTORE); all eighteen primitives, the 68882's six marked; the PC bit;
+frames `$0`, `$2`, `$9` and RTE; protocol violations; cpSAVE and cpRESTORE
+in detail; the subset the kernel needs; a primitive-to-bus-traffic table.
+(Drafted by an agent from the manuals; its central rule checked here
+against the text: a bus error on the *initial* CIR access is the F-line, on
+any later coprocessor or memory access an ordinary resumable bus error -
+030 UM 10.5.2.8, verbatim.)
+
+**What the kernel needs** (its section 9): cpGEN, cpBcc, cpScc, cpDBcc,
+cpTRAPcc, cpSAVE, cpRESTORE; the primitives null (every CA/PC/IA/PF/TF
+form), evaluate-EA-and-transfer-data (every class, both directions,
+lengths 1-12, register direct, immediate, the predecrement/postincrement
+rules), transfer single main-processor register, transfer multiple
+coprocessor registers, take pre- and mid-instruction exception; every other
+primitive a protocol violation (what the 68030 does with an undefined code,
+030 UM 10.4 - the 68882 never sends them). Two coprocessor-side facts the
+MPU must respect: reading the response CIR **consumes** a service primitive
+(read it exactly once per step), and after the acknowledge the 68882 keeps
+answering the same take-exception primitive until an FSAVE.
+
+**The manual's silences** (its section 12) are item 7's to settle as the
+kernel is written; the evident defaults: the text over a contradicting
+table (the transfer-multiple EA classes, 10.4.16 over Table 10-6); the
+figures' bit 14 for the PC bit over the text's "Bit [4]"; the vector
+*offset* in the format word (Section 8, and the 68882 manual's Figure 7-14)
+over Section 10's "vector number" labels; for FRESTORE's modes the 68030's
+own rule (it is the MPU's check). A bus error inside a dialog needs a
+resumable fault frame whose internal words are ours (the 030's are "for
+internal use only").
 
 ---
 
