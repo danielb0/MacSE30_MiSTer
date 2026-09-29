@@ -6550,6 +6550,22 @@ The probes say where it stops.
      now counts what it meant: **a byte the ROM's data-register reads took
      twice** (a second MSB byte before the shifter latched another); the
      re-arms are reported, not failed.
+   - **The full gate (2026-09-29, at `93b9a4c`, `./run.sh`): PASS, both
+     runs.** Run 1 (`-DBEHAV_MEM`, every cylinder), 4 h 07 min, 30.4 s of
+     machine time: **31 of 31** - all 1,600 sectors of the 800K DiskCopy
+     image byte for byte, tags and data (speed groups 1-5: 384, 352, 320,
+     288, 256), the address fields as laid, no error code, each side
+     inside two revolutions (1.01), `/STEP` within 6 of the seek's 81
+     polls; the 400K image (58 sectors on side 0, `$BE` six of six on side
+     1) and `Disk605.dsk`'s 84 sectors as before; no byte taken twice or
+     unread, one chip access a SWIM cycle, nothing hung (2,906 re-arms
+     reported, the documented behaviour). Run 2 (the real `se30_sdram` on
+     `sim/sdram`'s chip model, `+groups +no56`), 1 h 55 min, 3.2 s of
+     machine time: **28 of 28** - Open, the load, the recalibrate and a
+     cylinder of each group (100 sectors, 1.09 revolutions a side), the
+     SDRAM model without a datasheet violation, the disk port without a
+     torn, moved or stale-acknowledged request. The logs are `run.log` and
+     `run_sdram.log`. **Rung 2's bench is closed.**
 7. The top, the machine, `PFLP`; elaboration; `sim/machine` unchanged.
    **Done 2026-09-28.** `MacSE30.sv`: an `S0,DSKIMG,Mount Floppy` slot
    (`hps_io` `VDNUM` 1, 512-byte blocks, read only), the loader, the mux
