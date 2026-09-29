@@ -23,6 +23,7 @@ from rounding import (RN, RZ, RM, RP, EXT, SGL, DBL, SGL_MANT, DBL_MANT,
                       PREC_FMT, Fmt, post_process, round_to_quantum,
                       round_integer)
 import constants
+import packed
 from switches import Switches, DEFAULT
 
 # FPSR (plan 8.6.2).
@@ -168,7 +169,12 @@ class FPU:
             return from_double(raw), False
         if fmt == FMT_X:
             return ext_bits96(raw), False
-        raise Unmodelled('packed decimal in (plan 8.7 work 5b)')
+        # Packed: to extended regardless of PREC, by RND (6.1.8), INEX1 if
+        # inexact - the algorithm layer (packed.py).
+        return packed.decode_in(raw, self.rnd, self._pten())
+
+    def _pten(self):
+        return packed.PTEN_FPSP if self.sw.pten_tables == 'fpsp' else packed.PTEN_ROM
 
     # -- decode (8.6.7) ----------------------------------------------------
     REDUNDANT = {0x05: 0x04, 0x07: 0x06, 0x0B: 0x0A, 0x13: 0x12, 0x17: 0x16,
@@ -654,8 +660,13 @@ class FPU:
         rnd = self.rnd
         exc = 0
         if fmt in (FMT_P, FMT_PK):
-            raise Unmodelled('packed decimal out (plan 8.7 work 5b)')
-        if fmt in INT_BITS:
+            # The k-factor: static in the extension, or the low 7 bits of Dn
+            # (bits 6-4 of the extension name it), two's complement.
+            kraw = (dreg if fmt == FMT_PK else ext) & 0x7F
+            k = kraw - 0x80 if kraw & 0x40 else kraw
+            val, exc = self._to_packed(x, k, rnd)
+            xop = None
+        elif fmt in INT_BITS:
             val, exc = self._to_int(x, INT_BITS[fmt], rnd)
             xop = None
         else:
@@ -668,6 +679,22 @@ class FPU:
             xop = x
         return Outcome(vector=vec, when='mid' if vec else None,
                        xop=xop if vec else None, store=val)
+
+    def _to_packed(self, x, k, rnd):
+        """FMOVE.P: (the 96-bit image, EXC).  Zero, infinity and NaN store
+        the register's image with the integer-digit word cleared (FPSP
+        p_move; Table 3-4's forms); the rest is bindec (packed.py)."""
+        if not x.is_finite or x.is_zero:
+            exc = 0
+            if self.sw.packed_out_special == 'manual':
+                if x.is_snan:
+                    x = x.quiet()
+                    exc |= SNAN
+                if k > 17:
+                    exc |= OPERR
+            return x.bits96(), exc
+        bits, inex2, operr = packed.bindec(x, k, rnd, self._pten())
+        return bits, (INEX2 if inex2 else 0) | (OPERR if operr else 0)
 
     def _to_int(self, x, bits, rnd):
         lo, hi = -(1 << (bits - 1)), (1 << (bits - 1)) - 1

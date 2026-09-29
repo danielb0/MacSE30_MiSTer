@@ -14,7 +14,9 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FILES = ['xreal.py', 'rounding.py', 'fpu.py', 'constants.py', 'switches.py',
-         'harness.py', 'check_rounding.py', 'check_tables.py']
+         'packed.py', 'harness.py', 'check_rounding.py', 'check_tables.py',
+         'check_packed.py']
+CHECKS = (('check_rounding.py', ['15']), ('check_tables.py', []), ('check_packed.py', ['1000']))
 
 MUTANTS = [
     # rounding.py - Figure 6-3 and 6.1.4-6.1.5
@@ -80,15 +82,58 @@ MUTANTS = [
     ('fpu.py', "        n = m2 >> -e2 if e2 < 0 else m2 << e2        # chopped toward zero",
      "        n = (m2 + (1 << (-e2 - 1)) >> -e2) if e2 < 0 else m2 << e2",
      'FSCALE rounds the scale instead of chopping'),
+    # packed.py and the packed paths of fpu.py - plan 8.7.2
+    ('packed.py', "    e -= 16\n", "    e -= 15\n", 'decbin: the mantissa read as 16 digits'),
+    ('packed.py', "    if f['SE']:\n        e = -e\n    e -= 16", "    e -= 16", 'decbin: SE ignored'),
+    ('packed.py', "    if f['M16'] == 0 and frac64 == 0:",
+     "    if f['M16'] == 0 and frac64 == 0 and exp12 == 0:", 'a zero needs a zero exponent'),
+    ('packed.py', "        return Ext(f['SM'], EMAX, frac64), False",
+     "        return Ext(f['SM'], EMAX, frac64 & ~(1 << 62)), False", "a packed NaN's bit 62 lost"),
+    ('packed.py', "    return r, inexact\n", "    return r, True\n", 'decbin: INEX1 always'),
+    ('packed.py', "        elif LEN > 17:\n            LEN = 17", "        elif LEN > 17:\n            LEN = 18",
+     'bindec: LEN capped at 18'),
+    ('packed.py', "            if k > 0:\n                operr = True", "            pass",
+     'bindec: no OPERR for k > 17'),
+    ('packed.py', "        if inexact:\n            Y = Ext(Y.s, Y.e, Y.m | 1)", "        pass",
+     'bindec A10: the lost bits not ORed into Y'),
+    ('packed.py', "        frac = ((frac + 0x80) & ~0x7F) & ((1 << 64) - 1)\n    mant_digits",
+     "        frac = frac & ~0x7F\n    mant_digits", 'bindec A14: the fraction truncated at bit 7'),
+    ('packed.py', "    bits |= (e4[1] << 88) | (e4[2] << 84) | (e4[3] << 80) | (e4[0] << 76)",
+     "    bits |= (e4[1] << 88) | (e4[2] << 84) | (e4[3] << 80)", 'bindec: EXP3 not written'),
+    ('packed.py', "    pos = [64] + [60 - 4 * i for i in range(16)]",
+     "    pos = [60 - 4 * i for i in range(17)]", 'bindec: the first digit not in M16'),
+    ('packed.py', "        YINT, ix = xint(Ext(sigma, Y.e, Y.m), rnd)",
+     "        YINT, ix = xint(Ext(0, Y.e, Y.m), rnd)", 'bindec A12: FINT of +Y whatever the sign'),
+    ('packed.py', "        YINT, ix = xint(Ext(sigma, Y.e, Y.m), rnd)",
+     "        YINT, ix = xint(Ext(sigma, Y.e, Y.m), RN)", 'bindec A12: FINT in RN whatever RND'),
+    ('packed.py', "RTABLE = [RN, RN, RN, RN, RM, RP, RM, RP,", "RTABLE = [RN, RN, RN, RN, RP, RM, RP, RM,",
+     "decbin: RZ's power-of-ten directions reversed", "survive: moves the extended result by "
+     "a few units, below the manual's double-precision bound; bit-exactness to FPSP is the "
+     "audit's (plan 8.7.2)"),
+    ('packed.py', "RBDTBL = [RN, RN, RN, RN, RP, RP, RM, RM,", "RBDTBL = [RN, RN, RN, RN, RM, RM, RP, RP,",
+     "bindec: RZ's scale directions reversed"),
+    ('packed.py', "            fp0, _ = xmul(fp0, LOG2UP1, RM)", "            fp0, _ = xmul(fp0, LOG2, RM)",
+     'bindec A3: LOG2 for negative logs too', 'survive: A13 re-derives ILOG; no output '
+     'differed in 20,000 conversions (plan 8.7.2)'),
+    ('fpu.py', "            k = kraw - 0x80 if kraw & 0x40 else kraw", "            k = kraw",
+     'the k-factor not sign-extended'),
+    ('packed.py', "    assert not r.ovfl, 'decimal conversion overflowed extended'",
+     "    assert not (r.ovfl or r.unfl)", "bindec refuses a tiny intermediate (the audit's crash)"),
+    ('packed.py', "        elif denorm:", "        elif False:", 'bindec: the normal A9 order for denormals',
+     "survive: the audit found no input where FPSP's denormal order and the normal one differ "
+     "(68,327 cases); kept literal to FPSP (plan 8.7.2)"),
 ]
 
 
 def main():
     caught = 0
     missed = []
+    known = []
     work = tempfile.mkdtemp(prefix='fpu_mut_')
     try:
-        for fn, a, b, desc in MUTANTS:
+        for mut in MUTANTS:
+            fn, a, b, desc = mut[:4]
+            expect = mut[4] if len(mut) > 4 else None
             d = os.path.join(work, 'm')
             shutil.rmtree(d, ignore_errors=True)
             os.makedirs(d)
@@ -102,12 +147,17 @@ def main():
                 continue
             open(path, 'w', encoding='utf-8').write(text.replace(a, b, 1))
             fails, crashed = 0, False
-            for script, args in (('check_rounding.py', ['15']), ('check_tables.py', [])):
+            for script, args in CHECKS:
                 r = subprocess.run([sys.executable, script] + args, cwd=d,
                                    capture_output=True, text=True)
                 fails += sum(1 for l in r.stdout.splitlines() if l.startswith('FAIL'))
                 if r.returncode != 0 and 'Traceback' in r.stderr:
                     crashed = True
+            if expect:
+                what = 'caught' if (fails or crashed) else 'survived'
+                print('KNOWN  %-55s %s (%s)' % (desc, what, expect), flush=True)
+                known.append(desc)
+                continue
             if fails or crashed:
                 caught += 1
                 print('caught %-55s %s' % (desc, '%d FAIL lines' % fails if fails else '(a crash)'),
@@ -117,8 +167,9 @@ def main():
                 print('MISSED %s' % desc, flush=True)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    print('==== %s: %d of %d mutants caught' % ('PASS' if not missed else 'FAIL',
-                                               caught, len(MUTANTS)), flush=True)
+    print('==== %s: %d of %d mutants caught; %d known survivors, each with its reason'
+          % ('PASS' if not missed else 'FAIL', caught, len(MUTANTS) - len(known), len(known)),
+          flush=True)
     return 1 if missed else 0
 
 

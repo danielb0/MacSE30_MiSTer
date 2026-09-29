@@ -96,5 +96,19 @@ class Switches:
     # 'sign': N is the propagated NaN's sign, as for any NaN result (2-1).
     fcmp_nan_sign: str = 'winuae'
 
+    # Item 23.  The powers of ten the decimal conversions use.  'rom': the
+    # constant ROM's (the FMOVECR images for 10^1 ... 10^4096 with item 19's
+    # directions) - UM 4.3.3, "the on-chip ROM values of powers of 10".
+    # 'fpsp': Motorola's 68040 FPSP tables verbatim (get_op.sa), whose RM
+    # and RP entries for 10^2048 are one unit high.
+    pten_tables: str = 'rom'
+
+    # Item 24.  FMOVE.P of a zero, infinity or NaN.  'manual': 8.6.5 and the
+    # FMOVE page - a signaling NaN sets SNAN and is stored nonsignaling, and
+    # a k-factor above +17 is an operand error for every source.  'fpsp':
+    # FPSP's p_move - the register's image stored as it is, "status bits
+    # are not set", no OPERR for the k-factor.
+    packed_out_special: str = 'manual'
+
 
 DEFAULT = Switches()

@@ -3,8 +3,9 @@
 # (pip install --user mpmath; the model itself needs only the standard
 # library).  PYTHON: the interpreter, default `python`.
 #
-#   ./run.sh          check_tables.py (the manual's tables) and
-#                     check_rounding.py 400 (mpmath, about 15 s) - run.log
+#   ./run.sh          check_tables.py (the manual's tables),
+#                     check_rounding.py 400 (mpmath, about 15 s) and
+#                     check_packed.py 2000 (packed decimal) - run.log
 #   ./run.sh quick    the same with 15 operands a range
 #   ./run.sh mutate   mutate.py: every documented fault must be caught -
 #                     mutate.log
@@ -18,7 +19,7 @@ if [ "${1:-}" = mutate ]; then
   grep -q '^==== PASS' mutate.log
   exit $?
 fi
-N=400
-[ "${1:-}" = quick ] && N=15
-{ "$PY" check_tables.py; "$PY" check_rounding.py "$N"; } | tee run.log
-[ "$(grep -c '^==== PASS' run.log)" = 2 ]
+N=400; NP=2000
+[ "${1:-}" = quick ] && { N=15; NP=150; }
+{ "$PY" check_tables.py; "$PY" check_rounding.py "$N"; "$PY" check_packed.py "$NP"; } | tee run.log
+[ "$(grep -c '^==== PASS' run.log)" = 3 ]
