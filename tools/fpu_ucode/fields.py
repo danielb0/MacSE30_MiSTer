@@ -103,7 +103,9 @@ SEQ = Enum('NEXT', 'JUMP', 'CALL', 'RET', 'BRT', 'BRF', 'DISP', 'WAIT')
 # rounding precision's exponent range is extended's (EXT or SGLX).  TINY and
 # HUGE: the last result word's exponent below the rounding precision's
 # minimum or above its maximum - comparators beside the round logic
-# (Daniel, 2026-09-29), so 8.6.4's range checks cost no clocks.
+# (Daniel, 2026-09-29), so 8.6.4's range checks cost no clocks.  LE: N or Z
+# of the last result, signed <= 0 (the timing pass, 8.8.19: log1ps's u < 0
+# steps test it in one word).
 COND = Enum(
     'TRUE', 'Z', 'N', 'C', 'V', 'STK', 'INEX', 'RCARRY',
     'LCZ', 'Q0', 'DFLAG', 'SCZ', 'KABOVE', 'KBELOW', 'EXCEN', 'PENDING',
@@ -112,7 +114,7 @@ COND = Enum(
     'EN_BSUN', 'EN_SNAN', 'EN_OPERR', 'EN_OVFL', 'EN_UNFL', 'EN_DZ', 'EN_INEX2', 'EN_INEX1',
     'PREC_EXT', 'PREC_SGL', 'PREC_DBL', 'RND_RN', 'RND_RZ', 'RND_RM', 'RND_RP', 'DYNK',
     'SAVEREQ', 'ABORT', 'CUHANDOFF', 'SRCREG', 'SAMEREG',
-    'S', 'RPEXT', 'TINY', 'HUGE', 'LCEQ', 'LCSCEQ', 'RMRM', 'RMRP',
+    'S', 'RPEXT', 'TINY', 'HUGE', 'LCEQ', 'LCSCEQ', 'RMRM', 'RMRP', 'LE',
 )
 
 # Dispatch keys (seq DISP; the `cond` field selects one): the key is ORed

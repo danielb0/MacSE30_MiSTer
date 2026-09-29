@@ -20,7 +20,7 @@ THE SOURCE.  One microinstruction a line; `;` starts a comment.
 Datapath clauses (any order; what is not said is the nanoword's default -
 nothing selected, nothing written, flags held):
     a=Tn | FP[sel] | CU | 0
-    b=Tn | K[name] | K[name+n] | K[name+LC] | FP[sel] | OPINT | OPRAW | CU
+    b=Tn | K[name] | K[name+n] | K[name+LC] | K[name-n+LC] | FP[sel] | OPINT | OPRAW | CU
       | BOOTH | RINC | RMASK | SQT | Q | SC | LC | CMD | 0
       with an optional shift: <<amt (left), >>amt (logical), >>>amt
       (arithmetic); amt = a number, SC, LC, LZC, LC+SC or LC-SC
@@ -202,9 +202,9 @@ def parse_b(u, v, knames):
     if _fp(u, base, u.loc, 'b'):
         u.setn('bsrc', 'FP', 'b')
         return
-    km = re.match(r'^K\[([\w$]+)(?:\+([\w$]+))?\]$', base, re.I)
+    km = re.match(r'^K\[([\w$]+)(?:-(\d+))?(?:\+([\w$]+))?\]$', base, re.I)
     if km:
-        name, off = km.group(1).lower(), km.group(2)
+        name, back, off = km.group(1).lower(), km.group(2), km.group(3)
         if name[0] == '$' or name[0].isdigit():
             addr = num(name)
         elif name in knames:
@@ -212,6 +212,10 @@ def parse_b(u, v, knames):
             u.kname = name
         else:
             raise AsmError('%s: K[%s]: no such constant (consts.py)' % (u.loc, name))
+        if back is not None:                            # a table read one entry behind LC
+            if off is None or off.upper() != 'LC':
+                raise AsmError('%s: K[%s]: name-n only before +LC' % (u.loc, base))
+            addr -= int(back)
         if off is not None and off.upper() == 'LC':
             u.setn('bsrc', 'KLC', 'b')
         else:

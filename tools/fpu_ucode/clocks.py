@@ -24,7 +24,19 @@ BUDGET = {0x00: ('FMOVE', 2, True), 0x18: ('FABS', 4, True), 0x1A: ('FNEG', 4, T
           0x27: ('FSGLMUL', 34, False), 0x20: ('FDIV', 78, True), 0x24: ('FSGLDIV', 44, False),
           0x38: ('FCMP', 10, False), 0x3A: ('FTST', 8, False), 0x04: ('FSQRT', 76, True),
           0x01: ('FINT', 30, True), 0x03: ('FINTRZ', 30, True), 0x1E: ('FGETEXP', 20, True),
-          0x1F: ('FGETMAN', 6, False), 0x26: ('FSCALE', 20, True)}
+          0x1F: ('FGETMAN', 6, False), 0x26: ('FSCALE', 20, True),
+          # Table 8-15, the transcendentals: FSIN, FCOS, FTAN and FSINCOS for
+          # sources in (-9 ... +9), past which REM's time is added
+          0x0E: ('FSIN', 360, True), 0x1D: ('FCOS', 360, True), 0x0F: ('FTAN', 442, True),
+          0x30: ('FSINCOS', 420, True), 0x0A: ('FATAN', 372, True), 0x0C: ('FASIN', 550, True),
+          0x1C: ('FACOS', 594, True), 0x10: ('FETOX', 466, True), 0x11: ('FTWOTOX', 536, True),
+          0x12: ('FTENTOX', 536, True), 0x08: ('FETOXM1', 514, True), 0x14: ('FLOGN', 494, True),
+          0x16: ('FLOG2', 550, True), 0x15: ('FLOG10', 550, True), 0x06: ('FLOGNP1', 540, True),
+          0x02: ('FSINH', 656, True), 0x19: ('FCOSH', 576, True), 0x09: ('FTANH', 630, True),
+          0x0D: ('FATANH', 662, True)}
+TRIG = (0x0E, 0x1D, 0x0F, 0x30)
+MONADIC = TRIG + (0x0A, 0x0C, 0x1C, 0x10, 0x11, 0x12, 0x08, 0x14, 0x16, 0x15, 0x06, 0x02,
+                  0x19, 0x09, 0x0D, 0x00, 0x18, 0x1A, 0x3A, 0x04, 0x01, 0x03, 0x1E, 0x1F)
 
 
 def main():
@@ -36,16 +48,21 @@ def main():
         if line[0] == '#':
             continue
         v = vec.parse(line)
-        if v[0] != 'rounding' or v[1] != 'G' or (v[3] >> 6) & 3:
+        if v[0] not in ('rounding', 'transcend') or v[1] != 'G' or (v[3] >> 6) & 3:
             continue
-        if not (normal(v[5]) and normal(v[6])):
+        op = v[2] & 0x7F
+        if (v[2] >> 13) or op & 0x78 == 0x30 and op != 0x30 or op not in BUDGET:
+            continue
+        if not (normal(v[5]) and (op in MONADIC or normal(v[6]))):
+            continue
+        if op in TRIG and v[5].e - 16383 > 3 or op in TRIG and v[5].e - 16383 == 3 and v[5].m >= 9 << 60:
             continue
         try:
             got = vec.execute(chip, v)
         except vec.Unimplemented:
             continue
         if not got[3]:
-            clk[v[2] & 0x7F].append(got[7])
+            clk[op].append(got[7])
     print('%-8s %5s %5s %7s  %s' % ('', 'min', 'max', 'budget', 'over'))
     for op in sorted(clk, key=lambda o: BUDGET.get(o, ('?',))[0]):
         name, calc, rounded = BUDGET.get(op, ('$%02X' % op, 0, False))

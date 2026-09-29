@@ -247,7 +247,7 @@ class Chip:
             'SRCREG': self.opclass == 0, 'SAMEREG': self.rx == self.ry,
             'S': self.S, 'RPEXT': self.RPREC in (0, 3), 'TINY': self.TINY, 'HUGE': self.HUGE,
             'LCEQ': self.LC == self._lit, 'LCSCEQ': self.LC - self.SC == self._lit,
-            'RMRM': self._rmode() == 2, 'RMRP': self._rmode() == 3,
+            'RMRM': self._rmode() == 2, 'RMRP': self._rmode() == 3, 'LE': self.N or self.Z,
         }
         if name.startswith('EN_'):
             return bool(self.fpcr & {'EN_BSUN': BSUN, 'EN_SNAN': SNAN, 'EN_OPERR': OPERR,

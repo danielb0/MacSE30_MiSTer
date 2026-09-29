@@ -10025,6 +10025,58 @@ case against its figure; (3) checkpoints in the long loops (8.8.12: every
 FMOD/FREM's chunks have them) with the liveness check holding. Then item 6
 is done and item 7 (the RTL, written against `sim.py`) begins.
 
+**2026-09-29: the timing pass, step (1) done - every instruction inside
+its table figure.** The four shift-add loops (`log1pf`, `log1ps`,
+`expfrac`, `expm1s`) rewritten; the model's arithmetic unchanged, so all
+19,484 vectors and `unit.py`'s cases still pass bit for bit. What made them
+fast:
+- **No copies**: the loop state (R/U or V, and Y/D or L) lives in two
+  register pairs by turns (T8/T9 and T4/T10 or T4/T6); a taken step writes
+  the other pair and control moves to the other pair's block.
+- **Constants read where they are used**: `P = 2^(64+s-i)` and the table's
+  word come straight from the constant ROM through the shifter in the word
+  that needs them, instead of being staged in registers each i.
+- **A retry needs no reload**: where SC is free (`log1pf`, `expfrac`) a
+  step's last word advances LC, and a taken step retries the same i
+  shifting by LC - SC (SC = 1) and reading the table one entry behind -
+  **the assembler's new `K[name-n+LC]`** (the constant ROM's address is
+  the field plus LC, so this is only a different field value). A step
+  costs 3 clocks in `log1pf` and 2 in `expfrac`, taken or not.
+- **The synthesized terms folded**: `C = floor(-2^(63+s-2i))` is kept as
+  `-C - 1` (it shifts right by two each i and becomes 0 exactly when C is
+  -1), so `P - C` and `-(P + C)` are one word, and none once C is -1 - the
+  carry-in supplies the 1. For `expm1s` with u < 0, R is kept as its one's
+  complement, so `R - (P + 1)` becomes `~R + P + 1`.
+- **One new condition, LE** (N or Z: the last result <= 0): `log1ps`'s
+  u < 0 steps are taken while `U + step <= 0`, which took two words.
+- **Four blocks that fall through in a cycle** (fresh X, retry Y, fresh Y,
+  retry X) cannot all be laid out straight; one edge is a copy of its
+  target's first word jumping to the second, at no cost in clocks.
+
+| instruction | before | now | figure |
+|---|---|---|---|
+| FLOGN | 732 | 456 | 514 |
+| FLOG2, FLOG10 | 762, 769 | 488 | 570 |
+| FLOGNP1 | 778 | 445 | 560 |
+| FATANH | 787 | 540 | 682 |
+| FETOX | 574 | 433 | 486 |
+| FTWOTOX | 448 | 313 | 556 |
+| FTENTOX | 615 | 472 | 556 |
+| FETOXM1 | 586 | 439 | 534 |
+| FSINH | 689 | 549 | 676 |
+| FCOSH | 632 | 509 | 596 |
+| FTANH | 680 | 541 | 650 |
+
+(`clocks.py` now covers the transcendentals: Table 8-13's FPm conversion
+14 + Table 8-15 + extended rounding 6, sources in (-9, +9) for the
+trigonometric four; `profile.py OPMODE` charges an instruction's clocks to
+the microcode's labels, averaged and for the slowest vector.) The one
+figure `clocks.py` still flags, FSGLDIV's 104 against 58, is **the manual's
+own case**: Table 8-14's SGLDIV note gives 44 clocks, 62 with an extended
+overflow and 90 with an extended underflow - 14 + 90 = 104 exactly. So
+step (2) needs the per-case figures, not one per instruction.
+2,409 microinstructions, 278 nanowords.
+
 ---
 
 ## Appendix - where the sources are

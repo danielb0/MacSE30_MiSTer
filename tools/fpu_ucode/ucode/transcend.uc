@@ -176,20 +176,36 @@ ov_n:   d=T11 a=T11 b=K[k65536] bx=m2e mode=exp alu=sub | ret
 
 ; -- expfrac: T14 = e^R for R (T14, Q2.64) in [0, ln 2) (transcend._exp_frac):
 ; Y = 1, and for i = 1 ... 63 the factor 1 + 2^-i while R covers ln(1 + 2^-i)
-; - the table's word for i < 34, 2^(64-i) - 1 after it (the ROM's end) --
-expfrac: d=T15 b=K[fx_one] alu=passb lc=1
-ef_a:   d=T13 a=T14 b=K[lnup+LC]>>>LC alu=sub           ; R - L
-        d=T12 a=T15 b=T15>>>LC alu=add | if N goto ef_an ; Y + Y 2^-i, ready
-        d=T14 a=T13 alu=passa
-        d=T15 a=T12 alu=passa | goto ef_a               ; taken: the same i again
-ef_an:  alu=nop lc=inc lit=33 | unless LCEQ goto ef_a
-ef_b:   d=T13 a=T14 b=K[fx_one]>>>LC alu=sub cin=1       ; R - (2^(64-i) - 1)
-        d=T12 a=T15 b=T15>>>LC alu=add | if N goto ef_bn
-        d=T14 a=T13 alu=passa
-        d=T15 a=T12 alu=passa | goto ef_b
-ef_bn:  alu=nop lc=inc lit=63 | unless LCEQ goto ef_b
-        d=T14 a=T15 alu=passa | ret
-
+; - the table's word for i < 34, 2^(64-i) - 1 after it (the ROM's end).
+; The timing pass (8.8.19), as log1pf: R and Y live in T8/T9 (X) or T4/T10
+; (Y) by turns; a step's second word advances LC, and a taken one tries the
+; same i again shifting by LC - SC (SC = 1), the table read one entry
+; behind LC - two clocks a step, taken or not. --
+expfrac: d=T8 a=T14 alu=passa lc=1                      ; R; i = 1
+        d=SC b=LC alu=passb                             ; SC = 1
+        d=T9 b=K[fx_one] alu=passb | goto efa_fx        ; Y = 1
+; the table's phase, i <= 33
+efa_rx: d=T4 a=T8 b=K[lnup-1+LC]>>>LC-SC alu=sub        ; X current, the same i again
+efa_rx2: d=T10 a=T9 b=T9>>>LC-SC alu=add | unless N goto efa_ry
+efa_fx: d=T4 a=T8 b=K[lnup+LC]>>>LC alu=sub lit=34 | if LCEQ goto efb_fx   ; R - L
+        d=T10 a=T9 b=T9>>>LC alu=add lc=inc | if N goto efa_fx   ; Y + Y 2^-i, ready
+efa_ry: d=T8 a=T4 b=K[lnup-1+LC]>>>LC-SC alu=sub        ; taken: Y current, the same i
+        d=T9 a=T10 b=T10>>>LC-SC alu=add | unless N goto efa_rx
+efa_fy: d=T8 a=T4 b=K[lnup+LC]>>>LC alu=sub lit=34 | if LCEQ goto efb_fy
+        d=T9 a=T10 b=T10>>>LC alu=add lc=inc | if N goto efa_fy
+        d=T4 a=T8 b=K[lnup-1+LC]>>>LC-SC alu=sub | goto efa_rx2   ; taken: retry X
+; synthesized, i = 34 ... 63: R - (2^(64-i) - 1)
+efb_rx: d=T4 a=T8 b=K[fx_one]>>>LC-SC alu=sub cin=1
+efb_rx2: d=T10 a=T9 b=T9>>>LC-SC alu=add | unless N goto efb_ry
+efb_fx: d=T4 a=T8 b=K[fx_one]>>>LC alu=sub cin=1 lit=64 | if LCEQ goto ef_ex
+        d=T10 a=T9 b=T9>>>LC alu=add lc=inc | if N goto efb_fx
+efb_ry: d=T8 a=T4 b=K[fx_one]>>>LC-SC alu=sub cin=1
+        d=T9 a=T10 b=T10>>>LC-SC alu=add | unless N goto efb_rx
+efb_fy: d=T8 a=T4 b=K[fx_one]>>>LC alu=sub cin=1 lit=64 | if LCEQ goto ef_ey
+        d=T9 a=T10 b=T10>>>LC alu=add lc=inc | if N goto efb_fy
+        d=T4 a=T8 b=K[fx_one]>>>LC-SC alu=sub cin=1 | goto efb_rx2
+ef_ex:  d=T14 a=T9 alu=passa | ret
+ef_ey:  d=T14 a=T10 alu=passa | ret
 ; ============================================================================
 ; FETOX (transcend.etox): n = floor(x / ln 2), r = x - n ln 2 (Cody-Waite)
 ; brought into [0, ln 2), e^r by expfrac, times 2^n.  In: T2 = x.  Out: T11.
@@ -296,14 +312,20 @@ x_tentox: alu=nop | call tentox
 ; ============================================================================
 ; expm1s: e^u - 1 for |u| < 1/4, keeping its relative precision
 ; (transcend._expm1_small).  s = -exponent(u) - 1 (SC, 2 or more); R = |u| 2^s
-; in Q2.64 (T8); D (T9) is e^u - 1 scaled by 2^s.  For i = s, s + 1 ... the
-; factor 1 + 2^-i (u > 0) or 1 - 2^-i (u < 0) while R covers its logarithm
-; L: R -= L, D +/-= 2^(64+s-i) + (D >> i) - floor((2^(64+s) + D) 2^-i) while
-; i - s <= 64.  L is the table's word placed by i - s for i <= 33, then
-; 2^(64+s-i) + C (u > 0) or - C (u < 0), C = floor(-2^(63+s-2i)) kept in T10
-; (two places further an i).  u > 0 ends where L is 0 (i = s + 64); u < 0
-; after i = s + 64 (the model's last two steps move nothing and leave R =
-; 0).  Then D +/-= R.  In: T2 = u.  Out: T11.
+; in Q2.64; D is e^u - 1 scaled by 2^s.  For i = s, s + 1 ... the factor
+; 1 + 2^-i (u > 0) or 1 - 2^-i (u < 0) while R covers its logarithm L: R -=
+; L, D +/-= 2^(64+s-i) + (D >> i).  L is the table's word placed by i - s
+; for i <= 33, then 2^(64+s-i) + C (u > 0) or - C (u < 0), C =
+; floor(-2^(63+s-2i)).  u > 0 ends where L is 0 (i = s + 64); u < 0 after i
+; = s + 64 (the model's last two steps move nothing and leave R = 0).  Then
+; D + R (u > 0) or D.  In: T2 = u.  Out: T11.
+; The timing pass (8.8.19), as log1ps: P = 2^(64+s-i) and the table's word
+; are read from the constant ROM where they are used; C is kept as -C - 1
+; (T10), so the synthesized L is one word (T12), and none once C is -1.
+; For u < 0, R is kept as its one's complement -R - 1, so R - (P + 1) is
+; ~R + P + 1 (the carry-in) and a step is taken while ~R stays negative.  R
+; and D live in T8/T9 (X) or T4/T6 (Y) by turns: three clocks a step taken,
+; four (five while C is not -1) an i.
 ; ============================================================================
 
 expm1s: d=SC a=T2 b=K[bm1] mode=exp alu=rsub            ; s = bias - 1 - E
@@ -313,50 +335,89 @@ expm1s: d=SC a=T2 b=K[bm1] mode=exp alu=rsub            ; s = bias - 1 - E
         d=SC a=T2 b=K[bm1] mode=exp alu=rsub            ; s again (tofix used SC)
         d=T10 b=K[fx_negone]>>>SC alu=passb
         d=T10 a=0 b=T10>>>1 alu=passb                   ; C = floor(-2^(63-s))
+        d=T10 a=T10 b=K[ulp] alu=add
+        d=T10 a=0 b=T10 alu=sub                         ; -C - 1
         d=T9 b=0 alu=passb                              ; D = 0
         a=T2 b=K[bm34] mode=exp alu=sub                 ; s >= 34: no table phase
         a=T2 alu=passa | if N goto em_b
-        alu=nop | if S goto da_i
-; u > 0, the table phase (i <= 33)
-ua_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=34 | if LCEQ goto ub_i2   ; P = 2^(64+s-i); i = 34: synthesized
-        d=T12 b=K[lnup+LC]>>>LC-SC alu=passb            ; L
-ua_w:   d=T13 a=T8 b=T12 alu=sub                        ; R - L
-        d=T14 a=T4 b=T9>>>LC alu=add | if N goto ua_n   ; the step, ready
-        d=T8 a=T13 alu=passa
-        d=T9 a=T9 b=T14 alu=add | goto ua_w
-ua_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto ua_i
-; u > 0, synthesized
-ub_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb
-ub_i2:  d=T12 a=T4 b=T10 alu=add                        ; L = P + C
-        alu=nop | if Z goto em_uf                       ; L = 0: the end
-ub_w:   d=T13 a=T8 b=T12 alu=sub
-        d=T14 a=T4 b=T9>>>LC alu=add | if N goto ub_n
-        d=T8 a=T13 alu=passa
-        d=T9 a=T9 b=T14 alu=add | goto ub_w
-ub_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto ub_i
-em_uf:  d=T14 a=T9 b=T8 alu=add | goto em_out           ; D + R
-em_b:   alu=nop | if S goto db_i
-        goto ub_i
-; u < 0, the table phase
-da_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=34 | if LCEQ goto db_i2
-        d=T12 a=0 b=K[lndn+LC]>>>LC-SC alu=sub          ; L = -(the word placed)
-da_w:   d=T13 a=T8 b=T12 alu=sub
-        d=T14 a=T4 b=T9>>>LC alu=add | if N goto da_n
-        d=T8 a=T13 alu=passa
-        d=T9 a=T9 b=T14 alu=sub | goto da_w
-da_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto da_i
-; u < 0, synthesized: to i = s + 64
-db_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=65 | if LCSCEQ goto db_e
-db_i2:  d=T12 a=T4 b=T10 alu=sub                        ; L = P - C
-db_w:   d=T13 a=T8 b=T12 alu=sub
-        d=T14 a=T4 b=T9>>>LC alu=add | if N goto db_n
-        d=T8 a=T13 alu=passa
-        d=T9 a=T9 b=T14 alu=sub | goto db_w
-db_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto db_i
-db_e:   d=T14 a=T9 alu=passa                            ; D - 0 (R is 0 by then)
+        alu=nop | if S goto dm_n
+; u > 0, the table's phase (i <= 33)
+ua_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=add lit=34 | if LCEQ goto ub_x   ; D + P
+        d=T4 a=T8 b=K[lnup+LC]>>>LC-SC alu=sub          ; R - L, placed
+        d=T6 a=T14 b=T9>>>LC alu=add | if N goto ua_nx  ; + (D >> i); R < L: the next i
+ua_y:   d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=add lit=34 | if LCEQ goto ub_y   ; Y current
+        d=T8 a=T4 b=K[lnup+LC]>>>LC-SC alu=sub
+        d=T9 a=T14 b=T6>>>LC alu=add | unless N goto ua_x
+        d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto ua_y
+ua_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto ua_x
+; u > 0, synthesized while C is not -1 (R += T12 = -(P + C))
+ub_x:   a=T10 alu=passa | goto ub_nx2
+ub_y:   a=T10 alu=passa | goto ub_ny2
+ub_fx:  d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=add
+        d=T4 a=T8 b=T12 alu=add
+        d=T6 a=T14 b=T9>>>LC alu=add | if N goto ub_nx
+ub_fy:  d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=add
+        d=T8 a=T4 b=T12 alu=add
+        d=T9 a=T14 b=T6>>>LC alu=add | unless N goto ub_fx
+        d=T10 a=0 b=T10>>>2 alu=passb lc=inc
+ub_ny2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto ub_fy   ; -C - 1 - P + 1
+        goto uc_y
+ub_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
+ub_nx2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto ub_fx
+; u > 0, C = -1 (L = P - 1: R - P + 1, the carry-in), to L = 0 (i = s + 64)
+uc_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto em_ux
+        d=T4 a=T8 b=K[fx_one]>>>LC-SC alu=sub cin=1
+        d=T6 a=T14 b=T9>>>LC alu=add | if N goto uc_nx
+uc_y:   d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto em_uy
+        d=T8 a=T4 b=K[fx_one]>>>LC-SC alu=sub cin=1
+        d=T9 a=T14 b=T6>>>LC alu=add | unless N goto uc_x
+        alu=nop lc=inc | goto uc_y
+uc_nx:  alu=nop lc=inc | goto uc_x
+em_ux:  d=T14 a=T9 b=T8 alu=add | goto em_out          ; D + R
+em_uy:  d=T14 a=T6 b=T4 alu=add | goto em_out
+em_b:   alu=nop | if S goto dm_b
+        goto ub_x
+; u < 0: R as -R - 1
+dm_n:   d=T8 a=0 b=T8 alu=sub
+        d=T8 a=T8 b=K[ulp] alu=sub | goto da_x
+dm_b:   d=T8 a=0 b=T8 alu=sub
+        d=T8 a=T8 b=K[ulp] alu=sub | goto db_x
+; u < 0, the table's phase
+da_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=sub lit=34 | if LCEQ goto db_x   ; D - P
+        d=T4 a=T8 b=K[lndn+LC]>>>LC-SC alu=sub          ; ~(R - L), L = -(the word placed)
+        d=T6 a=T14 b=T9>>>LC alu=sub | unless N goto da_nx   ; - (D >> i)
+da_y:   d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=sub lit=34 | if LCEQ goto db_y
+        d=T8 a=T4 b=K[lndn+LC]>>>LC-SC alu=sub
+        d=T9 a=T14 b=T6>>>LC alu=sub | if N goto da_x
+        d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto da_y
+da_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto da_x
+; u < 0, synthesized while C is not -1 (~R += T12 = P - C)
+db_x:   a=T10 alu=passa | goto db_nx2
+db_y:   a=T10 alu=passa | goto db_ny2
+db_fx:  d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=sub
+        d=T4 a=T8 b=T12 alu=add
+        d=T6 a=T14 b=T9>>>LC alu=sub | unless N goto db_nx
+db_fy:  d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=sub
+        d=T8 a=T4 b=T12 alu=add
+        d=T9 a=T14 b=T6>>>LC alu=sub | if N goto db_fx
+        d=T10 a=0 b=T10>>>2 alu=passb lc=inc
+db_ny2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto db_fy   ; -C - 1 + P + 1
+        goto dc_y
+db_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
+db_nx2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto db_fx
+; u < 0, C = -1 (~R + P + 1), to i = s + 64
+dc_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto em_dx
+        d=T4 a=T8 b=K[fx_one]>>>LC-SC alu=add cin=1
+        d=T6 a=T14 b=T9>>>LC alu=sub | unless N goto dc_nx
+dc_y:   d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto em_dy
+        d=T8 a=T4 b=K[fx_one]>>>LC-SC alu=add cin=1
+        d=T9 a=T14 b=T6>>>LC alu=sub | if N goto dc_x
+        alu=nop lc=inc | goto dc_y
+dc_nx:  alu=nop lc=inc | goto dc_x
+em_dx:  d=T14 a=T9 alu=passa | goto em_out             ; D (R is 0 by then)
+em_dy:  d=T14 a=T6 alu=passa
 em_out: alu=nop | call fromfix
         d=T11 a=T11 b=SC mode=exp alu=sub | ret         ; 2^-s
-
 ; -- etoxm1 (transcend.etoxm1): exponent below -66: u itself; below -2: the
 ; scaled shift-add; else e^x - 1.  In: T2.  Out: T11. --
 etoxm1: a=T2 b=K[bm66] mode=exp alu=sub
@@ -439,14 +500,22 @@ th_one: d=T11 a=T1 b=K[almost_one] alu=passb mode=mantb sign=a | goto tr_fin
 ; ============================================================================
 ; log1ps: ln(1 + u) for |u| < 1/4, keeping its relative precision
 ; (transcend._log1p_small).  s = -exponent(u) - 1 (SC); U = u 2^s in Q2.64
-; (T8, two's complement); L (T9) the logarithm scaled by 2^s.  For i = s ...
-; the step floor((2^(64+s) + U) 2^-i) = 2^(64+s-i) + (U >> i) drives U to 0:
+; (two's complement); L the logarithm scaled by 2^s.  For i = s ... the
+; step floor((2^(64+s) + U) 2^-i) = 2^(64+s-i) + (U >> i) drives U to 0:
 ; u > 0 by factors 1 - 2^-i (U -= step while it stays >= 0, L += -ln(1 -
 ; 2^-i)), u < 0 by 1 + 2^-i (U += step while it stays <= 0, L -= ln(1 +
 ; 2^-i)); the table's words placed by i - s for i <= 33, then 2^(64+s-i) -
-; C (u > 0) or -(2^(64+s-i) + C) (u < 0), C = floor(-2^(63+s-2i)) in T10.
-; u > 0 runs to i = s + 64, u < 0 to s + 63 (its step is 0 at s + 64).
-; Then L + U.  In: T2 = u.  Out: T11.
+; C (u > 0) or -(2^(64+s-i) + C) (u < 0), C = floor(-2^(63+s-2i)).  u > 0
+; runs to i = s + 64, u < 0 to s + 63 (its step is 0 at s + 64).  Then L +
+; U.  In: T2 = u.  Out: T11.
+; The timing pass (8.8.19): P = 2^(64+s-i) is read from the constant ROM
+; where it is used - a step is U - P then - (U >> i) (u > 0; + and + for u
+; < 0, taken while <= 0: LE) - and so is the table's word, so an i costs
+; one word beyond its three.  C is kept as D = -C - 1 (T10, 2^(63+s-2i) - 1
+; or 0: D >> 2 is the next i's), so P - C = P + D + 1 and -(P + C) = D - P
+; + 1 are one word (T12) - and once D is 0 (C = -1) not even that, the
+; carry-in doing the 1.  U and L live in T8/T9 (X) or T4/T6 (Y) by turns,
+; so a taken step is three words and a step not taken four.
 ; ============================================================================
 
 log1ps: d=T11 a=T2 b=K[bm1] alu=passb mode=exp          ; u 2^s (exponent bias - 1), its sign
@@ -456,77 +525,163 @@ log1ps: d=T11 a=T2 b=K[bm1] alu=passb mode=exp          ; u 2^s (exponent bias -
         d=T9 b=SC alu=passb lc=alu                      ; i = s
         d=T10 b=K[fx_negone]>>>SC alu=passb
         d=T10 a=0 b=T10>>>1 alu=passb                   ; C = floor(-2^(63-s))
+        d=T10 a=T10 b=K[ulp] alu=add
+        d=T10 a=0 b=T10 alu=sub                         ; D = -C - 1
         d=T9 b=0 alu=passb                              ; L = 0
-        a=T2 b=K[bm34] mode=exp alu=sub
+        a=T2 b=K[bm34] mode=exp alu=sub                 ; s >= 34: no table phase
         a=T2 alu=passa | if N goto lp_b
-        alu=nop | if S goto la_i
-; u > 0
-pa_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=34 | if LCEQ goto pb_i2
-        d=T12 a=0 b=K[lndn+LC]>>>LC-SC alu=sub          ; -ln(1 - 2^-i), placed
-pa_w:   d=T14 a=T4 b=T8>>>LC alu=add                    ; the step
-        d=T13 a=T8 b=T14 alu=sub
-        d=T15 a=T9 b=T12 alu=add | if N goto pa_n       ; U - step < 0: the next i
-        d=T8 a=T13 alu=passa
-        d=T9 a=T15 alu=passa | goto pa_w
-pa_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto pa_i
-pb_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=65 | if LCSCEQ goto lp_e
-pb_i2:  d=T12 a=T4 b=T10 alu=sub                        ; 2^(64+s-i) - C
-pb_w:   d=T14 a=T4 b=T8>>>LC alu=add
-        d=T13 a=T8 b=T14 alu=sub
-        d=T15 a=T9 b=T12 alu=add | if N goto pb_n
-        d=T8 a=T13 alu=passa
-        d=T9 a=T15 alu=passa | goto pb_w
-pb_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto pb_i
-lp_b:   alu=nop | if S goto lb_i
-        goto pb_i
-; u < 0
-la_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=34 | if LCEQ goto lb_i2
-        d=T12 a=0 b=K[lnup+LC]>>>LC-SC alu=sub          ; -ln(1 + 2^-i), placed
-la_w:   d=T14 a=T4 b=T8>>>LC alu=add
-        d=T13 a=T8 b=T14 alu=add dl=1                   ; U + step; DFLAG: negative
-        d=T15 a=T9 b=T12 alu=add | if Z goto la_t       ; U + step = 0: taken
-        alu=nop | unless DFLAG goto la_n                ; U + step > 0: the next i
-la_t:   d=T8 a=T13 alu=passa
-        d=T9 a=T15 alu=passa | goto la_w
-la_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto la_i
-lb_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=64 | if LCSCEQ goto lp_e
-lb_i2:  d=T12 a=T4 b=T10 alu=add
-        d=T12 a=0 b=T12 alu=sub                         ; -(2^(64+s-i) + C)
-lb_w:   d=T14 a=T4 b=T8>>>LC alu=add
-        d=T13 a=T8 b=T14 alu=add dl=1
-        d=T15 a=T9 b=T12 alu=add | if Z goto lb_t
-        alu=nop | unless DFLAG goto lb_n
-lb_t:   d=T8 a=T13 alu=passa
-        d=T9 a=T15 alu=passa | goto lb_w
-lb_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto lb_i
-lp_e:   d=T14 a=T9 b=T8 alu=add                         ; L + U
-        alu=nop | call fromfix
+        alu=nop | if S goto la_fx
+; u > 0, the table's phase (i <= 33)
+pa_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub lit=34 | if LCEQ goto pb_x   ; U - P
+        d=T4 a=T14 b=T8>>>LC alu=sub                    ; - (U >> i)
+        d=T6 a=T9 b=K[lndn+LC]>>>LC-SC alu=sub | if N goto pa_nx   ; L - ln(1 - 2^-i), placed
+pa_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub          ; taken: Y current, the same i
+        d=T8 a=T14 b=T4>>>LC alu=sub
+        d=T9 a=T6 b=K[lndn+LC]>>>LC-SC alu=sub | if N goto pa_ny
+pa_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub          ; X current, the same i
+        d=T4 a=T14 b=T8>>>LC alu=sub
+        d=T6 a=T9 b=K[lndn+LC]>>>LC-SC alu=sub | unless N goto pa_ry
+pa_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto pa_fx
+pa_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub lit=34 | if LCEQ goto pb_y
+        d=T8 a=T14 b=T4>>>LC alu=sub
+        d=T9 a=T6 b=K[lndn+LC]>>>LC-SC alu=sub | unless N goto pa_rx
+pa_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto pa_fy
+; u > 0, synthesized while C is not -1 (L += T12 = P - C)
+pb_x:   a=T10 alu=passa | goto pb_nx2                   ; D = 0: C = -1 already
+pb_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub
+        d=T4 a=T14 b=T8>>>LC alu=sub
+        d=T6 a=T9 b=T12 alu=add | if N goto pb_nx
+pb_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub
+        d=T8 a=T14 b=T4>>>LC alu=sub
+        d=T9 a=T6 b=T12 alu=add | if N goto pb_ny
+pb_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub
+        d=T4 a=T14 b=T8>>>LC alu=sub
+        d=T6 a=T9 b=T12 alu=add | unless N goto pb_ry
+pb_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
+pb_nx2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto pb_fx   ; P + D + 1
+; u > 0, C = -1 (L += P + 1: the carry-in), to i = s + 64
+pc_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto lp_ex
+        d=T4 a=T14 b=T8>>>LC alu=sub
+        d=T6 a=T9 b=K[fx_one]>>>LC-SC alu=add cin=1 | if N goto pc_nx
+pc_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub
+        d=T8 a=T14 b=T4>>>LC alu=sub
+        d=T9 a=T6 b=K[fx_one]>>>LC-SC alu=add cin=1 | if N goto pc_ny
+pc_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub
+        d=T4 a=T14 b=T8>>>LC alu=sub
+        d=T6 a=T9 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless N goto pc_ry
+pc_nx:  alu=nop lc=inc | goto pc_fx
+pb_y:   a=T10 alu=passa | goto pb_ny2
+pb_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub
+        d=T8 a=T14 b=T4>>>LC alu=sub
+        d=T9 a=T6 b=T12 alu=add | unless N goto pb_rx
+pb_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
+pb_ny2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto pb_fy
+pc_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto lp_ey
+        d=T8 a=T14 b=T4>>>LC alu=sub
+        d=T9 a=T6 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless N goto pc_rx
+pc_ny:  alu=nop lc=inc | goto pc_fy
+lp_b:   alu=nop | if S goto lb_x
+        goto pb_x
+; u < 0, the table's phase
+la_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add lit=34 | if LCEQ goto lb_x   ; U + P
+        d=T4 a=T14 b=T8>>>LC alu=add                    ; + (U >> i)
+        d=T6 a=T9 b=K[lnup+LC]>>>LC-SC alu=sub | unless LE goto la_nx   ; L - ln(1 + 2^-i), placed
+la_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add
+        d=T8 a=T14 b=T4>>>LC alu=add
+        d=T9 a=T6 b=K[lnup+LC]>>>LC-SC alu=sub | unless LE goto la_ny
+la_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add
+        d=T4 a=T14 b=T8>>>LC alu=add
+        d=T6 a=T9 b=K[lnup+LC]>>>LC-SC alu=sub | if LE goto la_ry
+la_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto la_fx
+la_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add lit=34 | if LCEQ goto lb_y
+        d=T8 a=T14 b=T4>>>LC alu=add
+        d=T9 a=T6 b=K[lnup+LC]>>>LC-SC alu=sub | if LE goto la_rx
+la_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto la_fy
+; u < 0, synthesized while C is not -1 (L += T12 = -(P + C))
+lb_x:   a=T10 alu=passa | goto lb_nx2
+lb_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add
+        d=T4 a=T14 b=T8>>>LC alu=add
+        d=T6 a=T9 b=T12 alu=add | unless LE goto lb_nx
+lb_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add
+        d=T8 a=T14 b=T4>>>LC alu=add
+        d=T9 a=T6 b=T12 alu=add | unless LE goto lb_ny
+lb_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add
+        d=T4 a=T14 b=T8>>>LC alu=add
+        d=T6 a=T9 b=T12 alu=add | if LE goto lb_ry
+lb_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
+lb_nx2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto lb_fx   ; D - P + 1
+; u < 0, C = -1 (L += 1 - P), to i = s + 63
+lc_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto lp_ex
+        d=T4 a=T14 b=T8>>>LC alu=add
+        d=T6 a=T9 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless LE goto lc_nx
+lc_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add
+        d=T8 a=T14 b=T4>>>LC alu=add
+        d=T9 a=T6 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless LE goto lc_ny
+lc_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add
+        d=T4 a=T14 b=T8>>>LC alu=add
+        d=T6 a=T9 b=K[fx_one]>>>LC-SC alu=sub cin=1 | if LE goto lc_ry
+lc_nx:  alu=nop lc=inc | goto lc_fx
+lb_y:   a=T10 alu=passa | goto lb_ny2
+lb_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add
+        d=T8 a=T14 b=T4>>>LC alu=add
+        d=T9 a=T6 b=T12 alu=add | if LE goto lb_rx
+lb_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
+lb_ny2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto lb_fy
+lc_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto lp_ey
+        d=T8 a=T14 b=T4>>>LC alu=add
+        d=T9 a=T6 b=K[fx_one]>>>LC-SC alu=sub cin=1 | if LE goto lc_rx
+lc_ny:  alu=nop lc=inc | goto lc_fy
+lp_ey:  d=T14 a=T6 b=T4 alu=add | goto lp_e             ; L + U
+lp_ex:  d=T14 a=T9 b=T8 alu=add
+lp_e:   alu=nop | call fromfix
         d=T11 a=T11 b=SC mode=exp alu=sub | ret         ; 2^-s
-
 ; -- log1pf: ln(1 + u) for u (T14, Q2.64) in [0, 1), unscaled
 ; (transcend._log1p_frac): factors 1 - 2^-i for i = 1 ... 64 while U -
 ; (1 + U) 2^-i stays >= 0, L += -ln(1 - 2^-i) (the table's for i <= 33, then
-; 2^(64-i) + 1).  Out: T14 = L + U. --
-log1pf: d=T8 a=T14 alu=passa
-        d=T9 b=0 alu=passb lc=1
-pf_a:   d=T4 b=K[fx_one]>>>LC alu=passb lit=34 | if LCEQ goto pf_b2
-        d=T12 a=0 b=K[lndn+LC]>>>LC alu=sub
-pf_aw:  d=T14 a=T4 b=T8>>>LC alu=add                    ; (1 + U) 2^-i
-        d=T13 a=T8 b=T14 alu=sub
-        d=T15 a=T9 b=T12 alu=add | if N goto pf_an
-        d=T8 a=T13 alu=passa
-        d=T9 a=T15 alu=passa | goto pf_aw
-pf_an:  alu=nop lc=inc | goto pf_a
-pf_b:   d=T4 b=K[fx_one]>>>LC alu=passb lit=65 | if LCEQ goto pf_e
-pf_b2:  d=T12 a=T4 b=K[ulp] alu=add                     ; 2^(64-i) + 1
-pf_bw:  d=T14 a=T4 b=T8>>>LC alu=add
-        d=T13 a=T8 b=T14 alu=sub
-        d=T15 a=T9 b=T12 alu=add | if N goto pf_bn
-        d=T8 a=T13 alu=passa
-        d=T9 a=T15 alu=passa | goto pf_bw
-pf_bn:  alu=nop lc=inc | goto pf_b
-pf_e:   d=T14 a=T9 b=T8 alu=add | ret
-
+; 2^(64-i) + 1).  Out: T14 = L + U.
+; The timing pass (8.8.19): V = 1 + U, so a step is V - V 2^-i, one word,
+; taken while V stays >= 1; L starts at -1, so L + V is the answer.  V and L
+; live in T8/T9 (X) or T4/T10 (Y) by turns - a taken step writes the other
+; pair instead of copying back.  A step's last word advances LC, so a step
+; not taken goes straight on to the next i; a taken one tries the same i
+; again shifting by LC - SC (SC = 1) and reading the table one entry behind
+; LC.  Three clocks a step, taken or not.  The four blocks (fresh X, retry
+; Y, fresh Y, retry X) fall through in a cycle, which a straight layout
+; cannot hold: fresh Y's taken way is a copy of retry X's first word that
+; jumps to its second. --
+log1pf: d=T8 a=T14 b=K[fx_one] alu=add lc=1             ; V = 1 + U; i = 1
+        d=SC b=LC alu=passb                             ; SC = 1
+        d=T9 a=0 b=K[fx_one] alu=sub | goto pfa_fx      ; L = -1
+; the table's phase, i <= 33
+pfa_rx: d=T4 a=T8 b=T8>>>LC-SC alu=sub                  ; X current, the same i again
+pfa_rx2: a=T4 b=K[fx_one] alu=sub
+        d=T10 a=T9 b=K[lndn-1+LC]>>>LC-SC alu=sub | unless N goto pfa_ry
+pfa_fx: d=T4 a=T8 b=T8>>>LC alu=sub lit=34 | if LCEQ goto pfb_fx   ; X current: V - V 2^-i
+        a=T4 b=K[fx_one] alu=sub                        ; >= 1?
+        d=T10 a=T9 b=K[lndn+LC]>>>LC alu=sub lc=inc | if N goto pfa_fx   ; L - ln(1 - 2^-i)
+pfa_ry: d=T8 a=T4 b=T4>>>LC-SC alu=sub                  ; taken: Y current, the same i
+        a=T8 b=K[fx_one] alu=sub
+        d=T9 a=T10 b=K[lndn-1+LC]>>>LC-SC alu=sub | unless N goto pfa_rx
+pfa_fy: d=T8 a=T4 b=T4>>>LC alu=sub lit=34 | if LCEQ goto pfb_fy   ; Y current
+        a=T8 b=K[fx_one] alu=sub
+        d=T9 a=T10 b=K[lndn+LC]>>>LC alu=sub lc=inc | if N goto pfa_fy
+        d=T4 a=T8 b=T8>>>LC-SC alu=sub | goto pfa_rx2   ; taken: retry X
+; synthesized, i = 34 ... 64: L += 2^(64-i) + 1, the carry-in the 1
+pfb_rx: d=T4 a=T8 b=T8>>>LC-SC alu=sub
+pfb_rx2: a=T4 b=K[fx_one] alu=sub
+        d=T10 a=T9 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless N goto pfb_ry
+pfb_fx: d=T4 a=T8 b=T8>>>LC alu=sub lit=65 | if LCEQ goto pf_ex
+        a=T4 b=K[fx_one] alu=sub
+        d=T10 a=T9 b=K[fx_one]>>>LC alu=add cin=1 lc=inc | if N goto pfb_fx
+pfb_ry: d=T8 a=T4 b=T4>>>LC-SC alu=sub
+        a=T8 b=K[fx_one] alu=sub
+        d=T9 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless N goto pfb_rx
+pfb_fy: d=T8 a=T4 b=T4>>>LC alu=sub lit=65 | if LCEQ goto pf_ey
+        a=T8 b=K[fx_one] alu=sub
+        d=T9 a=T10 b=K[fx_one]>>>LC alu=add cin=1 lc=inc | if N goto pfb_fy
+        d=T4 a=T8 b=T8>>>LC-SC alu=sub | goto pfb_rx2
+pf_ex:  d=T14 a=T9 b=T8 alu=add | ret                   ; L + V
+pf_ey:  d=T14 a=T10 b=T4 alu=add | ret
 ; -- logn (transcend.logn): near 1 (|x - 1| < 1/4) the scaled path; else x
 ; = 2^E m, E ln 2 + ln m.  In: T2 = x (> 0).  Out: T11. --
 logn:   d=T11 a=T2 alu=passa

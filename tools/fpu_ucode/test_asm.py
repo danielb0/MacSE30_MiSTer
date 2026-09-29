@@ -142,6 +142,19 @@ check('redundant opmodes enter as the model decodes them (8.6.14 item 6)', red)
 check('FMOVECR and store entries', r.entry[FD.ENTRY_FMOVECR] == r.prog.labels['fmovecr'][1].addr
       and r.entry[FD.entry_store('X')] == r.prog.labels['fmove_out'][1].addr)
 
+# -- a table read one entry behind LC (the timing pass's retries, 8.8.19) -----------------------
+
+rk = assemble_text("""
+    .export idle
+    idle: alu=nop | goto idle
+    .entry default idle
+    .export t
+    t: d=T1 b=K[lnup-1+LC] alu=passb | goto idle
+    """)
+kw = [u for u in rk.rom if u is not None and u.loc.text.strip().startswith('t:')]
+check('K[name-1+LC] reads the table one entry behind', not rk.errors and len(kw) == 1
+      and kw[0].rb == consts.NAMES['lnup'] - 1)
+
 # -- each check, broken on purpose --------------------------------------------------------------
 
 HEAD = """
@@ -157,6 +170,7 @@ expect_error('a mantissa shift in exponent mode', HEAD + "d=T1 a=T1 alu=passa mo
 expect_error('a2 in exponent mode', HEAD + "d=T1 a=T1 alu=passa mode=exp a2=1\n", ['exponent mode'])
 expect_error('SQT with a Booth direction', HEAD + "d=T1 a=T1 b=SQT alu=addsub dir=booth\n", ['SQT'])
 expect_error('RINC without a round mode', HEAD + "d=T1 a=T1 b=RINC alu=add\n", ['rnd='])
+expect_error('K[name-n] without +LC', HEAD + "d=T1 b=K[lnup-1] alu=passb\n", ['only before +LC'])
 expect_error('an exponent constant read as a mantissa', HEAD + "d=T1 b=K[bias] alu=passb\n", ['exponent'])
 expect_error('a mantissa constant read as an exponent', HEAD + "d=T1 a=T1 b=K[ulp8] alu=add mode=exp\n", ['mantissa'])
 expect_error('two literals in one word', HEAD + "d=T1 b=T0<<3 alu=passb lc=5\n", ['lit'])
