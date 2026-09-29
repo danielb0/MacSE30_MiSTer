@@ -124,6 +124,38 @@ def main(n=3000):
             bad.append('%X -> %r, want %r' % (v, c.T[11], want))
     print('%s  %-8s %d values%s' % ('FAIL' if bad else 'PASS', 'from_fix', len(fx),
                                     ''.join('\n    ' + b for b in bad)))
+    # The exponentials, whole (T2 in, T11 out), over their working ranges.
+    def fn_check(name, fn, model, xs):
+        bad = []
+        for x in xs:
+            want = model(x)
+            c = u.call(fn, T2=word(x))
+            got, w = c.T[11], word(want)
+            if want.m == 0:
+                ok = got.m == 0
+            elif w.e > 57343 or w.e <= -24576:
+                # Past a catastrophic limit (scale2 holds n to +/-65536):
+                # the post-processing sees the same - the direction, the
+                # sign and the mantissa.
+                beyond = (got.e > 57343) if w.e > 57343 else (got.e <= -24576)
+                ok = beyond and got.s == w.s and got.m == w.m
+            else:
+                ok = got == w
+            results.append(ok)
+            if not ok and len(bad) < 3:
+                bad.append('%r -> %r, want %r' % (x, c.T[11], word(want)))
+        print('%s  %-8s %d arguments%s' % ('FAIL' if bad else 'PASS', name, len(xs),
+                                          ''.join('\n    ' + b for b in bad)))
+    args = []
+    for _ in range(n // 4):
+        m = (1 << 66) | rng.getrandbits(66)
+        args.append(T.I67(rng.getrandbits(1), m, rng.randint(-70, 14) - 66))
+    args += [T.I67(0, 1 << 66, 30 - 66), T.I67(1, 1 << 66, 21 - 66)]
+    fn_check('etox', 'etox', T.etox, args)
+    fn_check('twotox', 'twotox', T.twotox, args)
+    fn_check('tentox', 'tentox', T.tentox, args)
+    small = [T.I67(x.s, x.m, rng.randint(-72, -1) - 66) for x in args]
+    fn_check('etoxm1', 'etoxm1', T.etoxm1, args + small)
     nf = results.count(False)
     print('%d PASS, %d FAIL' % (results.count(True), nf))
     return 1 if nf else 0

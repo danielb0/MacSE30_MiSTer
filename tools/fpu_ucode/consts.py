@@ -153,6 +153,13 @@ def build():
         ('e16', BIAS + 16),                           # FSCALE: |src| >= 2^16
         ('exp64', 64),                                # FMOD/FREM: a chunk of quotient bits
         ('bias2', BIAS + 2),                          # Q2.64 <-> I67 (transcend.to_fixed/from_fixed)
+        ('b20', BIAS + 20),                           # FETOX: |x| >= 2^21 overflows (transcend.etox)
+        ('b24', BIAS + 24),                           # FTWOTOX, FTENTOX: 2^25
+        ('b7', BIAS + 7),                             # FTANH: 2|x| above 2^7
+        ('bm1', BIAS - 1),                            # expm1/log1p's scale s = -exponent - 1
+        ('bm2', BIAS - 2),                            # |x| below 1/4: the scaled paths
+        ('bm34', BIAS - 34),                          # s >= 34: past the ROM's tables
+        ('bm66', BIAS - 66),                          # FETOXM1: below 2^-66, x itself
         # The exceptional operand (6.1.4, 6.1.5; rounding.exceptional_operand):
         # the exponent wrapped by $6000, or 0 past the 17-bit catastrophic
         # limits (biased: overflow above 57343, underflow at -24576 and below).
