@@ -148,6 +148,18 @@ def build():
         ('k16384', kword(0, 0, 16384)),               # FSCALE's clamp (fpu.py _op_fscale)
         ('k32832', kword(0, 0, 32832)),
         ('k65536', kword(0, 0, 65536)),
+        # The stores (fpu.py _to_int, _to_ieee): an image is built at bits
+        # 66-3 of a mantissa, so its bit n is the mantissa's bit n + 3.
+        ('lim_l', kword(0, 0, (1 << 31) << 3)),       # 2^(n-1) << 3: the integer limits
+        ('lim_w', kword(0, 0, (1 << 15) << 3)),
+        ('lim_b', kword(0, 0, (1 << 7) << 3)),
+        ('ulp8', kword(0, 0, 1 << 3)),                # an image's bit 0
+        ('sbit_s', kword(0, 0, 1 << 34)),             # a single's sign
+        ('inf_s', kword(0, 0, 0xFF << 26)),           # a single's maximum exponent
+        ('inf_d', kword(0, 0, 0x7FF << 55)),          # a double's
+        ('b26', kword(0, 0, 1 << 26)),                # a single's hidden bit
+        ('b55', kword(0, 0, 1 << 55)),                # a double's
+        ('b42', kword(0, 0, 1 << 42)),                # FMOVECR's undocumented rows: WinUAE's +/-2^39 of m64
         ('nan', _ext(0, 0x7FFF, (1 << 64) - 1)),      # the chip's NaN (UM 6.1.3)
         # The exceptional operand (6.1.4, 6.1.5; rounding.exceptional_operand):
         # the exponent wrapped by $6000, or 0 past the 17-bit catastrophic

@@ -101,7 +101,13 @@ def execute(chip, v):
     clocks = chip.run(idx)
     vec = sim.trap_vector(chip.fpsr, chip.fpcr)
     when = 0 if not vec else (2 if opclass == 3 else 1)
-    xop = x80(chip.EXOP) if vec in (sim.V_SNAN, sim.V_OPERR, sim.V_DZ, sim.V_OVFL, sim.V_UNFL) else 0
+    # The exceptional operand an FSAVE would show, where the model defines
+    # it: the SNAN/OPERR/DZ/OVFL/UNFL traps; and for a store, also an
+    # inexact trap that came with an overflow or underflow (fpu.py
+    # fmove_out keeps it for any trap).
+    xvec = (sim.V_SNAN, sim.V_OPERR, sim.V_DZ, sim.V_OVFL, sim.V_UNFL)
+    has = vec in xvec or (opclass == 3 and vec == sim.V_INEX and chip.fpsr & (sim.OVFL | sim.UNFL))
+    xop = x80(chip.EXOP) if has else 0
     store = chip.OBUF if opclass == 3 else 0
     return (chip.fp[RY], chip.fp[RC], chip.fpsr, vec, when, store, xop, clocks)
 

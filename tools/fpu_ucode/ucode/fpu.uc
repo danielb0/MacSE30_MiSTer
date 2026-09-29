@@ -819,3 +819,309 @@ rem_small: d=T4 b=T0>>2 alu=passb                       ; 2r in T5's units when 
         a=T7 b=K[exp_one] mode=exp alu=add              ; D + 1 = 0?
         alu=nop | if Z goto rem_n
         a=T0 b=T1 alu=passa sign=xor fpsr=quot | goto wr_pp
+
+; ============================================================================
+; The stores, FMOVE FPm,<ea> (4-64 to 4-69; 8.6.3): FPCC unchanged; the
+; exception mid-instruction (the BIU's, from opclass 011).  EXOP holds the
+; register for an SNAN or OPERR trap (6.1.2-6.1.3); ppm overwrites it for
+; OVFL and UNFL.  The image is built in T6's mantissa, bits 66-3 (OBUFL
+; stores them as the operand's low 64 bits), or T5 (OBUFX, extended).
+; ============================================================================
+
+pro_st: d=T1 b=FP[src] alu=passb mode=mantb sign=b fpsr=clrexc ctl=rp_dfmt
+        d=EXOP a=T1 alu=passa stk=clr | dispatch DFMT t_st
+.table t_st DFMT
+  L    :: d=T12 b=K[lim_l] alu=passb lc=32 | goto st_int
+  W    :: d=T12 b=K[lim_w] alu=passb lc=48 | goto st_int
+  B    :: d=T12 b=K[lim_b] alu=passb lc=56 | goto st_int
+  S    :: alu=nop | dispatch STAG t_sts
+  D    :: alu=nop | dispatch STAG t_std
+  X    :: alu=nop | dispatch STAG t_stx
+  default unimpl
+.end
+.entry out.L pro_st
+.entry out.W pro_st
+.entry out.B pro_st
+.entry out.S pro_st
+.entry out.D pro_st
+.entry out.X pro_st
+
+st_w:   d=OBUFL a=T6 alu=passa ctl=end | goto idle
+
+; -- X: the register through ppm at extended; a NaN made nonsignaling; an
+; infinity with mantissa 0; a zero with exponent 0 --
+.table t_stx STAG
+  NAN  stx_nan
+  INF  :: d=T5 a=T1 b=0 alu=passb | goto stx_w
+  ZERO :: d=T5 a=T1 b=0 alu=passb mode=exp | goto stx_w
+  default :: d=T0 a=T1 alu=passa | goto stx_fin
+.end
+stx_fin: alu=nop | call ppm
+stx_w:  d=OBUFX a=T5 alu=passa ctl=end | goto idle
+stx_nan: d=T5 a=T1 b=K[qbit] alu=or | unless SSNAN goto stx_w
+        fpsr=orlit exc=SNAN | goto stx_w
+
+; -- S and D: the IEEE image, the exponent field (Eb - the format's minimum)
+; plus the hidden bit, so a denormal (hidden bit 0 at the minimum) packs
+; the same way; infinity and NaN with the maximum exponent; the sign last.
+.table t_sts STAG
+  NAN  sts_nan
+  INF  :: d=T6 b=K[inf_s] alu=passb | goto sts_sg
+  ZERO :: d=T6 b=0 alu=passb | goto sts_sg
+  default :: d=T0 a=T1 alu=passa | goto sts_fin
+.end
+sts_fin: alu=nop | call ppm
+        a=T5 b=K[exp_inf] mode=exp alu=sub              ; overflowed to infinity?
+        d=T6 b=T5>>40 alu=passb | if Z goto sts_i       ; the 24 bits, the hidden one at bit 26
+        d=T7 a=T5 b=K[sgl_emin] mode=exp alu=sub | if Z goto sts_sg   ; rounded to zero: T6 = 0
+        d=T7 b=T7<<26 bx=e2m alu=passb
+        d=T6 a=T6 b=T7 alu=add
+sts_sg: alu=nop | unless SNEG goto st_w
+        d=T6 a=T6 b=K[sbit_s] alu=or | goto st_w
+sts_i:  d=T6 b=K[inf_s] alu=passb | goto sts_sg
+sts_nan: d=T5 a=T1 b=K[qbit] alu=or | unless SSNAN goto sts_nq
+        fpsr=orlit exc=SNAN
+sts_nq: d=T6 b=T5>>40 alu=passb                         ; the fraction's top 23 bits
+        d=T6 a=T6 b=K[b26] alu=andn
+        d=T6 a=T6 b=K[inf_s] alu=or | goto sts_sg
+
+.table t_std STAG
+  NAN  std_nan
+  INF  :: d=T6 b=K[inf_d] alu=passb | goto std_sg
+  ZERO :: d=T6 b=0 alu=passb | goto std_sg
+  default :: d=T0 a=T1 alu=passa | goto std_fin
+.end
+std_fin: alu=nop | call ppm
+        a=T5 b=K[exp_inf] mode=exp alu=sub
+        d=T6 b=T5>>11 alu=passb | if Z goto std_i       ; the 53 bits, the hidden one at bit 55
+        d=T7 a=T5 b=K[dbl_emin] mode=exp alu=sub | if Z goto std_sg
+        d=T7 b=T7<<55 bx=e2m alu=passb
+        d=T6 a=T6 b=T7 alu=add
+std_sg: alu=nop | unless SNEG goto st_w
+        d=T6 a=T6 b=K[one] alu=or | goto st_w          ; bit 66: the image's bit 63
+std_i:  d=T6 b=K[inf_d] alu=passb | goto std_sg
+std_nan: d=T5 a=T1 b=K[qbit] alu=or | unless SSNAN goto std_nq
+        fpsr=orlit exc=SNAN
+std_nq: d=T6 b=T5>>11 alu=passb
+        d=T6 a=T6 b=K[b55] alu=andn
+        d=T6 a=T6 b=K[inf_d] alu=or | goto std_sg
+
+; -- B, W, L: rounded to an integer by RND; out of range, an infinity or a
+; NaN: OPERR (Table 6-2) - a NaN stores its mantissa's top bits (SNAN for a
+; signaling one, made nonsignaling), the rest the largest integer of their
+; sign.  T12: 2^(n-1) << 3 (the negative limit's pattern); LC: 64 - n. --
+st_int: d=T13 a=T12 b=T12 alu=add | dispatch STAG t_sti  ; 2^n << 3
+.table t_sti STAG
+  NAN  sti_nan
+  INF  sti_ovf
+  ZERO :: d=T6 b=0 alu=passb | goto st_w
+  default :: d=T1 a=T1 alu=passa osh=norm | goto sti_fin
+.end
+sti_fin: d=T13 a=T13 b=K[ulp8] alu=sub                  ; the n-bit mask << 3
+        d=SC a=T1 b=K[int63] mode=exp alu=rsub          ; 63 - u
+        d=T3 b=T1>>SC alu=passb sign=b stk=shift | if N goto sti_ovf    ; |x| >= 2^64
+        d=T3 a=T3 b=RINC alu=add rnd=ext
+        d=T6 a=T3 b=RMASK alu=and rnd=ext fpsr=inex2r stk=clr | if SNEG goto sti_neg
+        a=T6 b=T12 alu=sub                              ; K < 2^(n-1): in range
+        alu=nop | unless C goto sti_ovf
+        goto st_w
+sti_neg: a=T12 b=T6 alu=sub                             ; 2^(n-1) < K: out of range
+        alu=nop | if C goto sti_ovf
+        d=T6 a=0 b=T6 alu=sub                           ; -K, two's complement
+        d=T6 a=T6 b=T13 alu=and | goto st_w
+sti_ovf: fpsr=orlit exc=OPERR | if SNEG goto sti_min
+        d=T6 a=T12 b=K[ulp8] alu=sub | goto st_w        ; 2^(n-1) - 1
+sti_min: d=T6 a=T12 alu=passa | goto st_w               ; -2^(n-1)
+sti_nan: d=T13 a=T13 b=K[ulp8] alu=sub
+        d=T5 a=T1 b=K[qbit] alu=or | unless SSNAN goto sti_nq
+        fpsr=orlit exc=SNAN | goto sti_nb
+sti_nq: fpsr=orlit exc=OPERR
+sti_nb: d=SC b=LC alu=passb
+        d=T6 b=T5>>SC alu=passb                         ; the mantissa's top n bits
+        d=T6 a=T6 b=T13 alu=and | goto st_w
+
+; ============================================================================
+; ppm: pp for a memory destination (8.6.4; UM 6.1.4-6.1.5): the same
+; rounding and range checks at RPREC (the destination's format), but a
+; denormal stays at the minimum exponent, unnormalized, and the exceptional
+; operand is the value rounded to the format's precision at its own
+; exponent, the exponent not wrapped (rounding.exceptional_operand, 'mem').
+; ============================================================================
+
+ppm:    d=T0 a=T0 alu=passa osh=norm
+        d=T3 a=T0 b=RINC alu=add rnd=rprec | if TINY goto ppm_tiny
+        d=T5 a=T3 b=RMASK alu=and rnd=rprec fpsr=inex2r | if C goto ppm_cy
+        alu=nop | if HUGE goto ppm_ovfl
+        ret
+ppm_cy: d=T5 a=T5 b=K[one] alu=passb
+        d=T5 a=T5 b=0 alu=add cin=1 mode=exp
+        alu=nop | if HUGE goto ppm_ovfl
+        ret
+; A store's exceptional operand is kept whatever trap follows (an inexact
+; trap from an overflow reports it too: fpu.py fmove_out).
+ppm_ovfl: d=EXOP a=T5 alu=passa fpsr=orlit exc=OVFL | goto pp_ovr   ; rounded at its own exponent
+ppm_tiny: d=T6 a=T0 b=RINC alu=add rnd=rprec fpsr=orlit exc=UNFL
+        d=T6 a=T6 b=RMASK alu=and rnd=rprec | unless C goto ppm_x
+        d=T6 a=T6 b=K[one] alu=passb
+        d=T6 a=T6 b=0 alu=add cin=1 mode=exp
+ppm_x:  d=EXOP a=T6 alu=passa
+ppm_dn: alu=nop | dispatch RPREC ppm_emin
+.table ppm_emin RPREC
+  EXT  :: d=T12 b=K[ext_emin] alu=passb mode=expb | goto ppm_dn2
+  SGL  :: d=T12 b=K[sgl_emin] alu=passb mode=expb | goto ppm_dn2
+  DBL  :: d=T12 b=K[dbl_emin] alu=passb mode=expb | goto ppm_dn2
+  SGLX :: d=T12 b=K[ext_emin] alu=passb mode=expb | goto ppm_dn2
+.end
+ppm_dn2: d=SC a=T12 b=T0 mode=exp alu=sub
+        d=T5 a=T0 b=T12 alu=passb mode=exp
+        d=T5 a=T5 b=T5>>SC alu=passb stk=shift
+        d=T3 a=T5 b=RINC alu=add rnd=rprec
+        d=T5 a=T3 b=RMASK alu=and rnd=rprec fpsr=inex2r
+        alu=nop | unless Z goto ppm_r
+        d=T5 a=T5 b=0 alu=passb mode=exp                ; a signed zero
+ppm_r:  ret
+
+; ============================================================================
+; FMOVECR (4-72): the constant ROM's row by the offset (the OPMODE key is
+; command bits 5-0; offsets $40-$7F are the BIU's F-line, 8.6.14 item 7).
+; A documented constant is rom64 (8.6.14 item 19, Daniel 2026-09-29): the
+; 64-bit image, one unit up in RP when the true value lies above it and down
+; in RZ and RM when below, INEX2 when inexact, then pp at PREC.  The
+; undocumented rows are WinUAE's, as the model has them (a lead): rounded
+; to a single or double mantissa in extended's range with no flags, WinUAE's
+; adjustments at bit 39 for rows 1, 2 and 7, and its FPCC bits for rows 3
+; and 7 (ORed onto a positive finite value's FPCC: written in its place).
+; ============================================================================
+
+.entry cr pro_cr
+pro_cr: alu=nop fpsr=clrexc ctl=rp_prec stk=clr | dispatch OPMODE t_cr
+.table t_cr OPMODE
+  $00 :: d=T0 b=K[$00] alu=passb mode=mantb sign=b | goto cr_doc
+  $01 :: d=T0 b=K[$01] alu=passb mode=mantb sign=b | goto cr_u1
+  $02 :: d=T0 b=K[$02] alu=passb mode=mantb sign=b | goto cr_u2
+  $03 :: d=T0 b=K[$03] alu=passb mode=mantb sign=b | goto cr_u3
+  $04 :: d=T0 b=K[$04] alu=passb mode=mantb sign=b | goto cr_u
+  $05 :: d=T0 b=K[$05] alu=passb mode=mantb sign=b | goto cr_u
+  $06 :: d=T0 b=K[$06] alu=passb mode=mantb sign=b | goto cr_u
+  $07 :: d=T0 b=K[$07] alu=passb mode=mantb sign=b | goto cr_u7
+  $08 :: d=T0 b=K[$08] alu=passb mode=mantb sign=b | goto cr_u
+  $09 :: d=T0 b=K[$09] alu=passb mode=mantb sign=b | goto cr_u
+  $0A :: d=T0 b=K[$0A] alu=passb mode=mantb sign=b | goto cr_u
+  $0B :: d=T0 b=K[$0B] alu=passb mode=mantb sign=b | goto cr_doc
+  $0C :: d=T0 b=K[$0C] alu=passb mode=mantb sign=b | goto cr_doc
+  $0D :: d=T0 b=K[$0D] alu=passb mode=mantb sign=b | goto cr_doc
+  $0E :: d=T0 b=K[$0E] alu=passb mode=mantb sign=b | goto cr_doc
+  $0F :: d=T0 b=0 alu=passb sign=zero | goto wr_t0          ; 0.0
+  $10 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $11 :: d=T0 b=K[$11] alu=passb mode=mantb sign=b | goto cr_u
+  $12 :: d=T0 b=K[$12] alu=passb mode=mantb sign=b | goto cr_u
+  $13 :: d=T0 b=K[$13] alu=passb mode=mantb sign=b | goto cr_u
+  $14 :: d=T0 b=K[$14] alu=passb mode=mantb sign=b | goto cr_u
+  $15 :: d=T0 b=K[$15] alu=passb mode=mantb sign=b | goto cr_u
+  $16 :: d=T0 b=K[$16] alu=passb mode=mantb sign=b | goto cr_u
+  $17 :: d=T0 b=K[$17] alu=passb mode=mantb sign=b | goto cr_u
+  $18 :: d=T0 b=K[$18] alu=passb mode=mantb sign=b | goto cr_u
+  $19 :: d=T0 b=K[$19] alu=passb mode=mantb sign=b | goto cr_u
+  $1A :: d=T0 b=K[$1A] alu=passb mode=mantb sign=b | goto cr_u
+  $1B :: d=T0 b=K[$1B] alu=passb mode=mantb sign=b | goto cr_u
+  $1C :: d=T0 b=K[$1C] alu=passb mode=mantb sign=b | goto cr_u
+  $1D :: d=T0 b=K[$1D] alu=passb mode=mantb sign=b | goto cr_u
+  $1E :: d=T0 b=K[$1E] alu=passb mode=mantb sign=b | goto cr_u
+  $1F :: d=T0 b=K[$1F] alu=passb mode=mantb sign=b | goto cr_u
+  $20 :: d=T0 b=K[$20] alu=passb mode=mantb sign=b | goto cr_u
+  $21 :: d=T0 b=K[$21] alu=passb mode=mantb sign=b | goto cr_u
+  $22 :: d=T0 b=K[$22] alu=passb mode=mantb sign=b | goto cr_u
+  $23 :: d=T0 b=K[$23] alu=passb mode=mantb sign=b | goto cr_u
+  $24 :: d=T0 b=K[$24] alu=passb mode=mantb sign=b | goto cr_u
+  $25 :: d=T0 b=K[$25] alu=passb mode=mantb sign=b | goto cr_u
+  $26 :: d=T0 b=K[$26] alu=passb mode=mantb sign=b | goto cr_u
+  $27 :: d=T0 b=K[$27] alu=passb mode=mantb sign=b | goto cr_u
+  $28 :: d=T0 b=K[$28] alu=passb mode=mantb sign=b | goto cr_u
+  $29 :: d=T0 b=K[$29] alu=passb mode=mantb sign=b | goto cr_u
+  $2A :: d=T0 b=K[$2A] alu=passb mode=mantb sign=b | goto cr_u
+  $2B :: d=T0 b=K[$2B] alu=passb mode=mantb sign=b | goto cr_u
+  $2C :: d=T0 b=K[$2C] alu=passb mode=mantb sign=b | goto cr_u
+  $2D :: d=T0 b=K[$2D] alu=passb mode=mantb sign=b | goto cr_u
+  $2E :: d=T0 b=K[$2E] alu=passb mode=mantb sign=b | goto cr_u
+  $2F :: d=T0 b=K[$2F] alu=passb mode=mantb sign=b | goto cr_u
+  $30 :: d=T0 b=K[$30] alu=passb mode=mantb sign=b | goto cr_doc
+  $31 :: d=T0 b=K[$31] alu=passb mode=mantb sign=b | goto cr_doc
+  $32 :: d=T0 b=K[$32] alu=passb mode=mantb sign=b | goto cr_doc
+  $33 :: d=T0 b=K[$33] alu=passb mode=mantb sign=b | goto cr_doc
+  $34 :: d=T0 b=K[$34] alu=passb mode=mantb sign=b | goto cr_doc
+  $35 :: d=T0 b=K[$35] alu=passb mode=mantb sign=b | goto cr_doc
+  $36 :: d=T0 b=K[$36] alu=passb mode=mantb sign=b | goto cr_doc
+  $37 :: d=T0 b=K[$37] alu=passb mode=mantb sign=b | goto cr_doc
+  $38 :: d=T0 b=K[$38] alu=passb mode=mantb sign=b | goto cr_doc
+  $39 :: d=T0 b=K[$39] alu=passb mode=mantb sign=b | goto cr_doc
+  $3A :: d=T0 b=K[$3A] alu=passb mode=mantb sign=b | goto cr_doc
+  $3B :: d=T0 b=K[$3B] alu=passb mode=mantb sign=b | goto cr_doc
+  $3C :: d=T0 b=K[$3C] alu=passb mode=mantb sign=b | goto cr_doc
+  $3D :: d=T0 b=K[$3D] alu=passb mode=mantb sign=b | goto cr_doc
+  $3E :: d=T0 b=K[$3E] alu=passb mode=mantb sign=b | goto cr_doc
+  $3F :: d=T0 b=K[$3F] alu=passb mode=mantb sign=b | goto cr_doc
+.end
+
+cr_doc: alu=nop | if KABOVE goto cr_up
+        alu=nop | if KBELOW goto cr_dn
+cr_pp:  alu=nop | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+cr_up:  fpsr=orlit exc=INEX2 | unless RND_RP goto cr_pp
+        d=T0 a=T0 b=K[ulp8] alu=add | goto cr_pp
+cr_dn:  fpsr=orlit exc=INEX2 | if RND_RZ goto cr_m1
+        alu=nop | unless RND_RM goto cr_pp
+cr_m1:  d=T0 a=T0 b=K[ulp8] alu=sub | goto cr_pp
+
+cr_u:   alu=nop | call cr_rnd
+cr_w:   d=FP[dst] a=T0 alu=passa fpsr=fpcc ctl=end | goto idle
+cr_u1:  alu=nop | call cr_rnd
+        alu=nop | call cr_a17
+        goto cr_w
+cr_u7:  alu=nop | call cr_rnd
+        alu=nop | call cr_a17
+        d=FP[dst] a=T0 alu=passa
+cr_nan: a=0 b=K[nan] alu=passb mode=mantb sign=zero fpsr=fpcc ctl=end | goto idle   ; FPCC NAN
+cr_u2:  alu=nop | call cr_rnd
+        alu=nop | unless PREC_SGL goto cr_w
+        alu=nop | unless RND_RP goto cr_w
+        d=T0 a=T0 b=K[b42] alu=sub | goto cr_w
+cr_u3:  alu=nop | call cr_rnd
+        d=FP[dst] a=T0 alu=passa | unless PREC_SGL goto cr_nan
+        alu=nop | if RND_RN goto cr_inf
+        alu=nop | unless RND_RP goto cr_nan
+cr_inf: a=0 b=K[exp_inf] alu=passb mode=expb sign=zero fpsr=fpcc ctl=end | goto idle  ; FPCC I
+
+; Rows 1 and 7, single PREC: RN - 2^39, RZ and RM + 2^39 (of the 64 bits).
+cr_a17: alu=nop | unless PREC_SGL goto cr_ar
+        alu=nop | if RND_RN goto cr_am
+        alu=nop | if RND_RP goto cr_ar
+        d=T0 a=T0 b=K[b42] alu=add | ret
+cr_am:  d=T0 a=T0 b=K[b42] alu=sub | ret
+cr_ar:  ret
+
+; WinUAE's fpp_round32/64: by FPCR PREC's raw code (3 rounds as double),
+; the mantissa only, no flags; a zero or $7FFF exponent untouched.
+cr_rnd: a=T0 b=K[exp_inf] mode=exp alu=sub | dispatch PREC t_crr
+.table t_crr PREC
+  EXT  cr_r0
+  SGL  cr_rs
+  DBL  cr_rd
+  SGLX cr_rd
+.end
+cr_rs:  alu=nop | if Z goto cr_r0                       ; $7FFF: untouched
+        a=T0 alu=passa
+        alu=nop | if Z goto cr_r0                       ; zero: untouched
+        d=T0 a=T0 alu=passa osh=norm
+        d=T3 a=T0 b=RINC alu=add rnd=sgl
+        d=T0 a=T3 b=RMASK alu=and rnd=sgl | if C goto cr_cy
+        goto cr_r0
+cr_rd:  alu=nop | if Z goto cr_r0
+        a=T0 alu=passa
+        alu=nop | if Z goto cr_r0
+        d=T0 a=T0 alu=passa osh=norm
+        d=T3 a=T0 b=RINC alu=add rnd=dbl
+        d=T0 a=T3 b=RMASK alu=and rnd=dbl | if C goto cr_cy
+        goto cr_r0
+cr_cy:  d=T0 a=T0 b=K[one] alu=passb                    ; carried out
+        d=T0 a=T0 b=0 alu=add cin=1 mode=exp
+cr_r0:  stk=clr | ret
