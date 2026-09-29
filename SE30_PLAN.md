@@ -9251,7 +9251,7 @@ image) is the architecture to mirror:
   operations".
 
 **The work** (item 6, in order):
-- **6a** the architecture, written from UM Sections 1, 5 (the 68882's
+- **6a** (drafted 2026-09-29: 8.8.9-8.8.17) the architecture, written from UM Sections 1, 5 (the 68882's
   concurrency, Figures 5-2 and 5-3), 7 (the 68882's own dialogs, Figures
   7-19, 7-21, 7-28, 7-35) and 8 (interface overhead, the head/tail model,
   the 68881 detail tables): the units and their interfaces; the datapath's
@@ -9455,6 +9455,307 @@ over Section 10's "vector number" labels; for FRESTORE's modes the 68030's
 own rule (it is the MPU's check). A bus error inside a dialog needs a
 resumable fault frame whose internal words are ours (the 030's are "for
 internal use only").
+
+### 8.8.9 The clock and the pipeline (6a, 2026-09-29)
+
+**The FPU clock is C16M**, the SE/30's 15.6672 MHz (8.8.3), which the core
+makes as `c16_en`, an enable every second `clk_sys` (31.3344 MHz, `rtl/pll.v`).
+One FPU clock is therefore two system clocks, and the design spends them so
+that **one microinstruction completes every FPU clock with no delay slots and
+no forwarding**:
+
+| system clock | what happens |
+|---|---|
+| first half (p0) | the next-address logic reads the current microword (the register µIR) and the flags the *previous* microinstruction left; the µROM address, the nROM address and the operand addresses (temporaries, constant ROM, FP register) are registered into their block RAMs at its end |
+| second half (p1) | the nanoword and the operands are out of their RAMs; the datapath computes (source muxes, barrel shifter, ALU, output shifter); at its end the result, the flags and the next microword (into µIR) are registered |
+
+So a microinstruction may branch on, or take its add/subtract direction
+from, the result of the one immediately before it - what the CORDIC and
+nonrestoring loops need every step - and reads any temporary the previous
+one wrote (written at the end of the previous FPU clock, read at the end of
+p0 of this one). The combinational datapath gets a whole system clock
+(31.9 ns) from block-RAM output to register, where a 67-bit barrel shift and
+add take roughly half that on this part; the paths are single-cycle at
+`clk_sys` and need no multicycle exceptions. The BIU and the CU run on the same
+enable.
+
+### 8.8.10 The datapath (6a)
+
+**The internal format** is the manual's intermediate result (6.1, Figure
+6-2): a **67-bit mantissa** - bit 66 the integer bit, bits 65-3 the fraction,
+bit 2 guard, bit 1 round, bit 0 sticky - with the ALU's carry out as the
+overflow bit above it; a sign; and an exponent held **biased** (extended's
+bias, 16383) in **two's complement**. The manual's intermediate exponent is
+17 bits; the stored field is **18**, so that FSCALE's clamped scale (8.7.1,
+held to +/-2^16 past the 17-bit catastrophic limit) and every product and
+quotient exponent (-16,507 to +49,211 before rounding) are represented
+without wrap; the round stage forms the exceptional operand's 15 bits from
+it as the model does. The same 67 bits serve the transcendentals' Q2.64
+fixed point (two's complement, 64 fraction bits, 8.7.3). A **temporary word**
+is therefore 86 bits: sign, 18-bit exponent, 67-bit mantissa.
+
+| unit | what it is | built as |
+|---|---|---|
+| **temporaries** T0-T31 | the APU's working registers (Figure 1-9's "temporary registers"), 86 bits | two copies of a 32 x 86 simple-dual-port block RAM, one per read port (A, B), written together: 6 M10K |
+| **FP0-FP7** | 80 bits each (sign, 15-bit biased exponent, 64-bit mantissa); port A the APU's, port B the CU's (8.8.6) | a true-dual-port block RAM, 4 M10K |
+| **A source** | T[ra], FP[sel], the CU's converted operand, zero | mux, 86 bits |
+| **B source** | T[rb], CONST[rb (+ LC)], FP[sel], the BIU operand (as a sign-extended B/W/L integer, or raw), the CU operand, the Booth multiple (+/-MD, +/-2MD, +/-3MD, +/-4MD), the round increment, the round mask, the square-root trial value (2Q with a one at the LC position), Q, SC, LC, zero | mux, 86 bits |
+| **barrel shifter** | on B's mantissa: left, right logical, right arithmetic, 0-127 places (67 and more clears or sign-fills); amount from a nanoword literal, SC, LC or the leading-zero count; the bits shifted out right OR into the sticky flag | 7-stage log shifter, 67 bits |
+| **ALU** | 67 bits and the overflow bit: A+B, A-B, B-A, A, B, AND, OR, XOR, A AND NOT B, with carry in; **add or subtract chosen by a flag** (the previous result's sign - nonrestoring divide and square root, CORDIC's direction - or the Booth digit's); flags Z, N, C (overflow bit), V | carry chain, 68 bits |
+| **exponent mode** | a nanoword bit routes the 18-bit exponents into the ALU's low bits (sign-extended) and its result back to an exponent field - UM 1.2's one ALU "used for both mantissa and exponent calculations"; there is no second adder | muxes |
+| **output shifter** | at the ALU's output: none, left 1 (divide, square root: the quotient bit into Q), right 1, right 3 (radix-8 multiply: the three low bits into Q's top) | Figure 1-9's second shifter |
+| **Q** | the multiplier/quotient register, 67 bits, shifting with the output shifter; its low four bits give the radix-8 Booth digit | flip-flops |
+| **MD, MD3** | the multiplicand and three times it (one ALU add at the start of a multiply); 2MD and 4MD are wiring | flip-flops |
+| **LZC** | leading zeros of the ALU result's mantissa, 0-67, into SC or the shift amount | priority encoder |
+| **round logic** | the boundary by mode (extended: least significant bit 3; double: 14; single: 43; and the integer boundary for FINT and integer stores, reached by first shifting the value there); guard, round and sticky below it (with the sticky flag); the increment decision of Figure 6-3 by RND and sign; outputs the increment and the truncation mask as B sources and the flags *inexact* and *carry* (round overflow) | logic |
+| **SC, LC** | shift count (7 bits) and loop counter (8 bits: CORDIC's i, the divide and multiply steps, the digit loops); LC also indexes the constant ROM and places the square-root trial bit | counters |
+| **constant ROM** | 256 x 86 bits (with spare bits for FMOVECR's direction flags, 8.6.14 item 19): the 22 FMOVECR constants, the powers of ten, the CORDIC and logarithm tables (34 words each, 8.7.3), pi and 2pi to 67 bits, ln 2, ln 10, log10(e), the CORDIC gains, each format's exponent limits | 3 M10K |
+| **FPSR, FPCR, FPIAR** | flip-flops; the nanoword updates FPSR (8.8.11), the BIU reads and writes all three | registers |
+| **exceptional operand, output buffer** | the 12-byte exceptional operand of the frames (8.6.11) and the 96-bit buffer the BIU reads stores from | registers |
+
+**What the algorithms need, checked against it.** Addition: exponent
+difference (exponent mode), alignment (barrel right with sticky), add,
+normalise (LZC, shift, exponent adjust) - about ten clocks of FADD's 24.
+Multiplication: MD3 = MD + 2MD, then 22 radix-8 steps (P = (P + d x MD) >> 3,
+d in -4..4 from Q) for 64 bits and 8 for FSGLMUL's 24 - the 12-clock
+difference Table 8-14 shows between FMUL 46 and FSGLMUL 34 is 14 steps
+here. Division: 67 nonrestoring steps (R = 2R -/+ D, one quotient bit a clock
+into Q, the remainder's nonzero into sticky) - FDIV's 78. Square root: the
+same recurrence with the trial value - FSQRT's 76. FMOD and FREM: the divide
+step in 64-bit chunks, the quotient's low seven bits kept - Table 8-14's
+"40 + 70 x INT((1 + Ed - Es)/64)". CORDIC: per iteration X' = X -/+ (Y >> i),
+Y' = Y +/- (X >> i), Z' = Z -/+ CONST[i], the direction from the previous
+Z's (rotation) or Y's (vectoring) sign: **three clocks an iteration**, the
+temporaries' roles alternating between unrolled pairs so no copy is needed
+- 67 iterations about 200 clocks, inside FSIN's 360. The I67 operations of
+8.7.3 are these with the result truncated at 67 bits; the rounded ones of
+8.7.2 (packed decimal) are the same routines ending in the round logic in
+the mode FPSP's step uses.
+
+### 8.8.11 The microword and the nanoword (6a)
+
+The 68000 family's two levels (UM Figure 1-9): the **µROM** says what
+happens next and which nanoword to use; the **nROM** holds the distinct
+datapath control words, shared by every microinstruction that does the same
+thing to different registers. **The register addresses are in the
+microword**, not the nanoword (the 68000 takes them from the instruction
+register for the same reason), so one nanoword - "T[ra] - (T[rb] >> LC)
+into T[rd]" - serves every routine; and the operand reads start in the same
+half-clock as the nanoword read (8.8.9).
+
+**The microword, 48 bits** (µROM 2,048 x 48, 10 M10K):
+
+| field | bits | meaning |
+|---|---|---|
+| `nano` | 10 | the nanoword address (1,024) |
+| `ra` | 5 | temporary on port A |
+| `rb` | 8 | temporary on port B, or the constant ROM address when the nanoword selects a constant |
+| `rd` | 5 | destination temporary |
+| `seq` | 3 | next address: `next` (µPC + 1), `jump`, `call`, `return`, `branch if`, `branch unless`, `dispatch`, `wait` |
+| `cond` | 6 | the condition tested, or the dispatch key (below) |
+| `target` | 11 | the jump, call or branch target; for `wait`, the number of clocks to hold |
+
+`wait n` runs its nanoword once and then holds the sequencer for n clocks:
+**the padding** that makes each path take the manual's clocks (8.8.3), at no
+cost in µROM.
+
+**The nanoword, about 72 bits** (nROM 1,024 x 72, 8 M10K):
+
+| field | bits | meaning |
+|---|---|---|
+| A source, B source | 2 + 4 | 8.8.10's lists |
+| FP select | 2 | FP[source field], FP[destination field], FP[the FMOVEM iterator], FP[ra] |
+| shift | 3 + 2 + 7 | kind; amount from literal, SC, LC or LZC; the literal |
+| exponent mode | 2 | mantissa, exponent, both (a copy) |
+| ALU | 4 + 2 + 1 | operation; add/subtract by flag (none, previous N, the B operand's sign, the Booth digit); carry in |
+| output shifter and Q | 3 + 3 | the shift; Q hold, load, shift left with the quotient bit, shift right 3, load from B |
+| destination | 3 | T[rd], FP[select], MD/MD3, the output buffer (high, low, extended), the exceptional operand, SC, LC, none |
+| sign | 3 | the result's sign: A's, B's, their XOR, the ALU's N, 0, 1, inverted |
+| sticky | 2 | hold, clear, accumulate from the shifter, accumulate a nonzero ALU result |
+| round | 3 | none, extended, double, single, integer, by PREC, by the destination format |
+| FPSR | 4 + 8 | the action (clear EXC at the start; set FPCC from the result; OR a literal into EXC; OR INEX2 from the round logic; set the quotient byte from Q and a sign; accrue AEXC at the end) and its literal |
+| LC | 2 | hold, load the literal, decrement, load from the ALU |
+| control | 4 | signals to the BIU and CU: release the MPU, operand wanted, result stored, exception pending, **checkpoint**, end of instruction |
+
+**The conditions** (`cond`, 64): the flags Z, N, C, V of the last ALU
+result; sticky, inexact and round carry; LC = 0; Q's low bit; the source and
+destination tags one by one; FPCR's RND and PREC values; any enabled
+exception (EXC AND ENABLE); a trap-enable bit by name; the command's
+direction and format bits; the BIU's requests (FSAVE waiting, abort); the
+CU's hand-off requests. **Dispatch keys** OR a field into the target's low
+bits: the source/destination tag pair (5 x 5 of Table 8-13/8-14's classes,
+in a 32-entry block per operation), RND, PREC, the source format.
+
+**The entry table** (Figure 1-9's "µPC select PLA"): indexed by the command
+word's opclass, opmode and format, it gives the first microword of each
+instruction; 1,024 x 11 bits, 2 M10K.
+
+### 8.8.12 The sequencer (6a)
+
+µPC (11 bits), a **four-deep µPC stack** (Figure 1-9's; the rounding
+tail, the conversions, the multiply, divide and CORDIC cores and the special
+operand handlers are subroutines, the deepest nesting a transcendental's
+composition calling a core calling the round), the `wait` counter, and the
+next-address mux of 8.8.9. An instruction starts at the entry table's
+address when the BIU (or the CU, handing over) starts it, and ends at a
+microword whose control field says so; the sequencer then idles at a fixed
+address until the next start.
+
+**Checkpoints** (Table 6-5's "middle" phase): a microword marked checkpoint
+is where a waiting FSAVE is let in (the BIU answers come-again until one is
+reached, then takes a busy frame, 8.8.15). They sit at the loop heads of the
+long instructions - each FREM/FMOD chunk, between the transcendentals' core
+calls and at every 16th CORDIC iteration, between the packed-decimal
+algorithm's steps - so none is more than about 70 clocks from the next. At a
+checkpoint **only T0-T10 are live** and Q, MD and MD3 are dead: the
+assembler (6b) proves it, and it is what lets a busy frame hold the whole
+APU. A restore resumes at the checkpoint's successor with the µPC stack,
+LC, SC and the flags as saved.
+
+### 8.8.13 The CU (6a)
+
+Figure 1-9's "S, D, X conversion execution unit" and "conversion control
+unit", on FP port B, doing 8.8.5's three classes:
+- **Unpack** an S, D or X operand from the BIU into the internal format:
+  field routing, the exponent rebias (a 15-bit adder: -127 or -1023, +16383),
+  the implicit integer bit, and the **tag** - normalised, zero, infinity,
+  quiet or signalling NaN, denormal, unnormal (Table 8-13's classes). A
+  denormal or unnormal is not normalised here: it is handed over tagged, and
+  the APU's input conversion normalises it (the "not normalized" times of
+  Table 8-13 are the APU's). **The same tag logic** sits on the APU's FP
+  port A read, for register operands.
+- **Execute the fully concurrent FMOVEs** (Table 5-5) itself, writing FPn
+  through port B, or packing FPm into S, D or X for the BIU with its own
+  rounding at bit 43 or 14 (a 53-bit incrementer and the guard/round/sticky
+  decision) and overflow/underflow detection - handing over to the APU in
+  each of 8.8.5's conditions (a) to (f).
+- **Hold** a converted operand and its command for the APU (partial
+  concurrency), and check register conflicts against the APU's destination
+  (5.1.2.2).
+
+**Program order is kept at retirement** (our reading of UM 5.1.1.2's
+"sequential execution model", to be confirmed against its text in item 7):
+an instruction the CU finishes while the APU is still busy on the one
+before it does not touch FPSR until that one has retired; its FPCC and
+EXC then replace the older ones and both accrue into AEXC, and an exception
+it raises is reported after the older one's. **This gives the bench a
+strong invariant**: with the overlap off (the first bring-up step, 8.8.1)
+and on, every program leaves identical registers, FPSR and memory - only the
+clocks, and the documented mid-instruction reporting, differ.
+
+About 350 ALMs: the unpack and pack paths, the incrementer, the tag logic,
+the CU's registers (its command, operand, tags and instruction address,
+which are the idle frame's 32 bytes, 8.8.15), the control.
+
+### 8.8.14 The BIU and its dialogs (6a)
+
+The CIRs of 8.6.12 at CPU space `$22000-$2201F`, selected by GLUE; the
+FPU terminates its own cycles (DSACK timing per the data sheet BR509, item
+7). **The dialog state machine's states are Table 6-4's codes**, so the
+idle frame's BIU flags (bits 30-28) are the state register itself:
+
+| state (bits 30-28) | expecting | response CIR answers |
+|---|---|---|
+| `111` nothing pending | a command or condition write | null: `$0802` all idle; `$0900` released and still executing |
+| `011` general instruction pending (bit 30 = 0: received, not started) | the unit to accept it | `$8900`/`$C900` come again until the CU (or the APU) takes it |
+| `100` operand write pending | 4, 8 or 12 bytes to the operand CIR (bits 23-20 track the bytes) | the evaluate-and-transfer primitive of 8.6.12, CA = 0 forms for S, D, X |
+| `110` operand read pending | the operand CIR read | the transfer primitive with DR = 1, after null CA = 1 while converting |
+| `001` conditional pending | nothing: the BIU evaluates it when both units are idle | `$8900` while busy; `$0800`/`$0801` with TF |
+| (internal) | the instruction address write; the register select read; a frame's words | the PC-pass forms first when asked; transfer multiple |
+
+Across all states: **the pending exception overrides** (8.8.5: once an
+instruction has made one pending, every response from the next real one on
+takes it - pre-instruction when the read starts an instruction,
+mid-instruction after); **protocol violations** (6.1.12) set bit 31 and
+answer `$1D0D`; the control CIR's AB aborts only inside the abort window and
+XA does not clear an exception; the save CIR starts an FSAVE (8.8.15), a
+restore write an FRESTORE. One instruction address register per stage (BIU,
+CU, APU - the APU's is FPIAR). The BIU also runs the conditionals (the
+predicate against FPCC, 8.6.9, and BSUN) and FMOVE/FMOVEM of the control
+registers directly - they never enter the APU. About 400 ALMs.
+
+### 8.8.15 The frames, as we define them (6a; 8.6.14 item 11)
+
+Staged through a 64-longword frame buffer (1 M10K): the FSAVE fills it,
+then the BIU streams it to the operand CIR from the highest address down;
+an FRESTORE fills it from the lowest address up, then unloads it.
+
+**Idle, `$1F38`** (60 bytes, 8.6.11's documented layout): `$04` the
+command/condition image; **`$08-$27` the CU's registers** (its command
+word, instruction address, converted operand - sign, exponent and 64-bit
+mantissa - and tag, the rest zero), restored verbatim; `$28` the
+exceptional operand; `$34` the operand register image; `$38` the BIU flags.
+
+**Busy, `$1FD4`** (216 bytes), taken at once in the initial phase and at a
+checkpoint in the middle one (8.8.12). It keeps the idle frame's documented
+positions **measured from the end** (the exceptional operand at `$C4`, the
+operand register at `$D0`, the BIU flags at `$D4` - UM Figure 5-7's
+handler arithmetic finds them on both), and in between:
+
+| offset | contents |
+|---|---|
+| `$04` | the command/condition image |
+| `$08-$27` | the CU's registers, as in the idle frame |
+| `$28-$33` | the APU's control state: the resume µPC, the µPC stack, LC, SC, the flags (Z, N, C, V, sticky, inexact), the APU's command and register fields |
+| `$34-$37` | the BIU stage's instruction address |
+| `$38-$BB` | temporaries T0-T10, three longwords each (sign, exponent and the mantissa's top 13 bits; 32 bits; the last 22 bits) |
+| `$BC-$C3` | reserved, written zero |
+| `$C4-$D7` | as the idle frame's end |
+
+The busy frame is ours, as the manual allows ("should not be modified in any
+way", 6.4.2.3); nothing needs to restore a frame from real silicon.
+FSAVE's clocks (Table 8-8: 102 idle, 336 busy) include the microcode's copy
+of the temporaries into the buffer.
+
+### 8.8.16 The timing budgets (6a)
+
+Each instruction's path through the microcode, for each case the detail
+tables distinguish, **takes exactly the table's clocks** (8.8.3): conversion
+(Table 8-13, by format and both operands' classes), calculation (8-14,
+8-15, by operation, classes, signs and the notes' conditions), rounding
+(8-18, by PREC and outcome), output (8-16, 8-17) and the special operands
+(8-19); the paths are shorter, and `wait` pads each to its figure. The
+assembler (6b) computes every path's length and the simulator (6c) checks
+the total for each vector's case against the tables, and with the manual's
+reference conditions the end-to-end totals against Table 8-3. Three
+figures need a rule:
+- **Packed decimal** is "~822" in and "1,942 typical" out (maxima 954 and
+  3,674): a typical figure for a data-dependent time. Default: the path
+  pads to the typical figure and, where our algorithm's own time for an
+  operand exceeds it, takes that time, capped at the maximum. **Confirmed by Daniel 2026-09-29.**
+- **FMOD's formula** is printed without FREM's "/64": default, the same
+  64-bit chunks as FREM (a missing line of type, not a different
+  algorithm; the chunked divide makes 70 clocks per 64 quotient bits). **Confirmed by Daniel 2026-09-29.**
+- **FSIN, FCOS, FTAN, FSINCOS outside (-9, +9)** add "the appropriate REM
+  calculation time": the reduction is FREM's routine, and takes its clocks.
+
+The 68882's own head and tail (Table 8-3) come from the CU's overlap, not
+from the detail tables (which are the 68881's): 6c measures them from the
+simulated dialog and compares.
+
+### 8.8.17 The area (6a estimate, against 8.3's 3,000-5,000 ALMs)
+
+| unit | ALMs | M10K |
+|---|---|---|
+| temporaries, FP registers | ~40 (read-write collision muxes) | 10 |
+| A and B source muxes | ~300 | |
+| barrel shifter with sticky | ~350 | |
+| ALU, exponent mode, output shifter | ~250 | |
+| Q, MD, MD3, Booth recoding | ~150 | |
+| LZC, round logic | ~200 | |
+| FPSR/FPCR/FPIAR, flags, exceptions | ~150 | |
+| sequencer, µPC stack, entry, µROM, nROM | ~200 | 20 |
+| constant ROM | | 3 |
+| CU | ~350 | |
+| BIU, dialogs, frame buffer | ~400 | 1 |
+| **the FPU** | **~2,400 (+30% margin: ~3,100)** | **34** |
+| the kernel's protocol (item 7) | ~400 | |
+
+With the machine's 23,118 ALMs and 218 of 553 RAM blocks (compile 21):
+about **26,600 ALMs (63%) and 252 blocks (46%)**, well under the ~38,000
+ceiling of 8.3; the donor's 9,364 ALMs would have been three times this.
+The first synthesis of the RTL (item 8) replaces the estimate, and checks
+that every array here infers to M10K.
 
 ---
 
