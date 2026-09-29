@@ -8545,7 +8545,8 @@ each item is in 8.6.15.)
 4. **FSCALE and FREM "INEX2 cleared"** (4-94, 4-87), while their own
    notes say a re-rounded FPn may be inexact; FMOD says "refer to 6.1.7".
    Likewise FMOD's OVFL is "cleared" though its note 2 says a re-rounded
-   FPn may overflow.
+   FPn may overflow. **Decided (Daniel, 2026-09-29): 6.1.7 decides**, as
+   for item 3 - the flags report the rounding or overflow that happened.
 5. **FMOD/FREM's quotient byte** for the special cases (source infinity,
    destination zero, NaN) is not stated.
 6. **The redundant opmodes** `$05, $07, $0B, $13, $17, $1B, $29-$2F, $39,
@@ -8703,7 +8704,10 @@ built for one setting per item; the switches exist only in the model.
     does not overflow in single - against 2.2.2's range control. **The
     model's default is therefore `rom64`**: WinUAE's 64-bit images and
     directions (a lead, the manual being silent on the ROM's bits - Daniel's
-    rule of 8.6.15), then the manual's post-processing.
+    rule of 8.6.15), then the manual's post-processing. **Decided (Daniel,
+    2026-09-29): `rom64`** - the FPGA's constant ROM holds these 64-bit
+    images and a direction bit per constant; Motorola's FPSP tables
+    corroborate them (8.7.2).
 20. **FINT and FINTRZ in single or double PREC.** 4-50 rounds "the extended
     precision number to an integer"; 2.2.2 rounds every register result to
     PREC. Default: both, in that order (two roundings); the others: one
@@ -8897,8 +8901,9 @@ FMOVEM order, FREM's ties - which the checks now close).
 
 **For Daniel:** item 4's default (6.1.7 decides FSCALE's and FREM's INEX2
 and FMOD's OVFL, as item 3's precedent) is a reading of a
-self-contradiction, not the manual's text; and item 19's default moved to
-`rom64` by the rule of 8.6.15.
+self-contradiction, not the manual's text - **confirmed by Daniel
+2026-09-29**; and item 19's default moved to
+`rom64` by the rule of 8.6.15 - **confirmed by Daniel 2026-09-29**.
 
 ### 8.7.2 5b as built: packed decimal (2026-09-29)
 

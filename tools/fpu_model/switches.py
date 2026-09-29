@@ -32,7 +32,8 @@ class Switches:
     # Item 4.  FSCALE's and FREM's INEX2, and FMOD's OVFL, which their pages
     # list as "cleared" while their notes say the re-rounded FPn may be
     # inexact or overflow.  'section6': 6.1.7/6.1.4 decide, as for every
-    # other rounded result.  'table': those bits forced clear.
+    # other rounded result (Daniel's decision, 2026-09-29).  'table': those
+    # bits forced clear.
     rem_scale_inex: str = 'section6'
 
     # Item 5.  FMOD/FREM's quotient byte when no quotient is computed.  The
@@ -76,7 +77,8 @@ class Switches:
     # an extended precision constant ... rounds it to the precision" - the
     # ROM holds a 64-bit constant and the side the true value lies on; the
     # bits are WinUAE's (a lead: log10(2) and e truncated rather than
-    # nearest, log10(e) exact), then the manual's PREC post-processing.
+    # nearest, log10(e) exact), then the manual's PREC post-processing;
+    # Daniel's decision, 2026-09-29, corroborated by Motorola's FPSP.
     # 'exact': the exact value rounded once.  'winuae': WinUAE's whole
     # procedure, whose PREC rounding keeps the extended exponent range (so
     # 10^64 does not overflow in single, against 2.2.2's range control).
