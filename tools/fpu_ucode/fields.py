@@ -100,7 +100,10 @@ SEQ = Enum('NEXT', 'JUMP', 'CALL', 'RET', 'BRT', 'BRF', 'DISP', 'WAIT')
 # (8.8.9); the tags are Table 8-13's classes of the source and destination
 # operands; KABOVE/KBELOW are the direction bits of the last constant read
 # (8.6.14 item 19); S is the sign of the last ALU result word; RPEXT: the
-# rounding precision's exponent range is extended's (EXT or SGLX).
+# rounding precision's exponent range is extended's (EXT or SGLX).  TINY and
+# HUGE: the last result word's exponent below the rounding precision's
+# minimum or above its maximum - comparators beside the round logic
+# (Daniel, 2026-09-29), so 8.6.4's range checks cost no clocks.
 COND = Enum(
     'TRUE', 'Z', 'N', 'C', 'V', 'STK', 'INEX', 'RCARRY',
     'LCZ', 'Q0', 'DFLAG', 'SCZ', 'KABOVE', 'KBELOW', 'EXCEN', 'PENDING',
@@ -109,7 +112,7 @@ COND = Enum(
     'EN_BSUN', 'EN_SNAN', 'EN_OPERR', 'EN_OVFL', 'EN_UNFL', 'EN_DZ', 'EN_INEX2', 'EN_INEX1',
     'PREC_EXT', 'PREC_SGL', 'PREC_DBL', 'RND_RN', 'RND_RZ', 'RND_RM', 'RND_RP', 'DYNK',
     'SAVEREQ', 'ABORT', 'CUHANDOFF', 'SRCREG', 'SAMEREG',
-    'S', 'RPEXT',
+    'S', 'RPEXT', 'TINY', 'HUGE',
 )
 
 # Dispatch keys (seq DISP; the `cond` field selects one): the key is ORed
@@ -147,6 +150,9 @@ assert MICRO.width == 48
 # -- the datapath controls (8.8.10, 8.8.11) ------------------------------------------
 
 ASRC = Enum('ZERO', 'T', 'FP', 'CU')
+# SQT: the square root's trial value, (Q << 1) | (3 or 1) << LC - the
+# suffix 11 when the word's direction flag is set (the nonrestoring root's
+# add step), 01 when it is clear.
 BSRC = Enum('ZERO', 'T', 'K', 'KLC', 'FP', 'OPINT', 'OPRAW', 'CU', 'BOOTH',
             'RINC', 'RMASK', 'SQT', 'Q', 'SC', 'LC', 'CMD')
 # The FP register: the instruction's source (RX of opclass 000; RY, the
@@ -170,7 +176,12 @@ EMODE = Enum('MANT', 'MANTB', 'EXP', 'EXPB')
 ALU = Enum('NOP', 'ADD', 'SUB', 'RSUB', 'PASSA', 'PASSB', 'AND', 'OR', 'XOR',
            'ANDN', 'ADDSUB', 'SUBADD')
 DIR = Enum('PREVN', 'DFLAG', 'BSIGN', 'BOOTH')
-OSH = Enum('NONE', 'L1', 'L1Q', 'R1', 'R3Q')
+# NORM (Daniel, 2026-09-29: small exponent hardware for the timing tables):
+# the result mantissa shifted left by its leading zeros and the exponent
+# lowered by the count, in one clock.  QBIT: no shift; Q |= (1 - N) << LC
+# (the square root's bit).  In exponent mode only R1 is allowed: the 18-bit
+# result shifted right arithmetically (halving an exponent).
+OSH = Enum('NONE', 'L1', 'L1Q', 'R1', 'R3Q', 'NORM', 'QBIT')
 QOP = Enum('HOLD', 'LOAD', 'LOADB', 'CLEAR')
 DST = Enum('NONE', 'T', 'FP', 'MD', 'MD3', 'OBUFH', 'OBUFL', 'OBUFX', 'EXOP', 'SC')
 SGN = Enum('A', 'B', 'XOR', 'N', 'ZERO', 'ONE', 'NOTA', 'NOTB')
@@ -189,9 +200,10 @@ RNDM = Enum('NONE', 'EXT', 'SGL', 'DBL', 'TRUNC', 'RPREC')
 # ACCRUE ORs EXC into AEXC at the end (6.1.10).
 FPSR = Enum('NONE', 'CLREXC', 'FPCC', 'ORLIT', 'INEX2R', 'QUOT', 'ACCRUE', 'FPCCINEX')
 LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU')
-# END: the instruction is complete - the BIU takes EXC AND ENABLE as the
-# pending exception (6.1.9's priority), pre-instruction for a register
-# destination, mid-instruction for a store.  RP_*: load the rounding-
+# END: the instruction is complete - AEXC accrues from EXC (6.1.10) and
+# the BIU takes EXC AND ENABLE as the pending exception (6.1.9's
+# priority), pre-instruction for a register destination, mid-instruction
+# for a store.  RP_*: load the rounding-
 # precision register (PREC codes: 0 EXT, 1 SGL, 2 DBL; FPCR's 3 is EXT).
 CTL = Enum('NONE', 'RELEASE', 'OPWANT', 'STORED', 'CHECKPOINT', 'END',
            'HANDOFF', 'SAVED', 'RESTORED',
@@ -214,6 +226,7 @@ NANO = Format(
     Field('sgn', 3, SGN),
     Field('stk', 2, STK),
     Field('dl', 1, doc='latch DFLAG from this result\'s N'),
+    Field('a2', 1, doc='A\'s mantissa shifted left one place before the ALU (the square root\'s 2W)'),
     Field('rnd', 3, RNDM),
     Field('fpsr', 3, FPSR),
     Field('lcop', 2, LCOP),

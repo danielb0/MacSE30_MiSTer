@@ -18,7 +18,7 @@ unimpl: alu=nop | goto unimpl                       ; not written yet (vec.py co
 .entry default unimpl
 .redundant model
 
-done:   fpsr=accrue ctl=end | goto idle
+done:   ctl=end | goto idle                        ; END accrues AEXC (6.1.10)
 
 ; ============================================================================
 ; The prologues, by source kind (the entry table's index, 8.8.11): the
@@ -34,9 +34,7 @@ pro_x:   d=T1 b=CU alu=passb mode=mantb sign=b fpsr=clrexc ctl=rp_prec
 ; S, D: a denormal is normalized here (Table 8-13's "not normalized" times).
 pro_sd:  d=T1 b=CU alu=passb mode=mantb sign=b fpsr=clrexc ctl=rp_prec
          d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr | unless SUNN goto pro_go
-pro_nrm: a=T1 alu=passa
-         d=T1 b=T1<<LZC alu=passb mode=mantb sign=b
-         d=T1 a=T1 b=SC mode=exp alu=sub | goto pro_go
+pro_nrm: d=T1 a=T1 alu=passa osh=norm | goto pro_go
 ; B, W, L: the CU hands the magnitude and sign; the value is |n| x 2^0 (the
 ; exponent that puts the binary point below bit 0), normalized; 0 is +0.
 pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
@@ -44,17 +42,17 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
          d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | goto pro_nrm
 
 .table ops OPMODE
-  $00  fmove
-  $18  fabs
-  $1A  fneg
-  $38  fcmp
-  $3A  ftst
-  $22  fadd
+  $00  :: alu=nop | dispatch STAG t_move                ; FMOVE
+  $18  :: alu=nop | dispatch STAG t_abs                 ; FABS
+  $1A  :: alu=nop | dispatch STAG t_neg                 ; FNEG
+  $38  :: alu=nop | dispatch TAGPAIR t_cmp              ; FCMP
+  $3A  :: alu=nop | dispatch STAG t_tst                 ; FTST
+  $22  :: alu=nop | dispatch TAGPAIR t_add              ; FADD
   $28  fsub
-  $23  fmul
-  $27  fsglmul
-  $20  fdiv
-  $24  fsgldiv
+  $23  :: alu=nop | dispatch TAGPAIR t_mul              ; FMUL
+  $27  :: alu=nop ctl=rp_sglx | dispatch TAGPAIR t_sgm  ; FSGLMUL
+  $20  :: alu=nop | dispatch TAGPAIR t_div              ; FDIV
+  $24  :: alu=nop ctl=rp_sglx | dispatch TAGPAIR t_sgd  ; FSGLDIV
   redundant model
   default unimpl
 .end
@@ -110,9 +108,6 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
 ; change the sign after the NaN test (a NaN keeps its sign).
 ; ============================================================================
 
-fmove:  alu=nop | dispatch STAG t_move
-fabs:   alu=nop | dispatch STAG t_abs
-fneg:   alu=nop | dispatch STAG t_neg
 
 .table t_move STAG
   NORM mv_fin
@@ -134,7 +129,7 @@ abs_go: d=T1 a=T1 alu=passa sign=zero | dispatch STAG t_move
 neg_go: d=T1 a=T1 alu=passa sign=nota | dispatch STAG t_move
 
 mv_fin: d=T0 a=T1 alu=passa | call pp
-        d=FP[dst] a=T0 alu=passa fpsr=fpcc | goto done
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 mv_zero: d=T0 a=T1 b=0 alu=passb mode=exp            ; a signed zero: exponent 0
         d=FP[dst] a=T0 alu=passa fpsr=fpcc | goto done
 mv_copy: d=FP[dst] a=T1 alu=passa fpsr=fpcc | goto done
@@ -151,7 +146,6 @@ nan_w:  d=FP[dst] a=T0 alu=passa fpsr=fpcc | goto done
 ; FTST: FPCC from the source (a NaN made nonsignaling first, its sign kept).
 ; ============================================================================
 
-ftst:   alu=nop | dispatch STAG t_tst
 .table t_tst STAG
   NAN  tst_nan
   default tst_go
@@ -167,7 +161,6 @@ tst_nw: a=T0 alu=passa fpsr=fpcc | goto done
 ; FPCC patterns are written by a word of the right class and sign.
 ; ============================================================================
 
-fcmp:   alu=nop | dispatch TAGPAIR t_cmp
 .table t_cmp TAGPAIR
   NAN  *    cmp_nan
   *    NAN  cmp_nan
@@ -202,12 +195,8 @@ cmp_fin: alu=nop | if SNEG goto cmp_sneg
         alu=nop | if DNEG goto cc_n                     ; d < 0 < s
         goto cmp_mag
 cmp_sneg: alu=nop | unless DNEG goto cc_0               ; s < 0 < d
-cmp_mag: a=T0 alu=passa
-        d=T0 b=T0<<LZC alu=passb mode=mantb sign=b
-        d=T0 a=T0 b=SC mode=exp alu=sub
-        a=T1 alu=passa
-        d=T1 b=T1<<LZC alu=passb mode=mantb sign=b
-        d=T1 a=T1 b=SC mode=exp alu=sub
+cmp_mag: d=T0 a=T0 alu=passa osh=norm
+        d=T1 a=T1 alu=passa osh=norm
         a=T0 b=T1 mode=exp alu=sub                      ; Ed - Es
         alu=nop | if Z goto cmp_m
         alu=nop | if N goto cmp_less
@@ -229,54 +218,42 @@ cmp_nq: a=0 b=K[nan] alu=passb mode=mantb sign=zero fpsr=fpcc | goto done
 
 ; ============================================================================
 ; pp: the post-processing of a register result (8.6.4; UM 4.5.5.2, 6.1.4,
-; 6.1.5): normalize, the underflow check, round, the overflow check, at
-; the rounding precision.  In: T0 finite and nonzero, STK its sticky bit.
-; Out: T0 the register image; EXC's UNFL, OVFL, INEX2; EXOP for an enabled
-; OVFL or UNFL (the value rounded to 64 bits at its own exponent, wrapped
-; by $6000, or exponent 0 past the catastrophic limits).
+; 6.1.5) at the rounding precision: normalize (one clock, osh=norm), round,
+; the range checks by the TINY/HUGE comparators.  In: T0 finite and
+; nonzero, STK its sticky bit.  Out: T5 the register image - T0 keeps the
+; normalized, unrounded value for the exceptional operand; EXC's UNFL,
+; OVFL, INEX2; EXOP for an enabled OVFL or UNFL (the value rounded to 64
+; bits at its own exponent, wrapped by $6000, or exponent 0 past the
+; catastrophic limits).  Five clocks on the common path (Table 8-18 gives
+; extended rounding six).
 ; ============================================================================
 
-pp:     d=T0 a=T0 alu=passa                             ; its leading zeros
-        d=T0 b=T0<<LZC alu=passb mode=mantb sign=b      ; normalized; SC <- the count
-        d=T0 a=T0 b=SC mode=exp alu=sub | dispatch RPREC pp_lim
-.table pp_lim RPREC
-  EXT   pp_x
-  SGL   pp_s
-  DBL   pp_d
-  SGLX  pp_x                                      ; single's mantissa, extended's range
-.end
-pp_x:   d=T12 b=K[ext_emin] alu=passb mode=expb
-        d=T13 b=K[ext_emax] alu=passb mode=expb | goto pp_go
-pp_s:   d=T12 b=K[sgl_emin] alu=passb mode=expb
-        d=T13 b=K[sgl_emax] alu=passb mode=expb | goto pp_go
-pp_d:   d=T12 b=K[dbl_emin] alu=passb mode=expb
-        d=T13 b=K[dbl_emax] alu=passb mode=expb | goto pp_go
-
-; With an OVFL or UNFL trap enabled, first the exceptional operand's value:
-; T0 rounded to 64 bits (extended) with the true sticky bit, into T6.
-pp_go:  alu=nop | if EN_OVFL goto pp_xr
-        alu=nop | unless EN_UNFL goto pp_t
-pp_xr:  d=T6 a=T0 b=RINC alu=add rnd=ext
-        d=T6 a=T6 b=RMASK alu=and rnd=ext | unless C goto pp_t
-        d=T6 a=T6 b=K[one] alu=passb                    ; carried out: 1.0 ...
-        d=T6 a=T6 b=0 alu=add cin=1 mode=exp            ; ... one binade up
-
-pp_t:   a=T0 b=T12 mode=exp alu=sub                     ; tiny: Eb below the minimum
-        alu=nop | if N goto pp_tiny
-        d=T0 a=T0 b=RINC alu=add rnd=rprec fpsr=inex2r
-        d=T0 a=T0 b=RMASK alu=and rnd=rprec stk=clr | unless C goto pp_ov
-        d=T0 a=T0 b=K[one] alu=passb
-        d=T0 a=T0 b=0 alu=add cin=1 mode=exp
-pp_ov:  a=T0 b=T13 mode=exp alu=rsub                    ; overflow: the maximum - Eb < 0
-        alu=nop | if N goto pp_ovfl
+pp:     d=T0 a=T0 alu=passa osh=norm
+        d=T3 a=T0 b=RINC alu=add rnd=rprec | if TINY goto pp_tiny
+        d=T5 a=T3 b=RMASK alu=and rnd=rprec fpsr=inex2r | if C goto pp_cy
+        alu=nop | if HUGE goto pp_ovfl
+        ret
+pp_cy:  d=T5 a=T5 b=K[one] alu=passb                    ; carried out: 1.0 ...
+        d=T5 a=T5 b=0 alu=add cin=1 mode=exp            ; ... one binade up
+        alu=nop | if HUGE goto pp_ovfl
         ret
 
+; T6: T0 rounded to 64 bits with the true sticky bit (the exceptional
+; operand's value, before any denormalization).
+pp_xop: d=T6 a=T0 b=RINC alu=add rnd=ext
+        d=T6 a=T6 b=RMASK alu=and rnd=ext | unless C goto pp_xr
+        d=T6 a=T6 b=K[one] alu=passb
+        d=T6 a=T6 b=0 alu=add cin=1 mode=exp
+pp_xr:  ret
+
+; Overflow (6.1.4): OVFL; the exceptional operand wrapped by -$6000; the
+; result infinity or the largest number, by RND and the sign.
 pp_ovfl: fpsr=orlit exc=OVFL | unless EN_OVFL goto pp_ovr
+        alu=nop | call pp_xop
         a=T6 b=K[ovfl_cat] mode=exp alu=rsub            ; past 57343: catastrophic
         d=T7 a=T6 b=K[xop_bias] mode=exp alu=sub | if N goto pp_ovc
         d=EXOP a=T7 alu=passa | goto pp_ovr
 pp_ovc: d=EXOP a=T6 b=0 alu=passb mode=exp
-; 6.1.4's result: infinity, or the largest number, by RND and the sign.
 pp_ovr: alu=nop | dispatch RND pp_ovt
 .table pp_ovt RND
   RN  pp_inf
@@ -289,30 +266,50 @@ pp_ovm: a=T0 alu=passa
         goto pp_big
 pp_ovp: a=T0 alu=passa
         alu=nop | if S goto pp_big
-pp_inf: d=T0 a=T0 b=K[exp_inf] alu=passb mode=exp
-        d=T0 a=T0 b=0 alu=passb | ret
-pp_big: d=T0 a=T0 b=T13 alu=passb mode=exp
-        d=T0 a=T0 b=RMASK alu=passb rnd=rprec | ret
+pp_inf: d=T5 a=T0 b=K[exp_inf] alu=passb mode=exp
+        d=T5 a=T5 b=0 alu=passb | ret
+pp_big: alu=nop | dispatch RPREC pp_emax
+.table pp_emax RPREC
+  EXT  pp_bx
+  SGL  pp_bs
+  DBL  pp_bd
+  SGLX pp_bx
+.end
+pp_bx:  d=T5 a=T0 b=K[ext_emax] alu=passb mode=exp | goto pp_bm
+pp_bs:  d=T5 a=T0 b=K[sgl_emax] alu=passb mode=exp | goto pp_bm
+pp_bd:  d=T5 a=T0 b=K[dbl_emax] alu=passb mode=exp
+pp_bm:  d=T5 a=T5 b=RMASK alu=passb rnd=rprec | ret
 
-; Tiny (6.1.5): UNFL; shifted right to the minimum exponent with the sticky
-; bit, rounded there.  Extended keeps the denormal at exponent 0; single
-; and double are normalized again (an extended register holds them).
+; Tiny (6.1.5): UNFL; the exceptional operand wrapped by +$6000; shifted
+; right to the minimum exponent with the sticky bit and rounded there.
+; Extended's range keeps a denormal at exponent 0; single and double are
+; normalized again (an extended register holds them).
 pp_tiny: fpsr=orlit exc=UNFL | unless EN_UNFL goto pp_dn
+        alu=nop | call pp_xop
         a=T6 b=K[unfl_cat] mode=exp alu=sub             ; at or below -24576: catastrophic
         d=T7 a=T6 b=K[xop_bias] mode=exp alu=add | if N goto pp_unc
         d=EXOP a=T7 alu=passa | goto pp_dn
 pp_unc: d=EXOP a=T6 b=0 alu=passb mode=exp
-pp_dn:  d=SC a=T12 b=T0 mode=exp alu=sub                ; the minimum - Eb, at most 127
-        d=T0 a=T0 b=T12 alu=passb mode=exp
-        d=T0 a=T0 b=T0>>SC alu=passb stk=shift
-        d=T0 a=T0 b=RINC alu=add rnd=rprec fpsr=inex2r
-        d=T0 a=T0 b=RMASK alu=and rnd=rprec stk=clr
+pp_dn:  alu=nop | dispatch RPREC pp_emin
+.table pp_emin RPREC
+  EXT  pp_nx
+  SGL  pp_ns
+  DBL  pp_nd
+  SGLX pp_nx
+.end
+pp_nx:  d=T12 b=K[ext_emin] alu=passb mode=expb | goto pp_dn2
+pp_ns:  d=T12 b=K[sgl_emin] alu=passb mode=expb | goto pp_dn2
+pp_nd:  d=T12 b=K[dbl_emin] alu=passb mode=expb
+pp_dn2: d=SC a=T12 b=T0 mode=exp alu=sub                ; the minimum - Eb, at most 127
+        d=T5 a=T0 b=T12 alu=passb mode=exp
+        d=T5 a=T5 b=T5>>SC alu=passb stk=shift
+        d=T3 a=T5 b=RINC alu=add rnd=rprec
+        d=T5 a=T3 b=RMASK alu=and rnd=rprec fpsr=inex2r
         alu=nop | if Z goto pp_uz
         alu=nop | if RPEXT goto pp_ret
-        d=T0 b=T0<<LZC alu=passb mode=mantb sign=b
-        d=T0 a=T0 b=SC mode=exp alu=sub
+        d=T5 a=T5 alu=passa osh=norm
 pp_ret: ret
-pp_uz:  d=T0 a=T0 b=0 alu=passb mode=exp | ret           ; rounded to nothing: a signed zero
+pp_uz:  d=T5 a=T5 b=0 alu=passb mode=exp | ret           ; rounded to nothing: a signed zero
 
 ; ============================================================================
 ; Shared endings.  operr: the chip's NaN with OPERR (6.1.3); dz: T0 (an
@@ -324,10 +321,10 @@ operr:  d=T0 b=K[nan] alu=passb mode=mantb sign=b fpsr=orlit exc=OPERR | unless 
         d=EXOP a=T9 alu=passa | goto done
 dz:     fpsr=orlit exc=DZ | unless EN_DZ goto wr_t0
         d=EXOP a=T9 alu=passa | goto done
-wr_t0:  d=FP[dst] a=T0 alu=passa fpsr=fpcc | goto done
+wr_t0:  d=FP[dst] a=T0 alu=passa fpsr=fpcc ctl=end | goto idle
 ; T0 through the post-processing, then written.
 wr_pp:  alu=nop | call pp
-        d=FP[dst] a=T0 alu=passa fpsr=fpcc | goto done
+wr_t5:  d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 ; An infinity with T0's sign.
 mk_inf: d=T0 a=T0 b=K[exp_inf] alu=passb mode=exp
         d=T0 a=T0 b=0 alu=passb | goto wr_t0
@@ -351,7 +348,6 @@ nd_w:   d=FP[dst] a=T2 alu=passa fpsr=fpcc | goto done
 ; zero is +0, or -0 in RM.
 ; ============================================================================
 
-fadd:   alu=nop | dispatch TAGPAIR t_add
 fsub:   alu=nop | if SNAN goto nan_d
         alu=nop | if DNAN goto nan_d
         d=T1 a=T1 alu=passa sign=nota | dispatch TAGPAIR t_add
@@ -365,7 +361,7 @@ fsub:   alu=nop | if SNAN goto nan_d
   ZERO ZERO add_zz
   ZERO *    add_sz
   *    ZERO add_dz
-  default   add_fin
+  default   :: d=T0 a=T0 alu=passa osh=norm | goto add_fin
 .end
 
 add_di: d=T0 a=T0 alu=passa | goto mk_inf               ; the destination's infinity
@@ -382,12 +378,7 @@ add_z0: alu=nop | if RND_RM goto add_zm
 add_zm: d=T0 b=0 alu=passb sign=one | goto wr_t0        ; -0 (RM)
 add_zk: d=T0 a=T0 b=0 alu=passb mode=exp | goto wr_t0   ; the like-signed zero, exponent 0
 
-add_fin: a=T0 alu=passa
-        d=T0 b=T0<<LZC alu=passb mode=mantb sign=b
-        d=T0 a=T0 b=SC mode=exp alu=sub
-        a=T1 alu=passa
-        d=T1 b=T1<<LZC alu=passb mode=mantb sign=b
-        d=T1 a=T1 b=SC mode=exp alu=sub
+add_fin: d=T1 a=T1 alu=passa osh=norm
         a=T0 b=T1 mode=exp alu=sub                      ; Ed - Es
         alu=nop | unless N goto add_al
         d=T2 a=T0 alu=passa                             ; the larger exponent to T0
@@ -410,13 +401,6 @@ add_sub: d=T0 a=T0 b=T1 alu=sub
 add_sn: alu=nop | if Z goto add_z0                      ; an exact zero
         goto wr_pp
 
-; T0 and T1 normalized (both nonzero and finite).
-norm01: a=T0 alu=passa
-        d=T0 b=T0<<LZC alu=passb mode=mantb sign=b
-        d=T0 a=T0 b=SC mode=exp alu=sub
-        a=T1 alu=passa
-        d=T1 b=T1<<LZC alu=passb mode=mantb sign=b
-        d=T1 a=T1 b=SC mode=exp alu=sub | ret
 ; A zero with T0's sign.
 mk_zero: d=T0 a=T0 b=0 alu=passb
         d=T0 a=T0 b=0 alu=passb mode=exp | goto wr_t0
@@ -432,8 +416,6 @@ sgl_tr: d=T0 a=T0 b=RMASK alu=and rnd=sgl
 ; rounds to single's mantissa in extended's range.
 ; ============================================================================
 
-fmul:   alu=nop | dispatch TAGPAIR t_mul
-fsglmul: alu=nop ctl=rp_sglx | dispatch TAGPAIR t_mul
 
 .table t_mul TAGPAIR
   NAN  *    nan_d
@@ -444,19 +426,13 @@ fsglmul: alu=nop ctl=rp_sglx | dispatch TAGPAIR t_mul
   *    INF  mul_inf
   ZERO *    mul_zero
   *    ZERO mul_zero
-  default   mul_fin
+  default   :: d=T0 a=T0 alu=passa osh=norm | goto mul_fin
 .end
 
 mul_inf: d=T0 a=T0 b=T1 alu=passa sign=xor | goto mk_inf
 mul_zero: d=T0 a=T0 b=T1 alu=passa sign=xor | goto mk_zero
 
-mul_fin: alu=nop | call norm01
-        alu=nop | dispatch RPREC t_mtr
-.table t_mtr RPREC
-  SGLX  mul_tr
-  default mul_go
-.end
-mul_tr: alu=nop | call sgl_tr
+mul_fin: d=T1 a=T1 alu=passa osh=norm
 mul_go: d=T2 a=T0 b=T1 mode=exp alu=add sign=xor        ; E0 + E1, the sign
         d=T2 a=T2 b=K[bias] mode=exp alu=sub cin=1      ; - bias + 1
         d=T3 b=T1>>3 alu=passb                          ; the multiplicand's 64 bits
@@ -468,7 +444,8 @@ mloop:  d=T4 a=T4 b=BOOTH alu=addsub dir=booth osh=r3q lc=dec | unless LCZ goto 
         d=T5 b=T4<<5 alu=passb
         d=T5 a=T5 b=Q>>62 alu=or
         b=Q<<5 alu=passb stk=nz                         ; the product's bits below the window
-        d=T0 a=T2 b=T5 alu=passb | goto wr_pp
+        d=T0 a=T2 b=T5 alu=passb | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
 ; ============================================================================
 ; FDIV, FSGLDIV (4-40, 4-98): nonrestoring, one quotient bit a clock into Q
@@ -478,8 +455,6 @@ mloop:  d=T4 a=T4 b=BOOTH alu=addsub dir=booth osh=r3q lc=dec | unless LCZ goto 
 ; is the sticky bit.  0/0, inf/inf: OPERR; x/0: DZ.
 ; ============================================================================
 
-fdiv:   alu=nop | dispatch TAGPAIR t_div
-fsgldiv: alu=nop ctl=rp_sglx | dispatch TAGPAIR t_div
 
 .table t_div TAGPAIR
   NAN  *    nan_d
@@ -490,34 +465,100 @@ fsgldiv: alu=nop ctl=rp_sglx | dispatch TAGPAIR t_div
   ZERO *    div_dz                                   ; x / 0
   *    ZERO mul_zero                                 ; 0 / x
   INF  *    mul_zero                                 ; x / inf
-  default   div_fin
+  default   :: d=T0 a=T0 alu=passa osh=norm | goto div_fin
 .end
 
 div_dz: d=T0 a=T0 b=T1 alu=passa sign=xor
         d=T0 a=T0 b=K[exp_inf] alu=passb mode=exp
         d=T0 a=T0 b=0 alu=passb | goto dz
 
-div_fin: alu=nop | call norm01
-        alu=nop | dispatch RPREC t_dtr
-.table t_dtr RPREC
-  SGLX  div_tr
-  default div_go
-.end
-div_tr: alu=nop | call sgl_tr
-div_go: d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor        ; E0 - E1, the sign
+div_fin: d=T1 a=T1 alu=passa osh=norm
+div_go: d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor lc=66  ; E0 - E1, the sign
         d=T2 a=T2 b=K[bias] mode=exp alu=add            ; + bias
-        d=T4 b=T0>>2 alu=passb                          ; the partial remainder
+        a=T0 b=T1 alu=sub                               ; C: a < b
+        d=T4 b=T0>>2 alu=passb q=clear | if C goto div_lo   ; the partial remainder
         d=T5 b=T1>>2 alu=passb                          ; the divisor (N = 0: subtract first)
-        q=clear lc=66
 dloop:  d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ goto dloop
-        a=0 b=Q alu=passb                               ; the quotient's top bit
-        alu=nop | if N goto div_st
-        d=T4 a=T4 b=T5 alu=subadd dir=dflag osh=l1q dl=1   ; a < b: one more bit
-        d=T2 a=T2 b=K[exp_one] mode=exp alu=sub         ; the exponent one lower
+        goto div_st
+; a < b: the quotient's top bit would be 0 - one more step, the exponent one lower.
+div_lo: d=T2 a=T2 b=K[exp_one] mode=exp alu=sub lc=67
+        d=T5 b=T1>>2 alu=passb
+dloop2: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ goto dloop2
 ; The sticky bit: the true remainder is r, or r + D when the last partial
 ; remainder r is negative (the quotient bits are restoring's) - which is
 ; zero for an exact quotient that ends at r = -D, as x/x does.  T4 is 2r.
-div_st: alu=nop | if DFLAG goto div_sn
-        a=T4 alu=passa stk=nz | goto div_q
-div_sn: a=T4 b=T5<<1 alu=add stk=nz
-div_q:  d=T0 a=T2 b=Q alu=passb | goto wr_pp
+div_st: d=T6 a=T4 b=T5<<1 alu=add | if DFLAG goto div_sn
+        a=T4 alu=passa stk=nz
+        d=T0 a=T2 b=Q alu=passb | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+div_sn: a=T6 alu=passa stk=nz
+        d=T0 a=T2 b=Q alu=passb | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+
+; FSGLMUL: the inputs truncated to 24 bits (8.6.14 item 9); the multiplier's
+; 24 bits need 9 Booth steps.  The product's high part in T4, its low 27
+; bits in Q's top (bits 66-40); the window (a x b') >> 21 is (P << 6) |
+; (Q >> 61) and the rest of Q the sticky bit - with the exponent E0 + E1 -
+; bias + 1, as FMUL's.
+.table t_sgm TAGPAIR
+  NAN  *    nan_d
+  *    NAN  nan_d
+  INF  ZERO operr
+  ZERO INF  operr
+  INF  *    mul_inf
+  *    INF  mul_inf
+  ZERO *    mul_zero
+  *    ZERO mul_zero
+  default   :: d=T0 a=T0 alu=passa osh=norm | goto sgm_fin
+.end
+sgm_fin: d=T1 a=T1 alu=passa osh=norm | call sgl_tr
+        d=T2 a=T0 b=T1 mode=exp alu=add sign=xor
+        d=T2 a=T2 b=K[bias] mode=exp alu=sub cin=1
+        d=T3 b=T1>>3 alu=passb
+        d=MD a=T3 alu=passa
+        d=MD3 a=T3 b=T3<<1 alu=add
+        b=T0>>43 q=loadb                                ; b >> 40: the multiplier's 24 bits
+        d=T4 b=0 alu=passb lc=8
+sgmloop: d=T4 a=T4 b=BOOTH alu=addsub dir=booth osh=r3q lc=dec | unless LCZ goto sgmloop
+        d=T5 b=T4<<6 alu=passb
+        d=T5 a=T5 b=Q>>61 alu=or
+        b=Q<<6 alu=passb stk=nz
+        d=T0 a=T2 b=T5 alu=passb | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+
+; FSGLDIV: the inputs truncated to 24 bits; 27 quotient steps (24 bits, the
+; guard and round bits and one more), 28 when a < b; the remainder's
+; nonzero the sticky bit; the quotient placed at the top (<< 40).
+.table t_sgd TAGPAIR
+  NAN  *    nan_d
+  *    NAN  nan_d
+  ZERO ZERO operr
+  INF  INF  operr
+  *    INF  mul_inf
+  ZERO *    div_dz
+  *    ZERO mul_zero
+  INF  *    mul_zero
+  default   :: d=T0 a=T0 alu=passa osh=norm | goto sgd_fin
+.end
+; A result that may over- or underflow extended's range (the exponent
+; within one of a limit) takes FDIV's full quotient: the exceptional
+; operand is rounded to 64 bits (6.1.4-6.1.5) - which is what the manual's
+; FSGLDIV times say (44 clocks, 62 on overflow, 90 on underflow).
+sgd_fin: d=T1 a=T1 alu=passa osh=norm | call sgl_tr
+        d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor lc=26
+        d=T2 a=T2 b=K[bias] mode=exp alu=add
+        d=T6 a=T2 b=K[exp_one] mode=exp alu=sub         ; E - 1: TINY?
+        d=T6 a=T2 b=K[exp_one] mode=exp alu=add | if TINY goto div_go   ; E + 1: HUGE?
+        a=T0 b=T1 alu=sub | if HUGE goto div_go         ; C: a < b
+        d=T4 b=T0>>2 alu=passb q=clear | if C goto sgd_lo
+        d=T5 b=T1>>2 alu=passb
+sgdloop: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ goto sgdloop
+        goto sgd_st
+sgd_lo: d=T2 a=T2 b=K[exp_one] mode=exp alu=sub lc=27
+        d=T5 b=T1>>2 alu=passb
+sgdloop2: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ goto sgdloop2
+sgd_st: d=T6 a=T4 b=T5<<1 alu=add | if DFLAG goto sgd_sn
+        a=T4 alu=passa stk=nz | goto sgd_q
+sgd_sn: a=T6 alu=passa stk=nz
+sgd_q:  d=T0 a=T2 b=Q<<40 alu=passb | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle

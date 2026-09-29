@@ -163,6 +163,11 @@ def accrue(fpsr):
 
 # -- the chip ---------------------------------------------------------------------------
 
+# The range comparators' limits by RPREC (EXT, SGL, DBL, SGLX): the biased
+# exponents a normalized result may have (rounding.py's formats).
+RANGE = {0: (0, 0x7FFE), 1: (16383 - 126, 16383 + 127), 2: (16383 - 1022, 16383 + 1023),
+         3: (0, 0x7FFE)}
+
 _E = {n: {name: i for i, name in enumerate(f.enum.names)} for n, f in FD.NANO.fields.items() if f.enum}
 
 
@@ -207,6 +212,7 @@ class Chip:
         self.SC = self.LC = 0
         self.Z = self.N = self.C = self.V = 0
         self.STK = self.INEX = self.DFLAG = self.LZC = self.KDIR = self.S = 0
+        self.TINY = self.HUGE = 0
         self.RPREC = 0
         self.OBUF = 0
         self.EXOP = (0, 0, 0)
@@ -238,7 +244,7 @@ class Chip:
             'DYNK': self.opclass == 3 and ((self.cmd >> 10) & 7) == 7,
             'SAVEREQ': 0, 'ABORT': 0, 'CUHANDOFF': 0,
             'SRCREG': self.opclass == 0, 'SAMEREG': self.rx == self.ry,
-            'S': self.S, 'RPEXT': self.RPREC in (0, 3),
+            'S': self.S, 'RPEXT': self.RPREC in (0, 3), 'TINY': self.TINY, 'HUGE': self.HUGE,
         }
         if name.startswith('EN_'):
             return bool(self.fpcr & {'EN_BSUN': BSUN, 'EN_SNAN': SNAN, 'EN_OPERR': OPERR,
@@ -338,6 +344,12 @@ class Chip:
             A = fp_word(self.fp[self._fpsel(e['fpsel'], m)])
         else:
             A = self.cu
+        if e['a2']:
+            if e['emode'] in ('EXP', 'EXPB'):
+                raise SimError('a2 in exponent mode')
+            A = Word(A.s, A.e, (A.m << 1) & M67)
+        # the direction flag of ADDSUB/SUBADD (and SQT's suffix)
+        dflag_src = e['dir']
         # the round logic, on A
         rinc = rmask = 0
         if e['rnd'] != 'NONE':
@@ -377,7 +389,10 @@ class Chip:
                 raise SimError('b=RMASK with rnd=none')
             B = Word(0, 0, rmask)
         elif bsrc == 'SQT':
-            B = Word(0, 0, ((self.Q << 1) | (1 << self.LC)) & M67)
+            f = {'PREVN': self.N, 'DFLAG': self.DFLAG}.get(dflag_src)
+            if f is None:
+                raise SimError('b=SQT needs dir=prevn or dir=dflag')
+            B = Word(0, 0, ((self.Q << 1) | ((3 if f else 1) << self.LC)) & M67)
         elif bsrc == 'Q':
             B = Word(0, 0, self.Q)
         elif bsrc == 'SC':
@@ -472,9 +487,11 @@ class Chip:
         osh = e['osh']
         r2 = r
         dropped = 0
-        if osh != 'NONE':
-            if exp_mode:
-                raise SimError('an output shift in exponent mode')
+        if osh != 'NONE' and exp_mode:
+            if osh != 'R1':
+                raise SimError('only R1 in exponent mode')
+            r2 = (s18(r) >> 1) & M18
+        elif osh != 'NONE':
             if osh == 'L1':
                 r2 = (r << 1) & M67
             elif osh == 'L1Q':
@@ -487,6 +504,11 @@ class Chip:
                 r2 = (Rs >> 3) & M67
                 self.QX = (self.Q >> 2) & 1
                 self.Q = (self.Q >> 3) | ((Rs & 7) << 64)
+            elif osh == 'QBIT':
+                self.Q |= (1 - N) << self.LC
+            elif osh == 'NORM':
+                norm = 67 - r.bit_length() if r else 0
+                r2 = (r << norm) & M67
         # the result word
         sgn = {'A': A.s, 'B': B.s, 'XOR': A.s ^ B.s, 'N': N, 'ZERO': 0, 'ONE': 1,
                'NOTA': A.s ^ 1, 'NOTB': B.s ^ 1}[e['sgn']]
@@ -498,8 +520,12 @@ class Chip:
             res = Word(sgn, s18(r2), A.m)
         else:
             res = Word(sgn, s18(r2), B.m)
+        if osh == 'NORM':
+            res = Word(res.s, s18(res.e - norm), res.m)
         self.Z, self.N, self.C, self.V, self.S = Z, N, C, V, sgn
         self.LZC = 67 - res.m.bit_length()
+        lo, hi = RANGE[self.RPREC]
+        self.TINY, self.HUGE = int(res.e < lo), int(res.e > hi)
         if e['dl']:
             self.DFLAG = N
         self._side_effects(e, m, res, B, A, out_bits, dropped, r)
@@ -590,6 +616,9 @@ class Chip:
         # control
         c = e['ctl']
         if c == 'END':
+            # The instruction's end: AEXC accrues from EXC (6.1.10) - the
+            # BIU's logic, as it takes the pending exception.
+            self.fpsr = accrue(self.fpsr)
             self.done = True
         elif c.startswith('RP_'):
             if c == 'RP_PREC':

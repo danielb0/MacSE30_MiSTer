@@ -25,7 +25,7 @@ nothing selected, nothing written, flags held):
       with an optional shift: <<amt (left), >>amt (logical), >>>amt
       (arithmetic); amt = a number, SC, LC, LZC, LC+SC or LC-SC
     d=Tn | FP[sel] | MD | MD3 | OBUFH | OBUFL | OBUFX | EXOP | SC | -
-    alu= mode= dir= cin= osh= q= sign= stk= dl= rnd= fpsr= ctl=  (fields.py's names,
+    alu= mode= dir= cin= osh= q= sign= stk= dl= a2= rnd= fpsr= ctl=  (fields.py's names,
       any case)
     lc=hold|dec|alu|<number>     exc=OPERR,DZ,...  (ORed into lit)    lit=<number>
     sel = src | dst | c | ra
@@ -36,7 +36,9 @@ Directives:
     .include "file"          .org N           .align N        .export label
     .table NAME KEY          (entries until .end: `SRC DST label` for TAGPAIR,
                               `VALUE label` otherwise, `*` a wildcard,
-                              `default label`; an OPMODE table's
+                              `default label`; `KEYS :: microinstruction`
+                              puts the word in the slot (it must end in
+                              goto or dispatch); an OPMODE table's
                               `redundant model` copies 8.6.14 item 6's
                               opmodes from their bases, as .redundant does)
     .entry KINDS OPMODE label    KINDS: reg, L S X P W D B, `*`, comma lists
@@ -256,7 +258,7 @@ def parse_clause(u, c, knames):
         if v.upper() not in enum:
             raise AsmError('%s: %s=%s: one of %s' % (u.loc, k, v, ', '.join(n.lower() for n in enum.names)))
         u.setn(field, v.upper(), k)
-    elif k in ('cin', 'dl'):
+    elif k in ('cin', 'dl', 'a2'):
         if v not in ('0', '1'):
             raise AsmError('%s: %s=%s: 0 or 1' % (u.loc, k, v))
         u.setn(k, int(v), k)
@@ -301,12 +303,16 @@ def word_rules(u):
     if nop and (n('osh', 'NONE') != 'NONE' or n('fpsr', 'NONE') in ('FPCC', 'FPCCINEX', 'QUOT')
                 or n('lcop', 'HOLD') == 'ALU'):
         raise AsmError('%s: osh, fpsr=fpcc/quot and lc=alu need an ALU result' % u.loc)
-    if n('qop', 'HOLD') != 'HOLD' and n('osh', 'NONE') in ('L1Q', 'R3Q'):
+    if n('qop', 'HOLD') != 'HOLD' and n('osh', 'NONE') in ('L1Q', 'R3Q', 'QBIT'):
         raise AsmError('%s: q= and a Q-shifting osh in one word' % u.loc)
     if n('sha') == 'LZC' and n('shk', 'NONE') != 'NONE' and n('dst') == 'SC':
         raise AsmError('%s: a shift by LZC writes SC; d=SC too' % u.loc)
-    if n('emode', 'MANT') in ('EXP', 'EXPB') and n('osh', 'NONE') != 'NONE':
-        raise AsmError('%s: the output shifter is on the mantissa; not in exponent mode' % u.loc)
+    if n('emode', 'MANT') in ('EXP', 'EXPB') and n('osh', 'NONE') not in ('NONE', 'R1'):
+        raise AsmError('%s: in exponent mode the output shifter only halves (osh=r1)' % u.loc)
+    if n('emode', 'MANT') in ('EXP', 'EXPB') and n('a2'):
+        raise AsmError('%s: a2 shifts the mantissa; not in exponent mode' % u.loc)
+    if n('bsrc') == 'SQT' and n('dir', 'PREVN') not in ('PREVN', 'DFLAG'):
+        raise AsmError('%s: b=SQT takes its suffix from dir=prevn or dir=dflag' % u.loc)
     if n('bsrc') in ('RINC', 'RMASK') and n('rnd', 'NONE') == 'NONE':
         raise AsmError('%s: b=%s needs a rnd= mode' % (u.loc, n('bsrc')))
 
@@ -402,6 +408,18 @@ def parse_entry(prog, args, loc):
         raise AsmError('%s: .entry %s' % (loc, args))
 
 
+def parse_uinstr(text, loc, knames):
+    u = UInstr(loc)
+    if '|' not in text and text.split()[0].lower() in SEQ_WORDS:
+        text = '|' + text                          # a line of sequencing alone
+    body, _, seq = text.partition('|')
+    for c in body.split():
+        parse_clause(u, c, knames)
+    parse_seq(u, seq)
+    word_rules(u)
+    return u
+
+
 def parse_file(prog, path, knames, seen=None):
     seen = seen or set()
     ap = os.path.abspath(path)
@@ -420,11 +438,20 @@ def parse_file(prog, path, knames, seen=None):
             if text.lower() == '.end':
                 table = None
                 continue
-            parts = text.rsplit(None, 1)
-            if len(parts) != 2:
-                raise AsmError('%s: table entry: keys then a label' % loc)
-            keytext, label = parts
-            if keytext.lower() == 'redundant' and label.lower() == 'model':
+            if '::' in text:
+                # A microinstruction in the slot itself, saving the jump:
+                # it must leave by goto or dispatch (the next slot is not
+                # its successor).
+                keytext, body = (x.strip() for x in text.split('::', 1))
+                label = parse_uinstr(body, loc, knames)
+                if label.seq not in ('JUMP', 'DISP'):
+                    raise AsmError('%s: a microinstruction in a table slot must end in goto or dispatch' % loc)
+            else:
+                parts = text.rsplit(None, 1)
+                if len(parts) != 2:
+                    raise AsmError('%s: table entry: keys then a label' % loc)
+                keytext, label = parts
+            if keytext.lower() == 'redundant' and isinstance(label, str) and label.lower() == 'model':
                 if table.key != 'OPMODE':
                     raise AsmError('%s: `redundant model` is for an OPMODE table' % loc)
                 table.redundant = True
@@ -487,14 +514,7 @@ def parse_file(prog, path, knames, seen=None):
             if prog.pending_labels and d not in ('.org', '.align', '.export', '.entry', '.redundant', '.include'):
                 raise AsmError('%s: a label must name a microinstruction' % loc)
             continue
-        u = UInstr(loc)
-        if '|' not in text and text.split()[0].lower() in SEQ_WORDS:
-            text = '|' + text                      # a line of sequencing alone
-        body, _, seq = text.partition('|')
-        for c in body.split():
-            parse_clause(u, c, knames)
-        parse_seq(u, seq)
-        word_rules(u)
+        u = parse_uinstr(text, loc, knames)
         for name in prog.pending_labels:
             prog.labels[name] = ('code', u)
         prog.pending_labels = []
@@ -549,8 +569,14 @@ def layout(prog):
             if label is None:
                 raise AsmError('%s: table %s: entry %s has no target and there is no default'
                                % (t.loc, t.name, _key_name(t.key, code)))
-            u = UInstr(t.loc)
-            u.seq, u.target, u.addr, u.table_of = 'JUMP', label, a + code, t
+            if isinstance(label, UInstr):
+                import copy
+                u = copy.copy(label)
+                u.nano = OrderedDict(label.nano)
+                u.addr, u.table_of = a + code, t
+            else:
+                u = UInstr(t.loc)
+                u.seq, u.target, u.addr, u.table_of = 'JUMP', label, a + code, t
             rom[a + code] = u
         pc = a + size
     prog.code_end = code_end

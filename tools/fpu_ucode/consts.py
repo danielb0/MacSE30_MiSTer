@@ -140,6 +140,8 @@ def build():
         ('qbit', kword(0, 0, 1 << 65)),               # a NaN's nonsignaling bit (bit 62)
         ('ulp', kword(0, 0, 1)),                      # bit 0: the sticky bit jammed in
         ('exp_one', _exp_word(1)),
+        ('fx_half', kword(0, 0, 1 << 63)),            # 1/2 in Q2.64 (the square root's first bit)
+        ('gbit', kword(0, 0, 1 << 2)),                # the guard bit of the internal mantissa
         ('nan', _ext(0, 0x7FFF, (1 << 64) - 1)),      # the chip's NaN (UM 6.1.3)
         # The exceptional operand (6.1.4, 6.1.5; rounding.exceptional_operand):
         # the exponent wrapped by $6000, or 0 past the 17-bit catastrophic

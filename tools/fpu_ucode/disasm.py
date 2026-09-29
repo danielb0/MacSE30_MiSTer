@@ -76,6 +76,8 @@ def clauses(m, n):
         out.append('cin=1')
     if n['dl']:
         out.append('dl=1')
+    if n['a2']:
+        out.append('a2=1')
     if n['lcop'] != 'HOLD':
         if n['lcop'] == 'LIT':
             out.append('lc=%d' % n['lit']); lit_used = True
