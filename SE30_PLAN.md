@@ -10077,6 +10077,94 @@ overflow and 90 with an extended underflow - 14 + 90 = 104 exactly. So
 step (2) needs the per-case figures, not one per instruction.
 2,409 microinstructions, 278 nanowords.
 
+**2026-09-29: the timing pass, step (2) done - every path takes its case's
+figure.** Of the 19,484 vectors, the 16,596 the tables time (the rest are
+the conditionals and the F-line decodes: the BIU's) take **exactly** the
+detail tables' clocks for their case, 136 of them their own time over a
+floor (below); all still pass bit for bit. `timing.py` is the specification: Tables 8-13 to 8-19
+transcribed, and each vector's case chosen from the operands' classes (a
+single or double source classed in its own format - a denormal there is
+"not normalized") and from **the model's own rounding outcomes**
+(`rounding.TRACE`: tiny, carried, overflowed, the overflow made by the
+carry - changing nothing the model computes). `vec.py` checks every
+vector's clocks against it.
+
+**The mechanism** (hardware, none of it software-visible; about 40 ALMs):
+- a **budget register** and the instruction's elapsed count, both 0 at its
+  start: `ctl=budget` adds 2 x lit on any word (every figure in the
+  tables is even), the WAIT sequencer op's cond field now picks **HOLD n**,
+  **ADD n** (the large figures, 822 and 1,942) or **UNTIL** the budget; and
+  **END holds until the elapsed clocks reach the budget** - so no path
+  changes where it ends;
+- **`ctl=rtime`: Table 8-18 as a lookup** beside the round logic - the
+  microcode names the outcome's row (normal, carried, tiny, tiny and
+  carried, overflow, overflow carried, overflow made by the carry, an exact
+  zero) and the table gives the clocks by the rounding precision and mode.
+  Its SGLX rows are FSGLMUL/FSGLDIV's notes less their base (18 overflow,
+  46 underflow), so those two need no path of their own;
+- **RB** (with `norb`/`rbon`) gates `rtime` and `rbudget` for the figures
+  that already include their rounding (FINT, FGETEXP, FMOVECR, FATAN of an
+  infinity, FACOS of 0, the X store) and for FSINCOS, whose one "+" is the
+  sine's rounding.
+
+**Where the figures ride.** Table 8-13: each prologue's first word
+dispatches on the tag pair (`cv_*`, 25 slots) and the slot that reads the
+destination adds the conversion; a monadic operation's memory source has
+its own entries (`pro_xm`, `pro_sm`, `pro_dm`, `pro_intm`: the in-memory
+monadic figures); the packed source's table follows its retag. Tables 8-14
+and 8-15: on the operations' dispatch slots (a slot's jump word carries its
+budget for nothing), the handlers adding the splits by sign (small branch
+words where the slack is), the NaN identifiers NAN1-NAN6 and IOP. FSUB has
+its own table (Table 8-14 prices five of its special cells 2 above
+FADD's). Table 8-18: `pp`'s outcome words; `pp_md` is `pp` for FMUL and
+FDIV, whose tiny intermediate takes 2 more (MUL 48+, DIV 80+). The tiny
+result's carry into a new binade is detected ((rounded XOR chopped) >
+chopped). Tables 8-16 and 8-17: the store slots and `ppm`'s outcome words.
+
+**Changed on the way:** FSGLDIV takes FDIV's full quotient only when its
+OVFL or UNFL trap is enabled and the result really over- or underflows (or
+sits at the largest exponent, where the rounding may carry it over): the
+exceptional operand is the only thing that needs 64 bits - otherwise the
+27 quotient bits round the result, denormalized or not, and give its flags
+exactly, in 44/62/90. FINT at extended precision writes its exact integer
+without `pp`. `timing.py`'s S/D class fix found no microcode error.
+
+**Readings of the tables, recorded for Daniel** (none changes a result;
+each is `timing.py`'s docstring too):
+1. FPm and packed sources take the "Monadic or Dyadic" tables' row by the
+   destination register's class for a monadic operation too.
+2. FDIV's "denormalized" and FMUL's "not normalized" intermediate: the
+   result tiny.
+3. A domain error from a normalized source where Table 8-15 names no
+   exception (FASIN, FACOS, FATANH beyond 1, FATANH at +/-1): IOP, as its
+   note 4 does for FLOGNP1 at or below -1.
+4. Table 8-18's extended "round overflow (not caused by rounding)" is an
+   overflow whose rounding also carried; "(caused by rounding)" an overflow
+   only the carry made; a tiny result rounded to zero is an underflow, "Result
+   is Zero" an exact zero.
+5. FSIN, FCOS, FTAN, FSINCOS from 9 up add FREM's time by 2pi (exponent
+   2): 40 + 70 INT((1 + E - 2)/64).
+6. FSINCOS's one "+": the sine's rounding.
+
+**Own time over a floor - Daniel's packed-decimal rule (8.8.16) carried to
+the other figures our algorithm cannot always meet; for Daniel to
+confirm:**
+- **FMOD, FREM, the large trigonometric reduction** (35 + 3 vectors, up to
+  32 clocks over): the formula counts whole 64-bit chunks of quotient and
+  gives the last, partial chunk nothing; our divider takes it a bit a clock
+  (as the 68881's own 70 per 64 bits says it did). Meeting it would take a
+  radix-4 divider the chip did not have.
+- **FSGLDIV with its OVFL or UNFL trap enabled and the result over- or
+  underflowing** (44 vectors, up to 40 over): the exceptional operand is
+  FDIV's 64-bit quotient, which no path fits into 62 or 90.
+- **FINT, FINTRZ whose result overflows the rounding precision** (54, up to
+  11 over): Table 8-15's FINT figures carry no rounding time at all.
+- Packed decimal, in and out: the typical figures, as ruled.
+
+2,927 microinstructions, 391 nanowords; `test_asm` 54, `unit.py` 30,899.
+**Next: step (3), the checkpoints** in the long loops (~every 70 clocks,
+the liveness check holding) - then item 6 is done.
+
 ---
 
 ## Appendix - where the sources are

@@ -139,8 +139,40 @@ pk_sg:  a=T2 b=K[b31] alu=and                           ; SM
         alu=nop | if Z goto pk_go
         d=T1 a=T1 alu=passa sign=one
 pk_go:  d=T1 a=T1 alu=passa ctl=retag stk=clr           ; (the conversion's sticky bit is not the operation's)
-        d=T0 b=FP[dst] alu=passb mode=mantb sign=b ctl=rp_prec
-        d=T9 a=T1 alu=passa ctl=rm_fpcr | dispatch OPMODE ops
+        d=T0 b=FP[dst] alu=passb mode=mantb sign=b ctl=rp_prec | dispatch TAGPAIR cv_p
+; Table 8-13's packed source (8.8.19): a nonzero finite one the typical
+; 822 (Daniel's rule, 8.8.16: the figure, or our own time if longer), 26,
+; 20 or 18 more by the destination's class; a zero or an infinity 22, a
+; NaN 24, and the usual rows.
+.table cv_p TAGPAIR
+  NORM NORM :: alu=nop budget=0 | goto pk_big
+  NORM UNN  :: alu=nop budget=26 | goto pk_big
+  NORM ZERO :: alu=nop budget=20 | goto pk_big
+  NORM INF  :: alu=nop budget=18 | goto pk_big
+  NORM NAN  :: alu=nop budget=20 | goto pk_big
+  UNN  NORM :: alu=nop budget=0 | goto pk_big
+  UNN  UNN  :: alu=nop budget=26 | goto pk_big
+  UNN  ZERO :: alu=nop budget=20 | goto pk_big
+  UNN  INF  :: alu=nop budget=18 | goto pk_big
+  UNN  NAN  :: alu=nop budget=20 | goto pk_big
+  ZERO NORM :: alu=nop budget=22 | goto pk_go3
+  ZERO UNN  :: alu=nop budget=34 | goto pk_go3
+  ZERO ZERO :: alu=nop budget=28 | goto pk_go3
+  ZERO INF  :: alu=nop budget=26 | goto pk_go3
+  ZERO NAN  :: alu=nop budget=28 | goto pk_go3
+  INF  NORM :: alu=nop budget=22 | goto pk_go3
+  INF  UNN  :: alu=nop budget=34 | goto pk_go3
+  INF  ZERO :: alu=nop budget=28 | goto pk_go3
+  INF  INF  :: alu=nop budget=26 | goto pk_go3
+  INF  NAN  :: alu=nop budget=28 | goto pk_go3
+  NAN  NORM :: alu=nop budget=24 | goto pk_go3
+  NAN  UNN  :: alu=nop budget=36 | goto pk_go3
+  NAN  ZERO :: alu=nop budget=30 | goto pk_go3
+  NAN  INF  :: alu=nop budget=28 | goto pk_go3
+  NAN  NAN  :: alu=nop budget=30 | goto pk_go3
+.end
+pk_big: alu=nop | budget 822
+pk_go3: d=T9 a=T1 alu=passa ctl=rm_fpcr | dispatch OPMODE ops
 
 ; ============================================================================
 ; decbin (packed.decbin, FPSP decbin.sa A1-A5): the exponent from its three
@@ -310,14 +342,21 @@ sp_k:   d=T4 a=T4 b=K[k127] alu=and
         alu=nop | if Z goto sp_kp
         d=T4 a=T4 b=K[k128] alu=sub                     ; negative
 sp_kp:  d=T4 a=T4 alu=passa sign=zero | dispatch STAG t_sp
+; Table 8-16: a nonzero finite value the typical 1,942 (Daniel's rule,
+; 8.8.16), 14 more with a dynamic k-factor (Table 8-3's note); a zero or
+; an infinity 24; a NaN NAN2 (28, an SNAN 30).
 .table t_sp STAG
-  NAN  sp_sp
-  INF  sp_sp
-  ZERO sp_sp
-  default :: d=T2 a=T1 alu=passa osh=norm sign=zero | goto bindec
+  NAN  :: alu=nop budget=28 | goto sp_sp
+  INF  :: alu=nop budget=24 | goto sp_sp
+  ZERO :: alu=nop budget=24 | goto sp_sp
+  default :: d=T2 a=T1 alu=passa osh=norm sign=zero | goto sp_n
 .end
+sp_n:   alu=nop | budget 1942
+        alu=nop | unless DYNK goto bindec
+        alu=nop budget=14 | goto bindec
 sp_sp:  d=T5 a=T1 alu=passa
         alu=nop | unless SSNAN goto sp_sk
+        alu=nop budget=2
         d=T5 a=T1 b=K[qbit] alu=or fpsr=orlit exc=SNAN
 sp_sk:  a=T4 b=K[k17] alu=sub                           ; k > 17: OPERR
         alu=nop | if N goto sp_sw

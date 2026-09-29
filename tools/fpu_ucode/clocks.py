@@ -1,5 +1,9 @@
-"""The microcode's clocks against the manual's (plan 8.8.16, 8.8.19): a first
-measure, before 6c's per-case padding.
+"""The microcode's clocks against the manual's (plan 8.8.16, 8.8.19): the
+first measure, from before 6c's per-case padding - each instruction's
+spread against its normal-operand figure.  Since the timing pass every path
+pads to its own case's figure (vec.py checks each vector against
+timing.py), so the spread shown now is the tables' own (overflow,
+underflow, the special cases' figures).
 
     python clocks.py
 

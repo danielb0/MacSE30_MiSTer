@@ -155,6 +155,30 @@ kw = [u for u in rk.rom if u is not None and u.loc.text.strip().startswith('t:')
 check('K[name-1+LC] reads the table one entry behind', not rk.errors and len(kw) == 1
       and kw[0].rb == consts.NAMES['lnup'] - 1)
 
+# -- the timing pass's budget (8.8.19): the forms, and the disassembly's round trip ---------------
+
+rb = assemble_text("""
+    .export idle
+    idle: alu=nop | goto idle
+    .entry default idle
+    .export t
+    t: alu=nop budget=466
+       rtime=tinyc
+       alu=nop | budget 1942
+       alu=nop | waitb 4
+       alu=nop ctl=norb | wait 3
+       ctl=end | goto idle
+    """)
+bw = [u for u in rb.rom if u is not None and u.loc.path.endswith('.uc') and u.addr != rb.prog.labels['idle'][1].addr]
+check('budget=, rtime=, budget N, waitb, wait assemble', not rb.errors and len(bw) == 6, '; '.join(rb.errors))
+used_b = [a for a, u in enumerate(rb.rom) if u is not None]
+rb2 = assemble_text(disasm.disassemble(rb.urom, rb.nrom, rb.entry, used_b))
+check('... and disassemble to the same words', all(
+    rb.urom[a] == rb2.urom[a] and rb.nrom[FD.MICRO.unpack(rb.urom[a])['nano']]
+    == rb2.nrom[FD.MICRO.unpack(rb2.urom[a])['nano']] for a in used_b))
+check('Table 8-18 by precision and mode (rtime)', FD.rtime('NORMAL', 0, 0) == 6 and FD.rtime('NORMAL', 1, 0) == 24
+      and FD.rtime('OVFL', 0, 2) == 16 and FD.rtime('TINYC', 2, 0) == 60 and FD.rtime('TINY', 3, 0) == 46)
+
 # -- each check, broken on purpose --------------------------------------------------------------
 
 HEAD = """
@@ -170,6 +194,8 @@ expect_error('a mantissa shift in exponent mode', HEAD + "d=T1 a=T1 alu=passa mo
 expect_error('a2 in exponent mode', HEAD + "d=T1 a=T1 alu=passa mode=exp a2=1\n", ['exponent mode'])
 expect_error('SQT with a Booth direction', HEAD + "d=T1 a=T1 b=SQT alu=addsub dir=booth\n", ['SQT'])
 expect_error('RINC without a round mode', HEAD + "d=T1 a=T1 b=RINC alu=add\n", ['rnd='])
+expect_error('an odd budget', HEAD + "alu=nop budget=7\n", ['even'])
+expect_error('an unknown Table 8-18 row', HEAD + "rtime=sideways\n", ['rtime'])
 expect_error('K[name-n] without +LC', HEAD + "d=T1 b=K[lnup-1] alu=passb\n", ['only before +LC'])
 expect_error('an exponent constant read as a mantissa', HEAD + "d=T1 b=K[bias] alu=passb\n", ['exponent'])
 expect_error('a mantissa constant read as an exponent', HEAD + "d=T1 a=T1 b=K[ulp8] alu=add mode=exp\n", ['mantissa'])

@@ -1262,10 +1262,13 @@ intrz_fin: d=SC a=T1 b=K[int63] mode=exp alu=rsub
         d=T3 b=T1>>SC alu=passb sign=b stk=shift
         d=T3 a=T3 b=RINC alu=add rnd=trunc
         d=T0 a=T3 b=RMASK alu=and rnd=trunc fpsr=inex2r stk=clr
+; Extended PREC: the integer is exact - written normalized, without pp
 int_e:  d=T0 a=T0 b=K[int63] alu=passb mode=exp | if Z goto int_z
-        alu=nop budget=8 | unless INEX goto wr_pp       ; the fraction 0: 8 ...
-        alu=nop budget=22 | goto wr_pp                  ; ... else 30
-int_big: alu=nop budget=8 | goto wr_pp
+        alu=nop budget=8 | if INEX goto int_30          ; the fraction 0: 8 ...
+int_x:  alu=nop | unless RPEXT goto wr_pp
+        d=FP[dst] a=T0 alu=passa osh=norm fpsr=fpcc ctl=end | goto idle
+int_30: alu=nop budget=22 | goto int_x                  ; ... else 30
+int_big: alu=nop budget=8 | goto int_x
 int_z:  d=T0 a=T0 b=0 alu=passb mode=exp budget=28 | goto wr_t0   ; a signed zero
 
 ; ============================================================================
@@ -1469,25 +1472,31 @@ st_w:   d=OBUFL a=T6 alu=passa ctl=end | goto idle
 
 ; -- X: the register through ppm at extended; a NaN made nonsignaling; an
 ; infinity with mantissa 0; a zero with exponent 0 --
+; Tables 8-16 and 8-17's output conversion times on the slots (8.8.19).
 .table t_stx STAG
   NAN  stx_nan
-  INF  :: d=T5 a=T1 b=0 alu=passb | goto stx_w
-  ZERO :: d=T5 a=T1 b=0 alu=passb mode=exp | goto stx_w
-  default :: d=T0 a=T1 alu=passa | goto stx_fin
+  INF  :: d=T5 a=T1 b=0 alu=passb budget=16 | goto stx_w
+  ZERO :: d=T5 a=T1 b=0 alu=passb mode=exp budget=16 | goto stx_w
+  UNN  :: d=T0 a=T1 alu=passa budget=26 | goto stx_u
+  default :: d=T0 a=T1 alu=passa budget=18 | goto stx_fin
 .end
-stx_fin: alu=nop | call ppm
+stx_u:  alu=nop | unless SDEN goto stx_fin
+        alu=nop budget=30                               ; denormalized: 56
+stx_fin: alu=nop ctl=norb | call ppm                  ; Table 8-16's X figures are flat
 stx_w:  d=OBUFX a=T5 alu=passa ctl=end | goto idle
-stx_nan: d=T5 a=T1 b=K[qbit] alu=or | unless SSNAN goto stx_w
+stx_nan: d=T5 a=T1 b=K[qbit] alu=or budget=22 | unless SSNAN goto stx_w   ; NAN7
+        alu=nop budget=2
         fpsr=orlit exc=SNAN | goto stx_w
 
 ; -- S and D: the IEEE image, the exponent field (Eb - the format's minimum)
 ; plus the hidden bit, so a denormal (hidden bit 0 at the minimum) packs
 ; the same way; infinity and NaN with the maximum exponent; the sign last.
 .table t_sts STAG
-  NAN  sts_nan
-  INF  :: d=T6 b=K[inf_s] alu=passb | goto sts_sg
-  ZERO :: d=T6 b=0 alu=passb | goto sts_sg
-  default :: d=T0 a=T1 alu=passa | goto sts_fin
+  NAN  :: alu=nop budget=22 | goto sts_nan
+  INF  :: d=T6 b=K[inf_s] alu=passb budget=18 | goto sts_sg
+  ZERO :: d=T6 b=0 alu=passb budget=16 | goto sts_sg
+  UNN  :: d=T0 a=T1 alu=passa budget=48 | goto sts_fin
+  default :: d=T0 a=T1 alu=passa budget=38 | goto sts_fin
 .end
 sts_fin: alu=nop | call ppm
         a=T5 b=K[exp_inf] mode=exp alu=sub              ; overflowed to infinity?
@@ -1499,16 +1508,18 @@ sts_sg: alu=nop | unless SNEG goto st_w
         d=T6 a=T6 b=K[sbit_s] alu=or | goto st_w
 sts_i:  d=T6 b=K[inf_s] alu=passb | goto sts_sg
 sts_nan: d=T5 a=T1 b=K[qbit] alu=or | unless SSNAN goto sts_nq
+        alu=nop budget=2                                ; an SNAN: 24
         fpsr=orlit exc=SNAN
 sts_nq: d=T6 b=T5>>40 alu=passb                         ; the fraction's top 23 bits
         d=T6 a=T6 b=K[b26] alu=andn
         d=T6 a=T6 b=K[inf_s] alu=or | goto sts_sg
 
 .table t_std STAG
-  NAN  std_nan
-  INF  :: d=T6 b=K[inf_d] alu=passb | goto std_sg
-  ZERO :: d=T6 b=0 alu=passb | goto std_sg
-  default :: d=T0 a=T1 alu=passa | goto std_fin
+  NAN  :: alu=nop budget=22 | goto std_nan
+  INF  :: d=T6 b=K[inf_d] alu=passb budget=18 | goto std_sg
+  ZERO :: d=T6 b=0 alu=passb budget=16 | goto std_sg
+  UNN  :: d=T0 a=T1 alu=passa budget=48 | goto std_fin
+  default :: d=T0 a=T1 alu=passa budget=38 | goto std_fin
 .end
 std_fin: alu=nop | call ppm
         a=T5 b=K[exp_inf] mode=exp alu=sub
@@ -1520,6 +1531,7 @@ std_sg: alu=nop | unless SNEG goto st_w
         d=T6 a=T6 b=K[one] alu=or | goto st_w          ; bit 66: the image's bit 63
 std_i:  d=T6 b=K[inf_d] alu=passb | goto std_sg
 std_nan: d=T5 a=T1 b=K[qbit] alu=or | unless SSNAN goto std_nq
+        alu=nop budget=2                                ; an SNAN: 24
         fpsr=orlit exc=SNAN
 std_nq: d=T6 b=T5>>11 alu=passb
         d=T6 a=T6 b=K[b55] alu=andn
@@ -1532,26 +1544,31 @@ std_nq: d=T6 b=T5>>11 alu=passb
 st_int: d=T13 a=T12 b=T12 alu=add | dispatch STAG t_sti  ; 2^n << 3
 .table t_sti STAG
   NAN  sti_nan
-  INF  sti_ovf
-  ZERO :: d=T6 b=0 alu=passb | goto st_w
-  default :: d=T1 a=T1 alu=passa osh=norm | goto sti_fin
+  INF  :: alu=nop budget=24 | goto sti_ovi
+  ZERO :: d=T6 b=0 alu=passb budget=18 | goto st_w
+  UNN  :: d=T1 a=T1 alu=passa osh=norm budget=60 | goto sti_fin
+  default :: d=T1 a=T1 alu=passa osh=norm budget=50 | goto sti_fin
 .end
 sti_fin: d=T13 a=T13 b=K[ulp8] alu=sub                  ; the n-bit mask << 3
         d=SC a=T1 b=K[int63] mode=exp alu=rsub          ; 63 - u
-        d=T3 b=T1>>SC alu=passb sign=b stk=shift | if N goto sti_ovf    ; |x| >= 2^64
+        d=T3 b=T1>>SC alu=passb sign=b stk=shift | if N goto sti_ovn    ; |x| >= 2^64
         d=T3 a=T3 b=RINC alu=add rnd=ext
         d=T6 a=T3 b=RMASK alu=and rnd=ext fpsr=inex2r stk=clr | if SNEG goto sti_neg
         a=T6 b=T12 alu=sub                              ; K < 2^(n-1): in range
-        alu=nop | unless C goto sti_ovf
+        alu=nop | unless C goto sti_ovn
         goto st_w
 sti_neg: a=T12 b=T6 alu=sub                             ; 2^(n-1) < K: out of range
-        alu=nop | if C goto sti_ovf
-        d=T6 a=0 b=T6 alu=sub                           ; -K, two's complement
+        alu=nop | if C goto sti_ovn
+        d=T6 a=0 b=T6 alu=sub budget=2                  ; -K, two's complement
         d=T6 a=T6 b=T13 alu=and | goto st_w
+sti_ovn: alu=nop budget=2 | unless SNEG goto sti_ovf     ; out of range: 2, negative 6
+        alu=nop budget=4 | goto sti_ovf
+sti_ovi: alu=nop | unless SNEG goto sti_ovf             ; an infinity: 24, negative 26
+        alu=nop budget=2
 sti_ovf: fpsr=orlit exc=OPERR | if SNEG goto sti_min
         d=T6 a=T12 b=K[ulp8] alu=sub | goto st_w        ; 2^(n-1) - 1
 sti_min: d=T6 a=T12 alu=passa | goto st_w               ; -2^(n-1)
-sti_nan: d=T13 a=T13 b=K[ulp8] alu=sub
+sti_nan: d=T13 a=T13 b=K[ulp8] alu=sub budget=24
         d=T5 a=T1 b=K[qbit] alu=or | unless SSNAN goto sti_nq
         fpsr=orlit exc=SNAN | goto sti_nb
 sti_nq: fpsr=orlit exc=OPERR
@@ -1572,14 +1589,18 @@ ppm:    d=T0 a=T0 alu=passa osh=norm
         d=T5 a=T3 b=RMASK alu=and rnd=rprec fpsr=inex2r | if C goto ppm_cy
         alu=nop | if HUGE goto ppm_ovfl
         ret
-ppm_cy: d=T5 a=T5 b=K[one] alu=passb
+ppm_cy: d=T5 a=T5 b=K[one] alu=passb rbudget=4          ; round overflow (Table 8-17): 4
         d=T5 a=T5 b=0 alu=add cin=1 mode=exp
         alu=nop | if HUGE goto ppm_ovfl
         ret
 ; A store's exceptional operand is kept whatever trap follows (an inexact
 ; trap from an overflow reports it too: fpu.py fmove_out).
-ppm_ovfl: d=EXOP a=T5 alu=passa fpsr=orlit exc=OVFL | goto pp_ovr   ; rounded at its own exponent
-ppm_tiny: d=T6 a=T0 b=RINC alu=add rnd=rprec fpsr=orlit exc=UNFL
+ppm_ovfl: alu=nop rbudget=6 | if RMRM goto ppm_o8          ; overflow: 6, RM or RP 8
+        alu=nop | unless RMRP goto ppm_o1
+ppm_o8: alu=nop rbudget=2
+ppm_o1: d=EXOP a=T5 alu=passa fpsr=orlit exc=OVFL | goto pp_ovr   ; rounded at its own exponent
+ppm_tiny: alu=nop rbudget=28                             ; underflow: 28
+        d=T6 a=T0 b=RINC alu=add rnd=rprec fpsr=orlit exc=UNFL
         d=T6 a=T6 b=RMASK alu=and rnd=rprec | unless C goto ppm_x
         d=T6 a=T6 b=K[one] alu=passb
         d=T6 a=T6 b=0 alu=add cin=1 mode=exp
@@ -1595,7 +1616,13 @@ ppm_dn2: d=SC a=T12 b=T0 mode=exp alu=sub
         d=T5 a=T0 b=T12 alu=passb mode=exp
         d=T5 a=T5 b=T5>>SC alu=passb stk=shift
         d=T3 a=T5 b=RINC alu=add rnd=rprec
+        d=T7 a=T5 b=RMASK alu=and rnd=rprec             ; chopped
         d=T5 a=T3 b=RMASK alu=and rnd=rprec fpsr=inex2r
+        d=T6 a=T5 b=T7 alu=xor                          ; carried into a new binade: 4 (pp_dn2's test)
+        a=T7 b=T6 alu=sub
+        alu=nop | unless N goto ppm_d3
+        alu=nop rbudget=4
+ppm_d3: a=T5 alu=passa
         alu=nop | unless Z goto ppm_r
         d=T5 a=T5 b=0 alu=passb mode=exp                ; a signed zero
 ppm_r:  ret
@@ -1615,73 +1642,76 @@ ppm_r:  ret
 .entry cr pro_cr
 pro_cr: alu=nop fpsr=clrexc ctl=rp_prec stk=clr | dispatch OPMODE t_cr
 .table t_cr OPMODE
-  $00 :: d=T0 b=K[$00] alu=passb mode=mantb sign=b | goto cr_doc
-  $01 :: d=T0 b=K[$01] alu=passb mode=mantb sign=b | goto cr_u1
-  $02 :: d=T0 b=K[$02] alu=passb mode=mantb sign=b | goto cr_u2
-  $03 :: d=T0 b=K[$03] alu=passb mode=mantb sign=b | goto cr_u3
-  $04 :: d=T0 b=K[$04] alu=passb mode=mantb sign=b | goto cr_u
-  $05 :: d=T0 b=K[$05] alu=passb mode=mantb sign=b | goto cr_u
-  $06 :: d=T0 b=K[$06] alu=passb mode=mantb sign=b | goto cr_u
-  $07 :: d=T0 b=K[$07] alu=passb mode=mantb sign=b | goto cr_u7
-  $08 :: d=T0 b=K[$08] alu=passb mode=mantb sign=b | goto cr_u
-  $09 :: d=T0 b=K[$09] alu=passb mode=mantb sign=b | goto cr_u
-  $0A :: d=T0 b=K[$0A] alu=passb mode=mantb sign=b | goto cr_u
-  $0B :: d=T0 b=K[$0B] alu=passb mode=mantb sign=b | goto cr_doc
-  $0C :: d=T0 b=K[$0C] alu=passb mode=mantb sign=b | goto cr_doc
-  $0D :: d=T0 b=K[$0D] alu=passb mode=mantb sign=b | goto cr_doc
-  $0E :: d=T0 b=K[$0E] alu=passb mode=mantb sign=b | goto cr_doc
-  $0F :: d=T0 b=0 alu=passb sign=zero | goto wr_t0          ; 0.0
-  $10 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $11 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $12 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $13 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $14 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $15 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $16 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $17 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $18 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $19 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $1A :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $1B :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $1C :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $1D :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $1E :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $1F :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $20 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $21 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $22 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $23 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $24 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $25 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $26 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $27 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $28 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $29 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $2A :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $2B :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $2C :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $2D :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $2E :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $2F :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $30 :: d=T0 b=K[$30] alu=passb mode=mantb sign=b | goto cr_doc
-  $31 :: d=T0 b=K[$31] alu=passb mode=mantb sign=b | goto cr_doc
-  $32 :: d=T0 b=K[$32] alu=passb mode=mantb sign=b | goto cr_doc
-  $33 :: d=T0 b=K[$33] alu=passb mode=mantb sign=b | goto cr_doc
-  $34 :: d=T0 b=K[$34] alu=passb mode=mantb sign=b | goto cr_doc
-  $35 :: d=T0 b=K[$35] alu=passb mode=mantb sign=b | goto cr_doc
-  $36 :: d=T0 b=K[$36] alu=passb mode=mantb sign=b | goto cr_doc
-  $37 :: d=T0 b=K[$37] alu=passb mode=mantb sign=b | goto cr_doc
-  $38 :: d=T0 b=K[$38] alu=passb mode=mantb sign=b | goto cr_doc
-  $39 :: d=T0 b=K[$39] alu=passb mode=mantb sign=b | goto cr_doc
-  $3A :: d=T0 b=K[$3A] alu=passb mode=mantb sign=b | goto cr_doc
-  $3B :: d=T0 b=K[$3B] alu=passb mode=mantb sign=b | goto cr_doc
-  $3C :: d=T0 b=K[$3C] alu=passb mode=mantb sign=b | goto cr_doc
-  $3D :: d=T0 b=K[$3D] alu=passb mode=mantb sign=b | goto cr_doc
-  $3E :: d=T0 b=K[$3E] alu=passb mode=mantb sign=b | goto cr_doc
-  $3F :: d=T0 b=K[$3F] alu=passb mode=mantb sign=b | goto cr_doc
+  $00 :: d=T0 b=K[$00] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $01 :: d=T0 b=K[$01] alu=passb mode=mantb sign=b budget=18 | goto cr_u1
+  $02 :: d=T0 b=K[$02] alu=passb mode=mantb sign=b budget=18 | goto cr_u2
+  $03 :: d=T0 b=K[$03] alu=passb mode=mantb sign=b budget=18 | goto cr_u3
+  $04 :: d=T0 b=K[$04] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $05 :: d=T0 b=K[$05] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $06 :: d=T0 b=K[$06] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $07 :: d=T0 b=K[$07] alu=passb mode=mantb sign=b budget=18 | goto cr_u7
+  $08 :: d=T0 b=K[$08] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $09 :: d=T0 b=K[$09] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $0A :: d=T0 b=K[$0A] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $0B :: d=T0 b=K[$0B] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $0C :: d=T0 b=K[$0C] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $0D :: d=T0 b=K[$0D] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $0E :: d=T0 b=K[$0E] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $0F :: d=T0 b=0 alu=passb sign=zero budget=18 | goto cr_z           ; 0.0
+  $10 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $11 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $12 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $13 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $14 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $15 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $16 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $17 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $18 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $19 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $1A :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $1B :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $1C :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $1D :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $1E :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $1F :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $20 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $21 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $22 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $23 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $24 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $25 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $26 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $27 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $28 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $29 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $2A :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $2B :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $2C :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $2D :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $2E :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $2F :: d=T0 b=K[$10] alu=passb mode=mantb sign=b budget=18 | goto cr_u
+  $30 :: d=T0 b=K[$30] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $31 :: d=T0 b=K[$31] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $32 :: d=T0 b=K[$32] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $33 :: d=T0 b=K[$33] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $34 :: d=T0 b=K[$34] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $35 :: d=T0 b=K[$35] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $36 :: d=T0 b=K[$36] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $37 :: d=T0 b=K[$37] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $38 :: d=T0 b=K[$38] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $39 :: d=T0 b=K[$39] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $3A :: d=T0 b=K[$3A] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $3B :: d=T0 b=K[$3B] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $3C :: d=T0 b=K[$3C] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $3D :: d=T0 b=K[$3D] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $3E :: d=T0 b=K[$3E] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
+  $3F :: d=T0 b=K[$3F] alu=passb mode=mantb sign=b budget=18 | goto cr_doc
 .end
 
-cr_doc: alu=nop | if KABOVE goto cr_up
+; 8 more at single or double precision; the rounding is the figure's (norb)
+cr_doc: alu=nop ctl=norb | if RPEXT goto cr_d2
+        alu=nop budget=8
+cr_d2:  alu=nop | if KABOVE goto cr_up
         alu=nop | if KBELOW goto cr_dn
 cr_pp:  alu=nop | call pp
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
@@ -1710,6 +1740,9 @@ cr_u3:  alu=nop | call cr_rnd
         alu=nop | unless RND_RP goto cr_nan
 cr_inf: a=0 b=K[exp_inf] alu=passb mode=expb sign=zero fpsr=fpcc ctl=end | goto idle  ; FPCC I
 
+cr_z:   alu=nop | if RPEXT goto wr_t0                  ; 0.0: 8 more single or double
+        alu=nop budget=8 | goto wr_t0
+
 ; Rows 1 and 7, single PREC: RN - 2^39, RZ and RM + 2^39 (of the 64 bits).
 cr_a17: alu=nop | unless PREC_SGL goto cr_ar
         alu=nop | if RND_RN goto cr_am
@@ -1723,8 +1756,8 @@ cr_ar:  ret
 cr_rnd: a=T0 b=K[exp_inf] mode=exp alu=sub | dispatch PREC t_crr
 .table t_crr PREC
   EXT  cr_r0
-  SGL  cr_rs
-  DBL  cr_rd
+  SGL  :: alu=nop budget=8 | goto cr_rs                 ; (a nop keeps the flags)
+  DBL  :: alu=nop budget=8 | goto cr_rd
   SGLX cr_rd
 .end
 cr_rs:  alu=nop | if Z goto cr_r0                       ; $7FFF: untouched
