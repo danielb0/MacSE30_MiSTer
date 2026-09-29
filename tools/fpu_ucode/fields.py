@@ -99,8 +99,8 @@ SEQ = Enum('NEXT', 'JUMP', 'CALL', 'RET', 'BRT', 'BRF', 'DISP', 'WAIT')
 # Conditions for BRT/BRF.  The flags are the previous microinstruction's
 # (8.8.9); the tags are Table 8-13's classes of the source and destination
 # operands; KABOVE/KBELOW are the direction bits of the last constant read
-# (8.6.14 item 19); S is the sign of the last ALU result word; RPEXT the
-# rounding-precision register at extended.
+# (8.6.14 item 19); S is the sign of the last ALU result word; RPEXT: the
+# rounding precision's exponent range is extended's (EXT or SGLX).
 COND = Enum(
     'TRUE', 'Z', 'N', 'C', 'V', 'STK', 'INEX', 'RCARRY',
     'LCZ', 'Q0', 'DFLAG', 'SCZ', 'KABOVE', 'KBELOW', 'EXCEN', 'PENDING',
@@ -123,7 +123,7 @@ DISPATCH_BITS = {'TAGPAIR': 5, 'STAG': 3, 'DTAG': 3, 'RND': 2, 'PREC': 2,
 # Table 8-13's operand classes, in its column order.
 TAG = Enum('NORM', 'UNN', 'ZERO', 'INF', 'NAN')
 RND = Enum('RN', 'RZ', 'RM', 'RP')
-PREC = Enum('EXT', 'SGL', 'DBL', 'PREC3')
+PREC = Enum('EXT', 'SGL', 'DBL', 'SGLX')     # FPCR's 3 is taken as EXT; RPREC's 3 is SGLX
 # The command word's formats (8.6.7): 111 is dynamic-k packed, out only.
 FMT = Enum('L', 'S', 'X', 'P', 'W', 'D', 'B', 'PK')
 KFACTOR = Enum('STATIC', 'DYNAMIC')
@@ -178,9 +178,10 @@ STK = Enum('HOLD', 'CLR', 'SHIFT', 'NZ')
 # The round logic's boundary and mode (8.8.10): EXT/SGL/DBL at bit 3/43/14
 # by FPCR RND; TRUNC at bit 3 toward zero (FINTRZ, the I67 truncations);
 # RPREC by the rounding-precision register, which the CTL codes RP_* load
-# (FPCR PREC for an ordinary result, single for FSGLMUL/FSGLDIV, the
-# destination format for a store) so one post-processing subroutine serves
-# them all.
+# (FPCR PREC for an ordinary result, the destination format for a store,
+# and SGLX - code 3: single's mantissa with extended's exponent range, UM
+# 6.1.4's note - for FSGLMUL/FSGLDIV) so one post-processing subroutine
+# serves them all.
 RNDM = Enum('NONE', 'EXT', 'SGL', 'DBL', 'TRUNC', 'RPREC')
 # FPSR actions: CLREXC at an instruction's start; FPCC from the result;
 # ORLIT ORs the literal into EXC; INEX2R sets INEX2 if the round logic
@@ -194,7 +195,7 @@ LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU')
 # precision register (PREC codes: 0 EXT, 1 SGL, 2 DBL; FPCR's 3 is EXT).
 CTL = Enum('NONE', 'RELEASE', 'OPWANT', 'STORED', 'CHECKPOINT', 'END',
            'HANDOFF', 'SAVED', 'RESTORED',
-           'RP_PREC', 'RP_EXT', 'RP_SGL', 'RP_DBL', 'RP_DFMT')
+           'RP_PREC', 'RP_EXT', 'RP_SGL', 'RP_DBL', 'RP_DFMT', 'RP_SGLX')
 
 NANO = Format(
     'nano',

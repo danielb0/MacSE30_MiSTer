@@ -238,7 +238,7 @@ class Chip:
             'DYNK': self.opclass == 3 and ((self.cmd >> 10) & 7) == 7,
             'SAVEREQ': 0, 'ABORT': 0, 'CUHANDOFF': 0,
             'SRCREG': self.opclass == 0, 'SAMEREG': self.rx == self.ry,
-            'S': self.S, 'RPEXT': self.RPREC == 0,
+            'S': self.S, 'RPEXT': self.RPREC in (0, 3),
         }
         if name.startswith('EN_'):
             return bool(self.fpcr & {'EN_BSUN': BSUN, 'EN_SNAN': SNAN, 'EN_OPERR': OPERR,
@@ -271,7 +271,7 @@ class Chip:
     # -- the round logic (8.8.10) -------------------------------------------------------------
     def _round(self, mode, a):
         if mode == 'RPREC':
-            lsb = {0: 3, 1: 43, 2: 14, 3: 3}[self.RPREC]
+            lsb = {0: 3, 1: 43, 2: 14, 3: 43}[self.RPREC]
         else:
             lsb = {'EXT': 3, 'SGL': 43, 'DBL': 14, 'TRUNC': 3}[mode]
         rnd = 1 if mode == 'TRUNC' else (self.fpcr >> 4) & 3
@@ -598,7 +598,7 @@ class Chip:
             elif c == 'RP_DFMT':
                 self.RPREC = {1: 1, 5: 2}.get((self.cmd >> 10) & 7, 0)
             else:
-                self.RPREC = {'RP_EXT': 0, 'RP_SGL': 1, 'RP_DBL': 2}[c]
+                self.RPREC = {'RP_EXT': 0, 'RP_SGL': 1, 'RP_DBL': 2, 'RP_SGLX': 3}[c]
 
     # -- one instruction -----------------------------------------------------------------------
     def run(self, entry_index, max_clocks=200000):

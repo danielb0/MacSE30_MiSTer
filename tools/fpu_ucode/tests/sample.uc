@@ -40,7 +40,7 @@ round:  alu=nop | dispatch PREC round_tab
   EXT    round_x
   SGL    round_s
   DBL    round_d
-  PREC3  round_x
+  SGLX   round_x
 .end
 round_x: d=T0 a=T0 b=RINC alu=add rnd=ext fpsr=inex2r | call range
          ret

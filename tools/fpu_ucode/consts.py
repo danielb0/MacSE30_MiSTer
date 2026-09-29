@@ -138,6 +138,8 @@ def build():
         ('int_exp', _exp_word(BIAS + MANT_BITS - 1)),  # an integer at bit 0 (OPINT)
         ('exp_inf', _exp_word(0x7FFF)),
         ('qbit', kword(0, 0, 1 << 65)),               # a NaN's nonsignaling bit (bit 62)
+        ('ulp', kword(0, 0, 1)),                      # bit 0: the sticky bit jammed in
+        ('exp_one', _exp_word(1)),
         ('nan', _ext(0, 0x7FFF, (1 << 64) - 1)),      # the chip's NaN (UM 6.1.3)
         # The exceptional operand (6.1.4, 6.1.5; rounding.exceptional_operand):
         # the exponent wrapped by $6000, or 0 past the 17-bit catastrophic
