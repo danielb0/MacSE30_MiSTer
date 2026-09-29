@@ -62,6 +62,8 @@ module se30_fpu_apu #(
   input             ce,
 
   input             start,
+  input             abort,       // stop the instruction at once (the BIU: a protocol
+                                 // violation's acknowledge, AB, a restore)
   input      [9:0]  entry_idx,
   input      [15:0] cmd,
   input      [85:0] cu_word,
@@ -682,6 +684,8 @@ module se30_fpu_apu #(
       fpcr <= 32'd0;
       fpsr <= 32'd0;
       clocks <= 16'd0;
+    end else if (abort) begin
+      st <= S_IDLE;
     end else begin
       if (!busy && fpcr_we) fpcr <= fpcr_d;
       if (!busy && fpsr_we) fpsr <= fpsr_d;

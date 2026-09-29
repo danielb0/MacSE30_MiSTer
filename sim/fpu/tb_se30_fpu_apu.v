@@ -76,7 +76,7 @@ module tb_se30_fpu_apu;
     .KROM_HEX("../../rtl/fpu/ucode/ucode.krom.hex")
   ) dut (
     .clk(clk), .reset(reset), .ce(ce),
-    .start(start), .entry_idx(entry_idx), .cmd(cmd),
+    .start(start), .abort(1'b0), .entry_idx(entry_idx), .cmd(cmd),
     .cu_word(zero_src ? 86'd0 : u_word), .cu_tag(zero_src ? 3'd2 : u_tag),
     .cu_snan(zero_src ? 1'b0 : u_snan), .cu_den(zero_src ? 1'b0 : u_den),
     .cu_neg(zero_src ? 1'b0 : u_neg), .operand(operand),

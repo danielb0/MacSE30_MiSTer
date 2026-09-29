@@ -7684,7 +7684,7 @@ is already known to differ from the manual in three ways (8.5).
    **a regression against WinUAE's model, not silicon** (8.6.15); a
    mismatch is a question to settle from the manual or hardware, not a
    verdict; then the kernel integration, `sim/busfault` and `sim/machine`
-   unchanged. **Started 2026-09-29: 8.9** (staged 7a-7e).
+   unchanged. **Started 2026-09-29: 8.9** (staged 7a-7e; 7a and 7b done).
 8. The compile, the fit's area against the budget, and the board: past the
    Welcome box - the first instruction is `FNOP` at `$000131A4`.
 
@@ -8600,6 +8600,31 @@ each item is in 8.6.15.)
     table disagrees with that for some of them (8.6.15). **The model's
     default is WinUAE's table** (the rule of 8.6.15 for a silence; the
     equations are the other setting), and the BIU implements it (8.8.19).
+
+Found while specifying the BIU (8.9, item 7b); **each default accepted by
+Daniel, 2026-09-30**:
+
+18. **The illegal command word's PC bit**: 7.4.2.5's text says the take
+    pre-instruction primitive has PC = 1 "if the exception is due to an
+    illegal command word"; Table 7-7 lists the F-line primitive as `$1C0B`
+    (PC = 0); 030 UM 10.5.1.2 is silent. Default: **Table 7-7's `$1C0B`**
+    (the encodings are the table's to give; 15 above treats its comments,
+    not its encodings, as misprints).
+19. **Which instructions report a pending exception**: 7.4.2.5 lists them -
+    "an arithmetic (OPCLASS 000, 010, and 011) or conditional instruction
+    is initiated" - so FMOVEM and FMOVE of the control registers do not
+    report it; 7.5.4.1 says "any floating-point instruction other than an
+    FSAVE (or an FRESTORE of the null state) reports the same exception
+    again". Default: **7.4.2.5's list**, the specific statement. (A
+    handler that begins with FSAVE, as 5.2.2 requires, cannot tell.)
+20. **FMOVEM of the control registers with an empty list** (command bits
+    12-10 = 000): the manual gives no primitive for it. Default: **an
+    illegal command word** (F-line, `$1C0B`).
+21. **An early read of the operand CIR** (before the evaluate-and-transfer
+    DR = 1 or transfer-multiple DR = 1 primitive of an FMOVE or FMOVEM
+    out): documented as "ignores the access completely" - no DSACK, the
+    system's bus-error watchdog ends it (6.1.12). Replicated (the rule for
+    documented behaviour).
 
 ### 8.6.15 What WinUAE and MAME say (read 2026-09-29)
 
@@ -10211,9 +10236,11 @@ benched before the next depends on it:
   and every one at the simulator's clocks**.
 - **7b the CU and the BIU**: the CIRs, the dialogs of 8.8.14 as bus
   cycles, one instruction at a time (8.8.1's first step); the bench drives
-  CPU-space cycles and the vectors run through them.
-- **7c the frames**: FSAVE/FRESTORE (8.8.15), FMOVEM, FMOVE of the control
-  registers, the checkpoints.
+  CPU-space cycles and the vectors run through them. **Also FMOVEM, FMOVE
+  of the control registers and the null FRESTORE** (moved from 7c,
+  2026-09-30: the bench can load and read the registers only through them).
+- **7c the frames**: FSAVE and FRESTORE of the idle and busy frames
+  (8.8.15), the checkpoints.
 - **7d the kernel's side** of the protocol (8.8.8, `docs/cp030_mpu_protocol.md`),
   GLUE's CPU-space decode, `sim/busfault` and `sim/machine` unchanged.
 - **7e the overlap** (8.8.1's second step) and the cputest corpus (8.4 item 7).
@@ -10274,6 +10301,87 @@ clean: 19,836, 16,948 timed, no checkpoint gap over 125), the ties-away
 mutant now fails 50 of them, and **the RTL passes all 19,836 vectors bit
 for bit at the simulator's clocks** (`sim/fpu/run.sh`, 13 minutes). **7a
 is done; next 7b, the CU and the BIU.**
+
+### 8.9.2 7b as built (2026-09-30)
+
+`rtl/fpu/se30_fpu.v`: the chip, its BIU and CU around the APU, one
+instruction at a time; its header is the contract. What was settled
+writing it:
+
+**The pins** are the MC68882's (BR509): the chip select as GLUE will drive
+it (FC = 7, A19-A16 = `0010`, the ID) qualified by the strobe - the access
+starts when it rises ("START", BR509 note 8) and ends when it falls - A4-A0,
+R/W, D31-D0, DSACK1/0. A 32-bit port: the word CIRs answer DSACK1 alone
+with their data on D31-D16, `$10-$1F` both (BR509 Table 5). **Timing:**
+asynchronous accesses are acknowledged at the first `clk` edge that sees
+them (within the data sheet's 50 ns); the response and save reads are
+synchronous (note 3) - START sampled at a rising FPU clock edge, DSACK at
+the falling edge a clock and a half later, 1.5-2.5 clocks from START
+(specification 27); the FPU holds DSACK off only while a null restore
+clears the registers and while FMOVEM fetches a register (UM 6.1.12: it
+"synchronizes ... by delaying the assertion of DSACKx"). 7d fits this to
+the kernel's bus cycle.
+
+**The dialogs** are UM Figures 7-17 to 7-24, read from the page images (the
+text copy garbles them): register to register and FMOVECR `$0900`/`$4900`;
+`<ea>` to register - the CA = 0 forms `$1504/$1608/$160C` for S, D, X
+(Figure 7-19, no final read) and `$9501/$9502/$9504/$960C` then `$0900` for
+B, W, L, P (Figure 7-18); stores - `$8900`/`$C900` while converting (a
+dynamic k-factor first asks for Dn, `$8C0r`), then `$B101-$B20C`, or the
+CA = 0 forms `$3104/$3208/$320C` for S, D, X under 7.5.1.3's conditions,
+and a CA = 1 store's final read gives `$0802` or take mid-instruction
+(Figures 7-20, 7-21, 7-31); FMOVE of the control registers Table 7-5's
+encodings then `$0802` (Figure 7-22); FMOVEM `$8C0r` for a dynamic list,
+`$810C`/`$A10C`, the register select read, 12 bytes a register, `$0802`
+(Figure 7-23) - the predecrement mode sends FP7 first, the others FP0
+(bit n is FPn in the one, bit 7 is FP0 in the others, UM 4-79);
+conditionals `$8900` while busy, then `$0800/$0801` or BSUN's `$5C30`
+(Figures 7-24, 7-37). Execution starts at the first response read after
+the command write (UM 7.2.1); the PC is requested in the first primitive
+of an arithmetic instruction when any exception is enabled (Table 7-5's
+note), and becomes FPIAR.
+
+**Exceptions** (8.6.14 items 18-21, Daniel's defaults): the APU's end leaves
+EXC AND ENABLE's exception pending; an arithmetic or conditional
+instruction started with one pending gets `$1Cvv`, and a store reports its
+own as `$1Dvv` at its end; XA does not clear it - the primitive stays in
+the response register and is reported again - until a null restore (FSAVE
+in 7c); an illegal command gets `$1C0B` after any pending exception, and XA
+clears it; a protocol violation answers `$1D0D` until XA, which aborts
+everything (the APU gained an `abort` input); the early operand read of an
+FMOVE or FMOVEM out is never acknowledged; AB aborts the dialog in progress.
+The null restore resets the registers to the NaN and FPCR/FPSR/FPIAR to
+zero (6.4.4), as the reset does; the idle and busy formats read back as
+invalid (`$0200`) until 7c.
+
+**The bench** (`sim/fpu/tb_se30_fpu.v`, `BENCH=chip ./run.sh`, the default)
+is the 68030's side of the protocol (`docs/cp030_mpu_protocol.md` sections
+3-5 and 10): 36 directed checks of the dialogs, the reset state, the
+exception rules, the violations, AB and the DSACK timing; then every vector
+through bus cycles - a null restore, FMOVEM of FP0-FP7 and of FPCR/FPSR in,
+the instruction with its primitives serviced, an FNOP to catch a pending
+exception, FMOVEM of FP2 and FP5 and FMOVE of FPSR out - its seven results
+against the model (the exceptional operand still read from the APU until
+FSAVE shows it) and the APU's clocks against the simulator's.
+
+**Found on the way:** a one-clock race - a conditional's response read
+could land on the clock the APU went idle, before the pending exception
+was registered from its end, so an FNOP missed an inexact trap (10 of the
+first 1,350 sampled vectors); the BIU now counts the APU idle only the
+clock after its end.
+
+**Mutants** (each one line of `se30_fpu.v`, run on the directed checks and a
+slice of vectors): no PC request (6 directed, 96 vectors fail), no CA = 0
+input forms (1 directed - the results cannot tell), XA clearing the
+exception (2 directed), no predecrement order (1 directed), a store's CA
+ignoring INEX2 enabled (11 store vectors: the missing final read turns the
+store's mid-instruction exception into a pre-instruction one), a byte
+operand from D7-D0 (89 vectors) - all caught.
+
+**Result: all 36 directed checks, and all 19,836 vectors through the pins
+bit for bit, every one at the simulator's clocks** (14 minutes under
+Icarus). **7b is done; next 7c, FSAVE and FRESTORE of the idle and busy
+frames and the checkpoints.**
 
 ---
 

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Run tb_se30_fpu_apu under Icarus Verilog (plan 8.9, item 7a).  See the
-# header of tb_se30_fpu_apu.v for what it proves.  IVERILOG: the iverilog
-# bin directory; PYTHON: the interpreter, default `python`.
+# Run the FPU benches under Icarus Verilog (plan 8.9).  BENCH=chip (the
+# default): tb_se30_fpu, item 7b - the whole chip through its pins;
+# BENCH=apu: tb_se30_fpu_apu, item 7a - the APU alone, with +trace.  See
+# each bench's header for what it proves.  IVERILOG: the iverilog bin
+# directory; PYTHON: the interpreter, default `python`.
 #
 #   ./run.sh [plusargs...]   e.g. +only=transcend, +first=100 +count=10,
-#                            +trace=N (compare with rtlvec.py --trace N)
+#                            +directed_only (chip), +trace=N (apu: compare
+#                            with rtlvec.py --trace N)
 #
 # First: the model's vectors (tools/fpu_model/out/fpu.vec) if missing; the
 # microcode assembled afresh and compared with the images the RTL reads
@@ -16,6 +19,7 @@ set -u
 cd "$(dirname "$0")"
 IVERILOG=${IVERILOG:-/c/iverilog/bin}
 PY=${PYTHON:-python}
+BENCH=${BENCH:-chip}
 UC=../../tools/fpu_ucode
 MODEL=../../tools/fpu_model
 mkdir -p out
@@ -30,11 +34,11 @@ for f in ucode.urom.hex ucode.nrom.hex ucode.entry.hex ucode.krom.hex fpu_ucode.
   fi
 done
 if [ ! -f out/fpu_rtl.vec ] || [ "$MODEL/out/fpu.vec" -nt out/fpu_rtl.vec ] || \
-   [ out/ucode/ucode.urom.hex -nt out/fpu_rtl.vec ]; then
+   [ ../../rtl/fpu/ucode/ucode.urom.hex -nt out/fpu_rtl.vec ]; then
   "$PY" "$UC/rtlvec.py" --vec "$MODEL/out/fpu.vec" -o out/fpu_rtl.vec || exit 1
 fi
-"$IVERILOG/iverilog.exe" -g2005-sv -DSIMULATION -I ../../rtl/fpu -I ../../rtl/fpu/ucode \
-  -o out/tb_se30_fpu_apu.vvp tb_se30_fpu_apu.v \
-  ../../rtl/fpu/se30_fpu_apu.v ../../rtl/fpu/se30_fpu_unpack.v ../../rtl/fpu/se30_fpu_cond.v || exit 1
-"$IVERILOG/vvp.exe" -n out/tb_se30_fpu_apu.vvp "$@" | tee run.log
+RTL="../../rtl/fpu/se30_fpu_apu.v ../../rtl/fpu/se30_fpu_unpack.v ../../rtl/fpu/se30_fpu_cond.v"
+if [ "$BENCH" = apu ]; then TB=tb_se30_fpu_apu; else TB=tb_se30_fpu; RTL="../../rtl/fpu/se30_fpu.v $RTL"; fi
+"$IVERILOG/iverilog.exe" -g2005-sv -DSIMULATION -I ../../rtl/fpu -I ../../rtl/fpu/ucode   -o out/$TB.vvp $TB.v $RTL || exit 1
+"$IVERILOG/vvp.exe" -n out/$TB.vvp "$@" | tee run.log
 grep -q '^==== PASS' run.log
