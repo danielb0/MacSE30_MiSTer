@@ -68,6 +68,11 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
   $02  :: alu=nop | dispatch STAG t_sinh                ; FSINH
   $19  :: alu=nop | dispatch STAG t_cosh                ; FCOSH
   $09  :: alu=nop | dispatch STAG t_tanh                ; FTANH
+  $14  :: alu=nop | dispatch STAG t_logn                ; FLOGN
+  $15  :: alu=nop | dispatch STAG t_log10               ; FLOG10
+  $16  :: alu=nop | dispatch STAG t_log2                ; FLOG2
+  $06  :: alu=nop | dispatch STAG t_lnp1                ; FLOGNP1
+  $0D  :: alu=nop | dispatch STAG t_atanh               ; FATANH
   redundant model
   default unimpl
 .end
@@ -156,6 +161,26 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
 .entry X     $09 pro_x
 .entry S,D   $09 pro_sd
 .entry B,W,L $09 pro_int
+.entry reg   $14 pro_reg
+.entry X     $14 pro_x
+.entry S,D   $14 pro_sd
+.entry B,W,L $14 pro_int
+.entry reg   $15 pro_reg
+.entry X     $15 pro_x
+.entry S,D   $15 pro_sd
+.entry B,W,L $15 pro_int
+.entry reg   $16 pro_reg
+.entry X     $16 pro_x
+.entry S,D   $16 pro_sd
+.entry B,W,L $16 pro_int
+.entry reg   $06 pro_reg
+.entry X     $06 pro_x
+.entry S,D   $06 pro_sd
+.entry B,W,L $06 pro_int
+.entry reg   $0D pro_reg
+.entry X     $0D pro_x
+.entry S,D   $0D pro_sd
+.entry B,W,L $0D pro_int
 .entry reg   $23 pro_reg
 .entry X     $23 pro_x
 .entry S,D   $23 pro_sd

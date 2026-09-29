@@ -435,3 +435,208 @@ x_tanh: d=T2 a=T2 b=K[exp_one] mode=exp alu=add sign=zero   ; 2|x|
 bounded: a=T11 b=K[bias] mode=exp alu=sub               ; exponent >= 0: 1 - 2^-67
         alu=nop | if N goto tr_fin
 th_one: d=T11 a=T1 b=K[almost_one] alu=passb mode=mantb sign=a | goto tr_fin
+
+; ============================================================================
+; log1ps: ln(1 + u) for |u| < 1/4, keeping its relative precision
+; (transcend._log1p_small).  s = -exponent(u) - 1 (SC); U = u 2^s in Q2.64
+; (T8, two's complement); L (T9) the logarithm scaled by 2^s.  For i = s ...
+; the step floor((2^(64+s) + U) 2^-i) = 2^(64+s-i) + (U >> i) drives U to 0:
+; u > 0 by factors 1 - 2^-i (U -= step while it stays >= 0, L += -ln(1 -
+; 2^-i)), u < 0 by 1 + 2^-i (U += step while it stays <= 0, L -= ln(1 +
+; 2^-i)); the table's words placed by i - s for i <= 33, then 2^(64+s-i) -
+; C (u > 0) or -(2^(64+s-i) + C) (u < 0), C = floor(-2^(63+s-2i)) in T10.
+; u > 0 runs to i = s + 64, u < 0 to s + 63 (its step is 0 at s + 64).
+; Then L + U.  In: T2 = u.  Out: T11.
+; ============================================================================
+
+log1ps: d=T11 a=T2 b=K[bm1] alu=passb mode=exp          ; u 2^s (exponent bias - 1), its sign
+        d=SC a=T2 b=K[bm1] mode=exp alu=rsub | call tofix
+        d=T8 a=T14 alu=passa                            ; U
+        d=SC a=T2 b=K[bm1] mode=exp alu=rsub            ; s
+        d=T9 b=SC alu=passb lc=alu                      ; i = s
+        d=T10 b=K[fx_negone]>>>SC alu=passb
+        d=T10 a=0 b=T10>>>1 alu=passb                   ; C = floor(-2^(63-s))
+        d=T9 b=0 alu=passb                              ; L = 0
+        a=T2 b=K[bm34] mode=exp alu=sub
+        a=T2 alu=passa | if N goto lp_b
+        alu=nop | if S goto la_i
+; u > 0
+pa_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=34 | if LCEQ goto pb_i2
+        d=T12 a=0 b=K[lndn+LC]>>>LC-SC alu=sub          ; -ln(1 - 2^-i), placed
+pa_w:   d=T14 a=T4 b=T8>>>LC alu=add                    ; the step
+        d=T13 a=T8 b=T14 alu=sub
+        d=T15 a=T9 b=T12 alu=add | if N goto pa_n       ; U - step < 0: the next i
+        d=T8 a=T13 alu=passa
+        d=T9 a=T15 alu=passa | goto pa_w
+pa_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto pa_i
+pb_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=65 | if LCSCEQ goto lp_e
+pb_i2:  d=T12 a=T4 b=T10 alu=sub                        ; 2^(64+s-i) - C
+pb_w:   d=T14 a=T4 b=T8>>>LC alu=add
+        d=T13 a=T8 b=T14 alu=sub
+        d=T15 a=T9 b=T12 alu=add | if N goto pb_n
+        d=T8 a=T13 alu=passa
+        d=T9 a=T15 alu=passa | goto pb_w
+pb_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto pb_i
+lp_b:   alu=nop | if S goto lb_i
+        goto pb_i
+; u < 0
+la_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=34 | if LCEQ goto lb_i2
+        d=T12 a=0 b=K[lnup+LC]>>>LC-SC alu=sub          ; -ln(1 + 2^-i), placed
+la_w:   d=T14 a=T4 b=T8>>>LC alu=add
+        d=T13 a=T8 b=T14 alu=add dl=1                   ; U + step; DFLAG: negative
+        d=T15 a=T9 b=T12 alu=add | if Z goto la_t       ; U + step = 0: taken
+        alu=nop | unless DFLAG goto la_n                ; U + step > 0: the next i
+la_t:   d=T8 a=T13 alu=passa
+        d=T9 a=T15 alu=passa | goto la_w
+la_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto la_i
+lb_i:   d=T4 b=K[fx_one]>>>LC-SC alu=passb lit=64 | if LCSCEQ goto lp_e
+lb_i2:  d=T12 a=T4 b=T10 alu=add
+        d=T12 a=0 b=T12 alu=sub                         ; -(2^(64+s-i) + C)
+lb_w:   d=T14 a=T4 b=T8>>>LC alu=add
+        d=T13 a=T8 b=T14 alu=add dl=1
+        d=T15 a=T9 b=T12 alu=add | if Z goto lb_t
+        alu=nop | unless DFLAG goto lb_n
+lb_t:   d=T8 a=T13 alu=passa
+        d=T9 a=T15 alu=passa | goto lb_w
+lb_n:   d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto lb_i
+lp_e:   d=T14 a=T9 b=T8 alu=add                         ; L + U
+        alu=nop | call fromfix
+        d=T11 a=T11 b=SC mode=exp alu=sub | ret         ; 2^-s
+
+; -- log1pf: ln(1 + u) for u (T14, Q2.64) in [0, 1), unscaled
+; (transcend._log1p_frac): factors 1 - 2^-i for i = 1 ... 64 while U -
+; (1 + U) 2^-i stays >= 0, L += -ln(1 - 2^-i) (the table's for i <= 33, then
+; 2^(64-i) + 1).  Out: T14 = L + U. --
+log1pf: d=T8 a=T14 alu=passa
+        d=T9 b=0 alu=passb lc=1
+pf_a:   d=T4 b=K[fx_one]>>>LC alu=passb lit=34 | if LCEQ goto pf_b2
+        d=T12 a=0 b=K[lndn+LC]>>>LC alu=sub
+pf_aw:  d=T14 a=T4 b=T8>>>LC alu=add                    ; (1 + U) 2^-i
+        d=T13 a=T8 b=T14 alu=sub
+        d=T15 a=T9 b=T12 alu=add | if N goto pf_an
+        d=T8 a=T13 alu=passa
+        d=T9 a=T15 alu=passa | goto pf_aw
+pf_an:  alu=nop lc=inc | goto pf_a
+pf_b:   d=T4 b=K[fx_one]>>>LC alu=passb lit=65 | if LCEQ goto pf_e
+pf_b2:  d=T12 a=T4 b=K[ulp] alu=add                     ; 2^(64-i) + 1
+pf_bw:  d=T14 a=T4 b=T8>>>LC alu=add
+        d=T13 a=T8 b=T14 alu=sub
+        d=T15 a=T9 b=T12 alu=add | if N goto pf_bn
+        d=T8 a=T13 alu=passa
+        d=T9 a=T15 alu=passa | goto pf_bw
+pf_bn:  alu=nop lc=inc | goto pf_b
+pf_e:   d=T14 a=T9 b=T8 alu=add | ret
+
+; -- logn (transcend.logn): near 1 (|x - 1| < 1/4) the scaled path; else x
+; = 2^E m, E ln 2 + ln m.  In: T2 = x (> 0).  Out: T11. --
+logn:   d=T11 a=T2 alu=passa
+        d=T12 b=K[one] alu=passb mode=mantb sign=b | call isub   ; u = x - 1
+        a=T11 alu=passa
+        d=T3 a=T11 alu=passa | if Z goto ln_r            ; u = 0: +0
+        a=T11 b=K[bm2] mode=exp alu=sub
+        alu=nop | unless N goto ln_m
+        d=T2 a=T3 alu=passa | goto log1ps                ; small: ln(1 + u)
+ln_m:   d=T11 a=T2 b=K[bias] alu=passb mode=exp          ; m in [1, 2)
+        d=T12 b=K[one] alu=passb mode=mantb sign=b | call isub
+        alu=nop | call tofix
+        alu=nop | call log1pf
+        alu=nop | call fromfix                           ; ln m
+        d=T3 a=T11 alu=passa
+        d=T7 a=T2 b=K[bias] mode=exp alu=sub             ; E
+        d=T7 b=T7 bx=e2m alu=passb                       ; as an integer
+        alu=nop | if Z goto ln_lm
+        alu=nop | call fromint
+        d=T12 b=K[ln2] alu=passb mode=mantb sign=b | call imul   ; E ln 2
+        d=T12 a=T3 alu=passa | goto iadd                 ; + ln m
+ln_lm:  d=T11 a=T3 alu=passa
+ln_r:   ret
+
+; -- lognp1 (transcend.lognp1): below 2^-66 x itself; below 1/4 the scaled
+; path; else ln(1 + x).  In: T2.  Out: T11. --
+lognp1: a=T2 b=K[bm66] mode=exp alu=sub
+        d=T11 a=T2 alu=passa | if N goto ln_r
+        a=T2 b=K[bm2] mode=exp alu=sub
+        alu=nop | if N goto log1ps
+        d=T12 b=K[one] alu=passb mode=mantb sign=b | call iadd   ; 1 + x
+        d=T2 a=T11 alu=passa | goto logn
+
+; ============================================================================
+; FLOGN, FLOG2, FLOG10, FLOGNP1, FATANH (fpu.py _log_like, _op_flognp1,
+; _op_fatanh): 0 -> -inf with DZ; below 0 -> OPERR; +inf -> +inf.
+; ============================================================================
+
+.table t_logn STAG
+  NAN  nan_m
+  ZERO log_z
+  INF  log_i
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_logn
+.end
+.table t_log2 STAG
+  NAN  nan_m
+  ZERO log_z
+  INF  log_i
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_log2
+.end
+.table t_log10 STAG
+  NAN  nan_m
+  ZERO log_z
+  INF  log_i
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_log10
+.end
+log_z:  d=T0 b=0 alu=passb sign=one
+        d=T0 a=T0 b=K[exp_inf] alu=passb mode=exp | goto dz   ; -inf, DZ
+log_i:  alu=nop | if SNEG goto operr
+        goto mv_copy
+x_logn: alu=nop | if SNEG goto operr
+        alu=nop | call logn
+        goto tr_fin
+x_log2: alu=nop | if SNEG goto operr
+        alu=nop | call logn
+        d=T12 b=K[log2_e] alu=passb mode=mantb sign=b | call imul
+        goto tr_fin
+x_log10: alu=nop | if SNEG goto operr
+        alu=nop | call logn
+        d=T12 b=K[log10_e] alu=passb mode=mantb sign=b | call imul
+        goto tr_fin
+
+; FLOGNP1: -1 -> NaN with DZ (8.6.14 item 2, the manual's 4-60); below -1:
+; OPERR.
+.table t_lnp1 STAG
+  NAN  nan_m
+  ZERO mv_copy
+  INF  log_i
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_lnp1
+.end
+x_lnp1: alu=nop | unless SNEG goto lp1_go
+        d=T11 a=T2 alu=passa
+        d=T12 b=K[one] alu=passb mode=mantb sign=b | call iadd   ; 1 + x
+        a=T11 alu=passa
+        alu=nop | if Z goto lp1_m1
+        alu=nop | if S goto operr
+lp1_go: alu=nop | call lognp1
+        goto tr_fin
+lp1_m1: d=T0 b=K[nan] alu=passb mode=mantb sign=zero | goto dz
+
+; FATANH: |x| > 1: OPERR; |x| = 1: -sign(x) infinity with DZ (8.6.14 item
+; 1, as printed); else sign ln(1 + 2|x|/(1 - |x|))/2.
+.table t_atanh STAG
+  NAN  nan_m
+  ZERO mv_copy
+  INF  operr
+  default :: d=T2 a=T1 alu=passa osh=norm sign=zero | goto x_atanh
+.end
+x_atanh: a=T2 b=K[bias] mode=exp alu=sub                ; |x| against 1
+        alu=nop | if N goto at_go                       ; below 1
+        alu=nop | unless Z goto operr                   ; 2 or more
+        a=T2 b=K[one] alu=sub                           ; the mantissa against 1.0
+        alu=nop | unless Z goto operr
+        d=T0 a=T1 alu=passa sign=nota                   ; -sign(x)
+        d=T0 a=T0 b=K[exp_inf] alu=passb mode=exp
+        d=T0 a=T0 b=0 alu=passb | goto dz
+at_go:  d=T11 b=K[one] alu=passb mode=mantb sign=b
+        d=T12 a=T2 alu=passa | call isub                 ; 1 - |x|
+        d=T12 a=T11 alu=passa
+        d=T11 a=T2 b=K[exp_one] mode=exp alu=add | call idiv    ; 2|x| / (1 - |x|)
+        d=T2 a=T11 alu=passa | call lognp1
+        d=T11 a=T11 b=K[exp_one] mode=exp alu=sub
+        d=T11 a=T11 b=T1 alu=passa sign=b | goto tr_fin

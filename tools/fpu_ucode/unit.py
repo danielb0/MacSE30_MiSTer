@@ -156,6 +156,12 @@ def main(n=3000):
     fn_check('tentox', 'tentox', T.tentox, args)
     small = [T.I67(x.s, x.m, rng.randint(-72, -1) - 66) for x in args]
     fn_check('etoxm1', 'etoxm1', T.etoxm1, args + small)
+    posargs = [T.I67(0, x.m, x.e) for x in args + small]
+    fn_check('logn', 'logn', T.logn, posargs)
+    near1 = [T.i_add(T.ONE_I, T.I67(x.s, x.m, rng.randint(-70, -3) - 66)) for x in args]
+    fn_check('logn ~1', 'logn', T.logn, near1)
+    lp = [x for x in args + small if not (x.s and T.exponent(x) >= -1)]
+    fn_check('lognp1', 'lognp1', T.lognp1, lp)
     nf = results.count(False)
     print('%d PASS, %d FAIL' % (results.count(True), nf))
     return 1 if nf else 0
