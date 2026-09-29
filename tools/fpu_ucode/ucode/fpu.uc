@@ -73,6 +73,20 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
   $16  :: alu=nop | dispatch STAG t_log2                ; FLOG2
   $06  :: alu=nop | dispatch STAG t_lnp1                ; FLOGNP1
   $0D  :: alu=nop | dispatch STAG t_atanh               ; FATANH
+  $0E  :: alu=nop | dispatch STAG t_sin                 ; FSIN
+  $1D  :: alu=nop | dispatch STAG t_cos                 ; FCOS
+  $0F  :: alu=nop | dispatch STAG t_tan                 ; FTAN
+  $0A  :: alu=nop | dispatch STAG t_atan                ; FATAN
+  $0C  :: alu=nop | dispatch STAG t_asin                ; FASIN
+  $1C  :: alu=nop | dispatch STAG t_acos                ; FACOS
+  $30  :: alu=nop | dispatch STAG t_sincos              ; FSINCOS
+  $31  :: alu=nop | dispatch STAG t_sincos              ; FSINCOS
+  $32  :: alu=nop | dispatch STAG t_sincos              ; FSINCOS
+  $33  :: alu=nop | dispatch STAG t_sincos              ; FSINCOS
+  $34  :: alu=nop | dispatch STAG t_sincos              ; FSINCOS
+  $35  :: alu=nop | dispatch STAG t_sincos              ; FSINCOS
+  $36  :: alu=nop | dispatch STAG t_sincos              ; FSINCOS
+  $37  :: alu=nop | dispatch STAG t_sincos              ; FSINCOS
   redundant model
   default unimpl
 .end
@@ -181,6 +195,62 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec
 .entry X     $0D pro_x
 .entry S,D   $0D pro_sd
 .entry B,W,L $0D pro_int
+.entry reg   $0E pro_reg
+.entry X     $0E pro_x
+.entry S,D   $0E pro_sd
+.entry B,W,L $0E pro_int
+.entry reg   $1D pro_reg
+.entry X     $1D pro_x
+.entry S,D   $1D pro_sd
+.entry B,W,L $1D pro_int
+.entry reg   $0F pro_reg
+.entry X     $0F pro_x
+.entry S,D   $0F pro_sd
+.entry B,W,L $0F pro_int
+.entry reg   $0A pro_reg
+.entry X     $0A pro_x
+.entry S,D   $0A pro_sd
+.entry B,W,L $0A pro_int
+.entry reg   $0C pro_reg
+.entry X     $0C pro_x
+.entry S,D   $0C pro_sd
+.entry B,W,L $0C pro_int
+.entry reg   $1C pro_reg
+.entry X     $1C pro_x
+.entry S,D   $1C pro_sd
+.entry B,W,L $1C pro_int
+.entry reg   $30 pro_reg
+.entry X     $30 pro_x
+.entry S,D   $30 pro_sd
+.entry B,W,L $30 pro_int
+.entry reg   $31 pro_reg
+.entry X     $31 pro_x
+.entry S,D   $31 pro_sd
+.entry B,W,L $31 pro_int
+.entry reg   $32 pro_reg
+.entry X     $32 pro_x
+.entry S,D   $32 pro_sd
+.entry B,W,L $32 pro_int
+.entry reg   $33 pro_reg
+.entry X     $33 pro_x
+.entry S,D   $33 pro_sd
+.entry B,W,L $33 pro_int
+.entry reg   $34 pro_reg
+.entry X     $34 pro_x
+.entry S,D   $34 pro_sd
+.entry B,W,L $34 pro_int
+.entry reg   $35 pro_reg
+.entry X     $35 pro_x
+.entry S,D   $35 pro_sd
+.entry B,W,L $35 pro_int
+.entry reg   $36 pro_reg
+.entry X     $36 pro_x
+.entry S,D   $36 pro_sd
+.entry B,W,L $36 pro_int
+.entry reg   $37 pro_reg
+.entry X     $37 pro_x
+.entry S,D   $37 pro_sd
+.entry B,W,L $37 pro_int
 .entry reg   $23 pro_reg
 .entry X     $23 pro_x
 .entry S,D   $23 pro_sd

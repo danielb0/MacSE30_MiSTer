@@ -640,3 +640,300 @@ at_go:  d=T11 b=K[one] alu=passb mode=mantb sign=b
         d=T2 a=T11 alu=passa | call lognp1
         d=T11 a=T11 b=K[exp_one] mode=exp alu=sub
         d=T11 a=T11 b=T1 alu=passa sign=b | goto tr_fin
+
+; ============================================================================
+; crot: circular CORDIC, rotation mode (transcend.cordic_rotate): cos and sin
+; of z (T2, 0 < z <= pi/4).  Below 2^-34: (1, z).  Else s = -exponent(z) - 1
+; (SC), X = the gain for s (T6/T8 alternating), Y = 0 (T7), Z = z 2^s (T9);
+; for i = s ... s + 66: by Z's sign (DFLAG) X -/+= Y >> (i + s), Y +/-= X >>
+; (i - s), Z -/+= atan(2^-i) 2^s - the table's word for i <= 33, 2^(64+s-i)
+; after.  Out: T4 = cos (X), T10 = sin (Y 2^-s).  Three clocks an iteration.
+; ============================================================================
+
+crot:   a=T2 b=K[bm34] mode=exp alu=sub
+        alu=nop | unless N goto ro_go
+        d=T4 b=K[one] alu=passb mode=mantb sign=zero    ; 1
+        d=T10 a=T2 alu=passa | ret                      ; z
+ro_go:  d=SC a=T2 b=K[bm1] mode=exp alu=rsub            ; s
+        d=T11 a=T2 b=K[bm1] alu=passb mode=exp | call tofix     ; z 2^s
+        d=T9 a=T14 alu=passa dl=1                       ; Z >= 0: DFLAG clear
+        d=SC a=T2 b=K[bm1] mode=exp alu=rsub            ; s again (tofix used SC)
+        d=T6 b=SC alu=passb lc=alu                      ; i = s
+        d=T6 b=K[gain+LC] alu=passb                     ; X = 1/K(s)
+        d=T7 b=0 alu=passb                              ; Y = 0
+ro_aa:  d=T8 a=T6 b=T7>>>LC+SC alu=subadd dir=dflag lit=34 | if LCEQ goto ro_ba2
+        d=T7 a=T7 b=T6>>>LC-SC alu=addsub dir=dflag
+        d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
+ro_ab:  d=T6 a=T8 b=T7>>>LC+SC alu=subadd dir=dflag lit=34 | if LCEQ goto ro_bb2
+        d=T7 a=T7 b=T8>>>LC-SC alu=addsub dir=dflag
+        d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc | goto ro_aa
+ro_ba:  d=T8 a=T6 b=T7>>>LC+SC alu=subadd dir=dflag lit=67 | if LCSCEQ goto ro_ea
+ro_ba2: d=T7 a=T7 b=T6>>>LC-SC alu=addsub dir=dflag
+        d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
+ro_bb:  d=T6 a=T8 b=T7>>>LC+SC alu=subadd dir=dflag lit=67 | if LCSCEQ goto ro_eb
+ro_bb2: d=T7 a=T7 b=T8>>>LC-SC alu=addsub dir=dflag
+        d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc | goto ro_ba
+ro_eb:  d=T6 a=T8 alu=passa                             ; X was in T8
+ro_ea:  d=T14 a=T6 alu=passa | call fromfix
+        d=T4 a=T11 alu=passa                            ; cos
+        d=T14 a=T7 alu=passa | call fromfix
+        d=T10 a=T11 b=SC mode=exp alu=sub | ret         ; sin = Y 2^-s
+
+; -- bnd: T11 held below 1 (transcend.bounded): exponent >= 0 and nonzero:
+; +/-(1 - 2^-67) --
+bnd:    a=T11 alu=passa
+        a=T11 b=K[bias] mode=exp alu=sub | if Z goto bn_r
+        alu=nop | if N goto bn_r
+        d=T11 a=T11 b=K[almost_one] alu=passb mode=mantb sign=a
+bn_r:   ret
+
+; ============================================================================
+; sincos (transcend.sincos): x (T2, nonzero) reduced by 2pi to 65 bits
+; (FMOD's loop, mr_loop) when |x| is larger; the quadrant k (LC, then T3) by
+; subtracting pi/2 while r > pi/4; crot on |r|, the sine negated for a
+; negative r; k & 3's swaps; x's sign on the sine; both bounded.  Out: T10 =
+; sin, T4 = cos.
+; ============================================================================
+
+sincos: d=T0 a=T2 alu=passa                             ; x's sign (T0 is free until pp)
+        a=T2 b=K[twopi] mode=exp alu=sub                ; |x| against 2pi
+        alu=nop | if N goto sc_q
+        alu=nop | unless Z goto sc_red
+        a=T2 b=K[twopi] alu=sub                         ; equal exponents: the mantissas
+        alu=nop | if C goto sc_q
+        alu=nop | if Z goto sc_q
+sc_red: d=T5 b=K[twopi]>>2 alu=passb dl=1               ; the divisor; DFLAG clear
+        d=T4 b=T2>>2 alu=passb q=clear
+        d=T7 a=T2 b=K[twopi] mode=exp alu=sub
+        d=T7 a=T7 b=K[exp_one] mode=exp alu=add | call mr_loop
+        d=T6 a=T4 b=T5<<1 alu=add | unless DFLAG goto sc_rr
+        d=T4 a=T6 alu=passa                             ; the remainder corrected
+sc_rr:  d=T2 a=T2 b=K[twopi] alu=passb mode=exp         ; 2r at 2pi's exponent + 1
+        d=T2 a=T2 b=K[exp_one] mode=exp alu=add
+        d=T2 a=T2 b=T4 alu=passb osh=norm               ; (x's sign)
+sc_q:   d=T2 a=T2 alu=passa sign=zero lc=0              ; z = |z|, k = 0
+sc_ql:  a=T2 alu=passa
+        alu=nop | if S goto sc_cr                       ; r < 0: done
+        alu=nop | if Z goto sc_cr                       ; r = 0: done
+        a=T2 b=K[quarterpi] mode=exp alu=sub
+        alu=nop | if N goto sc_cr
+        alu=nop | unless Z goto sc_sub
+        a=T2 b=K[quarterpi] alu=sub
+        alu=nop | if C goto sc_cr
+        alu=nop | if Z goto sc_cr
+sc_sub: d=T11 a=T2 alu=passa
+        d=T12 b=K[halfpi] alu=passb mode=mantb sign=b | call isub
+        d=T2 a=T11 alu=passa lc=inc | goto sc_ql        ; r - pi/2, k + 1
+sc_cr:  d=T3 b=LC alu=passb                             ; k (crot uses LC)
+        d=T5 a=T2 alu=passa                             ; r's sign
+        d=T2 a=T2 alu=passa sign=zero
+        a=T2 alu=passa
+        alu=nop | unless Z goto sc_c2
+        d=T4 b=K[one] alu=passb mode=mantb sign=zero    ; r = 0: (1, +0)
+        d=T10 b=0 alu=passb sign=zero | goto sc_sw
+sc_c2:  alu=nop | call crot
+sc_sw:  a=T5 alu=passa
+        alu=nop | unless S goto sc_k
+        d=T10 a=T10 alu=passa sign=nota                 ; r < 0: -sin
+sc_k:   d=T3 a=T3 alu=passa lc=alu                      ; k back in LC
+        alu=nop lit=1 | if LCEQ goto sc_1
+        alu=nop lit=2 | if LCEQ goto sc_2
+        alu=nop lit=3 | if LCEQ goto sc_3
+        goto sc_n                                       ; k = 0 or 4
+sc_1:   d=T13 a=T10 alu=passa sign=nota                 ; (c, -s)
+        d=T10 a=T4 alu=passa
+        d=T4 a=T13 alu=passa | goto sc_n
+sc_2:   d=T10 a=T10 alu=passa sign=nota                 ; (-s, -c)
+        d=T4 a=T4 alu=passa sign=nota | goto sc_n
+sc_3:   d=T13 a=T10 alu=passa                           ; (-c, s)
+        d=T10 a=T4 alu=passa sign=nota
+        d=T4 a=T13 alu=passa
+sc_n:   a=T0 alu=passa
+        alu=nop | unless S goto sc_b
+        d=T10 a=T10 alu=passa sign=nota                 ; x < 0: -sin
+sc_b:   d=T11 a=T4 alu=passa | call bnd
+        d=T4 a=T11 alu=passa
+        d=T11 a=T10 alu=passa | call bnd
+        d=T10 a=T11 alu=passa | ret
+
+; ============================================================================
+; FSIN, FCOS, FTAN, FSINCOS (fpu.py _trig, _op_fcos, _op_fsincos): 0 -> 0
+; (FCOS 1); an infinity: OPERR.  FTAN = sin / cos.  FSINCOS writes the
+; cosine to FPc, then the sine to FPs (FPs = FPc keeps the sine), FPCC from
+; the sine; EXC the sine's and the cosine's INEX2.
+; ============================================================================
+
+.table t_sin STAG
+  NAN  nan_m
+  ZERO mv_copy
+  INF  operr
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_sin
+.end
+.table t_cos STAG
+  NAN  nan_m
+  ZERO tr_one
+  INF  operr
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_cos
+.end
+.table t_tan STAG
+  NAN  nan_m
+  ZERO mv_copy
+  INF  operr
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_tan
+.end
+x_sin:  alu=nop | call sincos
+        d=T11 a=T10 alu=passa | goto tr_fin
+x_cos:  alu=nop | call sincos
+        d=T11 a=T4 alu=passa | goto tr_fin
+x_tan:  alu=nop | call sincos
+        d=T11 a=T10 alu=passa
+        d=T12 a=T4 alu=passa | call idiv
+        goto tr_fin
+
+.table t_sincos STAG
+  NAN  scs_nan
+  ZERO scs_z
+  INF  scs_inf
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_sincos
+.end
+x_sincos: alu=nop | call sincos
+        a=T4 alu=passa
+        d=T0 a=T4 alu=passa | if Z goto scs_cz
+        b=K[ulp] alu=passb stk=nz                       ; computed: inexact
+        alu=nop | call pp
+        d=FP[c] a=T5 alu=passa | goto scs_s
+scs_cz: d=T0 a=T4 b=0 alu=passb mode=exp
+        d=FP[c] a=T0 alu=passa
+scs_s:  d=T11 a=T10 alu=passa | goto tr_fin
+scs_z:  d=T0 b=K[one] alu=passb mode=mantb sign=zero
+        d=FP[c] a=T0 alu=passa
+        d=FP[dst] a=T1 alu=passa fpsr=fpcc ctl=end | goto idle
+scs_inf: d=T0 b=K[nan] alu=passb mode=mantb sign=b fpsr=orlit exc=OPERR | if EN_OPERR goto scs_blk
+scs_w2: d=FP[c] a=T0 alu=passa
+        d=FP[dst] a=T0 alu=passa fpsr=fpcc ctl=end | goto idle
+scs_blk: d=EXOP a=T9 alu=passa | goto done
+scs_nan: d=T0 a=T1 b=K[qbit] alu=or | unless SSNAN goto scs_w2
+        fpsr=orlit exc=SNAN | if EN_SNAN goto scs_blk
+        goto scs_w2
+
+; ============================================================================
+; atan (transcend.atan): circular CORDIC, vectoring mode, driving Y to 0.
+; |v| below 2^-34: v.  |v| < 1: from (1, |v| 2^s), s = -exponent - 1; else
+; from (2^-k, |v| 2^-k), k = exponent + 1, s = 0.  For i = s ... s + 66, by
+; Y's sign (DFLAG): X +/-= Y >> (i + s), Z +/-= atan(2^-i) 2^s, Y -/+= X >>
+; (i - s); an iteration with Y = 0 moves nothing, so Y reaching 0 ends it.
+; In: T2 = v (nonzero).  Out: T11 = Z 2^-s with v's sign.  Four clocks an
+; iteration.
+; ============================================================================
+
+atan:   d=T5 a=T2 alu=passa                             ; v's sign
+        d=T2 a=T2 alu=passa sign=zero                   ; a = |v|
+        a=T2 b=K[bm34] mode=exp alu=sub
+        d=T11 a=T5 alu=passa | if N goto av_r           ; below 2^-34: v
+        a=T2 b=K[bias] mode=exp alu=sub
+        alu=nop | unless N goto av_big
+        d=SC a=T2 b=K[bm1] mode=exp alu=rsub            ; s
+        d=T11 a=T2 b=K[bm1] alu=passb mode=exp | call tofix     ; a 2^s
+        d=T7 a=T14 alu=passa dl=1                       ; Y > 0: DFLAG clear
+        d=SC a=T2 b=K[bm1] mode=exp alu=rsub
+        d=T6 b=K[fx_one] alu=passb | goto av_go         ; X = 1
+av_big: d=T11 a=T2 b=K[bm1] alu=passb mode=exp | call tofix     ; a 2^-k in [1/2, 1)
+        d=T7 a=T14 alu=passa dl=1
+        a=T2 b=K[int63] mode=exp alu=sub               ; k >= 64: X = 0
+        d=T6 b=0 alu=passb | unless N goto av_x0
+        d=T12 a=T2 b=K[bm1] mode=exp alu=sub lc=alu     ; k
+        d=T6 b=K[fx_one]>>LC alu=passb                  ; X = 2^-k
+av_x0:  d=SC b=0 alu=passb                              ; s = 0
+av_go:  d=T9 b=SC alu=passb lc=alu                      ; i = s
+        d=T9 b=0 alu=passb                              ; Z = 0
+av_aa:  d=T8 a=T6 b=T7>>>LC+SC alu=addsub dir=dflag lit=34 | if LCEQ goto av_ba2
+        d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=addsub dir=dflag
+        d=T7 a=T7 b=T6>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
+        alu=nop | if Z goto av_e                        ; Y = 0: the rest moves nothing
+av_ab:  d=T6 a=T8 b=T7>>>LC+SC alu=addsub dir=dflag lit=34 | if LCEQ goto av_bb2
+        d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=addsub dir=dflag
+        d=T7 a=T7 b=T8>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
+        alu=nop | unless Z goto av_aa
+        goto av_e
+av_ba:  d=T8 a=T6 b=T7>>>LC+SC alu=addsub dir=dflag lit=67 | if LCSCEQ goto av_e
+av_ba2: d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=addsub dir=dflag
+        d=T7 a=T7 b=T6>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
+        alu=nop | if Z goto av_e
+av_bb:  d=T6 a=T8 b=T7>>>LC+SC alu=addsub dir=dflag lit=67 | if LCSCEQ goto av_e
+av_bb2: d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=addsub dir=dflag
+        d=T7 a=T7 b=T8>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
+        alu=nop | unless Z goto av_ba
+av_e:   d=T14 a=T9 alu=passa | call fromfix
+        d=T11 a=T11 b=SC mode=exp alu=sub
+        d=T11 a=T11 b=T5 alu=passa sign=b               ; v's sign
+av_r:   ret
+
+; ============================================================================
+; FATAN, FASIN, FACOS (fpu.py; transcend.atan, asin, acos): FATAN of an
+; infinity is +/-pi/2 computed; FASIN and FACOS outside [-1, 1]: OPERR;
+; FACOS(0) = pi/2 computed.  asin = atan(x / sqrt((1 - |x|)(1 + |x|))),
+; +/-1 -> +/-pi/2; acos = 2 atan(sqrt((1 - x)/(1 + x))), -1 -> pi, 1 -> +0.
+; ============================================================================
+
+.table t_atan STAG
+  NAN  nan_m
+  ZERO mv_copy
+  INF  :: d=T11 a=T1 b=K[halfpi] alu=passb mode=mantb sign=a | goto tr_fin
+  default :: d=T2 a=T1 alu=passa osh=norm | goto x_atan
+.end
+x_atan: alu=nop | call atan
+        goto tr_fin
+
+.table t_asin STAG
+  NAN  nan_m
+  ZERO mv_copy
+  INF  operr
+  default :: d=T2 a=T1 alu=passa osh=norm | goto as_dom
+.end
+as_dom: a=T2 b=K[bias] mode=exp alu=sub                 ; |x| against 1
+        alu=nop | if N goto x_asin
+        alu=nop | unless Z goto operr
+        a=T2 b=K[one] alu=sub
+        alu=nop | unless Z goto operr
+x_asin: d=T3 a=T2 alu=passa sign=zero                   ; a = |x|
+        d=T11 b=K[one] alu=passb mode=mantb sign=b
+        d=T12 a=T3 alu=passa | call isub                ; 1 - a
+        d=T4 a=T11 alu=passa
+        d=T11 b=K[one] alu=passb mode=mantb sign=b
+        d=T12 a=T3 alu=passa | call iadd                ; 1 + a
+        d=T12 a=T11 alu=passa
+        d=T11 a=T4 alu=passa | call imul                ; (1 - a)(1 + a)
+        a=T11 alu=passa
+        alu=nop | if Z goto as_hp
+        alu=nop | call isqrt
+        d=T12 a=T11 alu=passa
+        d=T11 a=T2 alu=passa | call idiv                ; x / sqrt(d)
+        d=T2 a=T11 alu=passa | call atan
+        goto tr_fin
+as_hp:  d=T11 a=T2 b=K[halfpi] alu=passb mode=mantb sign=a | goto tr_fin
+
+.table t_acos STAG
+  NAN  nan_m
+  ZERO :: d=T11 b=K[halfpi] alu=passb mode=mantb sign=b | goto tr_fin
+  INF  operr
+  default :: d=T2 a=T1 alu=passa osh=norm | goto ac_dom
+.end
+ac_dom: a=T2 b=K[bias] mode=exp alu=sub
+        alu=nop | if N goto x_acos
+        alu=nop | unless Z goto operr
+        a=T2 b=K[one] alu=sub
+        alu=nop | unless Z goto operr
+x_acos: d=T11 b=K[one] alu=passb mode=mantb sign=b
+        d=T12 a=T2 alu=passa | call iadd                ; den = 1 + x
+        a=T11 alu=passa
+        d=T4 a=T11 alu=passa | if Z goto ac_pi
+        d=T11 b=K[one] alu=passb mode=mantb sign=b
+        d=T12 a=T2 alu=passa | call isub                ; num = 1 - x
+        a=T11 alu=passa
+        alu=nop | if Z goto ac_z
+        d=T12 a=T4 alu=passa | call idiv
+        alu=nop | call isqrt
+        d=T2 a=T11 alu=passa | call atan
+        d=T11 a=T11 b=K[exp_one] mode=exp alu=add | goto tr_fin    ; 2 atan
+ac_pi:  d=T11 b=K[pi] alu=passb mode=mantb sign=b | goto tr_fin
+ac_z:   d=T11 b=0 alu=passb sign=zero | goto tr_fin

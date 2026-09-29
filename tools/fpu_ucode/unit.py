@@ -162,6 +162,17 @@ def main(n=3000):
     fn_check('logn ~1', 'logn', T.logn, near1)
     lp = [x for x in args + small if not (x.s and T.exponent(x) >= -1)]
     fn_check('lognp1', 'lognp1', T.lognp1, lp)
+    trig = [x for x in args] + [T.I67(rng.getrandbits(1), (1 << 66) | rng.getrandbits(66), rng.randint(0, 70) - 66) for _ in range(n // 8)]
+    bad = []
+    for x in trig:
+        ws, wc = T.sincos(x)
+        c = u.call('sincos', T2=word(x))
+        ok = same(c.T[10], ws) and same(c.T[4], wc)
+        results.append(ok)
+        if not ok and len(bad) < 3:
+            bad.append('%r -> sin %r cos %r, want %r %r' % (x, c.T[10], c.T[4], word(ws), word(wc)))
+    print('%s  %-8s %d arguments%s' % ('FAIL' if bad else 'PASS', 'sincos', len(trig), ''.join(chr(10) + '    ' + b for b in bad)))
+    fn_check('atan', 'atan', T.atan, args + small)
     nf = results.count(False)
     print('%d PASS, %d FAIL' % (results.count(True), nf))
     return 1 if nf else 0

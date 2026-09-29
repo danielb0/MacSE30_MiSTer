@@ -111,7 +111,7 @@ def build():
         ('fx_one', _fixed(T.ONE, T.F)),               # 1.0 in Q2.64
         ('fx_negone', _fixed(-T.ONE, T.F)),           # -1.0 in Q2.64
         ('pi', _i67(T.PI)),
-        ('twopi', _i67(T.TWOPI)),                     # FSIN's reduction takes it >> 2 (65 bits)
+        ('twopi', _i67(T.I67(0, (T.TWOPI.m >> 2) << 2, T.TWOPI.e))),   # 2pi to 65 bits (transcend.reduce_2pi)
         ('halfpi', _i67(T.HALFPI)),
         ('quarterpi', _i67(T.QUARTERPI)),
         ('ln2', _i67(T.LN2)),
