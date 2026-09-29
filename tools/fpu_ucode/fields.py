@@ -79,7 +79,7 @@ class Format:
 
 # -- sizes (8.8.10, 8.8.11) -------------------------------------------------------
 
-UROM_WORDS = 2048
+UROM_WORDS = 4096                # 8.8.19: grown from 2,048 for the transcendentals and packed decimal
 NROM_WORDS = 1024
 KROM_WORDS = 256
 ENTRY_WORDS = 1024
@@ -142,9 +142,9 @@ MICRO = Format(
     Field('rd', 5, doc='destination temporary'),
     Field('seq', 3, SEQ),
     Field('cond', 6, doc='condition (BRT/BRF) or dispatch key (DISP)'),
-    Field('target', 11, doc='jump/call/branch target; WAIT: clocks to hold'),
+    Field('target', 12, doc='jump/call/branch target; WAIT: clocks to hold'),
 )
-assert MICRO.width == 48
+assert MICRO.width == 49
 
 
 # -- the datapath controls (8.8.10, 8.8.11) ------------------------------------------

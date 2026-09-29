@@ -60,7 +60,7 @@ def expect_error(name, src, words):
 
 # -- the formats ------------------------------------------------------------------------
 
-check('microword is 48 bits', FD.MICRO.width == 48)
+check('microword is 49 bits', FD.MICRO.width == 49)
 check('nanoword fits 72 bits (%d)' % FD.NANO.width, FD.NANO.width <= 72)
 fits = all(f.enum is None or len(f.enum.names) <= 1 << f.width
            for fmt in (FD.MICRO, FD.NANO) for f in fmt.fields.values())
@@ -227,7 +227,7 @@ expect_error('an entry table with holes and no default', """
     .entry reg $22 idle
 """, ['empty', 'default'])
 expect_error('a label on nothing', HEAD + "dangling:\n", ['name nothing'])
-expect_error('the µROM overflowing', HEAD + ".org $7FF\nalu=nop | goto idle\nalu=nop | goto idle\n", ['full'])
+expect_error("the µROM overflowing", HEAD + ".org $FFF\nalu=nop | goto idle\nalu=nop | goto idle\n", ['full'])
 
 n_fail = results.count(False)
 print('%d PASS, %d FAIL' % (results.count(True), n_fail))

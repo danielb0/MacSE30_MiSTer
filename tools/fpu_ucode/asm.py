@@ -1,6 +1,6 @@
 """The 68882 microcode assembler: plan 8.8.18, work 6b.
 
-Source to the four ROM images of plan 8.8.11 - the µROM (2,048 x 48), the
+Source to the four ROM images of plan 8.8.11 - the µROM (4,096 x 49), the
 nROM (1,024 nanowords), the entry table (1,024 x 11) and the constant ROM
 (consts.py) - with a listing, a symbol file and a Verilog header, and the
 checks that make the images safe to run:
@@ -352,8 +352,8 @@ def parse_seq(u, s):
         u.seq, u.cond, u.target = 'DISP', FD.DISPATCH[k], _target(w[2])
     elif op == 'wait' and len(w) == 2:
         n = num(w[1])
-        if not 1 <= n < 1 << 11:
-            raise AsmError('%s: wait %d: 1 to 2047 clocks' % (u.loc, n))
+        if not 1 <= n < 1 << 12:
+            raise AsmError('%s: wait %d: 1 to 4095 clocks' % (u.loc, n))
         u.seq, u.target = 'WAIT', n
     else:
         raise AsmError('%s: sequencing %r' % (u.loc, s))
@@ -896,7 +896,7 @@ def write(r, outdir, stem='ucode'):
             fh.write(text)
     put(stem + '.urom.hex', hexlines(r.urom, FD.MICRO.width))
     put(stem + '.nrom.hex', hexlines(r.nrom, FD.NANO.width))
-    put(stem + '.entry.hex', hexlines(r.entry, 11))
+    put(stem + '.entry.hex', hexlines(r.entry, 12))
     put(stem + '.krom.hex', hexlines(r.krom, FD.KWORD_BITS))
     put('fpu_ucode.vh', FD.verilog_header() + _addr_defines(r))
     sym = {'labels': {n: e[1].addr for n, e in r.prog.labels.items()},
@@ -928,7 +928,7 @@ def write(r, outdir, stem='ucode'):
 def _addr_defines(r):
     out = ['', '// Exported microcode addresses.']
     for label, _ in r.prog.exports:
-        out.append('`define UADDR_%s 11\'h%03X' % (label.upper().replace('.', '_'), r.prog.labels[label][1].addr))
+        out.append('`define UADDR_%s 12\'h%03X' % (label.upper().replace('.', '_'), r.prog.labels[label][1].addr))
     return '\n'.join(out) + '\n'
 
 
