@@ -809,27 +809,124 @@ def check(prog, rom):
     if worst > FD.STACK_DEPTH:
         errors.append('calls nest %d deep; the µPC stack holds %d' % (worst, FD.STACK_DEPTH))
 
-    # Liveness to a fixed point, then the checkpoints.
+    # Liveness at the checkpoints, context-sensitive (merging every return
+    # point of a subroutine lets impossible paths make registers look
+    # live).  Each subroutine gets two summaries: U, what it may read before
+    # writing on the way to its RET, and D, what it writes on every way
+    # there; a CALL is live_in = U + (live after it - D).  A checkpoint is
+    # then judged per chain of calls that can be on the µPC stack above it:
+    # its subroutine's liveness with the RET's live-out being what is live
+    # after the call in the caller - judged the same way, outward.
     ud = {u.addr: uses_defs(u) for u in rom if u is not None}
-    live_in = {a: set() for a in ud}
-    changed = True
-    while changed:
-        changed = False
-        for a in sorted(ud, reverse=True):
-            out = set()
-            for s in succ[a]:
-                out |= live_in.get(s, set())
-            use, dfn = ud[a]
-            new = use | (out - dfn)
-            if new != live_in[a]:
-                live_in[a], changed = new, True
+    bodies = {}
+    for entry in callers:
+        seen, stack = set(), [entry]
+        while stack:
+            a = stack.pop()
+            if a in seen or rom[a] is None:
+                continue
+            seen.add(a)
+            if rom[a].seq != 'RET':
+                stack.extend(_intra_succ(prog, rom, rom[a]))
+        bodies[entry] = seen
+    U, D = {e: set() for e in callers}, {e: None for e in callers}
+    ALL = {'T%d' % i for i in range(FD.TEMPS)} | set(TRACKED_EXTRA)
+
+    def liveness(words, ret_live):
+        """live_in over `words` (a subroutine's body or the top level), a
+        RET's live-out being ret_live, calls by their summaries."""
+        live = {a: set() for a in words}
+
+        def out(a):
+            u = rom[a]
+            if u.seq == 'RET':
+                return set(ret_live)
+            if u.seq == 'CALL':
+                after = live.get(a + 1, set())
+                return U[u.taddr] | (after - (D[u.taddr] or set()))
+            o = set()
+            for s in _intra_succ(prog, rom, u):
+                o |= live.get(s, set())
+            return o
+        ch = True
+        while ch:
+            ch = False
+            for a in sorted(words, reverse=True):
+                use, dfn = ud[a]
+                new = use | (out(a) - dfn)
+                if new != live[a]:
+                    live[a], ch = new, True
+        return live, out
+
+    def must_def(entry):
+        """What every way from the entry to a RET writes (calls by D)."""
+        body = bodies[entry]
+        md = {a: None for a in body}               # None: not yet reached (top)
+        md[entry] = set()
+        ch = True
+        while ch:
+            ch = False
+            for a in sorted(body):
+                if md[a] is None:
+                    continue
+                u = rom[a]
+                d = md[a] | ud[a][1]
+                if u.seq == 'CALL':
+                    d = d | (D[u.taddr] or set())
+                    succs = [a + 1]
+                elif u.seq == 'RET':
+                    continue
+                else:
+                    succs = [s for s in _intra_succ(prog, rom, u) if s in body]
+                for s in succs:
+                    new = set(d) if md[s] is None else md[s] & d
+                    if new != md[s]:
+                        md[s], ch = new, True
+        rets = [md[a] for a in body if rom[a].seq == 'RET' and md[a] is not None]
+        return set.intersection(*[r | ud[a][1] for r, a in zip(rets, [a for a in body if rom[a].seq == 'RET' and md[a] is not None])]) if rets else set(ALL)
+
+    for _ in range(len(callers) + 2):              # the summaries to a fixed point
+        for e in callers:
+            live, _o = liveness(bodies[e], set())
+            U[e] = live[e]
+            D[e] = must_def(e)
+    top = [a for a in ud if not any(a in b for b in bodies.values())]
+    memo = {}
+
+    def contexts(entry, depth=0):
+        """The live-out sets a RET of this subroutine can see: for each call
+        of it, what is live after the call in its caller."""
+        if entry in memo:
+            return memo[entry]
+        res = []
+        for c in callers[entry]:
+            holders = [e2 for e2, b in bodies.items() if c in b]
+            if not holders:
+                live, _o = liveness(top, set())
+                res.append(frozenset(live.get(c + 1, set())))
+            for e2 in holders:
+                if depth > FD.STACK_DEPTH:
+                    continue
+                for ctx in contexts(e2, depth + 1):
+                    live, _o = liveness(bodies[e2], ctx)
+                    res.append(frozenset(live.get(c + 1, set())))
+        memo[entry] = res
+        return res
+
     allowed = {'T%d' % i for i in range(FD.LIVE_AT_CHECKPOINT)}
     for u in rom:
         if u is None or u.nano.get('ctl') != 'CHECKPOINT':
             continue
-        out = set()
-        for s in succ[u.addr]:
-            out |= live_in.get(s, set())
+        outs = []
+        holders = [e for e, b in bodies.items() if u.addr in b]
+        if not holders:
+            live, o = liveness(top, set())
+            outs.append(o(u.addr))
+        for e in holders:
+            for ctx in contexts(e) or [frozenset()]:
+                live, o = liveness(bodies[e], ctx)
+                outs.append(o(u.addr))
+        out = set().union(*outs) if outs else set()
         bad = sorted(out - allowed, key=lambda r: (len(r), r))
         if bad:
             errors.append('%s: checkpoint with %s live (a busy frame holds T0-T%d; Q, MD, MD3 must be dead)'

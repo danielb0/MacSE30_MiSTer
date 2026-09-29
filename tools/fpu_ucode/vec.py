@@ -95,7 +95,9 @@ def execute(chip, v):
     elif opclass == 3:
         idx = FD.entry_store(FMT_NAMES[rxf])
         src = sim.fp_word(chip.fp[(cmd >> 7) & 7])
-        chip.start(cmd, src, src, dreg=dreg)
+        # A dynamic k-factor: the BIU hands Dn over as the operand (the MPU's
+        # transfer of a main-processor register, 8.6.12).
+        chip.start(cmd, src, src, dreg=dreg, operand=dreg & 0xFFFFFFFF)
     else:
         raise Unimplemented('opclass %d' % opclass)
     clocks = chip.run(idx)

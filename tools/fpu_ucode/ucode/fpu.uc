@@ -1012,7 +1012,8 @@ pro_st: d=T1 b=FP[src] alu=passb mode=mantb sign=b fpsr=clrexc ctl=rp_dfmt
   S    :: alu=nop | dispatch STAG t_sts
   D    :: alu=nop | dispatch STAG t_std
   X    :: alu=nop | dispatch STAG t_stx
-  default unimpl
+  P    sp_ks
+  PK   sp_kd
 .end
 .entry out.L pro_st
 .entry out.W pro_st
@@ -1020,6 +1021,8 @@ pro_st: d=T1 b=FP[src] alu=passb mode=mantb sign=b fpsr=clrexc ctl=rp_dfmt
 .entry out.S pro_st
 .entry out.D pro_st
 .entry out.X pro_st
+.entry out.P pro_st
+.entry out.PK pro_st
 
 st_w:   d=OBUFL a=T6 alu=passa ctl=end | goto idle
 
@@ -1188,37 +1191,37 @@ pro_cr: alu=nop fpsr=clrexc ctl=rp_prec stk=clr | dispatch OPMODE t_cr
   $0E :: d=T0 b=K[$0E] alu=passb mode=mantb sign=b | goto cr_doc
   $0F :: d=T0 b=0 alu=passb sign=zero | goto wr_t0          ; 0.0
   $10 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
-  $11 :: d=T0 b=K[$11] alu=passb mode=mantb sign=b | goto cr_u
-  $12 :: d=T0 b=K[$12] alu=passb mode=mantb sign=b | goto cr_u
-  $13 :: d=T0 b=K[$13] alu=passb mode=mantb sign=b | goto cr_u
-  $14 :: d=T0 b=K[$14] alu=passb mode=mantb sign=b | goto cr_u
-  $15 :: d=T0 b=K[$15] alu=passb mode=mantb sign=b | goto cr_u
-  $16 :: d=T0 b=K[$16] alu=passb mode=mantb sign=b | goto cr_u
-  $17 :: d=T0 b=K[$17] alu=passb mode=mantb sign=b | goto cr_u
-  $18 :: d=T0 b=K[$18] alu=passb mode=mantb sign=b | goto cr_u
-  $19 :: d=T0 b=K[$19] alu=passb mode=mantb sign=b | goto cr_u
-  $1A :: d=T0 b=K[$1A] alu=passb mode=mantb sign=b | goto cr_u
-  $1B :: d=T0 b=K[$1B] alu=passb mode=mantb sign=b | goto cr_u
-  $1C :: d=T0 b=K[$1C] alu=passb mode=mantb sign=b | goto cr_u
-  $1D :: d=T0 b=K[$1D] alu=passb mode=mantb sign=b | goto cr_u
-  $1E :: d=T0 b=K[$1E] alu=passb mode=mantb sign=b | goto cr_u
-  $1F :: d=T0 b=K[$1F] alu=passb mode=mantb sign=b | goto cr_u
-  $20 :: d=T0 b=K[$20] alu=passb mode=mantb sign=b | goto cr_u
-  $21 :: d=T0 b=K[$21] alu=passb mode=mantb sign=b | goto cr_u
-  $22 :: d=T0 b=K[$22] alu=passb mode=mantb sign=b | goto cr_u
-  $23 :: d=T0 b=K[$23] alu=passb mode=mantb sign=b | goto cr_u
-  $24 :: d=T0 b=K[$24] alu=passb mode=mantb sign=b | goto cr_u
-  $25 :: d=T0 b=K[$25] alu=passb mode=mantb sign=b | goto cr_u
-  $26 :: d=T0 b=K[$26] alu=passb mode=mantb sign=b | goto cr_u
-  $27 :: d=T0 b=K[$27] alu=passb mode=mantb sign=b | goto cr_u
-  $28 :: d=T0 b=K[$28] alu=passb mode=mantb sign=b | goto cr_u
-  $29 :: d=T0 b=K[$29] alu=passb mode=mantb sign=b | goto cr_u
-  $2A :: d=T0 b=K[$2A] alu=passb mode=mantb sign=b | goto cr_u
-  $2B :: d=T0 b=K[$2B] alu=passb mode=mantb sign=b | goto cr_u
-  $2C :: d=T0 b=K[$2C] alu=passb mode=mantb sign=b | goto cr_u
-  $2D :: d=T0 b=K[$2D] alu=passb mode=mantb sign=b | goto cr_u
-  $2E :: d=T0 b=K[$2E] alu=passb mode=mantb sign=b | goto cr_u
-  $2F :: d=T0 b=K[$2F] alu=passb mode=mantb sign=b | goto cr_u
+  $11 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $12 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $13 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $14 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $15 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $16 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $17 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $18 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $19 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $1A :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $1B :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $1C :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $1D :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $1E :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $1F :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $20 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $21 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $22 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $23 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $24 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $25 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $26 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $27 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $28 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $29 :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $2A :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $2B :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $2C :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $2D :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $2E :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
+  $2F :: d=T0 b=K[$10] alu=passb mode=mantb sign=b | goto cr_u
   $30 :: d=T0 b=K[$30] alu=passb mode=mantb sign=b | goto cr_doc
   $31 :: d=T0 b=K[$31] alu=passb mode=mantb sign=b | goto cr_doc
   $32 :: d=T0 b=K[$32] alu=passb mode=mantb sign=b | goto cr_doc

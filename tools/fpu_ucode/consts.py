@@ -39,6 +39,7 @@ LNUP_BASE = 0x62
 LNDN_BASE = 0x84
 GAIN_BASE = 0xA6
 NAMED_BASE = 0xC8
+NAMED_SPILL = range(0x11, 0x30)       # FMOVECR's repeated undocumented rows
 TABLE_WORDS = T.ATAN_WORDS                          # 34
 
 MANT_MASK = (1 << MANT_BITS) - 1
@@ -83,8 +84,10 @@ def build():
     rom = [0] * KROM_WORDS
     names = {}
 
-    # FMOVECR by offset.
-    for off in range(0x40):
+    # FMOVECR by offset.  Rows $11-$2F would repeat WinUAE's entry 0 (row
+    # $10's): the microcode reads row $10 for those offsets, and the rows
+    # hold named constants instead (NAMED_SPILL).
+    for off in list(range(0x11)) + list(range(0x30, 0x40)):
         if off in constants.WINUAE_DOCUMENTED:
             (be, m), inexact, adj = constants.WINUAE_DOCUMENTED[off]
             rom[FMOVECR_BASE + off] = _ext(0, be, m, _direction(adj) if inexact else DIR_EXACT)
@@ -131,6 +134,8 @@ def build():
         ('ten', _ext(0, BIAS + 3, 0xA << 60)),
         ('nan', _ext(0, 0x7FFF, (1 << 64) - 1)),      # the chip's NaN (UM 6.1.3)
         ('exp_inf', _exp_word(0x7FFF)),               # an infinity: its mantissa must be 0
+        ('log2dn', _ext(0, 0x3FFD, 0x9A209A84FBCFF798)),   # bindec's log10(2), below (packed.LOG2)
+        ('log2up', _ext(0, 0x3FFD, 0x9A209A84FBCFF799)),   # and one unit above
     ]
     # Exponent-only and mantissa-only constants share words: an exponent-
     # mode operation reads only the exponent field, a mantissa-mode one only
@@ -194,18 +199,28 @@ def build():
         ('k7fff0000', 0x7FFF0000),                    # SE, YY and the $FFF exponent: infinity/NaN
         ('b30', 1 << 30),                             # SE
         ('b31', 1 << 31),                             # SM
+        ('k17', 17),                                  # bindec: LEN's limit, the k-factor's
+        ('k24', 24),
+        ('k64', 64),
+        ('k127', 127),
+        ('k128', 128),                                # also A14's $80
+        ('k4908', 4908),
+        ('k4933', 4933),
+        ('k10000', 10000),
+        ('m57', (1 << 57) - 1),                       # binstr's fraction, shifted right 7
     ]
     words = [(n, w) for n, w in full]
     for i in range(max(len(exps), len(mants))):
         en, ev = exps[i] if i < len(exps) else (None, 0)
         mn, mv = mants[i] if i < len(mants) else (None, 0)
         words.append(((en, mn), kword(0, ev, mv)))
+    addrs = list(range(NAMED_BASE, KROM_WORDS)) + list(NAMED_SPILL)
+    assert len(words) <= len(addrs), 'the constant ROM is full'
     for i, (n, w) in enumerate(words):
-        rom[NAMED_BASE + i] = w
+        rom[addrs[i]] = w
         for name in (n if isinstance(n, tuple) else (n,)):
             if name is not None:
-                names[name] = NAMED_BASE + i
-    assert NAMED_BASE + len(words) <= KROM_WORDS, 'the constant ROM is full'
+                names[name] = addrs[i]
     FIELDS.update({n: 'exp' for n, _ in exps})
     FIELDS.update({n: 'mant' for n, _ in mants})
     return rom, names

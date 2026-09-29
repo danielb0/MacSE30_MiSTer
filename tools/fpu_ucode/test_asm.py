@@ -84,17 +84,18 @@ check('TAGPAIR codes fit its 32-entry table', dispatch_ok)
 # -- the constant ROM against the model -----------------------------------------------------
 
 bad = []
-for off in range(0x40):
+for off in list(range(0x11)) + list(range(0x30, 0x40)):
     s, e, m, d = FD.kword_fields(consts.ROM[consts.FMOVECR_BASE + off])
     if off in constants.WINUAE_DOCUMENTED:
         (be, m64), inexact, adj = constants.WINUAE_DOCUMENTED[off]
         want_d = {(0, 0, 0, 1): 1, (0, -1, -1, 0): 2}.get(tuple(adj), 0) if inexact else 0
         if (s, e, m, d) != (0, be, m64 << 3, want_d):
             bad.append(off)
-    else:
+    elif off <= 0x10:
         ws, we, wm = constants.WINUAE_UNDEFINED[off if off <= 10 else 0]
         if (s, e, m, d) != (ws, we, wm << 3, 0):
             bad.append(off)
+    # rows $11-$2F hold named constants; the microcode reads row $10 there
 check('FMOVECR rows: rom64 images and directions, item 7 table', not bad, 'offsets %s' % bad)
 
 bad = 0
