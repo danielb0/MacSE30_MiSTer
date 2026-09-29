@@ -10162,8 +10162,39 @@ confirm:**
 - Packed decimal, in and out: the typical figures, as ruled.
 
 2,927 microinstructions, 391 nanowords; `test_asm` 54, `unit.py` 30,899.
-**Next: step (3), the checkpoints** in the long loops (~every 70 clocks,
-the liveness check holding) - then item 6 is done.
+
+**2026-09-29: the timing pass, step (3) done - the checkpoints.**
+`cpgap.py` measures, over every vector, the longest run of clocks in which
+a waiting FSAVE could not be let in (start to the first checkpoint, between
+checkpoints, the last to END - END's padding excluded: the instruction is
+finished and the BIU cuts the pad short); `cpcand.py` lists where the
+assembler's context-sensitive liveness allows one (`asm.check.live_out`).
+Before: transcendentals 300-580 clocks, packed decimal 800-1,726, with no
+checkpoint at all. Now **every gap is at most 123 clocks**, and the ones
+over about 90 are a single atomic step: a loop whose state is in Q, MD or
+MD3 (FDIV's and the helpers' divides, FSQRT's root, the multiplies, FMOD's
+last chunk), which cannot hold a checkpoint, with its setup and the
+instruction's ending - 8.8.12's "about 70" where the loops allow. Where:
+- every iteration of CORDIC rotation and vectoring (their state is in
+  T5-T9), every fresh step of `log1pf` and `expfrac`, every i of `log1ps`
+  and `expm1s` (their phase-B constant moved from T12 to T5);
+- between the compositions' helper calls, a helper's result **parked** in
+  T0-T10 for a word where no legal place existed (FASIN, FACOS, FSINH,
+  FCOSH, FTANH, FLOG2, FLOG10: a word or two each, inside the budgets);
+- packed decimal: `decbin`'s digit loop with its accumulator and source
+  moved to T0 and T5 (free there), `bindec`'s digit count to T0 (unused by
+  it), `pow10`'s loop, each quiet operation's end (`ppq`), the steps
+  between `p10`'s powers (one parked).
+The busy frame (8.8.15) therefore also holds **the budget, the elapsed
+count and RB** beside the µPC stack, LC, SC and the flags. `run.sh` runs
+`cpgap.py` (limit 125) after the vectors. 2,940 microinstructions, 399
+nanowords.
+
+**Item 6 is complete** (6a the architecture, 6b the assembler, 6c the
+simulator and the microcode: all 19,484 vectors bit for bit, every timed
+vector at its figure, the checkpoints). Open for Daniel: the six table
+readings and the own-time floors above. **Next: item 7 - the RTL, written
+against `sim.py`** (fields.py's `verilog_header()` gives the formats).
 
 ---
 

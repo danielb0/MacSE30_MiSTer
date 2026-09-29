@@ -10,7 +10,7 @@
 ; exponent 0; overflow cannot happen here.  Out: T5; INEX: inexact.
 ; ============================================================================
 
-ppq:    d=T0 a=T0 alu=passa osh=norm
+ppq:    d=T0 a=T0 alu=passa osh=norm ctl=checkpoint
         d=T3 a=T0 b=RINC alu=add rnd=ext | if TINY goto pq_t
         d=T5 a=T3 b=RMASK alu=and rnd=ext | if C goto pq_c
         ret
@@ -79,7 +79,7 @@ qi_r:   a=0 alu=passa rnd=ext | ret                     ; exact (INEX clear)
 
 pow10:  d=T10 b=K[one] alu=passb mode=mantb sign=b     ; p = 1
         d=T9 b=0 alu=passb                              ; i (T9: qmul uses LC)
-pw_l:   a=T6 alu=passa
+pw_l:   a=T6 alu=passa ctl=checkpoint
         a=T6 b=K[ulp] alu=and | if Z goto pw_r          ; n = 0: done
         d=T9 a=T9 alu=passa lc=alu | if Z goto pw_n     ; LC = i; bit 0 clear: skip
         d=T12 b=K[pten+LC] alu=passb mode=mantb sign=b  ; 10^(2^i), the RN image
@@ -95,18 +95,18 @@ pw_n:   d=T6 b=T6>>1 alu=passb
         d=T9 a=T9 b=K[ulp] alu=add | goto pw_l
 pw_r:   d=T11 a=T10 alu=passa | ret
 
-; -- m10a: T15 = T15 x 10 + T14 (integers) --
-m10a:   d=T12 b=T15<<3 alu=passb
-        d=T15 a=T12 b=T15<<1 alu=add
-        d=T15 a=T15 b=T14 alu=add | ret
+; -- m10a: T0 = T0 x 10 + T14 (integers) --
+m10a:   d=T12 b=T0<<3 alu=passb
+        d=T0 a=T12 b=T0<<1 alu=add
+        d=T0 a=T0 b=T14 alu=add | ret
 
-; -- digits: T15 = T15 x 10^8 + the 8 digits of the longword in T13, most
+; -- digits: T0 = T0 x 10^8 + the 8 digits of the longword in T5, most
 ; significant first (a non-decimal nibble counts as its value, Table 3-4
 ; note 2) --
 digits: alu=nop lc=7
-dg_l:   d=T14 b=T13>>28 alu=passb
+dg_l:   d=T14 b=T5>>28 alu=passb
         d=T14 a=T14 b=K[k15] alu=and | call m10a
-        d=T13 b=T13<<4 alu=passb lc=dec | unless LCZ goto dg_l
+        d=T5 b=T5<<4 alu=passb lc=dec ctl=checkpoint | unless LCZ goto dg_l
         ret
 
 ; ============================================================================
@@ -183,23 +183,23 @@ pk_go3: d=T9 a=T1 alu=passa ctl=rm_fpcr | dispatch OPMODE ops
 ; Out: T1; INEX the last step's.
 ; ============================================================================
 
-decbin: d=T15 b=T2>>24 alu=passb
-        d=T15 a=T15 b=K[k15] alu=and                    ; EXP2
+decbin: d=T0 b=T2>>24 alu=passb
+        d=T0 a=T0 b=K[k15] alu=and                    ; EXP2
         d=T14 b=T2>>20 alu=passb
         d=T14 a=T14 b=K[k15] alu=and | call m10a
         d=T14 b=T2>>16 alu=passb
         d=T14 a=T14 b=K[k15] alu=and | call m10a        ; e (three digits)
         a=T2 b=K[b30] alu=and                           ; SE
-        d=T6 a=T15 alu=passa | if Z goto db_1
-        d=T6 a=0 b=T15 alu=sub                          ; -e
+        d=T6 a=T0 alu=passa | if Z goto db_1
+        d=T6 a=0 b=T0 alu=sub                          ; -e
 db_1:   d=T6 a=T6 b=K[k16] alu=sub dl=1                 ; - 16: the 17 digits read as an integer
         d=T8 b=0 alu=passb sign=zero | unless DFLAG goto db_2   ; T8's sign: SE'
         d=T6 a=0 b=T6 alu=sub
         d=T8 b=0 alu=passb sign=one
-db_2:   d=T15 a=T2 b=K[k15] alu=and                     ; M16
-        d=T13 a=T3 alu=passa | call digits
-        d=T13 a=T4 alu=passa | call digits              ; M: 17 digits, below 2^61
-        d=T7 b=T15 alu=passb
+db_2:   d=T0 a=T2 b=K[k15] alu=and                     ; M16
+        d=T5 a=T3 alu=passa | call digits
+        d=T5 a=T4 alu=passa | call digits              ; M: 17 digits, below 2^61
+        d=T7 b=T0 alu=passb
         d=T7 a=T7 b=K[int_exp] alu=passb mode=exp
         d=T7 a=T7 alu=passa osh=norm                    ; fp0 = M (exact), positive
         a=T2 b=K[b31] alu=and
@@ -410,7 +410,7 @@ bd_lm:  alu=nop | call qmul
 bd_iz:  d=T7 b=0 alu=passb
 ; A6: LEN = k (k > 0), else ILOG + 1 - k; at least 1, at most 17 (k > 0 and
 ; above 17: OPERR)
-bd_6:   a=T4 alu=passa
+bd_6:   a=T4 alu=passa ctl=checkpoint
         alu=nop | if N goto bd_6n
         alu=nop | if Z goto bd_6n
         d=T8 a=T8 b=T4 alu=passb | goto bd_6c           ; (T8's sign kept)
@@ -492,7 +492,7 @@ bd_11:  d=T11 a=T5 b=T1 alu=passa sign=b ctl=rm_fpcr | call qint
         alu=nop | unless INEX goto bd_12
         fpsr=orlit exc=INEX2
 bd_12:  d=T11 a=T5 alu=passa | call toint               ; a = |YINT|
-        d=T9 a=T13 alu=passa                            ; (T9: a)
+        d=T9 a=T13 alu=passa ctl=checkpoint  ; (T9: a)
 ; A13: LEN digits?
         a=T4 alu=passa
         alu=nop | if S goto bd_13b                      ; the second pass
@@ -500,10 +500,10 @@ bd_12:  d=T11 a=T5 alu=passa | call toint               ; a = |YINT|
         alu=nop | if S goto bd_13u                      ; a denormal skips the low test
         d=T13 a=T8 b=K[ulp] alu=sub lc=alu
         alu=nop | call p10                              ; 10^(LEN-1)
-        a=T9 b=T13 alu=sub
+        a=T9 b=T13 alu=sub ctl=checkpoint
         alu=nop | unless C goto bd_13u
         d=T7 a=T7 b=K[ulp] alu=sub | goto bd_again     ; a < 10^(LEN-1): ILOG - 1
-bd_13u: d=T13 a=T8 alu=passa lc=alu
+bd_13u: d=T13 a=T8 alu=passa lc=alu ctl=checkpoint
         alu=nop | call p10                              ; 10^LEN
         a=T13 b=T9 alu=sub
         alu=nop | unless C goto bd_13e
@@ -511,7 +511,7 @@ bd_13u: d=T13 a=T8 alu=passa lc=alu
 bd_13e: alu=nop | unless Z goto bd_14
         d=T7 a=T7 b=K[ulp] alu=add
         d=T13 a=T8 b=K[ulp] alu=sub lc=alu | call p10
-        d=T9 a=T13 alu=passa                            ; a = 10^(LEN-1)
+        d=T9 a=T13 alu=passa ctl=checkpoint  ; a = 10^(LEN-1)
         d=T13 a=T8 alu=passa lc=alu | call p10
         goto bd_14
 bd_again: d=T4 a=T4 alu=passa sign=one | goto bd_6      ; ICTR = 1, again
@@ -519,13 +519,14 @@ bd_13b: d=T13 a=T8 alu=passa lc=alu | call p10          ; P = 10^LEN
         a=T9 b=T13 alu=sub
         alu=nop | unless Z goto bd_14
         d=T13 a=T8 b=K[ulp] alu=sub lc=alu | call p10   ; a = P: a / 10, ILOG + 1, LEN + 1, P x 10
-        d=T9 a=T13 alu=passa
+        d=T9 a=T13 alu=passa ctl=checkpoint
         d=T7 a=T7 b=K[ulp] alu=add
         d=T8 a=T8 b=K[ulp] alu=add
         d=T13 a=T8 alu=passa lc=alu | call p10
 ; A14: |YINT| / P in RZ as a binary fraction, rounded at bit 7, then LEN
 ; digits.  T13 = P here.
-bd_14:  alu=nop | call xint
+bd_14:  d=T0 a=T13 alu=passa ctl=checkpoint              ; (parked for a busy frame)
+        d=T13 a=T0 alu=passa | call xint
         d=T10 a=T11 alu=passa                           ; P as extended
         d=T13 a=T9 alu=passa | call xint                ; a
         d=T12 a=T10 alu=passa ctl=rm_rz | call qdiv     ; F
@@ -534,13 +535,13 @@ bd_14:  alu=nop | call xint
         d=T6 b=0 alu=passb                              ; the low 64 bits' digits
         alu=nop | call digit                            ; M16 (LEN >= 1)
         d=T2 a=T14 alu=passa                            ; M16 (T2: |x| is done with)
-        d=T13 a=T8 b=K[ulp] alu=sub lc=15               ; 16 more places, LEN - 1 of them digits
+        d=T0 a=T8 b=K[ulp] alu=sub lc=15                ; 16 more places, LEN - 1 of them digits (T0: a busy frame holds it)
 bd_d:   d=T6 b=T6<<4 alu=passb
-        a=T13 alu=passa
+        a=T0 alu=passa
         alu=nop | if Z goto bd_dz
-        d=T13 a=T13 b=K[ulp] alu=sub | call digit
+        d=T0 a=T0 b=K[ulp] alu=sub | call digit
         d=T6 a=T6 b=T14 alu=or
-bd_dz:  alu=nop lc=dec | unless LCZ goto bd_d
+bd_dz:  alu=nop lc=dec ctl=checkpoint | unless LCZ goto bd_d
         goto bd_15
 
 ; A15: the exponent's four digits, |ILOG| (a zero fraction: 1; a denormal's

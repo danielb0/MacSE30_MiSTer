@@ -937,19 +937,32 @@ def check(prog, rom):
         return res
 
     allowed = {'T%d' % i for i in range(FD.LIVE_AT_CHECKPOINT)}
+    lcache = {}
+
+    def lv(key, words, ctx):
+        if (key, ctx) not in lcache:
+            lcache[(key, ctx)] = liveness(words, ctx)
+        return lcache[(key, ctx)]
+
+    def live_out(addr):
+        """What is live after the word at addr, in every call chain that
+        reaches it: what a checkpoint there would have to hold."""
+        outs = []
+        holders = [e for e, b in bodies.items() if addr in b]
+        if not holders:
+            live, o = lv('top', top, frozenset())
+            outs.append(o(addr))
+        for e in holders:
+            for ctx in contexts(e) or [frozenset()]:
+                live, o = lv(e, bodies[e], frozenset(ctx))
+                outs.append(o(addr))
+        return set().union(*outs) if outs else set()
+    check.live_out = live_out                      # for cpcand.py: where a checkpoint may go
+
     for u in rom:
         if u is None or u.nano.get('ctl') != 'CHECKPOINT':
             continue
-        outs = []
-        holders = [e for e, b in bodies.items() if u.addr in b]
-        if not holders:
-            live, o = liveness(top, set())
-            outs.append(o(u.addr))
-        for e in holders:
-            for ctx in contexts(e) or [frozenset()]:
-                live, o = liveness(bodies[e], ctx)
-                outs.append(o(u.addr))
-        out = set().union(*outs) if outs else set()
+        out = live_out(u.addr)
         bad = sorted(out - allowed, key=lambda r: (len(r), r))
         if bad:
             errors.append('%s: checkpoint with %s live (a busy frame holds T0-T%d; Q, MD, MD3 must be dead)'

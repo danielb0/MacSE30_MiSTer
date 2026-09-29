@@ -129,7 +129,7 @@ floorint: d=SC a=T11 b=K[int_exp] mode=exp alu=rsub     ; 66 + bias - E
         alu=nop | unless S goto fi_r
         d=T7 a=0 b=T7 alu=sub | unless STK goto fi_r    ; -|q|
         d=T7 a=T7 b=K[ulp] alu=sub                      ; a fraction: floor is one lower
-fi_r:   stk=clr | ret
+fi_r:   stk=clr ctl=checkpoint | ret
 
 ; -- fromint: T11 = the integer in T7 as an I67 (transcend.i_from_int) --
 fromint: a=T7 alu=passa
@@ -143,17 +143,17 @@ fn_e:   d=T11 a=T11 b=K[int_exp] alu=passb mode=exp
 ; hi in T3, lo in T4; nothing when n = 0 --
 reduce: a=T7 alu=passa
         alu=nop | if Z goto rd_r
-        alu=nop | call fromint
+        alu=nop ctl=checkpoint | call fromint
         d=T6 a=T11 alu=passa                            ; N
         d=T12 a=T3 alu=passa | call imul                ; N hi (exact)
         d=T12 a=T11 alu=passa
         d=T11 a=T2 alu=passa | call isub
-        d=T2 a=T11 alu=passa
+        d=T2 a=T11 alu=passa ctl=checkpoint
         d=T11 a=T6 alu=passa
         d=T12 a=T4 alu=passa | call imul                ; N lo
         d=T12 a=T11 alu=passa
         d=T11 a=T2 alu=passa | call isub
-        d=T2 a=T11 alu=passa
+        d=T2 a=T11 alu=passa ctl=checkpoint
 rd_r:   ret
 
 ; -- scale2: T11 x 2^n, n (T7) held to +/-65536 - past the catastrophic
@@ -187,21 +187,21 @@ expfrac: d=T8 a=T14 alu=passa lc=1                      ; R; i = 1
 ; the table's phase, i <= 33
 efa_rx: d=T4 a=T8 b=K[lnup-1+LC]>>>LC-SC alu=sub        ; X current, the same i again
 efa_rx2: d=T10 a=T9 b=T9>>>LC-SC alu=add | unless N goto efa_ry
-efa_fx: d=T4 a=T8 b=K[lnup+LC]>>>LC alu=sub lit=34 | if LCEQ goto efb_fx   ; R - L
+efa_fx: d=T4 a=T8 b=K[lnup+LC]>>>LC alu=sub lit=34 ctl=checkpoint | if LCEQ goto efb_fx   ; R - L
         d=T10 a=T9 b=T9>>>LC alu=add lc=inc | if N goto efa_fx   ; Y + Y 2^-i, ready
 efa_ry: d=T8 a=T4 b=K[lnup-1+LC]>>>LC-SC alu=sub        ; taken: Y current, the same i
         d=T9 a=T10 b=T10>>>LC-SC alu=add | unless N goto efa_rx
-efa_fy: d=T8 a=T4 b=K[lnup+LC]>>>LC alu=sub lit=34 | if LCEQ goto efb_fy
+efa_fy: d=T8 a=T4 b=K[lnup+LC]>>>LC alu=sub lit=34 ctl=checkpoint | if LCEQ goto efb_fy
         d=T9 a=T10 b=T10>>>LC alu=add lc=inc | if N goto efa_fy
         d=T4 a=T8 b=K[lnup-1+LC]>>>LC-SC alu=sub | goto efa_rx2   ; taken: retry X
 ; synthesized, i = 34 ... 63: R - (2^(64-i) - 1)
 efb_rx: d=T4 a=T8 b=K[fx_one]>>>LC-SC alu=sub cin=1
 efb_rx2: d=T10 a=T9 b=T9>>>LC-SC alu=add | unless N goto efb_ry
-efb_fx: d=T4 a=T8 b=K[fx_one]>>>LC alu=sub cin=1 lit=64 | if LCEQ goto ef_ex
+efb_fx: d=T4 a=T8 b=K[fx_one]>>>LC alu=sub cin=1 lit=64 ctl=checkpoint | if LCEQ goto ef_ex
         d=T10 a=T9 b=T9>>>LC alu=add lc=inc | if N goto efb_fx
 efb_ry: d=T8 a=T4 b=K[fx_one]>>>LC-SC alu=sub cin=1
         d=T9 a=T10 b=T10>>>LC-SC alu=add | unless N goto efb_rx
-efb_fy: d=T8 a=T4 b=K[fx_one]>>>LC alu=sub cin=1 lit=64 | if LCEQ goto ef_ey
+efb_fy: d=T8 a=T4 b=K[fx_one]>>>LC alu=sub cin=1 lit=64 ctl=checkpoint | if LCEQ goto ef_ey
         d=T9 a=T10 b=T10>>>LC alu=add lc=inc | if N goto efb_fy
         d=T4 a=T8 b=K[fx_one]>>>LC-SC alu=sub cin=1 | goto efb_rx2
 ef_ex:  d=T14 a=T9 alu=passa | ret
@@ -217,7 +217,7 @@ etox:   a=T2 b=K[b20] mode=exp alu=rsub                 ; |x| >= 2^21: only the 
         alu=nop | call floorint
         d=T3 b=K[ln2_hi] alu=passb mode=mantb sign=b
         d=T4 b=K[ln2_lo] alu=passb mode=mantb sign=b | call reduce
-ex_neg: a=T2 alu=passa                                  ; r < 0: n - 1, r + ln 2
+ex_neg: a=T2 alu=passa ctl=checkpoint                   ; r < 0: n - 1, r + ln 2
         alu=nop | unless S goto ex_pos
         d=T7 a=T7 b=K[ulp] alu=sub
         d=T11 a=T2 alu=passa
@@ -227,7 +227,7 @@ ex_pos: d=T11 a=T2 alu=passa                            ; r - ln 2 >= 0: n + 1, 
         d=T12 b=K[ln2] alu=passb mode=mantb sign=b | call isub
         a=T11 alu=passa
         alu=nop | if S goto ex_go
-        d=T2 a=T11 alu=passa
+        d=T2 a=T11 alu=passa ctl=checkpoint
         d=T7 a=T7 b=K[ulp] alu=add | goto ex_pos
 ex_go:  d=T11 a=T2 alu=passa | call tofix
         alu=nop | call expfrac
@@ -243,7 +243,7 @@ twotox: a=T2 b=K[b24] mode=exp alu=rsub
         alu=nop | call fromint
         d=T12 a=T11 alu=passa
         d=T11 a=T2 alu=passa | call isub
-        d=T2 a=T11 alu=passa
+        d=T2 a=T11 alu=passa ctl=checkpoint
 tt_f:   d=T11 a=T2 alu=passa
         d=T12 b=K[ln2] alu=passb mode=mantb sign=b | call imul
         alu=nop | call tofix
@@ -261,7 +261,7 @@ tentox: d=T11 a=T2 alu=passa
 te_n:   d=T11 a=T5 alu=passa | call floorint
         d=T3 b=K[log10_2_hi] alu=passb mode=mantb sign=b
         d=T4 b=K[log10_2_lo] alu=passb mode=mantb sign=b | call reduce
-te_neg: a=T2 alu=passa
+te_neg: a=T2 alu=passa ctl=checkpoint
         alu=nop | unless S goto te_pos
         d=T7 a=T7 b=K[ulp] alu=sub
         d=T11 a=T2 alu=passa
@@ -271,7 +271,7 @@ te_pos: d=T11 a=T2 alu=passa
         d=T12 b=K[log10_2] alu=passb mode=mantb sign=b | call isub
         a=T11 alu=passa
         alu=nop | if S goto te_go
-        d=T2 a=T11 alu=passa
+        d=T2 a=T11 alu=passa ctl=checkpoint
         d=T7 a=T7 b=K[ulp] alu=add | goto te_pos
 te_go:  d=T11 a=T2 alu=passa
         d=T12 b=K[ln10] alu=passb mode=mantb sign=b | call imul
@@ -348,22 +348,22 @@ ua_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=add lit=34 | if LCEQ goto ub_x   ; D 
 ua_y:   d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=add lit=34 | if LCEQ goto ub_y   ; Y current
         d=T8 a=T4 b=K[lnup+LC]>>>LC-SC alu=sub
         d=T9 a=T14 b=T6>>>LC alu=add | unless N goto ua_x
-        d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto ua_y
-ua_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto ua_x
-; u > 0, synthesized while C is not -1 (R += T12 = -(P + C))
+        d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint | goto ua_y
+ua_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint | goto ua_x
+; u > 0, synthesized while C is not -1 (R += T5 = -(P + C))
 ub_x:   a=T10 alu=passa | goto ub_nx2
 ub_y:   a=T10 alu=passa | goto ub_ny2
 ub_fx:  d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=add
-        d=T4 a=T8 b=T12 alu=add
+        d=T4 a=T8 b=T5 alu=add
         d=T6 a=T14 b=T9>>>LC alu=add | if N goto ub_nx
 ub_fy:  d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=add
-        d=T8 a=T4 b=T12 alu=add
+        d=T8 a=T4 b=T5 alu=add
         d=T9 a=T14 b=T6>>>LC alu=add | unless N goto ub_fx
-        d=T10 a=0 b=T10>>>2 alu=passb lc=inc
-ub_ny2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto ub_fy   ; -C - 1 - P + 1
+        d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint 
+ub_ny2: d=T5 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto ub_fy   ; -C - 1 - P + 1
         goto uc_y
-ub_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
-ub_nx2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto ub_fx
+ub_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint 
+ub_nx2: d=T5 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto ub_fx
 ; u > 0, C = -1 (L = P - 1: R - P + 1, the carry-in), to L = 0 (i = s + 64)
 uc_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto em_ux
         d=T4 a=T8 b=K[fx_one]>>>LC-SC alu=sub cin=1
@@ -371,8 +371,8 @@ uc_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto em_ux
 uc_y:   d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto em_uy
         d=T8 a=T4 b=K[fx_one]>>>LC-SC alu=sub cin=1
         d=T9 a=T14 b=T6>>>LC alu=add | unless N goto uc_x
-        alu=nop lc=inc | goto uc_y
-uc_nx:  alu=nop lc=inc | goto uc_x
+        alu=nop lc=inc ctl=checkpoint | goto uc_y
+uc_nx:  alu=nop lc=inc ctl=checkpoint | goto uc_x
 em_ux:  d=T14 a=T9 b=T8 alu=add | goto em_out          ; D + R
 em_uy:  d=T14 a=T6 b=T4 alu=add | goto em_out
 em_b:   alu=nop | if S goto dm_b
@@ -389,22 +389,22 @@ da_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=sub lit=34 | if LCEQ goto db_x   ; D 
 da_y:   d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=sub lit=34 | if LCEQ goto db_y
         d=T8 a=T4 b=K[lndn+LC]>>>LC-SC alu=sub
         d=T9 a=T14 b=T6>>>LC alu=sub | if N goto da_x
-        d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto da_y
-da_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto da_x
-; u < 0, synthesized while C is not -1 (~R += T12 = P - C)
+        d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint | goto da_y
+da_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint | goto da_x
+; u < 0, synthesized while C is not -1 (~R += T5 = P - C)
 db_x:   a=T10 alu=passa | goto db_nx2
 db_y:   a=T10 alu=passa | goto db_ny2
 db_fx:  d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=sub
-        d=T4 a=T8 b=T12 alu=add
+        d=T4 a=T8 b=T5 alu=add
         d=T6 a=T14 b=T9>>>LC alu=sub | unless N goto db_nx
 db_fy:  d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=sub
-        d=T8 a=T4 b=T12 alu=add
+        d=T8 a=T4 b=T5 alu=add
         d=T9 a=T14 b=T6>>>LC alu=sub | if N goto db_fx
-        d=T10 a=0 b=T10>>>2 alu=passb lc=inc
-db_ny2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto db_fy   ; -C - 1 + P + 1
+        d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint 
+db_ny2: d=T5 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto db_fy   ; -C - 1 + P + 1
         goto dc_y
-db_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
-db_nx2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto db_fx
+db_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint 
+db_nx2: d=T5 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto db_fx
 ; u < 0, C = -1 (~R + P + 1), to i = s + 64
 dc_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto em_dx
         d=T4 a=T8 b=K[fx_one]>>>LC-SC alu=add cin=1
@@ -412,8 +412,8 @@ dc_x:   d=T14 a=T9 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto em_dx
 dc_y:   d=T14 a=T6 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto em_dy
         d=T8 a=T4 b=K[fx_one]>>>LC-SC alu=add cin=1
         d=T9 a=T14 b=T6>>>LC alu=sub | if N goto dc_x
-        alu=nop lc=inc | goto dc_y
-dc_nx:  alu=nop lc=inc | goto dc_x
+        alu=nop lc=inc ctl=checkpoint | goto dc_y
+dc_nx:  alu=nop lc=inc ctl=checkpoint | goto dc_x
 em_dx:  d=T14 a=T9 alu=passa | goto em_out             ; D (R is 0 by then)
 em_dy:  d=T14 a=T6 alu=passa
 em_out: alu=nop | call fromfix
@@ -453,13 +453,15 @@ x_expm1: alu=nop budget=510 | call etoxm1
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_sinh
 .end
 x_sinh: d=T2 a=T2 alu=passa sign=zero budget=510 | call etoxm1
-        d=T3 a=T11 alu=passa budget=146                 ; z; 656
+        d=T3 a=T11 alu=passa ctl=checkpoint             ; z
+        d=T11 a=T3 alu=passa
         d=T12 b=K[one] alu=passb mode=mantb sign=b | call iadd
         d=T12 a=T11 alu=passa
         d=T11 a=T3 alu=passa | call idiv                ; z / (1 + z)
-        d=T12 a=T11 alu=passa
+        d=T4 a=T11 alu=passa ctl=checkpoint             ; (parked for a busy frame)
+        d=T12 a=T4 alu=passa
         d=T11 a=T3 alu=passa | call iadd
-        d=T11 a=T11 b=K[exp_one] mode=exp alu=sub
+        d=T11 a=T11 b=K[exp_one] mode=exp alu=sub budget=146   ; 656
         d=T11 a=T11 b=T1 alu=passa sign=b | goto tr_fin ; x's sign
 
 ; cosh = (t + 1/t)/2, t = e^|x|
@@ -470,9 +472,11 @@ x_sinh: d=T2 a=T2 alu=passa sign=zero budget=510 | call etoxm1
   default :: d=T2 a=T1 alu=passa osh=norm | goto x_cosh
 .end
 x_cosh: d=T2 a=T2 alu=passa sign=zero budget=510 | call etox
-        d=T3 a=T11 alu=passa budget=66                  ; 576
-        d=T12 a=T11 alu=passa
+        d=T3 a=T11 alu=passa ctl=checkpoint
+        d=T12 a=T3 alu=passa budget=66                  ; 576
         d=T11 b=K[one] alu=passb mode=mantb sign=b | call idiv   ; 1/t
+        d=T4 a=T11 alu=passa ctl=checkpoint             ; (parked)
+        d=T11 a=T4 alu=passa
         d=T12 a=T3 alu=passa | call iadd
         d=T11 a=T11 b=K[exp_one] mode=exp alu=sub sign=zero | goto tr_fin
 
@@ -488,9 +492,11 @@ x_tanh: d=T2 a=T2 b=K[exp_one] mode=exp alu=add sign=zero budget=510   ; 2|x|
         a=T2 b=K[b7] mode=exp alu=rsub budget=120       ; 630
         alu=nop | if N goto th_one
         alu=nop | call etoxm1
-        d=T3 a=T11 alu=passa
+        d=T3 a=T11 alu=passa ctl=checkpoint
+        d=T11 a=T3 alu=passa
         d=T12 b=K[two] alu=passb mode=mantb sign=b | call iadd
-        d=T12 a=T11 alu=passa
+        d=T4 a=T11 alu=passa ctl=checkpoint             ; (parked)
+        d=T12 a=T4 alu=passa
         d=T11 a=T3 alu=passa | call idiv
         d=T11 a=T11 b=T1 alu=passa sign=b
 bounded: a=T11 b=K[bias] mode=exp alu=sub               ; exponent >= 0: 1 - 2^-67
@@ -541,24 +547,24 @@ pa_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub          ; taken: Y current, the 
 pa_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub          ; X current, the same i
         d=T4 a=T14 b=T8>>>LC alu=sub
         d=T6 a=T9 b=K[lndn+LC]>>>LC-SC alu=sub | unless N goto pa_ry
-pa_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto pa_fx
+pa_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint | goto pa_fx
 pa_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub lit=34 | if LCEQ goto pb_y
         d=T8 a=T14 b=T4>>>LC alu=sub
         d=T9 a=T6 b=K[lndn+LC]>>>LC-SC alu=sub | unless N goto pa_rx
-pa_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto pa_fy
-; u > 0, synthesized while C is not -1 (L += T12 = P - C)
+pa_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint | goto pa_fy
+; u > 0, synthesized while C is not -1 (L += T5 = P - C)
 pb_x:   a=T10 alu=passa | goto pb_nx2                   ; D = 0: C = -1 already
 pb_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub
         d=T4 a=T14 b=T8>>>LC alu=sub
-        d=T6 a=T9 b=T12 alu=add | if N goto pb_nx
+        d=T6 a=T9 b=T5 alu=add | if N goto pb_nx
 pb_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub
         d=T8 a=T14 b=T4>>>LC alu=sub
-        d=T9 a=T6 b=T12 alu=add | if N goto pb_ny
+        d=T9 a=T6 b=T5 alu=add | if N goto pb_ny
 pb_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub
         d=T4 a=T14 b=T8>>>LC alu=sub
-        d=T6 a=T9 b=T12 alu=add | unless N goto pb_ry
-pb_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
-pb_nx2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto pb_fx   ; P + D + 1
+        d=T6 a=T9 b=T5 alu=add | unless N goto pb_ry
+pb_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint 
+pb_nx2: d=T5 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto pb_fx   ; P + D + 1
 ; u > 0, C = -1 (L += P + 1: the carry-in), to i = s + 64
 pc_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto lp_ex
         d=T4 a=T14 b=T8>>>LC alu=sub
@@ -569,17 +575,17 @@ pc_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub
 pc_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=sub
         d=T4 a=T14 b=T8>>>LC alu=sub
         d=T6 a=T9 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless N goto pc_ry
-pc_nx:  alu=nop lc=inc | goto pc_fx
+pc_nx:  alu=nop lc=inc ctl=checkpoint | goto pc_fx
 pb_y:   a=T10 alu=passa | goto pb_ny2
 pb_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub
         d=T8 a=T14 b=T4>>>LC alu=sub
-        d=T9 a=T6 b=T12 alu=add | unless N goto pb_rx
-pb_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
-pb_ny2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto pb_fy
+        d=T9 a=T6 b=T5 alu=add | unless N goto pb_rx
+pb_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint 
+pb_ny2: d=T5 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless Z goto pb_fy
 pc_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=sub lit=65 | if LCSCEQ goto lp_ey
         d=T8 a=T14 b=T4>>>LC alu=sub
         d=T9 a=T6 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless N goto pc_rx
-pc_ny:  alu=nop lc=inc | goto pc_fy
+pc_ny:  alu=nop lc=inc ctl=checkpoint | goto pc_fy
 lp_b:   alu=nop | if S goto lb_x
         goto pb_x
 ; u < 0, the table's phase
@@ -592,24 +598,24 @@ la_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add
 la_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add
         d=T4 a=T14 b=T8>>>LC alu=add
         d=T6 a=T9 b=K[lnup+LC]>>>LC-SC alu=sub | if LE goto la_ry
-la_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto la_fx
+la_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint | goto la_fx
 la_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add lit=34 | if LCEQ goto lb_y
         d=T8 a=T14 b=T4>>>LC alu=add
         d=T9 a=T6 b=K[lnup+LC]>>>LC-SC alu=sub | if LE goto la_rx
-la_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc | goto la_fy
-; u < 0, synthesized while C is not -1 (L += T12 = -(P + C))
+la_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint | goto la_fy
+; u < 0, synthesized while C is not -1 (L += T5 = -(P + C))
 lb_x:   a=T10 alu=passa | goto lb_nx2
 lb_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add
         d=T4 a=T14 b=T8>>>LC alu=add
-        d=T6 a=T9 b=T12 alu=add | unless LE goto lb_nx
+        d=T6 a=T9 b=T5 alu=add | unless LE goto lb_nx
 lb_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add
         d=T8 a=T14 b=T4>>>LC alu=add
-        d=T9 a=T6 b=T12 alu=add | unless LE goto lb_ny
+        d=T9 a=T6 b=T5 alu=add | unless LE goto lb_ny
 lb_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add
         d=T4 a=T14 b=T8>>>LC alu=add
-        d=T6 a=T9 b=T12 alu=add | if LE goto lb_ry
-lb_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
-lb_nx2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto lb_fx   ; D - P + 1
+        d=T6 a=T9 b=T5 alu=add | if LE goto lb_ry
+lb_nx:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint 
+lb_nx2: d=T5 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto lb_fx   ; D - P + 1
 ; u < 0, C = -1 (L += 1 - P), to i = s + 63
 lc_fx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto lp_ex
         d=T4 a=T14 b=T8>>>LC alu=add
@@ -620,17 +626,17 @@ lc_ry:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add
 lc_rx:  d=T14 a=T8 b=K[fx_one]>>>LC-SC alu=add
         d=T4 a=T14 b=T8>>>LC alu=add
         d=T6 a=T9 b=K[fx_one]>>>LC-SC alu=sub cin=1 | if LE goto lc_ry
-lc_nx:  alu=nop lc=inc | goto lc_fx
+lc_nx:  alu=nop lc=inc ctl=checkpoint | goto lc_fx
 lb_y:   a=T10 alu=passa | goto lb_ny2
 lb_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add
         d=T8 a=T14 b=T4>>>LC alu=add
-        d=T9 a=T6 b=T12 alu=add | if LE goto lb_rx
-lb_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc
-lb_ny2: d=T12 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto lb_fy
+        d=T9 a=T6 b=T5 alu=add | if LE goto lb_rx
+lb_ny:  d=T10 a=0 b=T10>>>2 alu=passb lc=inc ctl=checkpoint 
+lb_ny2: d=T5 a=T10 b=K[fx_one]>>>LC-SC alu=sub cin=1 | unless Z goto lb_fy
 lc_fy:  d=T14 a=T4 b=K[fx_one]>>>LC-SC alu=add lit=64 | if LCSCEQ goto lp_ey
         d=T8 a=T14 b=T4>>>LC alu=add
         d=T9 a=T6 b=K[fx_one]>>>LC-SC alu=sub cin=1 | if LE goto lc_rx
-lc_ny:  alu=nop lc=inc | goto lc_fy
+lc_ny:  alu=nop lc=inc ctl=checkpoint | goto lc_fy
 lp_ey:  d=T14 a=T6 b=T4 alu=add | goto lp_e             ; L + U
 lp_ex:  d=T14 a=T9 b=T8 alu=add
 lp_e:   alu=nop | call fromfix
@@ -657,13 +663,13 @@ pfa_rx: d=T4 a=T8 b=T8>>>LC-SC alu=sub                  ; X current, the same i 
 pfa_rx2: a=T4 b=K[fx_one] alu=sub
         d=T10 a=T9 b=K[lndn-1+LC]>>>LC-SC alu=sub | unless N goto pfa_ry
 pfa_fx: d=T4 a=T8 b=T8>>>LC alu=sub lit=34 | if LCEQ goto pfb_fx   ; X current: V - V 2^-i
-        a=T4 b=K[fx_one] alu=sub                        ; >= 1?
+        a=T4 b=K[fx_one] alu=sub ctl=checkpoint ; >= 1?
         d=T10 a=T9 b=K[lndn+LC]>>>LC alu=sub lc=inc | if N goto pfa_fx   ; L - ln(1 - 2^-i)
 pfa_ry: d=T8 a=T4 b=T4>>>LC-SC alu=sub                  ; taken: Y current, the same i
         a=T8 b=K[fx_one] alu=sub
         d=T9 a=T10 b=K[lndn-1+LC]>>>LC-SC alu=sub | unless N goto pfa_rx
 pfa_fy: d=T8 a=T4 b=T4>>>LC alu=sub lit=34 | if LCEQ goto pfb_fy   ; Y current
-        a=T8 b=K[fx_one] alu=sub
+        a=T8 b=K[fx_one] alu=sub ctl=checkpoint 
         d=T9 a=T10 b=K[lndn+LC]>>>LC alu=sub lc=inc | if N goto pfa_fy
         d=T4 a=T8 b=T8>>>LC-SC alu=sub | goto pfa_rx2   ; taken: retry X
 ; synthesized, i = 34 ... 64: L += 2^(64-i) + 1, the carry-in the 1
@@ -671,13 +677,13 @@ pfb_rx: d=T4 a=T8 b=T8>>>LC-SC alu=sub
 pfb_rx2: a=T4 b=K[fx_one] alu=sub
         d=T10 a=T9 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless N goto pfb_ry
 pfb_fx: d=T4 a=T8 b=T8>>>LC alu=sub lit=65 | if LCEQ goto pf_ex
-        a=T4 b=K[fx_one] alu=sub
+        a=T4 b=K[fx_one] alu=sub ctl=checkpoint 
         d=T10 a=T9 b=K[fx_one]>>>LC alu=add cin=1 lc=inc | if N goto pfb_fx
 pfb_ry: d=T8 a=T4 b=T4>>>LC-SC alu=sub
         a=T8 b=K[fx_one] alu=sub
         d=T9 a=T10 b=K[fx_one]>>>LC-SC alu=add cin=1 | unless N goto pfb_rx
 pfb_fy: d=T8 a=T4 b=T4>>>LC alu=sub lit=65 | if LCEQ goto pf_ey
-        a=T8 b=K[fx_one] alu=sub
+        a=T8 b=K[fx_one] alu=sub ctl=checkpoint 
         d=T9 a=T10 b=K[fx_one]>>>LC alu=add cin=1 lc=inc | if N goto pfb_fy
         d=T4 a=T8 b=T8>>>LC-SC alu=sub | goto pfb_rx2
 pf_ex:  d=T14 a=T9 b=T8 alu=add | ret                   ; L + V
@@ -689,14 +695,14 @@ logn:   d=T11 a=T2 alu=passa
         a=T11 alu=passa
         d=T3 a=T11 alu=passa | if Z goto ln_r            ; u = 0: +0
         a=T11 b=K[bm2] mode=exp alu=sub
-        alu=nop | unless N goto ln_m
+        alu=nop ctl=checkpoint | unless N goto ln_m
         d=T2 a=T3 alu=passa | goto log1ps                ; small: ln(1 + u)
 ln_m:   d=T11 a=T2 b=K[bias] alu=passb mode=exp          ; m in [1, 2)
         d=T12 b=K[one] alu=passb mode=mantb sign=b | call isub
         alu=nop | call tofix
         alu=nop | call log1pf
         alu=nop | call fromfix                           ; ln m
-        d=T3 a=T11 alu=passa
+        d=T3 a=T11 alu=passa ctl=checkpoint
         d=T7 a=T2 b=K[bias] mode=exp alu=sub             ; E
         d=T7 b=T7 bx=e2m alu=passb                       ; as an integer
         alu=nop | if Z goto ln_lm
@@ -713,7 +719,7 @@ lognp1: a=T2 b=K[bm66] mode=exp alu=sub
         a=T2 b=K[bm2] mode=exp alu=sub
         alu=nop | if N goto log1ps
         d=T12 b=K[one] alu=passb mode=mantb sign=b | call iadd   ; 1 + x
-        d=T2 a=T11 alu=passa | goto logn
+        d=T2 a=T11 alu=passa ctl=checkpoint | goto logn
 
 ; ============================================================================
 ; FLOGN, FLOG2, FLOG10, FLOGNP1, FATANH (fpu.py _log_like, _op_flognp1,
@@ -750,10 +756,14 @@ x_logn: alu=nop | if SNEG goto tr_iop
         goto tr_fin
 x_log2: alu=nop | if SNEG goto tr_iop
         alu=nop budget=510 | call logn
+        d=T3 a=T11 alu=passa ctl=checkpoint             ; (parked)
+        d=T11 a=T3 alu=passa
         d=T12 b=K[log2_e] alu=passb mode=mantb sign=b budget=40 | call imul   ; 550
         goto tr_fin
 x_log10: alu=nop | if SNEG goto tr_iop
         alu=nop budget=510 | call logn
+        d=T3 a=T11 alu=passa ctl=checkpoint             ; (parked)
+        d=T11 a=T3 alu=passa
         d=T12 b=K[log10_e] alu=passb mode=mantb sign=b budget=40 | call imul
         goto tr_fin
 
@@ -784,7 +794,7 @@ lp1_m1: d=T0 b=K[nan] alu=passb mode=mantb sign=zero budget=20 | goto dz   ; IOP
   default :: d=T2 a=T1 alu=passa osh=norm sign=zero | goto x_atanh
 .end
 x_atanh: a=T2 b=K[bias] mode=exp alu=sub                ; |x| against 1
-        alu=nop | if N goto at_go                       ; below 1
+        alu=nop ctl=checkpoint | if N goto at_go        ; below 1
         alu=nop | unless Z goto tr_iop                  ; 2 or more
         a=T2 b=K[one] alu=sub                           ; the mantissa against 1.0
         alu=nop | unless Z goto tr_iop
@@ -795,7 +805,7 @@ at_go:  d=T11 b=K[one] alu=passb mode=mantb sign=b budget=510
         d=T12 a=T2 alu=passa budget=152 | call isub      ; 1 - |x|; 662
         d=T12 a=T11 alu=passa
         d=T11 a=T2 b=K[exp_one] mode=exp alu=add | call idiv    ; 2|x| / (1 - |x|)
-        d=T2 a=T11 alu=passa | call lognp1
+        d=T2 a=T11 alu=passa ctl=checkpoint | call lognp1
         d=T11 a=T11 b=K[exp_one] mode=exp alu=sub
         d=T11 a=T11 b=T1 alu=passa sign=b | goto tr_fin
 
@@ -821,16 +831,16 @@ ro_go:  d=SC a=T2 b=K[bm1] mode=exp alu=rsub            ; s
         d=T7 b=0 alu=passb                              ; Y = 0
 ro_aa:  d=T8 a=T6 b=T7>>>LC+SC alu=subadd dir=dflag lit=34 | if LCEQ goto ro_ba2
         d=T7 a=T7 b=T6>>>LC-SC alu=addsub dir=dflag
-        d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
+        d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc ctl=checkpoint 
 ro_ab:  d=T6 a=T8 b=T7>>>LC+SC alu=subadd dir=dflag lit=34 | if LCEQ goto ro_bb2
         d=T7 a=T7 b=T8>>>LC-SC alu=addsub dir=dflag
-        d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc | goto ro_aa
+        d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc ctl=checkpoint | goto ro_aa
 ro_ba:  d=T8 a=T6 b=T7>>>LC+SC alu=subadd dir=dflag lit=67 | if LCSCEQ goto ro_ea
 ro_ba2: d=T7 a=T7 b=T6>>>LC-SC alu=addsub dir=dflag
-        d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
+        d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc ctl=checkpoint 
 ro_bb:  d=T6 a=T8 b=T7>>>LC+SC alu=subadd dir=dflag lit=67 | if LCSCEQ goto ro_eb
 ro_bb2: d=T7 a=T7 b=T8>>>LC-SC alu=addsub dir=dflag
-        d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc | goto ro_ba
+        d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc ctl=checkpoint | goto ro_ba
 ro_eb:  d=T6 a=T8 alu=passa                             ; X was in T8
 ro_ea:  d=T14 a=T6 alu=passa | call fromfix
         d=T4 a=T11 alu=passa                            ; cos
@@ -880,7 +890,7 @@ sc_rr:  d=T2 a=T2 b=K[twopi] alu=passb mode=exp         ; 2r at 2pi's exponent +
         d=T2 a=T2 b=K[exp_one] mode=exp alu=add
         d=T2 a=T2 b=T4 alu=passb osh=norm               ; (x's sign)
 sc_q:   d=T2 a=T2 alu=passa sign=zero lc=0              ; z = |z|, k = 0
-sc_ql:  a=T2 alu=passa
+sc_ql:  a=T2 alu=passa ctl=checkpoint
         alu=nop | if S goto sc_cr                       ; r < 0: done
         alu=nop | if Z goto sc_cr                       ; r = 0: done
         a=T2 b=K[quarterpi] mode=exp alu=sub
@@ -892,7 +902,7 @@ sc_ql:  a=T2 alu=passa
 sc_sub: d=T11 a=T2 alu=passa
         d=T12 b=K[halfpi] alu=passb mode=mantb sign=b | call isub
         d=T2 a=T11 alu=passa lc=inc | goto sc_ql        ; r - pi/2, k + 1
-sc_cr:  d=T3 b=LC alu=passb                             ; k (crot uses LC)
+sc_cr:  d=T3 b=LC alu=passb ctl=checkpoint              ; k (crot uses LC)
         d=T5 a=T2 alu=passa                             ; r's sign
         d=T2 a=T2 alu=passa sign=zero
         a=T2 alu=passa
@@ -922,7 +932,7 @@ sc_n:   a=T0 alu=passa
 sc_b:   d=T11 a=T4 alu=passa | call bnd
         d=T4 a=T11 alu=passa
         d=T11 a=T10 alu=passa | call bnd
-        d=T10 a=T11 alu=passa | ret
+        d=T10 a=T11 alu=passa ctl=checkpoint | ret
 
 ; ============================================================================
 ; FSIN, FCOS, FTAN, FSINCOS (fpu.py _trig, _op_fcos, _op_fsincos): 0 -> 0
@@ -1018,20 +1028,20 @@ av_go:  d=T9 b=SC alu=passb lc=alu                      ; i = s
 av_aa:  d=T8 a=T6 b=T7>>>LC+SC alu=addsub dir=dflag lit=34 | if LCEQ goto av_ba2
         d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=addsub dir=dflag
         d=T7 a=T7 b=T6>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
-        alu=nop | if Z goto av_e                        ; Y = 0: the rest moves nothing
+        alu=nop ctl=checkpoint | if Z goto av_e                        ; Y = 0: the rest moves nothing
 av_ab:  d=T6 a=T8 b=T7>>>LC+SC alu=addsub dir=dflag lit=34 | if LCEQ goto av_bb2
         d=T9 a=T9 b=K[atan+LC]>>>LC-SC alu=addsub dir=dflag
         d=T7 a=T7 b=T8>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
-        alu=nop | unless Z goto av_aa
+        alu=nop ctl=checkpoint | unless Z goto av_aa
         goto av_e
 av_ba:  d=T8 a=T6 b=T7>>>LC+SC alu=addsub dir=dflag lit=67 | if LCSCEQ goto av_e
 av_ba2: d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=addsub dir=dflag
         d=T7 a=T7 b=T6>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
-        alu=nop | if Z goto av_e
+        alu=nop ctl=checkpoint | if Z goto av_e
 av_bb:  d=T6 a=T8 b=T7>>>LC+SC alu=addsub dir=dflag lit=67 | if LCSCEQ goto av_e
 av_bb2: d=T9 a=T9 b=K[fx_one]>>>LC-SC alu=addsub dir=dflag
         d=T7 a=T7 b=T8>>>LC-SC alu=subadd dir=dflag dl=1 lc=inc
-        alu=nop | unless Z goto av_ba
+        alu=nop ctl=checkpoint | unless Z goto av_ba
 av_e:   d=T14 a=T9 alu=passa | call fromfix
         d=T11 a=T11 b=SC mode=exp alu=sub
         d=T11 a=T11 b=T5 alu=passa sign=b               ; v's sign
@@ -1071,17 +1081,18 @@ as_dom: a=T2 b=K[bias] mode=exp alu=sub                 ; |x| against 1
 x_asin: d=T3 a=T2 alu=passa sign=zero budget=510        ; a = |x|
         d=T11 b=K[one] alu=passb mode=mantb sign=b budget=40   ; 550
         d=T12 a=T3 alu=passa | call isub                ; 1 - a
-        d=T4 a=T11 alu=passa
+        d=T4 a=T11 alu=passa ctl=checkpoint
         d=T11 b=K[one] alu=passb mode=mantb sign=b
         d=T12 a=T3 alu=passa | call iadd                ; 1 + a
         d=T12 a=T11 alu=passa
         d=T11 a=T4 alu=passa | call imul                ; (1 - a)(1 + a)
-        a=T11 alu=passa
+        d=T4 a=T11 alu=passa ctl=checkpoint             ; (parked)
         alu=nop | if Z goto as_hp
-        alu=nop | call isqrt
-        d=T12 a=T11 alu=passa
+        d=T11 a=T4 alu=passa | call isqrt
+        d=T4 a=T11 alu=passa ctl=checkpoint             ; (parked)
+        d=T12 a=T4 alu=passa
         d=T11 a=T2 alu=passa | call idiv                ; x / sqrt(d)
-        d=T2 a=T11 alu=passa | call atan
+        d=T2 a=T11 alu=passa ctl=checkpoint | call atan
         goto tr_fin
 as_hp:  d=T11 a=T2 b=K[halfpi] alu=passb mode=mantb sign=a | goto tr_fin
 
@@ -1101,14 +1112,15 @@ ac_dom: a=T2 b=K[bias] mode=exp alu=sub
 x_acos: d=T11 b=K[one] alu=passb mode=mantb sign=b budget=510
         d=T12 a=T2 alu=passa budget=84 | call iadd      ; den = 1 + x; 594
         a=T11 alu=passa
-        d=T4 a=T11 alu=passa | if Z goto ac_pi
+        d=T4 a=T11 alu=passa ctl=checkpoint | if Z goto ac_pi
         d=T11 b=K[one] alu=passb mode=mantb sign=b
         d=T12 a=T2 alu=passa | call isub                ; num = 1 - x
         a=T11 alu=passa
         alu=nop | if Z goto ac_z
         d=T12 a=T4 alu=passa | call idiv
-        alu=nop | call isqrt
-        d=T2 a=T11 alu=passa | call atan
+        d=T4 a=T11 alu=passa ctl=checkpoint             ; (parked)
+        d=T11 a=T4 alu=passa | call isqrt
+        d=T2 a=T11 alu=passa ctl=checkpoint | call atan
         d=T11 a=T11 b=K[exp_one] mode=exp alu=add | goto tr_fin    ; 2 atan
 ac_pi:  d=T11 b=K[pi] alu=passb mode=mantb sign=b | goto tr_fin
 ac_z:   d=T11 b=0 alu=passb sign=zero | goto tr_fin
