@@ -11350,6 +11350,28 @@ System 6.0.7 (its System's `vers` is 6.0.7, Finder 6.1.7) and its
 Install disk has no boot blocks and no System Folder - neither is a core
 fault.
 
+**The 10 MHz, measured (2026-09-30, compile 24 on the board).** A JTAG
+peek of low memory: the ROM's own start-up calibration left **TimeDBRA
+($0D00) = $06D0 = 1,744** DBRA iterations a millisecond (TimeSCCDB $019D
+= 413; TimeSCSIDB $FFFF, not calibrated with no SCSI chip): **9.0 clocks
+an iteration** at 15.6672 MHz. The 030 UM, Table 11.6.15 (read from the
+page image, p. 11-48): DBcc, cc false and count not expired, **6 clocks
+from the instruction cache, 8 (0/2/0) without** at two-clock memory - 10
+with the SE/30's one RAM wait state on the two prefetches. So the kernel
+runs the loop about as a 68030 without its cache would (~1,570 a ms),
+the time base is right (a wrong VIA clock would scale every row), and the
+missing factor is the cache (~2,610 a ms): 1,744 / 2,610 x 15.67 = 10.5
+MHz, TattleTech's "10 MHz". Not a fault; the 68030's caches (plan 1.15
+item 9) are the remedy, and software can see them anyway (CACR, the
+clears, burst fills).
+
+**The order from here (Daniel, 2026-09-30, "Agreed"):** 7e-3 (the clocks
+against Table 8-3), 7e-4 (the cputest corpus) and the deferred full runs;
+then **the 68030's instruction and data caches (1.15 item 9), built as
+the chip builds them**, so everything after runs at the machine's speed;
+then SCSI (the 53C80, whose donor survey is done). The ISM's MFM read
+(5.13, 1.44 MB disks) is not yet placed.
+
 **7e-1 as built (2026-09-30).** `se30_fpu.v`:
 - **The slot**: `cu_v`, `cu_cmd`, `cu_iar`/`cu_pcv` (a passed PC waits
   with its instruction and becomes FPIAR when it starts in the APU - at
