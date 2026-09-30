@@ -11295,6 +11295,34 @@ that is what I would like to do." So:
 Nothing in 7e-3 must precede a board run: it changes when an instruction
 ends, not what it leaves, and the ROM does not time the FPU.
 
+**Compile 23 (2026-09-30, Daniel's go-ahead): `fc5aaaa`, tag `fc5aaaa4`,
+archived as `output_files/MacSE30_fc5aaaa4_cumoves.rbf`; 30 minutes.
+TIMING NOT MET: -1.152 ns setup at the slow 100C corner, -0.521 at slow
+-40C (the fast corners and every SDRAM path met; `sta_corners.tcl`).**
+Every clk_sys path within 0.5 ns of failing passes through the kernel's
+`cp_bf_now` (7d B5c): the PMMU's fault term (`cp_pmmu_f`, combinational
+from the current address through the PMMU's compares) forces
+`next_micro_state` to `cp_bf`, so every bit of the next state - and
+`pmmu_reg_sel_int`, the PMMU's register read, OP2out and the ALU behind
+it - waits on the address translation's fault. **Daniel flashed it anyway
+(for curiosity): THE MACHINE BOOTS TO THE DESKTOP** - past the FNOP at
+$131A4, where compile 21 stopped on the F-line. A violated build, so the
+evidence is "it works despite -1.15 ns", not "it works"; the fix to the
+path comes before the next compile.
+
+**The fix (2026-09-30, for compile 24).** The next-state process drives
+`next_micro_state_c`; a concurrent line applies the dialog's fault
+override (`next_micro_state <= cp_bf WHEN cp_bf_now = '1' ELSE
+next_micro_state_c`); what only asks whether the next state is a PMOVE
+state - `pmmu_reg_sel_int`, `pmove_mmu_read_active`, `data_write_tmp`'s
+PMMU source, the `pmove_dn_lo` select - reads `next_micro_state_c`. The
+same answer everywhere: `cp_bf_now` needs a coprocessor state, and no
+PMOVE state follows one; a simulation-only assertion says so on every
+clock (SIMERR, never fired). 389 assignments renamed, the process's reads
+unchanged (they read the final value, as before). Gate: `sim/kernel_bus`
+16/32/8 (338, 237, 520), `system` 23, `busfault` 14, `sim/cpfpu` all 13,
+`sim/machine`; `sim/kernel_upstream` verdicts identical to `ours.txt`.
+
 **7e-1 as built (2026-09-30).** `se30_fpu.v`:
 - **The slot**: `cu_v`, `cu_cmd`, `cu_iar`/`cu_pcv` (a passed PC waits
   with its instruction and becomes FPIAR when it starts in the APU - at
