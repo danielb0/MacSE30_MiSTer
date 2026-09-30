@@ -38,7 +38,10 @@ package TG68K_Pack is
                           berr1, berr2, berr3, berr4, berr5, berr6, berr7, berr8, berr_fill, trace_stk_grp2,
                           mul1, mul2, mul_end1,  mul_end2, div1, div2, div3, div4, div_end1, div_end2, rte_mmu_replay, rte_mmu_replay_sync,
                           -- the MC68882's coprocessor interface (SE30_PLAN.md 8.9.4, item 7d)
-                          cp_decode, cp_rsp, cp_rspw, cp_dsp, cp_pcw, cp_xa, cp_done, cp_bcc);
+                          cp_decode, cp_rsp, cp_rspw, cp_dsp, cp_pcw, cp_xa, cp_done, cp_bcc,
+                          cp_tsr, cp_eat, cp_abf, cp_prea, cp_extw, cp_ea1, cp_extw2, cp_xfr, cp_mrdw,
+                          cp_ow, cp_oww, cp_ordw, cp_mw, cp_mww, cp_rdreg, cp_imf, cp_imw, cp_rsel,
+                          cp_rselw, cp_mmreg, cp_fin);
 	
 	constant opcMOVE				: integer := 0; --
 	constant opcMOVEQ				: integer := 1; --

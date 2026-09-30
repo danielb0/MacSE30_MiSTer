@@ -10622,9 +10622,38 @@ the same way.
     come-again loop, and an illegal command word taken through `$1C0B`,
     XA and the F-line, stacked as format $0, vector offset $2C, PC the
     operation word. `+trace` prints every bus cycle and micro-state.
-- **B2** (next): operand transfers - evaluate EA and transfer data in
-  every mode and length, transfer single register, transfer multiple
-  (FMOVEM) - and then `PROG=full`.
+- **B2** (built): the operand transfers.
+  - **What:** evaluate EA and transfer data (5.7) in every mode but the
+    full extension format, all lengths, both directions; transfer single
+    main-processor register (5.11, to the coprocessor); transfer multiple
+    (5.14, FMOVEM), static and dynamic.
+  - **The effective address** is computed in the dialog (`cp_eat`,
+    `cp_ea1`) from the register file and the extension words it fetches:
+    the kernel's PC is scanPC, so a word fetched is a word consumed. The
+    kernel's own EA sequencing is not used - it assumes one operand per
+    instruction, fetched at decode, and the primitive asks later. The
+    PMMU's instructions have their own EA states for the same reason.
+  - **The operand** moves a part at a time (a long, or a tail of 2 or 1)
+    between memory at `cp_ea` and the operand CIR. Memory beats go on the
+    address chain as the CIR beats do, first beat only, so a split
+    (misaligned) operand's later beats take the adder's address.
+  - **Registers:** a write port on the register file (`cp_reg_we`) serves
+    -(An) before the transfer, (An)+ after it (a byte through A7 moves
+    it by 2), FMOVEM's final An, and a register destination (Dn's low
+    byte or word, An sign-extended).
+  - **Checks:** an EA outside the primitive's class writes AB and takes
+    the F-line (5.7 F1, 5.14). The protocol violations (P2-P4, an odd
+    FMOVEM length) and the full extension format (bd, od, memory
+    indirect) take the F-line for now; B3 gives the violations their
+    frame $9.
+  - **Test:** `sim/cpfpu` `PROG=b2` passes 27 results and the end marker
+    (849 CIR cycles). It covers (d16,An), (An)+ and -(An) with a word and
+    a byte, a misaligned double through (d8,An,Xn.W*2), (xxx).L, (d16,PC),
+    byte and word immediates, a byte into Dn, a dynamic FMOVEM list,
+    FMOVEM of FPCR/FPSR/FPIAR to memory, packed decimal with a static and
+    a dynamic k-factor, and an An destination refused with AB and the
+    F-line. `PROG=full` passes all but FSAVE and FRESTORE (B4), and
+    `PROG=b1` still passes. The gate is unchanged.
 - **B3**: frame $9 and its RTE, take mid-instruction, protocol
   violations, the interrupt points; cpScc, cpDBcc, cpTRAPcc, cpBcc.L.
 - **B4**: cpSAVE and cpRESTORE. **B5**: a bus error inside a dialog, and

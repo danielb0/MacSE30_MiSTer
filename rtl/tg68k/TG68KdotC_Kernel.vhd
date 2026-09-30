@@ -829,6 +829,34 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_trap_pc   : std_logic := '0';               -- the exception's frame PC is the operation word's
 	signal cp_br_sel    : std_logic;                      -- decode: a cpBcc taken - the PC adder's operands
 	signal cp_br_disp   : std_logic_vector(31 downto 0);
+	-- B2, the operand transfers (5.7, 5.11, 5.14): the effective address is
+	-- computed here from the register file and the extension words the
+	-- dialog fetches (the kernel's PC is scanPC), then the operand moves a
+	-- part at a time - a long, or a tail of 2 or 1 - between memory at
+	-- cp_ea (an absolute address on the chain, as the CIRs') and the
+	-- operand CIR.
+	signal cp_mem_next  : std_logic;                      -- decode: the beat scheduled now is memory at cp_ea
+	signal cp_reg_we    : std_logic;                      -- write cp_reg_d to register cp_reg_n at this edge
+	signal cp_reg_n     : std_logic_vector(3 downto 0);
+	signal cp_reg_d     : std_logic_vector(31 downto 0);
+	signal cp_ea        : std_logic_vector(31 downto 0) := (others => '0');  -- the operand's address, advancing
+	signal cp_len       : std_logic_vector(7 downto 0) := (others => '0');   -- bytes still to move (this register's, in FMOVEM)
+	signal cp_part      : std_logic_vector(2 downto 0);   -- the next part: 4, 2 or 1 bytes
+	signal cp_psize     : std_logic_vector(1 downto 0);   -- ... as a datatype
+	signal cp_psize0    : std_logic_vector(1 downto 0);   -- the primitive's length as a datatype (cp_len not yet loaded)
+	signal cp_data      : std_logic_vector(31 downto 0) := (others => '0');  -- the part in transit
+	signal cp_w         : std_logic_vector(15 downto 0) := (others => '0');  -- the last extension word
+	signal cp_wh        : std_logic_vector(15 downto 0) := (others => '0');  -- (xxx).L's first word
+	signal cp_pcbase    : std_logic_vector(31 downto 0) := (others => '0');  -- PC-relative: the extension word's address
+	signal cp_anew      : std_logic_vector(31 downto 0) := (others => '0');  -- (An)+: An after the transfer
+	signal cp_mm        : std_logic := '0';               -- a transfer multiple is running
+	signal cp_mmcnt     : std_logic_vector(3 downto 0) := (others => '0');   -- its registers still to move
+	signal cp_mmbase    : std_logic_vector(31 downto 0) := (others => '0');  -- -(An): the last register's start
+	signal cp_half      : std_logic := '0';               -- an immediate long: its first word is in
+	signal cp_an        : std_logic_vector(31 downto 0);  -- the EA's register An
+	signal cp_xn        : std_logic_vector(31 downto 0);  -- a brief extension's index, sized and scaled
+	signal cp_ea_ok     : std_logic;                      -- the EA is in the primitive's class
+	signal cp_pv        : std_logic;                      -- the primitive is a protocol violation here
 	signal pmmu_ea_mode_latched  : std_logic_vector(5 downto 0);  -- BUG #302: Latch EA mode+reg bits
 	-- Helper signals: use latched values when F-line context valid
 	signal pmmu_brief          : std_logic_vector(15 downto 0);
@@ -2587,6 +2615,11 @@ PROCESS (clk, regfile, RDindex_A, RDindex_B, exec, rte_mmu_fix_commit, rte_mmu_f
 					IF Wwrena='1' THEN
 						v_regfile(RDindex_A) := regin;
 					END IF;
+					-- the coprocessor interface (7d B2): An's update, a register
+					-- destination
+					IF cp_reg_we = '1' THEN
+						v_regfile(conv_integer(cp_reg_n)) := cp_reg_d;
+					END IF;
 				-- BUG #323 FIX: Direct MOVES mem->CPU register write.
 				-- Writes data_read directly to the destination register during the
 				-- bus read cycle (state="10"), bypassing the exec pipeline entirely.
@@ -3137,8 +3170,9 @@ PROCESS (clk)
 				--   5. micro_state=trap0, useStackframe2=1 -> $2xxx fmt/vec   (role B)
 				--   6. micro_state=trap0 (else)            -> $0xxx fmt/vec   (role B)
 				--   7. micro_state=int3                    -> $1xxx fmt/vec   (role B, Fmt$1 throwaway)
-				IF cp_cir_next='1' AND setstate="11" THEN
-					-- A write to a coprocessor interface register (7d).
+				IF (cp_cir_next='1' OR cp_mem_next='1') AND setstate="11" THEN
+					-- A write to a coprocessor interface register, or of an
+					-- operand's part to memory (7d).
 					data_write_tmp <= cp_wdata;
 				ELSIF writePC='1' THEN
 					-- Priority 1: explicit PC push (trap0/1 68000-style, int4 Fmt$1 PC,
@@ -3317,6 +3351,124 @@ PROCESS (clk)
 	END PROCESS;
 	
 -----------------------------------------------------------------------------
+-- the coprocessor interface's operand helpers (7d B2)
+-----------------------------------------------------------------------------
+	cp_an    <= regfile(conv_integer('1' & fline_opcode_latch(2 downto 0)));
+	cp_part  <= "100" WHEN cp_len(7 downto 2) /= "000000" ELSE cp_len(2 downto 0);
+	cp_psize <= "10" WHEN cp_len(7 downto 2) /= "000000" ELSE
+	            "01" WHEN cp_len(1) = '1' ELSE "00";
+	cp_psize0 <= "10" WHEN cp_prim(7 downto 2) /= "000000" ELSE
+	             "01" WHEN cp_prim(1) = '1' ELSE "00";
+
+	-- a brief extension word's index: Xn.W sign-extended or Xn.L, scaled
+	PROCESS (cp_w, regfile)
+		VARIABLE x : std_logic_vector(31 downto 0);
+	BEGIN
+		x := regfile(conv_integer(cp_w(15 downto 12)));
+		IF cp_w(11) = '0' THEN
+			x(31 downto 16) := (OTHERS => x(15));
+		END IF;
+		CASE cp_w(10 downto 9) IS
+			WHEN "01"   => x := x(30 downto 0) & '0';
+			WHEN "10"   => x := x(29 downto 0) & "00";
+			WHEN "11"   => x := x(28 downto 0) & "000";
+			WHEN OTHERS => NULL;
+		END CASE;
+		cp_xn <= x;
+	END PROCESS;
+
+	-- the EA against the primitive's valid class (5.7, Table 10-4) and, for
+	-- transfer multiple, 5.14's rule; the protocol violations 5.7 P1-P4
+	-- and 5.14's odd length
+	PROCESS (fline_opcode_latch, cp_prim)
+		VARIABLE m, r : std_logic_vector(2 downto 0);
+		VARIABLE dn, an, mem, ctl, alt, dat, val, imm, ok, pv : boolean;
+		VARIABLE len : std_logic_vector(7 downto 0);
+	BEGIN
+		m := fline_opcode_latch(5 downto 3);
+		r := fline_opcode_latch(2 downto 0);
+		len := cp_prim(7 downto 0);
+		dn  := m = "000";
+		an  := m = "001";
+		val := m /= "111" OR r(2) = '0' OR r(1 downto 0) = "00";
+		imm := m = "111" AND r = "100";
+		mem := (m /= "000" AND m /= "001" AND m /= "111") OR (m = "111" AND val);
+		ctl := m = "010" OR m = "101" OR m = "110" OR (m = "111" AND r(2) = '0');
+		alt := m /= "111" OR r(2 downto 1) = "00";
+		dat := val AND NOT an;
+		IF cp_prim(12 downto 8) = "00001" THEN
+			IF cp_prim(13) = '0' THEN
+				ok := ctl OR m = "011";
+			ELSE
+				ok := (ctl AND alt) OR m = "100";
+			END IF;
+			pv := len(0) = '1';
+		ELSE
+			CASE cp_prim(10 downto 8) IS
+				WHEN "000"  => ok := ctl AND alt;
+				WHEN "001"  => ok := dat AND alt;
+				WHEN "010"  => ok := mem AND alt;
+				WHEN "011"  => ok := alt;
+				WHEN "100"  => ok := ctl;
+				WHEN "101"  => ok := dat;
+				WHEN "110"  => ok := mem;
+				WHEN OTHERS => ok := val;
+			END CASE;
+			pv := ((dn OR an) AND NOT (len = x"01" OR len = x"02" OR len = x"04")) OR
+			      (imm AND (cp_prim(13) = '1' OR (len(0) = '1' AND len /= x"01"))) OR
+			      (cp_prim(13) = '1' AND NOT alt);
+		END IF;
+		IF ok THEN cp_ea_ok <= '1'; ELSE cp_ea_ok <= '0'; END IF;
+		IF pv THEN cp_pv <= '1'; ELSE cp_pv <= '0'; END IF;
+	END PROCESS;
+
+	-- the coprocessor's register writes, at the edge that ends the state
+	PROCESS (micro_state, fline_opcode_latch, cp_ea, cp_anew, cp_mmbase, cp_mm, cp_mmcnt, cp_prim, data_read, regfile)
+		VARIABLE n : std_logic_vector(3 downto 0);
+	BEGIN
+		n := fline_opcode_latch(3 downto 0);
+		cp_reg_we <= '0';
+		cp_reg_n  <= '1' & fline_opcode_latch(2 downto 0);
+		cp_reg_d  <= cp_ea;
+		IF micro_state = cp_prea THEN
+			cp_reg_we <= '1';                              -- -(An): the decremented address
+		ELSIF micro_state = cp_fin AND NOT (cp_mm = '1' AND cp_mmcnt /= "0000") THEN
+			IF fline_opcode_latch(5 downto 3) = "011" THEN
+				cp_reg_we <= '1';                          -- (An)+: past the operand(s)
+				IF cp_mm = '0' THEN
+					cp_reg_d <= cp_anew;
+				END IF;
+			ELSIF fline_opcode_latch(5 downto 3) = "100" AND cp_mm = '1' THEN
+				cp_reg_we <= '1';                          -- FMOVEM -(An): below the last register
+				cp_reg_d <= cp_mmbase;
+			END IF;
+		ELSIF micro_state = cp_rdreg THEN
+			-- a register destination (5.7): Dn takes the low byte or word, An
+			-- a sign-extended one
+			cp_reg_we <= '1';
+			cp_reg_n <= n;
+			IF n(3) = '1' THEN
+				IF cp_prim(7 downto 0) = x"01" THEN
+					cp_reg_d <= (31 downto 8 => data_read(7)) & data_read(7 downto 0);
+				ELSIF cp_prim(7 downto 0) = x"02" THEN
+					cp_reg_d <= (31 downto 16 => data_read(15)) & data_read(15 downto 0);
+				ELSE
+					cp_reg_d <= data_read;
+				END IF;
+			ELSE
+				cp_reg_d <= regfile(conv_integer(n));
+				IF cp_prim(7 downto 0) = x"01" THEN
+					cp_reg_d(7 downto 0) <= data_read(7 downto 0);
+				ELSIF cp_prim(7 downto 0) = x"02" THEN
+					cp_reg_d(15 downto 0) <= data_read(15 downto 0);
+				ELSE
+					cp_reg_d <= data_read;
+				END IF;
+			END IF;
+		END IF;
+	END PROCESS;
+
+-----------------------------------------------------------------------------
 -- the coprocessor interface's registers (7d)
 -----------------------------------------------------------------------------
 	-- cp_cir follows the beat as state follows setstate; cp_prim is the
@@ -3338,6 +3490,91 @@ PROCESS (clk)
 				END IF;
 				IF micro_state = cp_pcw THEN
 					cp_pcdone <= '1';
+				END IF;
+				-- B2: the operand's address, count and data
+				IF micro_state = cp_eat THEN
+					cp_len <= cp_prim(7 downto 0);
+					cp_half <= '0';
+					cp_pcbase <= TG68_PC;
+					IF cp_prim(12 downto 8) = "00001" THEN
+						cp_mm <= '1';
+					ELSE
+						cp_mm <= '0';
+					END IF;
+					IF fline_opcode_latch(5 downto 3) = "100" AND cp_prim(12 downto 8) /= "00001" THEN
+						-- -(An): down by the length first (a byte through A7: 2)
+						IF fline_opcode_latch(2 downto 0) = "111" AND cp_prim(7 downto 0) = x"01" THEN
+							cp_ea <= cp_an - 2;
+						ELSE
+							cp_ea <= cp_an - cp_prim(7 downto 0);
+						END IF;
+					ELSE
+						cp_ea <= cp_an;
+					END IF;
+					IF fline_opcode_latch(2 downto 0) = "111" AND cp_prim(7 downto 0) = x"01" THEN
+						cp_anew <= cp_an + 2;
+					ELSE
+						cp_anew <= cp_an + cp_prim(7 downto 0);
+					END IF;
+				END IF;
+				IF micro_state = cp_extw AND beat_valid = '1' THEN
+					cp_w <= data_read(15 downto 0);
+				END IF;
+				IF micro_state = cp_ea1 THEN
+					CASE fline_opcode_latch(5 downto 3) IS
+						WHEN "101" =>
+							cp_ea <= cp_an + ((31 downto 16 => cp_w(15)) & cp_w);
+						WHEN "110" =>
+							cp_ea <= cp_an + ((31 downto 8 => cp_w(7)) & cp_w(7 downto 0)) + cp_xn;
+						WHEN OTHERS =>
+							CASE fline_opcode_latch(2 downto 0) IS
+								WHEN "000" => cp_ea <= (31 downto 16 => cp_w(15)) & cp_w;
+								WHEN "001" => cp_wh <= cp_w;
+								WHEN "010" => cp_ea <= cp_pcbase + ((31 downto 16 => cp_w(15)) & cp_w);
+								WHEN OTHERS => cp_ea <= cp_pcbase + ((31 downto 8 => cp_w(7)) & cp_w(7 downto 0)) + cp_xn;
+							END CASE;
+					END CASE;
+				END IF;
+				IF micro_state = cp_extw2 AND beat_valid = '1' THEN
+					cp_ea <= cp_wh & data_read(15 downto 0);
+				END IF;
+				IF (micro_state = cp_mrdw OR micro_state = cp_ordw) AND beat_valid = '1' THEN
+					cp_data <= data_read;
+				END IF;
+				IF micro_state = cp_oww OR micro_state = cp_mww THEN
+					cp_ea <= cp_ea + cp_part;
+					cp_len <= cp_len - cp_part;
+				END IF;
+				IF micro_state = cp_rdreg THEN
+					cp_len <= x"00";
+				END IF;
+				IF micro_state = cp_imw AND beat_valid = '1' THEN
+					IF cp_part = "100" AND cp_half = '0' THEN
+						cp_data(31 downto 16) <= data_read(15 downto 0);
+						cp_half <= '1';
+					ELSE
+						IF cp_part = "001" THEN
+							cp_data(7 downto 0) <= data_read(7 downto 0);
+						ELSE
+							cp_data(15 downto 0) <= data_read(15 downto 0);
+						END IF;
+						cp_half <= '0';
+					END IF;
+				END IF;
+				IF micro_state = cp_rselw AND beat_valid = '1' THEN
+					cp_mmcnt <= ("000" & data_read(15)) + ("000" & data_read(14)) + ("000" & data_read(13)) +
+					            ("000" & data_read(12)) + ("000" & data_read(11)) + ("000" & data_read(10)) +
+					            ("000" & data_read(9)) + ("000" & data_read(8));
+					cp_mmbase <= cp_ea;
+				END IF;
+				IF micro_state = cp_mmreg AND cp_mmcnt /= "0000" THEN
+					cp_len <= cp_prim(7 downto 0);
+					cp_mmcnt <= cp_mmcnt - 1;
+					IF fline_opcode_latch(5 downto 3) = "100" THEN
+						-- -(An): each register below the last (5.14 step 3)
+						cp_mmbase <= cp_mmbase - cp_prim(7 downto 0);
+						cp_ea <= cp_mmbase - cp_prim(7 downto 0);
+					END IF;
 				END IF;
 				IF trap_cp = '1' THEN
 					cp_trap_pc <= '1';
@@ -3518,8 +3755,13 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 						use_base <= '0';
 					-- A coprocessor interface register (7d): CPU space $22000 + the
 					-- register, an absolute address for the beat this state schedules.
-					ELSIF cp_cir_next = '1' THEN
+					ELSIF cp_cir_next = '1' AND memmaskmux(3) = '1' THEN
 						memaddr_delta_rega <= x"000220" & "000" & cp_cir_off;
+						use_base <= '0';
+					-- ... and an operand's memory part at cp_ea (B2); a split
+					-- operand's later beats take the adder's address below
+					ELSIF cp_mem_next = '1' AND memmaskmux(3) = '1' THEN
+						memaddr_delta_rega <= cp_ea;
 						use_base <= '0';
 					-- Do not replace the frame address after only the first word of the
 					-- final longword. rte5 remains active until clkena_lw, and changing
@@ -5675,7 +5917,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		 long_start, set_datatype, sndOPC, set_exec, exec, ea_build_now, reg_QA, reg_QB, make_berr, trap_berr, last_opc_read,
 			 moves_writeback_pending, moves_active, pmmu_opcode, pmmu_brief, rte_format_word, rte_format_b_version_error,
 			 rte_fmt_a_replay_needed, rte_fmt_a_replay_size, mmu_restart_active,
-			 cp_prim, cp_pcdone, opcode_pc, fline_opcode_latch, fline_context_valid, clkena_lw)
+			 cp_prim, cp_pcdone, opcode_pc, fline_opcode_latch, fline_context_valid, clkena_lw,
+			 cp_ea_ok, cp_pv, cp_len, cp_part, cp_psize, cp_psize0, cp_data, cp_half, cp_mm, cp_mmcnt, regfile)
 	variable v_rte_format_valid : std_logic;
 	BEGIN
 		TG68_PC_brw <= '0';
@@ -5727,6 +5970,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		cp_wdata <= (others => '0');
 		cp_br_sel <= '0';
 		cp_br_disp <= (others => '0');
+		cp_mem_next <= '0';
 		trap_trap <='0';
 		trap_trapv <= '0';
 		trap_mmu_config <= '0';
@@ -9406,6 +9650,21 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         ELSE
                             next_micro_state <= cp_bcc;
                         END IF;
+                    ELSIF fline_opcode_latch(8 downto 6) = "000" AND
+                          (cp_prim(12 downto 11) = "10" OR cp_prim(12 downto 8) = "00001") THEN
+                        -- evaluate EA and transfer data (5.7), transfer multiple
+                        -- coprocessor registers (5.14) - a general instruction's
+                        next_micro_state <= cp_eat;
+                    ELSIF cp_prim(12 downto 8) = "01100" AND cp_prim(13) = '0' THEN
+                        -- transfer single main-processor register (5.11) to the
+                        -- coprocessor: Dn or An, a long to the operand CIR
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "10000";
+                        cp_wdata <= regfile(conv_integer(cp_prim(3 downto 0)));
+                        datatype <= "10";
+                        set_datatype <= "10";
+                        setstate <= "11";
+                        next_micro_state <= cp_tsr;
                     ELSIF cp_prim(13 downto 8) = "011100" THEN
                         -- take pre-instruction exception (5.16): XA ($0002 to
                         -- the control CIR, $02), then frame $0 at the
@@ -9423,6 +9682,240 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         -- (frame $9, vector 13) are B3's; until then the F-line.
                         trap_1111 <= '1';
                         trapmake <= '1';
+                    END IF;
+
+                WHEN cp_tsr =>
+                    -- the register in flight; CA = 1 reads the response again
+                    IF cp_prim(15) = '1' THEN
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "00000";
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "10";
+                        next_micro_state <= cp_rspw;
+                    ELSE
+                        setstate <= "01";
+                        next_micro_state <= cp_done;
+                    END IF;
+
+                WHEN cp_eat =>
+                    -- the operand's effective address, from the operation word's
+                    -- EA field; cp_ea, cp_len and the rest are set at this edge
+                    setstate <= "01";
+                    IF cp_ea_ok = '0' THEN
+                        -- not in the primitive's class: AB ($0001 to the
+                        -- control CIR), then the F-line, frame $0 (5.7 F1, 5.14)
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "00010";
+                        cp_wdata <= x"00000001";
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "11";
+                        next_micro_state <= cp_abf;
+                    ELSIF cp_pv = '1' THEN
+                        -- a protocol violation (5.7 P2-P4, 5.14): frame $9 and
+                        -- vector 13 are B3's; until then the F-line
+                        trap_1111 <= '1';
+                        trapmake <= '1';
+                    ELSIF fline_opcode_latch(5 downto 4) = "00" THEN
+                        -- register direct: the register's low bytes to the
+                        -- operand CIR, or the CIR's into the register at the
+                        -- read's end
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "10000";
+                        cp_wdata <= regfile(conv_integer(fline_opcode_latch(3 downto 0)));
+                        datatype <= cp_psize0;
+                        set_datatype <= cp_psize0;
+                        IF cp_prim(13) = '0' THEN
+                            setstate <= "11";
+                            next_micro_state <= cp_oww;
+                        ELSE
+                            setstate <= "10";
+                            next_micro_state <= cp_rdreg;
+                        END IF;
+                    ELSIF fline_opcode_latch(5 downto 3) = "010" OR fline_opcode_latch(5 downto 3) = "011" THEN
+                        IF cp_prim(12 downto 8) = "00001" THEN
+                            next_micro_state <= cp_rsel;
+                        ELSE
+                            next_micro_state <= cp_xfr;
+                        END IF;
+                    ELSIF fline_opcode_latch(5 downto 3) = "100" THEN
+                        IF cp_prim(12 downto 8) = "00001" THEN
+                            next_micro_state <= cp_rsel;
+                        ELSE
+                            next_micro_state <= cp_prea;
+                        END IF;
+                    ELSIF fline_opcode_latch(5 downto 0) = "111100" THEN
+                        next_micro_state <= cp_xfr;             -- immediate: the data follow
+                    ELSE
+                        -- an extension word first: fetch it (scanPC)
+                        setstate <= "00";
+                        next_micro_state <= cp_extw;
+                    END IF;
+
+                WHEN cp_abf =>
+                    -- the abort in flight: the F-line
+                    trap_1111 <= '1';
+                    trapmake <= '1';
+
+                WHEN cp_prea =>
+                    -- -(An): An takes the decremented address before the
+                    -- transfer (5.7 step 1)
+                    setstate <= "01";
+                    next_micro_state <= cp_xfr;
+
+                WHEN cp_extw =>
+                    -- the extension word in flight; cp_w takes it
+                    setstate <= "01";
+                    next_micro_state <= cp_ea1;
+
+                WHEN cp_ea1 =>
+                    -- cp_ea from the extension word, at this edge
+                    setstate <= "01";
+                    IF fline_opcode_latch(5 downto 0) = "111001" THEN
+                        -- (xxx).L: the second word
+                        setstate <= "00";
+                        next_micro_state <= cp_extw2;
+                    ELSIF (fline_opcode_latch(5 downto 3) = "110" OR fline_opcode_latch(5 downto 0) = "111011") AND
+                          cp_w(8) = '1' THEN
+                        -- the full extension format (bd, od, memory indirect):
+                        -- not carried yet - the F-line
+                        trap_1111 <= '1';
+                        trapmake <= '1';
+                    ELSIF cp_prim(12 downto 8) = "00001" THEN
+                        next_micro_state <= cp_rsel;
+                    ELSE
+                        next_micro_state <= cp_xfr;
+                    END IF;
+
+                WHEN cp_extw2 =>
+                    -- (xxx).L's second word in flight; cp_ea takes both
+                    setstate <= "01";
+                    IF cp_prim(12 downto 8) = "00001" THEN
+                        next_micro_state <= cp_rsel;
+                    ELSE
+                        next_micro_state <= cp_xfr;
+                    END IF;
+
+                WHEN cp_xfr =>
+                    -- the transfer loop: the next part, or the end
+                    setstate <= "01";
+                    IF cp_len = x"00" THEN
+                        next_micro_state <= cp_fin;
+                    ELSIF fline_opcode_latch(5 downto 0) = "111100" THEN
+                        -- immediate: the data from the instruction stream
+                        setstate <= "00";
+                        next_micro_state <= cp_imw;
+                    ELSIF cp_prim(13) = '0' THEN
+                        -- memory to the coprocessor: read the part
+                        cp_mem_next <= '1';
+                        datatype <= cp_psize;
+                        set_datatype <= cp_psize;
+                        setstate <= "10";
+                        next_micro_state <= cp_mrdw;
+                    ELSE
+                        -- the coprocessor to memory: read the operand CIR's part
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "10000";
+                        datatype <= cp_psize;
+                        set_datatype <= cp_psize;
+                        setstate <= "10";
+                        next_micro_state <= cp_ordw;
+                    END IF;
+
+                WHEN cp_mrdw =>
+                    -- the memory read in flight; cp_data takes it
+                    setstate <= "01";
+                    next_micro_state <= cp_ow;
+
+                WHEN cp_ow =>
+                    -- the part to the operand CIR ($10)
+                    cp_cir_next <= '1';
+                    cp_cir_off <= "10000";
+                    cp_wdata <= cp_data;
+                    datatype <= cp_psize;
+                    set_datatype <= cp_psize;
+                    setstate <= "11";
+                    next_micro_state <= cp_oww;
+
+                WHEN cp_oww =>
+                    -- the CIR write in flight; the address and the count move on
+                    setstate <= "01";
+                    next_micro_state <= cp_xfr;
+
+                WHEN cp_ordw =>
+                    -- the CIR read in flight; cp_data takes it
+                    setstate <= "01";
+                    next_micro_state <= cp_mw;
+
+                WHEN cp_mw =>
+                    -- the part to memory at cp_ea
+                    cp_mem_next <= '1';
+                    cp_wdata <= cp_data;
+                    datatype <= cp_psize;
+                    set_datatype <= cp_psize;
+                    setstate <= "11";
+                    next_micro_state <= cp_mww;
+
+                WHEN cp_mww =>
+                    -- the memory write in flight; the address and the count move on
+                    setstate <= "01";
+                    next_micro_state <= cp_xfr;
+
+                WHEN cp_rdreg =>
+                    -- the CIR read in flight; the register takes it at its end
+                    setstate <= "01";
+                    next_micro_state <= cp_fin;
+
+                WHEN cp_imw =>
+                    -- an immediate word in flight: a long wants two
+                    setstate <= "01";
+                    IF cp_part = "100" AND cp_half = '0' THEN
+                        setstate <= "00";
+                        next_micro_state <= cp_imw;
+                    ELSE
+                        next_micro_state <= cp_ow;
+                    END IF;
+
+                WHEN cp_rsel =>
+                    -- transfer multiple: read the register select CIR ($14)
+                    cp_cir_next <= '1';
+                    cp_cir_off <= "10100";
+                    datatype <= "01";
+                    set_datatype <= "01";
+                    setstate <= "10";
+                    next_micro_state <= cp_rselw;
+
+                WHEN cp_rselw =>
+                    -- the mask in flight; its ones are the registers to move
+                    setstate <= "01";
+                    next_micro_state <= cp_mmreg;
+
+                WHEN cp_mmreg =>
+                    -- the next register, or the end
+                    setstate <= "01";
+                    IF cp_mmcnt = "0000" THEN
+                        next_micro_state <= cp_fin;
+                    ELSE
+                        next_micro_state <= cp_xfr;
+                    END IF;
+
+                WHEN cp_fin =>
+                    -- this operand (or FMOVEM's register) moved: FMOVEM's
+                    -- next, or the address register's update and the next
+                    -- primitive (CA = 1) or the end
+                    setstate <= "01";
+                    IF cp_mm = '1' AND cp_mmcnt /= "0000" THEN
+                        next_micro_state <= cp_mmreg;
+                    ELSIF cp_prim(15) = '1' THEN
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "00000";
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "10";
+                        next_micro_state <= cp_rspw;
+                    ELSE
+                        next_micro_state <= cp_done;
                     END IF;
 
                 WHEN cp_pcw =>

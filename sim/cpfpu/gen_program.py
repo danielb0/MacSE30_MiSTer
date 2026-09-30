@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|full]
+    python gen_program.py [b1|b2|full]
 
 Both programs: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -41,6 +41,14 @@ no operand transfer):
             move.w  6(a7),$3018.w         the format and vector offset
             addq.l  #4,2(a7)              past the two words
             rte
+
+b2 (stage B2: the operand transfers) - every EA mode the full program
+does not reach: (d16,An), (An)+ and -(An) with a word and a byte, a
+misaligned double through (d8,An,Xn.W*2), (xxx).L, (d16,PC), byte and
+word immediates, a byte into Dn (the low byte only), a dynamic FMOVEM
+list, FMOVEM of the three control registers to memory, packed decimal
+with a static and a dynamic k-factor (transfer single register), and an
+An destination outside the primitive's class (AB, then the F-line).
 
 full: the program the bench must run once stage B is whole (operand
 transfers, FMOVEM, FSAVE/FRESTORE).
@@ -142,6 +150,79 @@ if MODE == 'b1':
         (0x3014, ill, 0xFFFFFFFF),            # its frame's PC: the operation word
         (0x3018, 0x002C0000, 0xFFFF0000),     # format 0, vector offset $2C
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),     # the end marker
+    ]
+elif MODE == 'b2':
+    # stage B2: the operand transfers in the modes and lengths the full
+    # program does not reach
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x3100)                    # lea $3100.w,a0
+    a.emit(0x43F8, 0x3200)                    # lea $3200.w,a1
+    a.emit(0x45F8, 0x3160)                    # lea $3160.w,a2
+    a.emit(0x47F8, 0x3180)                    # lea $3180.w,a3
+    a.emit(0x7405)                            # moveq #5,d2
+    a.emit(0x760C)                            # moveq #$0C,d3   (FP2/FP3, predecrement list)
+    a.emit(0x7801)                            # moveq #1,d4     (k-factor)
+    a.emit([0x2A3C] + L(0x12345678))          # move.l #$12345678,d5
+    a.emit(0xF23C, 0x4000, *L(7))             # fmove.l #7,fp0
+    a.emit(0xF23C, 0x5880, 0x00FE)            # fmove.b #-2,fp1
+    a.emit(0xF23C, 0x5100, 0x012C)            # fmove.w #300,fp2
+    a.emit(0xF200, 0x0422)                    # fadd.x fp1,fp0        5.0
+    a.emit(0xF228, 0x6000, 0x0010)            # fmove.l fp0,($10,a0)  -> $3110
+    a.emit(0xF219, 0x7100)                    # fmove.w fp2,(a1)+     -> $3200, a1 $3202
+    a.emit(0xF221, 0x7880)                    # fmove.b fp1,-(a1)     -> $3201, a1 $3201
+    a.emit(0x21C9, 0x3004)                    # move.l a1,$3004.w
+    a.emit(0xF230, 0x7500, 0x2208)            # fmove.d fp2,(8,a0,d2.w*2) -> $3112, misaligned
+    a.emit(0xF239, 0x6400, 0x0000, 0x3120)    # fmove.s fp0,$00003120.l
+    a.emit(0xF23A, 0x4980)                    # fmove.x (K15,pc),fp3: the displacement
+    a.fix.append((len(a.w), 'K15'))           #   is from its own word, as a branch's
+    a.emit(0)
+    a.emit(0xF238, 0x6980, 0x3130)            # fmove.x fp3,$3130.w
+    a.emit(0xF227, 0xE830)                    # fmovem.x d3,-(a7)     dynamic: FP2, FP3
+    a.emit(0xF21F, 0xD00C)                    # fmovem.x (a7)+,fp4/fp5
+    a.emit(0xF238, 0x6A00, 0x3140)            # fmove.x fp4,$3140.w
+    a.emit(0xF238, 0x6A80, 0x3150)            # fmove.x fp5,$3150.w
+    a.emit(0xF212, 0xBC00)                    # fmovem.l fpcr/fpsr/fpiar,(a2)
+    a.emit(0xF210, 0x6C02)                    # fmove.p fp0,(a0){#2}
+    a.emit(0xF213, 0x7C40)                    # fmove.p fp0,(a3){d4}
+    a.emit(0xF205, 0x7880)                    # fmove.b fp1,d5
+    a.emit(0x21C5, 0x3008)                    # move.l d5,$3008.w
+    a.label('BADEA'); a.emit(0xF20B, 0x6000)  # fmove.l fp0,a3: not data alterable - AB, F-line
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    a.label('K15'); a.emit(0x3FFF, 0x0000, 0xC000, 0x0000, 0x0000, 0x0000)   # 1.5
+    p = a.done()
+    put(0x1000, p)
+    put(4 * 11, L(0x2400))
+    put(0x2400, [0x52B8, 0x3010, 0x21EF, 0x0002, 0x3014, 0x31EF, 0x0006, 0x3018,
+                 0x58AF, 0x0002, 0x4E73])     # the F-line handler (as b1's)
+    expect = [
+        (0x3004, 0x00003201, 0xFFFFFFFF),     # A1 after (a1)+ word, -(a1) byte
+        (0x3008, 0x123456FE, 0xFFFFFFFF),     # FMOVE.B to D5: the low byte only
+        (0x3010, 0x00000001, 0xFFFFFFFF),     # the F-line, once (the An destination)
+        (0x3014, a.lab['BADEA'], 0xFFFFFFFF),
+        (0x3018, 0x002C0000, 0xFFFF0000),
+        (0x3100, 0x00000005, 0xFFFFFFFF),     # FMOVE.P {#2} of 5.0
+        (0x3104, 0x00000000, 0xFFFFFFFF),
+        (0x3108, 0x00000000, 0xFFFFFFFF),
+        (0x3110, 0x00004072, 0xFFFFFFFF),     # the long 5 at $3110, then the double from $3112
+        (0x3114, 0xC0000000, 0xFFFFFFFF),
+        (0x3118, 0x00000000, 0xFFFF0000),
+        (0x3120, 0x40A00000, 0xFFFFFFFF),     # FMOVE.S 5.0 through (xxx).L
+        (0x3130, 0x3FFF0000, 0xFFFFFFFF),     # 1.5 through (d16,PC)
+        (0x3134, 0xC0000000, 0xFFFFFFFF),
+        (0x3138, 0x00000000, 0xFFFFFFFF),
+        (0x3140, 0x40070000, 0xFFFFFFFF),     # FP4 = FP2 = 300, through dynamic FMOVEM
+        (0x3144, 0x96000000, 0xFFFFFFFF),
+        (0x3148, 0x00000000, 0xFFFFFFFF),
+        (0x3150, 0x3FFF0000, 0xFFFFFFFF),     # FP5 = FP3 = 1.5
+        (0x3154, 0xC0000000, 0xFFFFFFFF),
+        (0x3160, 0x00000000, 0xFFFFFFFF),     # FPCR
+        (0x3168, 0x00000000, 0xFFFFFFFF),     # FPIAR (no PC was asked for)
+        (0x3180, 0x00000005, 0xFFFFFFFF),     # FMOVE.P {D4 = 1} of 5.0
+        (0x3184, 0x00000000, 0xFFFFFFFF),
+        (0x3188, 0x00000000, 0xFFFFFFFF),
+        (0x3200, 0x01FE0000, 0xFFFF0000),     # the word 300, then the byte -2 at $3201
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 else:
     p = []
