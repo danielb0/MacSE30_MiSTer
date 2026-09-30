@@ -11278,6 +11278,23 @@ it. What the manual fixes:
 - **7e-3 the clocks**: the heads and tails against Table 8-3 (8.8.3).
 - **7e-4 the cputest corpus** (8.4 item 7).
 
+**The order after 7e-2 (Daniel, 2026-09-30 19:29, relayed from a side
+session):** "I would like to see the board get further. If the timing
+tests and the deferred test runs can go ahead after a full compile then
+that is what I would like to do." So:
+1. 7e-2 committed (`bad8592`).
+2. **Item 8 now**: the full compile with the kernel's protocol (7d) and
+   the overlap (7e-1, 7e-2) - the build ritual, `sta_corners.tcl` at
+   every corner, the fit's area - for Daniel to flash. The target: past
+   the FNOP at $131A4 where compile 21's board stopped (the kernel then
+   took the F-line for ID 1; now it runs the dialog).
+3. After it: 7e-3 (the clocks against Table 8-3, the CU's moves' clocks
+   included), 7e-4 (the cputest corpus), and the deferred full runs
+   (7e-1's five sweeps at `7d51f88`, 7e-2's full pairs, triples and
+   detour pairs at `bad8592`).
+Nothing in 7e-3 must precede a board run: it changes when an instruction
+ends, not what it leaves, and the ROM does not time the FPU.
+
 **7e-1 as built (2026-09-30).** `se30_fpu.v`:
 - **The slot**: `cu_v`, `cu_cmd`, `cu_iar`/`cu_pcv` (a passed PC waits
   with its instruction and becomes FPIAR when it starts in the APU - at
