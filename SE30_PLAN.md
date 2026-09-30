@@ -10383,6 +10383,242 @@ bit for bit, every one at the simulator's clocks** (14 minutes under
 Icarus). **7b is done; next 7c, FSAVE and FRESTORE of the idle and busy
 frames and the checkpoints.**
 
+### 8.9.3 7c: the frames and the checkpoints (design, 2026-09-30)
+
+Written before the RTL; UM 6.4.2-6.4.4, 7.5.3 and 7.5.4.6-7.5.4.7 read
+again for it. This replaces 8.8.15's first draft where they differ.
+
+**The phases (Table 6-5) as the chip decides them**, at the save CIR read:
+- **reset** - no command or condition word accepted since the reset or a
+  null restore (8.6.14 item 28): the null word at once, no frame.
+- **the APU running** (starting, computing, or in its END padding): the
+  come-again word, and a save request is latched. The APU stops at its
+  next checkpoint (the middle phase), or finishes (the end phase: the BIU
+  cuts the END padding short, as cpgap.py assumed); the next read then
+  finds one of the two below. This is 6.4.3.4-6.4.3.5 with "the end phase"
+  being wherever no checkpoint remains.
+- **the APU stopped at a checkpoint, or the BIU receiving an
+  instruction's operands** (expecting the instruction address, an operand
+  write, Dn, the register select read, FMOVEM or control registers in -
+  6.4.3.3's initial phase, where a page fault lands): **busy** at once.
+- otherwise (idle, or an instruction received but not started, a
+  conditional pending, a store's or FMOVEM's operand waiting to be read,
+  a take primitive posted): **idle** at once - Table 6-4's codes and the
+  operand register image are what the idle frame exists to carry.
+
+After the last longword the chip is idle with nothing pending (7.5.3.1):
+a stopped APU is dropped (its state is in the frame), the dialog and the
+pending exception cleared. A command or condition written while a save is
+still being waited for abandons it (the MPU took an interrupt and ran
+something else): a stopped APU carries on - ours; the manual has the
+interrupted FSAVE restarted by its RTE and says nothing of this.
+
+**The format words**: null `$0038`, come-again `$0138`, invalid `$0238`,
+idle `$1F38`, busy `$1FD4` (item 27: the size byte of the first three).
+A save CIR read while a save or restore transfer is in progress returns
+the invalid word and changes nothing (6.2.8, 7.5.4.6 - "not destructive");
+the MPU's abort that follows ends the transfer, and the rest of the
+suspended one's operand accesses are then acknowledged and ignored, as
+7.5.4.6 describes, until the next instruction, save or restore. A restore
+CIR write always aborts what is in progress (6.4.4, 7.5.4.7); the word is
+valid if null (any version), `$1F38` or `$1FD4`; anything else reads back
+`$0238`.
+
+**The frame** is read from the chip's registers as it streams (the state
+is frozen while it does) and written back into them as it arrives - no
+frame buffer. Longword k at offset 4k:
+
+| k | idle (14) | busy (53) |
+|---|---|---|
+| 1 | command/condition image: the last command or condition word, reserved half zero | the same |
+| 2-4 | the CU's registers, ours: the dialog's data - the operand being received, the FMOVEM register being received, or the store's output buffer | the same |
+| 5 | the dialog's state: BIU state, the state after the PC pass, longwords to move and moved, the store's CA and special-source bits, the control and FMOVEM masks, the F-line flag | the same |
+| 6 | the take primitive posted (upper half) | the same |
+| 7-9 | zero (7e's CU queue) | the same |
+| 10-15 | - | the APU: stopped (1 bit), the resume µPC, the µPC stack and its pointer, LC, SC, the flags (Z N C V S, sticky, inexact, DFLAG, TINY, HUGE), LZC, the constant's direction, RPREC, the rounding-mode override, RB, the budget, the elapsed clocks, the command, both operands' tags |
+| 16-48 | - | T0-T10, three longwords each: {sign, 18-bit exponent, mantissa 66-54}, mantissa 53-22, {mantissa 21-0, ten zeros} |
+| N-4 to N-2 | the exceptional operand ({sign, exponent, zero}, mantissa high, low) | the same |
+| N-1 | the operand register image: the next longword a pending operand read will take, else zero | the same |
+| N | the BIU flags | the same |
+
+The BIU flags (Figure 6-6): bit 31 a protocol violation posted; 30-28
+Table 6-4's code from the state (011 a command received not started, 001
+a conditional, 100 an operand write expected - operand, Dn, FMOVEM or
+control registers in - 110 an operand read, 111 otherwise); 27 clear when
+an exception is pending; 26 clear when an operand read is pending; 23-20
+set with the operand register image; the CU's bits 25-24 and 19-16 `00`
+and `1110` and bits 15-0 ones (WinUAE's idle words, the lead of 8.6.15).
+**A restore uses bit 27 alone** of them - the type from EXC AND ENABLE as
+FMOVEM left them (6-35) - and takes the rest from longword 5.
+
+**What a checkpoint must hold**, measured: the assembler's liveness
+(extended in a scratch run to the CU's operand, the raw operand and the
+store buffer) finds no read of the converted or raw operand live at any of
+the 84 checkpoints; the store buffer can be (packed decimal out), and
+travels in longwords 2-4, which no dialog uses while the APU runs. The
+operand tags are live at 12 (the packed store's rounding direction follows
+the source's sign after `bd_6`'s checkpoint; FATANH) and travel in the
+context. Q, MD, MD3 and T11-T31 are dead (the assembler's proof). Under `SIMULATION` a
+restore that resumes the APU **poisons** T11-T31, Q, MD, MD3, QX and both
+operand registers, so the vectors prove the claim rather than assume it.
+
+**The APU** gains a stop state: a CHECKPOINT word executed with the save
+request set completes and the sequencer stops, its next word's address
+kept as the resume point; a restore loads the context and restarts
+fetching there (the two fetch clocks are not counted, as at a start); T0-
+T10 are read and written through the temporaries' ports while it is
+stopped or idle.
+
+**The bench** (`sim/fpu`): directed checks of every rule above; the
+vectors read the exceptional operand from an idle FSAVE after the FNOP
+(and bit 27 against the exception taken) instead of peeking the APU; and
+`+detour` runs every vector with a context switch (UM Figure 6-7) at a
+point chosen from the vector's index - any CIR access of its dialogs, the
+loading FMOVEMs, or the APU's run - FSAVE, FMOVEM of everything out, a
+null restore, an FSIN to disturb the temporaries, FMOVEM back in,
+FRESTORE, and the dialog continued: every result bit for bit and the
+clocks unchanged (at most the simulator's where the save cut the END
+padding).
+
+**As built (2026-09-30)** - `rtl/fpu/se30_fpu.v`, `se30_fpu_apu.v`, the
+bench as above. The directed checks number 80 (44 of them the frames').
+All 19,836 vectors pass bit for bit at the simulator's clocks with the
+exceptional operand and bit 27 read from the idle frame. Under `+detour`
+the slices run so far pass: rounding 200, packed 800, transcend 300,
+special 400, cond 400. The packed group alone took 370 busy saves at a
+checkpoint, and every result and clock was unchanged. **Fifteen one-line
+mutants** of the RTL are all caught: T0-T10, bit 27, the output buffer,
+the data slot's order, DFLAG, the µPC stack, LC, SC, the budget, the tags
+not restored, FSAVE keeping the exception, the initial phase taken idle,
+checkpoints never stopping, the resume fetching the entry, and an
+abandoned save never resuming. Three survived at first and each showed a
+hole in the bench, now closed:
+- `check` passed on X, and `prims[nprim-1]` indexed past the 16 primitives
+  kept, so a hung dialog read as a pass. X now fails, and `last_prim` is
+  kept apart.
+- The store test restored its frame over an undisturbed APU. An
+  instruction now runs in between.
+- No slice landed a detour on the checkpoints where the tags are live. A
+  directed sweep now puts a busy save at 42 points of a positive FMOVE.P
+  rounded toward plus, and the detour's FSIN now leaves a negative
+  denormal's tags behind.
+
+8.6.14 gains, with defaults for Daniel:
+
+27. **The size byte of the null, come-again and invalid words** is
+    "undefined" and "consistent" per version (Table 6-6). WinUAE writes
+    the null word as `$0038`; default: `$38` in all three, the chip's
+    idle size (a lead extended by its own logic).
+28. **What leaves the reset phase**: "no FPCP instructions have been
+    executed" (6.4.3.1). A null frame tells the handler the programmer's
+    model need not be saved (6.4.5), so anything that can change it must
+    count - FMOVE and FMOVEM of the registers included. Default: **any
+    command or condition word accepted** (WinUAE: its arithmetic and
+    conditional paths; its FMOVEM path could not be read with
+    certainty).
+
+### 8.9.4 7d: the MPU's side (opened 2026-09-30)
+
+**Stage A, the bus - built 2026-09-30.** GLUE decodes CPU space type 2,
+coprocessor ID 1 (FC = 7, A19-A13 = `0010 001`, 030 UM 10.1.4) as the
+FPU's device select (`fpu_sel`, with AS*), and routes the FPU's DSACKs and
+data onto the bus; the chip terminates its own cycles as on the board
+(Guide p. 107). The wrapper (`tg68k.v`) now runs ID-1 cycles on the bus
+like any other and bus-errors every other non-acknowledge CPU-space cycle
+as before - a coprocessor ID with no chip, so its instructions take the
+F-line (030 UM 10.5.2.8). (On the board nothing answers such a cycle and
+UI6 never times FC = 7 out, so it would hang; the wrapper's rule is ours
+and older than this section.) `se30_machine.v` instantiates the chip on
+C16M, reset with the system - the RESET pin, which the RESET instruction
+also drives. **The kernel still takes the F-line for ID 1 at decode**, so
+no CIR cycle happens yet and the machine behaves as before: `sim/glue`
+(98: ID 1 selected and answered, ID 2 no answer, no bus error), `sim/system`,
+`sim/busfault` and `sim/machine` pass. ModelSim (the machine bench) caught
+a use-before-declaration in `se30_fpu.v` that Icarus accepts.
+
+**Stage B, the kernel - a structural choice for Daniel.** The protocol of
+`docs/cp030_mpu_protocol.md` (its section 9's subset: cpGEN, cpBcc, cpScc,
+cpDBcc, cpTRAPcc, cpSAVE, cpRESTORE; the null, evaluate-and-transfer,
+transfer-single, transfer-multiple and take-exception primitives; frames
+$0, $2, $9 and RTE of $9; the interrupt points; trace-pending; the F-line
+on a bus error of the initiating access) can be built two ways:
+
+- **(a) in the kernel's own micro-states**, as the 68030 does it in
+  microcode: a dialog loop of new states (write command/condition, read
+  response, pass PC, dispatch), the evaluate-and-transfer primitive
+  re-entering the kernel's existing EA sequencing with the F-line word's
+  EA field and the transfer length as the operand size - the kernel's PC
+  advancing through the extension words is then scanPC for free - and
+  MOVEM-style address stepping for 8, 12 and FMOVEM's N x 12 bytes;
+  CIR cycles through the FC override MOVES already uses. Smallest, and
+  the authentic shape; but every step touches the decoder, the address,
+  data and FC muxes of a kernel that is a mesh of numbered upstream fixes
+  (`BUG #nnn FIX`), and the EA sequencing assumes one operand per
+  instruction.
+- **(b) a coprocessor engine beside the kernel**: its own state machine
+  for the dialog and its own EA calculator (extension words fetched at
+  scanPC through the kernel's bus path, so the PMMU still translates;
+  registers through a port on the register file), taking the bus while
+  the kernel waits, and handing the kernel only exception entry (vector,
+  frame format, the frame $9 fields) and RTE of $9. Testable on its own,
+  and it cannot disturb the existing instructions; it costs a second EA
+  unit (some 300-500 ALMs by estimate) and is less the 68030's shape.
+
+Recommendation: **(a)**, by the rule of 8.3 (authentic when smaller), with
+the kernel's existing ModelSim benches (`kernel_bus`, `system`, `busfault`,
+`machine`) as the regression gate on every step, and a new bench first -
+`sim/cpfpu`: kernel, wrapper, GLUE and the chip on the bus with RAM,
+running the model's vectors as 68030 programs (a small assembler of the
+FPU instruction forms), failing today on the F-line. Not started: the
+choice changes everything after the bench.
+
+**The bench is built** (2026-09-30): `sim/cpfpu` (ModelSim) - kernel,
+wrapper, GLUE and the chip on the bus with RAM - runs `gen_program.py`'s
+program, one instruction for each dialog stage B must carry (FNOP; FMOVE
+to FPCR from an immediate; FMOVE in from Dn and from an immediate, the
+CA = 0 form; register to register; stores to memory, to Dn and to an
+absolute address after the command word; FMOVEM both ways; FTST and a
+taken FBGT; FSAVE and FRESTORE) and checks 14 results in RAM, the end
+marker and that CIR cycles happened. **Today it fails as it must**: the
+F-line (`$DEAD000B`) at the first instruction, no CIR cycle.
+
+### 8.9.5 The first synthesis (item 8, begun 2026-09-30)
+
+The chip alone (`se30_fpu` as top, virtual pins, the machine's device and
+clk_sys) in a scratch Quartus project, before it joins the machine:
+
+- **Two arrays were not block RAM** - what Daniel's rule says to check
+  (8.3, the Quadra's 143% fit). The FP register file (a read at p0 and a
+  write at p1 on two different addresses of one port - three ports as
+  written) and the nROM (read under the sequencer's reset) were built as
+  logic: 6,009 ALMs estimated. Now the FP file's port A takes one muxed
+  address a clk with the M10K's write-through read (its true dual port
+  has no old-data read during a write), and the nROM is read in a block
+  of its own without a reset **and** marked `romstyle = "M10K"` - unmarked,
+  Quartus judges its ~400 used words cheaper as ~400 ALMs of logic. All
+  seven arrays infer; the benches are unchanged (behaviour identical).
+- **The fit: 5,002 ALMs, 2,109 registers, 47 RAM blocks** (of 41,910 and
+  553). Against 8.8.17's estimate of ~3,100 + the frames: the datapath's
+  muxes are larger than estimated. With the machine's ~23,100 ALMs that
+  is about 28,100 (67%), under the ~38,000 ceiling.
+- **Timing is not met: -9.3 ns setup at the slow corners** on clk_sys's
+  31.9 ns. The failing paths start at the operand RAMs (T, FP, K), read
+  at the p0 edge, and end at the p1 edge a clk later: RAM -> source mux ->
+  67-bit barrel shifter -> ALU -> normalise (a leading-zero count and a
+  shift) -> the result's own leading-zero count, flags and range
+  compares - about 41 ns, where 8.8.9 estimated "roughly half" of 31.9.
+  The paths from the nROM show the same length but are really two clks
+  (the nanoword is launched at p1 and the datapath's registers capture
+  only at p1). **The fix keeps the microcode's semantics and clocks:**
+  register the next word's operand addresses at the p1 edge that loads
+  it into uir - from the µROM output already there, with the K address's
+  LC the next one and the FP select from a small table of the nanowords'
+  select fields - with a bypass for a temporary or FP register written at
+  the same edge; the datapath then has a whole FPU clock (two clk_sys,
+  63.8 ns), and a multicycle constraint says so for the APU's p1-to-p1
+  paths. Only the sequencer's next address (p1 flags to the p0 µROM read)
+  stays a one-clk path, and it has 11 ns to spare.
+
 ---
 
 ## Appendix - where the sources are

@@ -87,6 +87,15 @@ module tb_se30_glue;
   wire  [7:0] dev_wdata;
   reg   [7:0] dev_rdata = 0, slot_rdata = 8'h5A;
   reg         scsi_drq = 0, slot_dsack0_n = 1;
+  // a stand-in for the 68882: a word register's DSACK1* a clock after its
+  // select, with a known word (plan 8.9 item 7d)
+  wire        fpu_sel;
+  reg   [1:0] fpu_dsack_n = 2'b11;
+  integer     fpu_sels = 0;
+  always @(posedge clk) begin
+    fpu_dsack_n <= fpu_sel ? 2'b01 : 2'b11;
+    if (fpu_sel && fpu_dsack_n == 2'b11) fpu_sels = fpu_sels + 1;
+  end
   reg         via1_irq_n = 1, via2_irq_n = 1, scc_irq_n = 1, nmi_n = 1;
   reg   [6:1] slot_irq_n = 6'b111111;
   reg         overlay = 1;
@@ -105,6 +114,7 @@ module tb_se30_glue;
     .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
     .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(scsi_drq),
     .e_clk(e_clk), .c3m_en(c3m_en),
+    .fpu_sel(fpu_sel), .fpu_dsack_n(fpu_dsack_n), .fpu_rdata(32'h0802_FFFF),
     .slot_sel(slot_sel), .slot_dsack0_n(slot_dsack0_n), .slot_rdata(slot_rdata),
     .via1_irq_n(via1_irq_n), .via2_irq_n(via2_irq_n), .scc_irq_n(scc_irq_n), .nmi_n(nmi_n),
     .slot_irq_n(slot_irq_n), .slot_irq_or_n(slot_irq_or_n),
@@ -435,11 +445,16 @@ module tb_se30_glue;
     cycle(0, 32'h50014000, 2'b00, 32'h0, 100); check(n == 4 && port == 2, "a SIZ=4 cycle to an 8-bit port: one device cycle, DSACK0* alone", port, 2);
 
     // ---- 7. FC = 7
-    $display("---- 7. FC=7: nothing answers, nothing times out");
+    $display("---- 7. FC=7: the FPU answers its own, nothing else answers, nothing times out");
     cpu_fc = 3'd7; cycle(1, 32'hFFFFFFF1, 2'b01, 32'h0, 1200);
     check(n == -2, "IACK at $FFFFFFF1: no DSACK, no BERR (AVEC is grounded: the processor autovectors)", n, -2);
+    t0 = fpu_sels;
     cpu_fc = 3'd7; cycle(1, 32'h00022000, 2'b10, 32'h0, 1200);
-    check(n == -2, "coprocessor space $00022000, FC=7: no answer, no bus error in 1200 clocks", n, -2);
+    check(fpu_sels == t0 + 1 && n > 0 && port == 2'b01 && rd[31:16] == 16'h0802,
+          "coprocessor ID 1 at $00022000: the FPU selected, its DSACK1* and data on the bus", rd[31:16], 16'h0802);
+    t0 = fpu_sels;
+    cpu_fc = 3'd7; cycle(1, 32'h00024000, 2'b10, 32'h0, 1200);
+    check(n == -2 && fpu_sels == t0, "coprocessor ID 2 at $00024000: no answer, no bus error in 1200 clocks", n, -2);
     cpu_fc = 3'd5;
 
     // ---- 8. the bus-error timeout

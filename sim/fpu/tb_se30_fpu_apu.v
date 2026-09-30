@@ -84,7 +84,11 @@ module tb_se30_fpu_apu;
     .fpcr_we(fpcr_we), .fpcr_d(fpcr_d), .fpsr_we(fpsr_we), .fpsr_d(fpsr_d),
     .fpcr(fpcr), .fpsr(fpsr),
     .fpb_addr(fpb_addr), .fpb_we(fpb_we), .fpb_d(fpb_d), .fpb_q(fpb_q),
-    .obuf(obuf), .exop(exop), .t_exec(t_exec), .t_upc(t_upc));
+    .obuf(obuf), .exop(exop),
+    .save_req(1'b0), .susp(), .in_pad(), .resume(1'b0), .ctx_we(1'b0), .ctx_d(163'd0), .ctx_q(),
+    .x_taddr(4'd0), .x_twe(1'b0), .x_td(86'd0), .x_tq(), .x_exop_we(1'b0), .x_exop(80'd0),
+    .x_obuf_we(1'b0), .x_obuf(96'd0),
+    .t_exec(t_exec), .t_upc(t_upc));
 
   // the conditionals
   reg  [5:0] c_pred = 6'd0;

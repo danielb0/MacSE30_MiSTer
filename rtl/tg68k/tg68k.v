@@ -29,10 +29,12 @@
 //   terminated here as the grounded AVEC pin terminates it on the board -
 //   the kernel autovectors (IPL_autovector) and the cycle's data is
 //   unused; GLUE sees the cycle and ignores it, as UI6 keeps AS* from
-//   the system.  Any other CPU-space cycle is the coprocessor interface,
-//   which nothing answers until the 68882 exists (plan 1.9 item 7): it is
-//   bus-errored here, which is what makes an F-line instruction trap to
-//   its emulator vector instead of hanging the processor.
+//   the system.  A coprocessor cycle to ID 1 (A19-A13 = 0010 001) is the
+//   68882's and runs on the bus like any other, terminated by the FPU's
+//   DSACKs through GLUE (plan 8.9 item 7d).  Any other CPU-space cycle -
+//   a coprocessor ID with no chip - is bus-errored here, which is what
+//   makes an F-line instruction to it trap to its emulator vector
+//   instead of hanging the processor (030 UM 10.5.2.8).
 //
 //   Not here yet: the 68030's caches (plan 1.15 item 9); internal beats
 //   (no bus access) advance once per C16M clock.
@@ -134,6 +136,8 @@ module tg68k (
 
   wire        cpu_space = (eff_fc == 3'd7);
   wire        iack      = cpu_space && (eff_addr[19:16] == 4'hF);
+  wire        cp_fpu    = cpu_space && (eff_addr[19:13] == 7'b0010_001);
+  wire        cp_local  = cpu_space && !cp_fpu;                  // answered here
   reg   [2:0] s;                       // 0 idle (S0), 2 after S1, 3 S3/wait, 4 after S4, 5 after S5
   reg         as_n_r, ds_n_r;
   reg  [31:0] din_r;
@@ -203,7 +207,7 @@ module tg68k (
                 end
           3'd3: begin                                                      // S3 and the wait states
                   ds_n_r <= 0;
-                  if (cpu_space) begin                                       // AVEC, or no coprocessor
+                  if (cp_local) begin                                        // AVEC, or no coprocessor
                     if (iack) begin dsack_r <= 2'b00; s <= 3'd4; end
                     else begin
                       as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1; ack_berr <= 1;
@@ -215,7 +219,7 @@ module tg68k (
                   end else if (dsack_n != 2'b11) s <= 3'd4;
                 end
           3'd5: begin                                                      // S5: latch at the end of S4
-                  din_r <= cpu_din; if (!cpu_space) dsack_r <= dsack_n;
+                  din_r <= cpu_din; if (!cp_local) dsack_r <= dsack_n;
                   as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1;
                   if (berr) begin ack_berr <= 1; if (!walk) berr_hold <= 1; end
                 end

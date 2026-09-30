@@ -45,6 +45,20 @@
 //   each p0 edge, a write at a p1 edge), port B the CU's - here the
 //   bench's and the BIU's while the unit is idle.
 //
+// THE CHECKPOINTS AND THE FRAMES (8.8.12, 8.9.3; item 7c)
+//   With save_req set, a CHECKPOINT word completes and the sequencer
+//   stops (S_SUSP; susp); upc then holds the next word's address.  ctx is
+//   what a busy frame keeps of the APU besides T0-T10 - the µPC stack,
+//   LC, SC, the flags, the budget and the elapsed clocks, the command and
+//   the tags; Q, MD, MD3, T11-T31 and the operands are dead at every
+//   checkpoint (the assembler's liveness, 8.9.3).  save_req also ends
+//   END's padding at once (the instruction is finished).  While the unit
+//   is stopped or idle the BIU reads T0-T10 through port A's read
+//   (x_taddr, x_tq, a p0 edge after the address) and writes them, the
+//   exceptional operand and the output buffer; ctx_we loads the context,
+//   and resume restarts the sequencer at upc (from S_SUSP, or from idle
+//   after a load) - two fetch clocks, not counted, as at a start.
+//
 // sim.py's SimError cases (a microcode bug, not a machine state) set
 // `err` and, in simulation, print SIMERR.
 
@@ -91,6 +105,23 @@ module se30_fpu_apu #(
   output reg [95:0] obuf,        // a store's operand
   output reg [79:0] exop,        // the exceptional operand
 
+  // the frames (7c)
+  input             save_req,    // stop at the next checkpoint; end END's padding
+  output            susp,        // stopped at a checkpoint
+  output            in_pad,      // in END's padding
+  input             resume,
+  input             ctx_we,
+  input     [162:0] ctx_d,
+  output    [162:0] ctx_q,
+  input      [3:0]  x_taddr,
+  input             x_twe,
+  input      [85:0] x_td,
+  output     [85:0] x_tq,
+  input             x_exop_we,
+  input      [79:0] x_exop,
+  input             x_obuf_we,
+  input      [95:0] x_obuf,
+
   // the trace (sim/fpu +trace): a microinstruction executed at this p1 edge
   output            t_exec,
   output     [11:0] t_upc
@@ -101,7 +132,7 @@ module se30_fpu_apu #(
 
   // -- the ROMs and RAMs -------------------------------------------------------
   reg [`MICRO_W-1:0] urom  [0:4095];
-  reg [`NANO_W-1:0]  nrom  [0:1023];
+  (* romstyle = "M10K" *) reg [`NANO_W-1:0] nrom [0:1023];
   reg [11:0]         entry [0:1023];
   reg [`KWORD_W-1:0] krom  [0:255];
   reg [85:0]         t_a   [0:31];         // the temporaries: two copies,
@@ -119,9 +150,13 @@ module se30_fpu_apu #(
   wire p1 = ce;
 
   // -- state ---------------------------------------------------------------------
-  localparam S_IDLE = 3'd0, S_ENT = 3'd1, S_FETCH = 3'd2, S_RUN = 3'd3, S_ENDH = 3'd4;
+  localparam S_IDLE = 3'd0, S_ENT = 3'd1, S_FETCH = 3'd2, S_RUN = 3'd3, S_ENDH = 3'd4,
+             S_SUSP = 3'd5;
   reg [2:0]  st;
-  assign busy = (st != S_IDLE);
+  reg        rsm;                          // S_FETCH is a resume: fetch at upc
+  assign busy   = (st != S_IDLE);
+  assign susp   = (st == S_SUSP);
+  assign in_pad = (st == S_ENDH);
 
   reg [`MICRO_W-1:0] uir, urom_q;
   reg [`NANO_W-1:0]  nw;                   // the nROM's output: uir's nanoword
@@ -156,6 +191,12 @@ module se30_fpu_apu #(
   reg [1:0]  rprec;
   reg        rm_set;
   reg [1:0]  rm_val;
+
+  // the context a busy frame keeps (8.9.3), 163 bits
+  assign ctx_q = {upc, sp, lc, sc, stack[0], stack[1], stack[2], stack[3],
+                  fz, fn, fc, fv, fs, stk, inex, dflag, tiny, huge,
+                  lzc, kdir, rprec, rm_set, rm_val, rb, budget, clocks, cmd_r,
+                  stag, s_snan, s_den, s_neg, dtag, d_snan, d_den, d_neg};
 
   // -- the microword and its nanoword -----------------------------------------
   wire [9:0]  u_nano   = uir[`MICRO_NANO];
@@ -640,11 +681,13 @@ module se30_fpu_apu #(
   wire [7:0]  k_addr   = (n_bsrc == `NANO_BSRC_KLC) ? u_rb + lc : u_rb;
   wire [2:0]  fpa_addr = (st == S_ENT) ? ry : fp_sel;
   wire        u_en     = (st == S_FETCH) || exec;
-  wire [11:0] u_addr   = (st == S_FETCH) ? ent_q : nxt;
+  wire [11:0] u_addr   = (st == S_FETCH) ? (rsm ? upc : ent_q) : nxt;
+  wire        x_port   = (st == S_IDLE) || (st == S_SUSP);    // T0-T10 the BIU's
+  assign x_tq = ta_q;
 
   always @(posedge clk) begin
     if (p0) begin
-      ta_q  <= t_a[u_ra];
+      ta_q  <= t_a[x_port ? {1'b0, x_taddr} : u_ra];
       tb_q  <= t_b[u_rb[4:0]];
       k_q   <= krom[k_addr];
       ent_q <= entry[idx_r];
@@ -655,44 +698,102 @@ module se30_fpu_apu #(
     end
   end
 
-  // FP port A: a read at p0, a write at p1
-  always @(posedge clk) begin
-    if (p0)
-      fpa_q <= fp[fpa_addr];
-    else if (fp_we)
-      fp[fp_sel] <= {res_s, res_e[14:0], res_m[66:3]};
-  end
+  // FP port A: one address a clk - the read's at p0, the write's at p1 -
+  // so the register file is a true dual-port block RAM (the M10K template:
+  // one address, a write and a read, per port).  The read at the p1 edge
+  // is not used: nothing samples fpa_q before the next p0 edge reloads it.
+  // A write reads its own data back (the M10K's true dual port reads new
+  // data during a write, not old).
+  wire [2:0]  fpa_a = p0 ? fpa_addr : fp_sel;
+  wire [79:0] fpa_d = {res_s, res_e[14:0], res_m[66:3]};
+  always @(posedge clk)
+    if (p1 && fp_we) begin
+      fp[fpa_a] <= fpa_d;
+      fpa_q <= fpa_d;
+    end else
+      fpa_q <= fp[fpa_a];
   // FP port B: the CU's (here the bench's and the BIU's while idle)
-  always @(posedge clk) begin
-    if (fpb_we)
+  always @(posedge clk)
+    if (fpb_we) begin
       fp[fpb_addr] <= fpb_d;
-    fpb_q <= fp[fpb_addr];
-  end
+      fpb_q <= fpb_d;
+    end else
+      fpb_q <= fp[fpb_addr];
 
-  // the temporaries' write, both copies
+  // the temporaries' write, both copies: the datapath's, or the BIU's
+  // (a restore) while the unit is idle
   always @(posedge clk)
     if (p1 && exec && !alu_nop && n_dst == `NANO_DST_T) begin
       t_a[u_rd] <= res;
       t_b[u_rd] <= res;
+    end else if (x_twe && x_port) begin
+      t_a[{1'b0, x_taddr}] <= x_td;
+      t_b[{1'b0, x_taddr}] <= x_td;
     end
+
+`ifdef SIMULATION
+  // A restore that resumes the unit poisons what 8.9.3 says is dead at a
+  // checkpoint, so the benches prove it.
+  integer pz;
+  always @(posedge clk)
+    if (ctx_we && !reset)
+      for (pz = 11; pz < 32; pz = pz + 1) begin
+        t_a[pz] <= {86{1'b1}} ^ (pz * 86'h1234567);
+        t_b[pz] <= {86{1'b1}} ^ (pz * 86'h1234567);
+      end
+`endif
+
+  // the nROM: the next nanoword, read at the p1 edge that loads its
+  // microword into uir (the fetch, or a word executed) - in a block of its
+  // own, without a reset, and marked for M10K: under the sequencer's reset
+  // it was built as logic, and unmarked Quartus judges its ~400 used words
+  // cheaper as some 400 ALMs than as seven M10Ks (the plan's rule: arrays in
+  // block RAM, 8.8.17)
+  wire nrom_en = p1 && !reset && !abort && ((st == S_FETCH) || exec);
+  always @(posedge clk)
+    if (nrom_en) nw <= nrom[urom_q[`MICRO_NANO]];
 
   // -- the sequencer and the datapath's registers (p1) ------------------------
   always @(posedge clk) begin
     if (reset) begin
       st <= S_IDLE;
+      rsm <= 1'b0;
       err <= 1'b0;
       fpcr <= 32'd0;
       fpsr <= 32'd0;
       clocks <= 16'd0;
     end else if (abort) begin
       st <= S_IDLE;
+      rsm <= 1'b0;
     end else begin
       if (!busy && fpcr_we) fpcr <= fpcr_d;
       if (!busy && fpsr_we) fpsr <= fpsr_d;
+      // a restore (7c): the context, the exceptional operand, the output buffer
+      if (!busy && ctx_we) begin
+        upc <= ctx_d[162:151];  sp <= ctx_d[150:148];  lc <= ctx_d[147:140];  sc <= ctx_d[139:133];
+        stack[0] <= ctx_d[132:121];  stack[1] <= ctx_d[120:109];
+        stack[2] <= ctx_d[108:97];   stack[3] <= ctx_d[96:85];
+        {fz, fn, fc, fv, fs, stk, inex, dflag, tiny, huge} <= ctx_d[84:75];
+        lzc <= ctx_d[74:68];  kdir <= ctx_d[67:66];  rprec <= ctx_d[65:64];
+        rm_set <= ctx_d[63];  rm_val <= ctx_d[62:61];  rb <= ctx_d[60];
+        budget <= ctx_d[59:44];  clocks <= ctx_d[43:28];  cmd_r <= ctx_d[27:12];
+        {stag, s_snan, s_den, s_neg} <= ctx_d[11:6];
+        {dtag, d_snan, d_den, d_neg} <= ctx_d[5:0];
+        holding <= 1'b0;  hcnt <= 16'd0;
+`ifdef SIMULATION
+        q <= {67{1'b1}};  md <= 67'h5A5A5A5A5A5A5A5A5;  md3 <= 67'h3C3C3C3C3C3C3C3C3;  qx <= 1'b1;
+        cu <= {86{1'b1}};  opnd <= {96{1'b1}};
+`endif
+      end
+      if (!busy && x_exop_we) exop <= x_exop;
+      if (!busy && x_obuf_we) obuf <= x_obuf;
       if (p1) begin
         case (st)
           S_IDLE:
-            if (start) begin
+            if (resume) begin
+              st <= S_FETCH;
+              rsm <= 1'b1;
+            end else if (start) begin
               st <= S_ENT;
               cmd_r <= cmd;
               idx_r <= entry_idx;
@@ -722,9 +823,14 @@ module se30_fpu_apu #(
           S_FETCH: begin
             uir <= urom_q;
             upc <= ua;
-            nw  <= nrom[urom_q[`MICRO_NANO]];
             st  <= S_RUN;
+            rsm <= 1'b0;
           end
+          S_SUSP:
+            if (resume) begin
+              st <= S_FETCH;
+              rsm <= 1'b1;
+            end
           S_RUN: begin
             clocks <= clocks + 16'd1;
             if (!exec) begin
@@ -734,7 +840,6 @@ module se30_fpu_apu #(
               holding <= 1'b0;
               uir <= urom_q;
               upc <= ua;
-              nw  <= nrom[urom_q[`MICRO_NANO]];
               // the µPC stack
               if (u_seq == `MICRO_SEQ_CALL) begin
                 if (sp == 3'd4) err <= 1'b1;
@@ -808,7 +913,9 @@ module se30_fpu_apu #(
                 default: ;
               endcase
               if (n_ctl == `NANO_CTL_END)
-                st <= (budget_n > clocks + 16'd1) ? S_ENDH : S_IDLE;
+                st <= (budget_n > clocks + 16'd1 && !save_req) ? S_ENDH : S_IDLE;
+              if (n_ctl == `NANO_CTL_CHECKPOINT && save_req)
+                st <= S_SUSP;
               // sim.py's SimErrors: the microcode did what the hardware cannot
               if (fp_bad || sh_neg ||
                   (alu_nop && (n_dst != `NANO_DST_NONE || n_osh != `NANO_OSH_NONE ||
@@ -818,10 +925,13 @@ module se30_fpu_apu #(
                 err <= 1'b1;
             end
           end
-          S_ENDH: begin
-            clocks <= clocks + 16'd1;
-            if (clocks + 16'd1 >= budget) st <= S_IDLE;
-          end
+          S_ENDH:
+            if (save_req)                  // a save waits: the pad is cut short
+              st <= S_IDLE;
+            else begin
+              clocks <= clocks + 16'd1;
+              if (clocks + 16'd1 >= budget) st <= S_IDLE;
+            end
           default: st <= S_IDLE;
         endcase
       end

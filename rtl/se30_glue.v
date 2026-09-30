@@ -120,6 +120,13 @@ module se30_glue (
   output        e_clk,                 // 783.36 kHz to the VIAs
   output reg    c3m_en,                // 3.672 MHz average: one pulse per SCC PCLK
 
+  // the 68882 (plan 8.6.12, 8.9 item 7d): CPU space type 2, coprocessor
+  // ID 1 - "the GLUE decodes the address and asserts the device select to
+  // the FPU" (Guide p. 107); the FPU terminates its own cycles
+  output        fpu_sel,
+  input   [1:0] fpu_dsack_n,
+  input  [31:0] fpu_rdata,
+
   // slot $E and the PDS
   output        slot_sel,              // NUBUS*, active high here
   input         slot_dsack0_n,
@@ -146,8 +153,10 @@ module se30_glue (
   // ------------------------------------------------------------- decode
   // Plan 2.11.2: what GLUE's pins allow.  RAM and ROM on A31-A30 and
   // OVERLAY; I/O on A31-A24 = $50 and A17-A13, A23-A18 ignored; the slots
-  // on A31-A29 >= 011.  FC = 7 is CPU space: nothing answers.
+  // on A31-A29 >= 011.  FC = 7 is CPU space: the FPU's cycles (A19-A16 =
+  // 0010, A15-A13 = its ID 001) and nothing else answers.
   wire       fc7    = (cpu_fc == 3'd7);
+  wire       d_fpu  = fc7 && (cpu_addr[19:13] == 7'b0010_001);
   wire       low_sp = (cpu_addr[31:30] == 2'b00);
   wire       d_ram  = !fc7 && low_sp && !overlay;
   wire       d_rom  = !fc7 && ((cpu_addr[31:28] == 4'h4) || (low_sp && overlay));
@@ -277,8 +286,10 @@ module se30_glue (
   // data register, whose clear follows only a read the chip saw, gave
   // the ROM the same byte twice (sim/gcrread, plan 5.12.12 item 6).
   // Memory data is registered with the port's acknowledge.
-  assign cpu_din  = (active && d_dev) ? {done ? dev_q : rbyte, 24'h000000} : din_r;
-  assign dsack_n  = (!cpu_as_n && done && !berr_r) ? (d_mem ? 2'b00 : 2'b10) : 2'b11;
+  assign cpu_din  = d_fpu ? fpu_rdata : (active && d_dev) ? {done ? dev_q : rbyte, 24'h000000} : din_r;
+  assign dsack_n  = d_fpu ? fpu_dsack_n :
+                    (!cpu_as_n && done && !berr_r) ? (d_mem ? 2'b00 : 2'b10) : 2'b11;
+  assign fpu_sel  = !cpu_as_n && d_fpu;
 
   // selects follow the cycle, as chip selects follow AS*; the slot's drops
   // with the acknowledge so the video PALs do not take a second cycle

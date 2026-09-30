@@ -70,7 +70,8 @@
 
 module se30_machine #(
   parameter DECLROM_HEX = "",          // the video's declaration ROM preload, for the benches
-  parameter V_TOTAL     = 370
+  parameter V_TOTAL     = 370,
+  parameter FPU_UCODE   = "rtl/fpu/ucode/"   // the 68882's microcode images (the benches: ../../rtl/fpu/ucode/)
 ) (
   input         clk,
   input         phi1,
@@ -170,6 +171,9 @@ module se30_machine #(
   wire  [7:0] dev_wdata;
   wire        vid_dsack0_n, irq6_n, vid_sel;
   wire  [7:0] vid_dout;
+  wire        fpu_sel;
+  wire  [1:0] fpu_dsack_n;
+  wire [31:0] fpu_rdata;
 
   wire        overlay, vid_page, vsyncen_n, via1_irq_n, via2_irq_n;   // the VIAs' pins, below
   wire  [1:0] ramsiz;
@@ -189,10 +193,24 @@ module se30_machine #(
     .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
     .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(1'b0),
     .e_clk(e_clk), .c3m_en(c3m_en),
+    .fpu_sel(fpu_sel), .fpu_dsack_n(fpu_dsack_n), .fpu_rdata(fpu_rdata),
     .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
     .via1_irq_n(via1_irq_n), .via2_irq_n(via2_irq_n), .scc_irq_n(scc_irq_n), .nmi_n(nmi_n),
     .slot_irq_n({irq6_n, 5'b11111}), .slot_irq_or_n(slot_irq_or_n),
     .overlay(overlay), .ramsiz(ramsiz), .hsync_n(hsync_n));
+
+  // ------------------------------------------------------------ the FPU
+  // The MC68882 (plan Section 8): clocked by C16M as the 68030 is (Guide
+  // p. 107), reset with the system - the RESET pin, which the 68030's RESET
+  // instruction also drives.  GLUE selects it on its CPU-space cycles.
+  se30_fpu #(
+    .UROM_HEX({FPU_UCODE, "ucode.urom.hex"}), .NROM_HEX({FPU_UCODE, "ucode.nrom.hex"}),
+    .ENTRY_HEX({FPU_UCODE, "ucode.entry.hex"}), .KROM_HEX({FPU_UCODE, "ucode.krom.hex"})
+  ) fpu (
+    .clk(clk), .ce(phi1), .reset(!(reset_n && reset_out_n)),
+    .cs(fpu_sel), .rw(cpu_rw_n), .a(cpu_addr[4:0]), .din(cpu_dout), .dout(fpu_rdata),
+    .dsack_n(fpu_dsack_n),
+    .dbg_exop(), .dbg_clocks(), .dbg_err(), .dbg_state());
 
   // ------------------------------------------------- the memory port
   // one access a cycle, RAM or ROM by GLUE's decode; the controller's

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Run the FPU benches under Icarus Verilog (plan 8.9).  BENCH=chip (the
-# default): tb_se30_fpu, item 7b - the whole chip through its pins;
+# default): tb_se30_fpu, items 7b-7c - the whole chip through its pins;
 # BENCH=apu: tb_se30_fpu_apu, item 7a - the APU alone, with +trace.  See
 # each bench's header for what it proves.  IVERILOG: the iverilog bin
 # directory; PYTHON: the interpreter, default `python`.
 #
 #   ./run.sh [plusargs...]   e.g. +only=transcend, +first=100 +count=10,
-#                            +directed_only (chip), +trace=N (apu: compare
+#                            +directed_only, +detour (chip: a context
+#                            switch inside every vector), +trace=N (apu: compare
 #                            with rtlvec.py --trace N)
 #
 # First: the model's vectors (tools/fpu_model/out/fpu.vec) if missing; the
