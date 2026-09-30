@@ -124,6 +124,33 @@ module tb_cpfpu;
     as_q = cpu_as_n;
   end
 
+  // +trace: every bus cycle as it ends (address, FC, R/W, SIZ, data, DSACK/BERR)
+  reg trace_on = 0;
+  integer ntr = 0;
+  initial trace_on = $test$plusargs("trace");
+  // +trace: the kernel's micro-state as it changes, with the opcode
+  integer trms = -1;
+  always @(posedge clk) if (trace_on && cpu.kernel.clkena_lw && ntr < 400 &&
+                            (cpu.kernel.micro_state != trms || cpu.kernel.decodeOPC)) begin
+    trms = cpu.kernel.micro_state;
+    $display("t=%0t     ustate=%0d next=%0d opcode=%04x brief=%04x state=%b setstate=%b decodeOPC=%b PC=%08x flv=%b", $time,
+             cpu.kernel.micro_state, cpu.kernel.next_micro_state, cpu.kernel.opcode, cpu.kernel.brief,
+             cpu.kernel.state, cpu.kernel.setstate, cpu.kernel.decodeOPC, cpu.kernel.TG68_PC, cpu.kernel.fline_context_valid);
+  end
+  reg tr_as_q = 1;
+  always @(posedge clk) if (trace_on && phi1) begin
+    if (!cpu_as_n && tr_as_q && ntr < 400)
+      $display("t=%0t   start %s %08x fc=%0d siz=%0d  ustate=%0d", $time, cpu_rw_n ? "R" : "W", cpu_addr, cpu_fc, cpu_siz,
+               cpu.kernel.micro_state);
+    tr_as_q = cpu_as_n;
+  end
+  always @(posedge clk) if (trace_on && phi1 && !cpu_as_n && (dsack_n != 2'b11 || berr) && ntr < 400) begin
+    ntr = ntr + 1;
+    $display("t=%0t %s %08x fc=%0d siz=%0d %s=%08x dsack=%b berr=%b", $time,
+             cpu_rw_n ? "R" : "W", cpu_addr, cpu_fc, cpu_siz, cpu_rw_n ? "din" : "dout",
+             cpu_rw_n ? cpu_din : cpu_dout, dsack_n, berr);
+  end
+
   // ------------------------------------------------------------ the run
   integer pass = 0, fails = 0, n, fd, r;
   reg [31:0] a, want, mask, v;

@@ -10576,8 +10576,8 @@ the kernel's existing ModelSim benches (`kernel_bus`, `system`, `busfault`,
 `machine`) as the regression gate on every step, and a new bench first -
 `sim/cpfpu`: kernel, wrapper, GLUE and the chip on the bus with RAM,
 running the model's vectors as 68030 programs (a small assembler of the
-FPU instruction forms), failing today on the F-line. Not started: the
-choice changes everything after the bench.
+FPU instruction forms), failing today on the F-line. **Decided (Daniel,
+2026-09-30): (a)**, in the kernel's micro-states.
 
 **The bench is built** (2026-09-30): `sim/cpfpu` (ModelSim) - kernel,
 wrapper, GLUE and the chip on the bus with RAM - runs `gen_program.py`'s
@@ -10588,6 +10588,47 @@ absolute address after the command word; FMOVEM both ways; FTST and a
 taken FBGT; FSAVE and FRESTORE) and checks 14 results in RAM, the end
 marker and that CIR cycles happened. **Today it fails as it must**: the
 F-line (`$DEAD000B`) at the first instruction, no CIR cycle.
+
+**Stage B, as it is built (2026-09-30, Daniel's choice (a)).** In steps,
+each behind the kernel's gate: `kernel_bus` at 8, 16 and 32 bits,
+`system`, `busfault`, `machine`, and upstream's suite
+(`sim/kernel_upstream`: 14 of 17 pass). Its three failures -
+`tb_stack_frame_push`, `tb_odd_exc_flags` and `tb_basic_exception_flags` -
+predate this work: `ours.txt` records them, and HEAD's kernel fails them
+the same way.
+- **B1** (built): cpGEN and cpBcc.W. The null primitive in every form
+  (CA = 1 re-reads, CA = 0 ends, TF for a conditional), the PC pass, and
+  take pre-instruction (XA, then frame $0 at the operation word, its
+  vector from the primitive). Every other primitive takes the F-line for
+  now.
+  - **How:** decode sends CpID 1's cpGEN and cpBcc.W through the PMMU's
+    F-line context, so the second word is fetched and latched
+    (`fline_brief_latch`), and then into `cp_decode`. Each CIR access is
+    one beat, scheduled by the state before it: `cp_cir_next` puts CPU
+    space $22000 + the register on the address chain (absolute,
+    `use_base` 0) and the data at the head of the `data_write_tmp` chain,
+    and `cp_cir` follows the beat to drive FC and the PMMU's FC to 7
+    (untranslated). The response word is `cp_prim`, latched at the read's
+    completion.
+  - **Retiring:** schedule a fetch and retire in `nop`, on the fetch beat.
+    Retiring on an idle beat takes the next opcode from the prefetch
+    buffer, which still holds the second word the instruction consumed.
+    The first run showed exactly this: FNOP's $0000 was decoded as
+    ORI.B.
+  - **cpBcc taken:** `fline_opcode_pc`, the displacement word's address,
+    plus the displacement, through the PC adder.
+  - **Test:** `sim/cpfpu` `PROG=b1` (the default) passes, 101 CIR cycles:
+    FNOP, FMOVECR, FTST, FBGT and FBEQ taken, FBNE not taken, FSIN's
+    come-again loop, and an illegal command word taken through `$1C0B`,
+    XA and the F-line, stacked as format $0, vector offset $2C, PC the
+    operation word. `+trace` prints every bus cycle and micro-state.
+- **B2** (next): operand transfers - evaluate EA and transfer data in
+  every mode and length, transfer single register, transfer multiple
+  (FMOVEM) - and then `PROG=full`.
+- **B3**: frame $9 and its RTE, take mid-instruction, protocol
+  violations, the interrupt points; cpScc, cpDBcc, cpTRAPcc, cpBcc.L.
+- **B4**: cpSAVE and cpRESTORE. **B5**: a bus error inside a dialog, and
+  trace.
 
 ### 8.9.5 The first synthesis (item 8, begun 2026-09-30)
 
