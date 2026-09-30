@@ -72,7 +72,8 @@ module tb_se30_fpu;
     .UROM_HEX("../../rtl/fpu/ucode/ucode.urom.hex"),
     .NROM_HEX("../../rtl/fpu/ucode/ucode.nrom.hex"),
     .ENTRY_HEX("../../rtl/fpu/ucode/ucode.entry.hex"),
-    .KROM_HEX("../../rtl/fpu/ucode/ucode.krom.hex")
+    .KROM_HEX("../../rtl/fpu/ucode/ucode.krom.hex"),
+    .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex")
   ) dut (
     .clk(clk), .ce(ce), .reset(reset),
     .cs(cs), .rw(rw), .a(a), .din(din), .dout(dout), .dsack_n(dsack_n),

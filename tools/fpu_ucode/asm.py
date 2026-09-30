@@ -1037,6 +1037,15 @@ def write(r, outdir, stem='ucode'):
     put(stem + '.nrom.hex', hexlines(r.nrom, FD.NANO.width))
     put(stem + '.entry.hex', hexlines(r.entry, 12))
     put(stem + '.krom.hex', hexlines(r.krom, FD.KWORD_BITS))
+    # What the RTL needs of a nanoword before the nanoword itself is out of
+    # the nROM (plan 8.9.5): its operand addresses are registered with the
+    # microword, so the FP select and whether the constant is indexed by LC
+    # come from this small table on the nanoword's address - {KLC, FPSEL}.
+    nsel = []
+    for w in r.nrom:
+        n = FD.NANO.unpack(w)
+        nsel.append((int(n['bsrc'] == FD.BSRC.code['KLC']) << 2) | n['fpsel'])
+    put(stem + '.nsel.hex', hexlines(nsel, 3))
     put('fpu_ucode.vh', FD.verilog_header() + _addr_defines(r))
     sym = {'labels': {n: e[1].addr for n, e in r.prog.labels.items()},
            'constants': consts.NAMES,

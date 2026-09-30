@@ -205,7 +205,8 @@ module se30_machine #(
   // instruction also drives.  GLUE selects it on its CPU-space cycles.
   se30_fpu #(
     .UROM_HEX({FPU_UCODE, "ucode.urom.hex"}), .NROM_HEX({FPU_UCODE, "ucode.nrom.hex"}),
-    .ENTRY_HEX({FPU_UCODE, "ucode.entry.hex"}), .KROM_HEX({FPU_UCODE, "ucode.krom.hex"})
+    .ENTRY_HEX({FPU_UCODE, "ucode.entry.hex"}), .KROM_HEX({FPU_UCODE, "ucode.krom.hex"}),
+    .NSEL_HEX({FPU_UCODE, "ucode.nsel.hex"})
   ) fpu (
     .clk(clk), .ce(phi1), .reset(!(reset_n && reset_out_n)),
     .cs(fpu_sel), .rw(cpu_rw_n), .a(cpu_addr[4:0]), .din(cpu_dout), .dout(fpu_rdata),

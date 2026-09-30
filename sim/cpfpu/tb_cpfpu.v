@@ -81,7 +81,8 @@ module tb_cpfpu;
   // ---------------------------------------------------------------- FPU
   se30_fpu #(
     .UROM_HEX("../../rtl/fpu/ucode/ucode.urom.hex"), .NROM_HEX("../../rtl/fpu/ucode/ucode.nrom.hex"),
-    .ENTRY_HEX("../../rtl/fpu/ucode/ucode.entry.hex"), .KROM_HEX("../../rtl/fpu/ucode/ucode.krom.hex")
+    .ENTRY_HEX("../../rtl/fpu/ucode/ucode.entry.hex"), .KROM_HEX("../../rtl/fpu/ucode/ucode.krom.hex"),
+    .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex")
   ) fpu (
     .clk(clk), .ce(phi1), .reset(!(reset_n && reset_out_n)),
     .cs(fpu_sel), .rw(cpu_rw_n), .a(cpu_addr[4:0]), .din(cpu_dout), .dout(fpu_rdata),

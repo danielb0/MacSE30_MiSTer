@@ -109,7 +109,8 @@ module se30_fpu #(
   parameter UROM_HEX  = "ucode.urom.hex",
   parameter NROM_HEX  = "ucode.nrom.hex",
   parameter ENTRY_HEX = "ucode.entry.hex",
-  parameter KROM_HEX  = "ucode.krom.hex"
+  parameter KROM_HEX  = "ucode.krom.hex",
+  parameter NSEL_HEX  = "ucode.nsel.hex"
 ) (
   input             clk,
   input             ce,            // C16M: the FPU clock's rising edge is the clk edge with ce
@@ -197,7 +198,7 @@ module se30_fpu #(
     .word(u_word), .tag(u_tag), .snan(u_snan), .den(u_den), .neg(u_neg));
 
   se30_fpu_apu #(.UROM_HEX(UROM_HEX), .NROM_HEX(NROM_HEX), .ENTRY_HEX(ENTRY_HEX),
-                 .KROM_HEX(KROM_HEX)) apu (
+                 .KROM_HEX(KROM_HEX), .NSEL_HEX(NSEL_HEX)) apu (
     .clk(clk), .reset(reset), .ce(ce),
     .start(apu_start), .abort(apu_abort), .entry_idx(apu_idx), .cmd(cmd),
     .cu_word(zero_src ? 86'd0 : u_word), .cu_tag(zero_src ? TZERO : u_tag),

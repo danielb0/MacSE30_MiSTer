@@ -5,19 +5,22 @@
 // written against it, and sim/fpu holds it to it - every vector's results
 // and clocks, and on request the state each microinstruction leaves.
 //
-// THE CLOCK (8.8.9)
+// THE CLOCK (8.8.9, retimed by 8.9.5)
 //   The FPU clock is C16M: ce, an enable every second clk.  An FPU clock
 //   is two clk periods, and one microinstruction completes in each:
-//     first half (p0: the clk edge where ce is low ends it) - the next
-//       address is chosen from the current microword (uir), its nanoword
-//       and the flags the previous one left; the µROM, T, K and FP read
-//       addresses are registered into their block RAMs at its end;
-//     second half (p1: the edge where ce is high) - the operands and the
-//       next microword are out of their RAMs; the datapath computes; at
-//       its end the results, the flags and the next microword (into uir)
-//       are registered, and the next nanoword's address into the nROM.
-//   So a microinstruction branches on, and reads, what the one before it
-//   left, with no delay slots.
+//     at a p1 edge (ce high) - the results, the flags and the next
+//       microword (into uir) are registered, and with that word its
+//       nanoword and its operands - T[ra], T[rb], K, FP - are read from
+//       their RAMs (addresses from the µROM's output; a register written
+//       at this same edge is bypassed from the result register);
+//     at the p0 edge between (ce low) - the next address is chosen from
+//       uir and the flags, and the µROM read for the word after.
+//   So the datapath has the whole FPU clock, two clk, from its operands
+//   to its results, and a microinstruction still branches on, and reads,
+//   what the one before it left, with no delay slots.  Every register the
+//   datapath writes changes only at p1 edges (abort included), so the
+//   constraints give its paths two clk; only the next address, p1 to p0,
+//   is a one-clk path.
 //
 // THE SEQUENCER (8.8.12, fields.SEQ and WAITMODE)
 //   NEXT, JUMP, CALL and RET (a four-deep µPC stack), BRT/BRF on a
@@ -69,7 +72,8 @@ module se30_fpu_apu #(
   parameter UROM_HEX  = "ucode.urom.hex",
   parameter NROM_HEX  = "ucode.nrom.hex",
   parameter ENTRY_HEX = "ucode.entry.hex",
-  parameter KROM_HEX  = "ucode.krom.hex"
+  parameter KROM_HEX  = "ucode.krom.hex",
+  parameter NSEL_HEX  = "ucode.nsel.hex"
 ) (
   input             clk,
   input             reset,
@@ -135,6 +139,7 @@ module se30_fpu_apu #(
   (* romstyle = "M10K" *) reg [`NANO_W-1:0] nrom [0:1023];
   reg [11:0]         entry [0:1023];
   reg [`KWORD_W-1:0] krom  [0:255];
+  reg [2:0]          nsel  [0:1023];       // each nanoword's {KLC, FPSEL} (asm.py)
   reg [85:0]         t_a   [0:31];         // the temporaries: two copies,
   reg [85:0]         t_b   [0:31];         // one per read port (8.8.10)
   reg [79:0]         fp    [0:7];
@@ -144,10 +149,20 @@ module se30_fpu_apu #(
     $readmemh(NROM_HEX, nrom);
     $readmemh(ENTRY_HEX, entry);
     $readmemh(KROM_HEX, krom);
+    $readmemh(NSEL_HEX, nsel);
   end
 
   wire p0 = ~ce;
   wire p1 = ce;
+
+  // abort is taken at a p1 edge (a pulse at p0 is held for it), so every
+  // register the datapath writes changes only at p1 edges: the datapath's
+  // paths are two-clk paths, and the constraints say so (8.9.5)
+  reg  abort_l;
+  wire abort_p = abort || abort_l;
+  always @(posedge clk)
+    if (reset || p1) abort_l <= 1'b0;
+    else if (abort)  abort_l <= 1'b1;
 
   // -- state ---------------------------------------------------------------------
   localparam S_IDLE = 3'd0, S_ENT = 3'd1, S_FETCH = 3'd2, S_RUN = 3'd3, S_ENDH = 3'd4,
@@ -162,6 +177,8 @@ module se30_fpu_apu #(
   reg [`NANO_W-1:0]  nw;                   // the nROM's output: uir's nanoword
   reg [11:0] upc, ua, ent_q;
   reg [85:0] ta_q, tb_q;
+  wire [85:0] ta_e, tb_e;                  // the operands, with the bypass (8.9.5)
+  wire [79:0] fpa_e;
   reg [`KWORD_W-1:0] k_q;
   reg [79:0] fpa_q;
 
@@ -375,8 +392,8 @@ module se30_fpu_apu #(
   reg [85:0] a_w;
   always @* begin
     case (n_asrc)
-      `NANO_ASRC_T:  a_w = ta_q;
-      `NANO_ASRC_FP: a_w = fpw(fpa_q);
+      `NANO_ASRC_T:  a_w = ta_e;
+      `NANO_ASRC_FP: a_w = fpw(fpa_e);
       `NANO_ASRC_CU: a_w = cu;
       default:       a_w = 86'd0;
     endcase
@@ -424,10 +441,10 @@ module se30_fpu_apu #(
   reg [85:0] b_w;
   always @* begin
     case (n_bsrc)
-      `NANO_BSRC_T:     b_w = tb_q;
+      `NANO_BSRC_T:     b_w = tb_e;
       `NANO_BSRC_K,
       `NANO_BSRC_KLC:   b_w = k_q[85:0];
-      `NANO_BSRC_FP:    b_w = fpw(fpa_q);
+      `NANO_BSRC_FP:    b_w = fpw(fpa_e);
       `NANO_BSRC_OPINT,
       `NANO_BSRC_CU:    b_w = cu;
       `NANO_BSRC_OPRAW: b_w = {1'b0, 18'd0, 35'd0,
@@ -677,9 +694,46 @@ module se30_fpu_apu #(
   assign t_exec = exec && p1;
   assign t_upc  = upc;
 
-  // -- the RAMs' ports -------------------------------------------------------------
-  wire [7:0]  k_addr   = (n_bsrc == `NANO_BSRC_KLC) ? u_rb + lc : u_rb;
-  wire [2:0]  fpa_addr = (st == S_ENT) ? ry : fp_sel;
+  // -- the RAMs' ports (8.9.5) ---------------------------------------------------
+  // A word's operands - T[ra], T[rb], K[rb (+ LC)], FP[its select] - are
+  // read at the p1 edge that loads the word into uir, from the µROM's
+  // output (or, while it holds, from uir): the datapath then has the whole
+  // FPU clock, two clk, from the RAMs to the results.  The K address takes
+  // the LC this edge leaves, and the FP select and whether the constant is
+  // indexed by LC come from nsel, the nanowords' fields by nanoword
+  // address (the nanoword itself is read at the same edge).  A temporary or
+  // FP register the word before writes at that edge is taken from the
+  // result register instead (the RAMs' read during a write of the other
+  // port is not the new data).  The FP file's port A only reads; the APU
+  // writes through port B, which is the BIU's only while the unit is idle.
+  wire        w_load = (st == S_FETCH) || exec;       // uir <= urom_q at this p1 edge
+  wire [`MICRO_W-1:0] w_word = w_load ? urom_q : uir;
+  wire [4:0]  w_ra   = w_word[`MICRO_RA];
+  wire [7:0]  w_rb   = w_word[`MICRO_RB];
+  wire [2:0]  w_nsel = nsel[w_word[`MICRO_NANO]];
+  reg  [7:0]  lc_n;                                   // LC after this edge
+  always @* begin
+    lc_n = lc;
+    if (exec)
+      case (n_lcop)
+        `NANO_LCOP_LIT: lc_n = n_lit;
+        `NANO_LCOP_DEC: lc_n = lc - 8'd1;
+        `NANO_LCOP_INC: lc_n = lc + 8'd1;
+        `NANO_LCOP_ALU: lc_n = exp_mode ? res_e[7:0] : res_m[7:0];
+        default: ;
+      endcase
+  end
+  wire [7:0]  k_addr_n = w_nsel[2] ? w_rb + lc_n : w_rb;
+  reg  [2:0]  fp_sel_n;
+  always @* begin
+    case (w_nsel[1:0])
+      `NANO_FPSEL_SRC: fp_sel_n = (opclass == 3'd3) ? ry : rx;
+      `NANO_FPSEL_DST: fp_sel_n = ry;
+      `NANO_FPSEL_C:   fp_sel_n = cmd_r[2:0];
+      default:         fp_sel_n = w_ra[2:0];
+    endcase
+  end
+  wire [2:0]  fpa_rd = (st == S_IDLE) ? cmd[9:7] : fp_sel_n;   // at a start, FP[RY] for S_ENT's tags
   wire        u_en     = (st == S_FETCH) || exec;
   wire [11:0] u_addr   = (st == S_FETCH) ? (rsm ? upc : ent_q) : nxt;
   wire        x_port   = (st == S_IDLE) || (st == S_SUSP);    // T0-T10 the BIU's
@@ -687,43 +741,58 @@ module se30_fpu_apu #(
 
   always @(posedge clk) begin
     if (p0) begin
-      ta_q  <= t_a[x_port ? {1'b0, x_taddr} : u_ra];
-      tb_q  <= t_b[u_rb[4:0]];
-      k_q   <= krom[k_addr];
       ent_q <= entry[idx_r];
       if (u_en) begin
         urom_q <= urom[u_addr];
         ua     <= u_addr;
       end
     end
+    if (p1) begin
+      ta_q  <= t_a[x_port ? {1'b0, x_taddr} : w_ra];
+      tb_q  <= t_b[w_rb[4:0]];
+      k_q   <= krom[k_addr_n];
+    end
   end
 
-  // FP port A: one address a clk - the read's at p0, the write's at p1 -
-  // so the register file is a true dual-port block RAM (the M10K template:
-  // one address, a write and a read, per port).  The read at the p1 edge
-  // is not used: nothing samples fpa_q before the next p0 edge reloads it.
-  // A write reads its own data back (the M10K's true dual port reads new
-  // data during a write, not old).
-  wire [2:0]  fpa_a = p0 ? fpa_addr : fp_sel;
+  // the writes this edge, and the bypass for the word that reads them
+  wire        t_we_c  = exec && !alu_nop && (n_dst == `NANO_DST_T) && !abort_p;
+  wire        fp_we_c = fp_we && !abort_p;
+  reg         byp_a, byp_b, byp_f;
+  reg  [85:0] res_r;
+  reg  [79:0] fpw_r;
   wire [79:0] fpa_d = {res_s, res_e[14:0], res_m[66:3]};
   always @(posedge clk)
-    if (p1 && fp_we) begin
-      fp[fpa_a] <= fpa_d;
-      fpa_q <= fpa_d;
-    end else
-      fpa_q <= fp[fpa_a];
-  // FP port B: the CU's (here the bench's and the BIU's while idle)
+    if (p1) begin
+      byp_a <= t_we_c && (u_rd == w_ra);
+      byp_b <= t_we_c && (u_rd == w_rb[4:0]);
+      byp_f <= fp_we_c && (fp_sel == fp_sel_n) && (st != S_IDLE);
+      if (t_we_c)  res_r <= res;
+      if (fp_we_c) fpw_r <= fpa_d;
+    end
+  assign ta_e  = byp_a ? res_r : ta_q;
+  assign tb_e  = byp_b ? res_r : tb_q;
+  assign fpa_e = byp_f ? fpw_r : fpa_q;
+
+  // FP port A: the APU's reads, at p1
   always @(posedge clk)
-    if (fpb_we) begin
-      fp[fpb_addr] <= fpb_d;
-      fpb_q <= fpb_d;
+    if (p1) fpa_q <= fp[fpa_rd];
+  // FP port B: the APU's writes at p1, else the CU's (here the BIU's, while
+  // the unit is idle); a write reads its own data back (the M10K's true
+  // dual port reads new data during a write, not old)
+  wire        fpb_w  = (p1 && fp_we_c) || fpb_we;
+  wire [2:0]  fpb_a  = (p1 && fp_we_c) ? fp_sel : fpb_addr;
+  wire [79:0] fpb_dd = (p1 && fp_we_c) ? fpa_d : fpb_d;
+  always @(posedge clk)
+    if (fpb_w) begin
+      fp[fpb_a] <= fpb_dd;
+      fpb_q <= fpb_dd;
     end else
-      fpb_q <= fp[fpb_addr];
+      fpb_q <= fp[fpb_a];
 
   // the temporaries' write, both copies: the datapath's, or the BIU's
   // (a restore) while the unit is idle
   always @(posedge clk)
-    if (p1 && exec && !alu_nop && n_dst == `NANO_DST_T) begin
+    if (p1 && t_we_c) begin
       t_a[u_rd] <= res;
       t_b[u_rd] <= res;
     end else if (x_twe && x_port) begin
@@ -749,7 +818,7 @@ module se30_fpu_apu #(
   // it was built as logic, and unmarked Quartus judges its ~400 used words
   // cheaper as some 400 ALMs than as seven M10Ks (the plan's rule: arrays in
   // block RAM, 8.8.17)
-  wire nrom_en = p1 && !reset && !abort && ((st == S_FETCH) || exec);
+  wire nrom_en = p1 && !reset && !abort_p && ((st == S_FETCH) || exec);
   always @(posedge clk)
     if (nrom_en) nw <= nrom[urom_q[`MICRO_NANO]];
 
@@ -762,7 +831,7 @@ module se30_fpu_apu #(
       fpcr <= 32'd0;
       fpsr <= 32'd0;
       clocks <= 16'd0;
-    end else if (abort) begin
+    end else if (abort_p && p1) begin
       st <= S_IDLE;
       rsm <= 1'b0;
     end else begin

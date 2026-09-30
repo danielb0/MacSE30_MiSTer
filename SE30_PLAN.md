@@ -10483,10 +10483,11 @@ padding).
 **As built (2026-09-30)** - `rtl/fpu/se30_fpu.v`, `se30_fpu_apu.v`, the
 bench as above. The directed checks number 80 (44 of them the frames').
 All 19,836 vectors pass bit for bit at the simulator's clocks with the
-exceptional operand and bit 27 read from the idle frame. Under `+detour`
-the slices run so far pass: rounding 200, packed 800, transcend 300,
-special 400, cond 400. The packed group alone took 370 busy saves at a
-checkpoint, and every result and clock was unchanged. **Fifteen one-line
+exceptional operand and bit 27 read from the idle frame. **Under
+`+detour` all 19,836 pass too**, with every result and clock unchanged.
+The context switches landed as 2,059 busy frames at a checkpoint, 2,239
+busy in the initial phase, 2,086 idle, and 9,852 idle after a come-again
+(the instruction finished first). **Fifteen one-line
 mutants** of the RTL are all caught: T0-T10, bit 27, the output buffer,
 the data slot's order, DFLAG, the µPC stack, LC, SC, the budget, the tags
 not restored, FSAVE keeping the exception, the initial phase taken idle,
@@ -10618,6 +10619,24 @@ clk_sys) in a scratch Quartus project, before it joins the machine:
   63.8 ns), and a multicycle constraint says so for the APU's p1-to-p1
   paths. Only the sequencer's next address (p1 flags to the p0 µROM read)
   stays a one-clk path, and it has 11 ns to spare.
+
+**The retiming, as built (2026-09-30).** `se30_fpu_apu.v`: T[ra], T[rb],
+K and FP are read at the p1 edge that loads their word into uir, from
+the µROM's output (or uir while a word holds); the K address takes the LC
+that edge leaves; `nsel`, a 1,024 x 3 table the assembler now writes
+(`ucode.nsel.hex`: each nanoword's FP select and whether its constant is
+indexed by LC), gives what the nanoword would say before it is out. A T
+or FP register written at the same edge is taken from a result register
+(`byp_a`, `byp_b`, `byp_f`). The FP file's port A only reads, and the
+APU writes through port B, the BIU's only while the unit is idle. Abort is
+held to a p1 edge, so every register the datapath writes changes only at
+p1. `MacSE30.sdc` (and the scratch project's) gives the APU's registers
+two clk among themselves, leaving out the p0 edge's µROM and entry reads,
+`ua` and the abort latch. The standalone fit: **5,251 ALMs, 47 RAM
+blocks; timing met at all four corners - setup +14.4 ns, hold +0.16 ns -
+with no combinational loop (Quartus 332125: none)**. Behaviour unchanged:
+the 80 directed checks, the detour slices (packed 800 with 370 busy saves,
+transcend 400), the machine bench.
 
 ---
 

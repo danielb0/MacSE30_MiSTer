@@ -131,3 +131,25 @@ set_clock_groups -exclusive \
 set SDRAM_OUT [get_ports {SDRAM_A[*] SDRAM_BA[*] SDRAM_DQ[*] SDRAM_DQMH SDRAM_DQML SDRAM_nCAS SDRAM_nRAS SDRAM_nWE SDRAM_nCS SDRAM_CKE}]
 set_output_delay -clock sdram_clk -max  2.0 $SDRAM_OUT
 set_output_delay -clock sdram_clk -min -0.8 $SDRAM_OUT
+
+# ----------------------------------------------------------------------------
+# The 68882's APU (plan 8.9.5): two clk_sys for its datapath.
+# ----------------------------------------------------------------------------
+# rtl/fpu/se30_fpu_apu.v runs one microinstruction per FPU clock (C16M, two
+# clk_sys, ce = phi1).  Every register it writes - the datapath's, the
+# flags, the operand RAMs' address registers, the temporaries' and the FP
+# file's write ports - changes only at a p1 edge (ce high); abort is held to
+# one.  So a path from one of them to another has two clk_sys, and the
+# datapath needs them: operand RAM -> 67-bit barrel shifter -> ALU ->
+# normalise -> the result's count and flags is about 41 ns at the slow
+# corner (the first synthesis, 8.9.5).  Not in the set: what the p0 edge
+# between writes - the µROM and entry reads, their address register ua,
+# and the abort latch - so the next-address path (p1 flags to the p0 µROM
+# read) stays a one-clk path, as do the BIU's paths into and out of the APU.
+# The standalone compile found no combinational loop in the APU (Quartus
+# 332125), the condition MacLC's kernel credit lacked.
+set fpu_apu  [get_keepers {*|se30_fpu_apu:apu|*}]
+set fpu_p0   [get_keepers {*|se30_fpu_apu:apu|altsyncram:urom_rtl_0|* *|se30_fpu_apu:apu|altsyncram:entry_rtl_0|* *|se30_fpu_apu:apu|ua[*] *|se30_fpu_apu:apu|abort_l}]
+set fpu_apu1 [remove_from_collection $fpu_apu $fpu_p0]
+set_multicycle_path -setup -end 2 -from $fpu_apu1 -to $fpu_apu1
+set_multicycle_path -hold  -end 1 -from $fpu_apu1 -to $fpu_apu1
