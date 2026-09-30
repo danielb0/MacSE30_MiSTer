@@ -508,6 +508,9 @@ module tb_se30_fpu;
       check(ffmt == 16'h1F38, "after FMOVEM: FSAVE idle $1F38 (8.6.14 item 28)");
       check(fr[14] == 32'h7C0EFFFF, "idle, nothing pending: BIU flags $7C0EFFFF");
       check(fr[1] == 32'h9800_0000 && fr[13] == 32'd0, "the command image; no operand register");
+      sw_bad = 0;
+      for (j = 1; j <= 14; j = j + 1) if (^fr[j] === 1'bx) sw_bad = sw_bad + 1;
+      check(sw_bad == 0, "every longword of the idle frame defined (the CU's registers reset, 7e)");
       fsave;
       check(ffmt == 16'h1F38, "a second FSAVE: idle again");
       // a pending exception: saved in bit 27, cleared by the save, re-armed by the restore

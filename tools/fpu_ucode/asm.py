@@ -811,6 +811,19 @@ def check(prog, rom):
         if u is not None and u.seq == 'RET' and not ret_to.get(u.addr):
             warnings.append('%s: ret reached from no call' % u.loc)
 
+    # An FP register written, then read by the next word: the RTL reads the
+    # next word's FP operand at the edge that writes this one, and has no
+    # bypass (plan 8.9.5-8.9.6, 7e) - refused, whatever the selects (src and dst
+    # are the command's, and may name one register).  After ctl=end no word
+    # follows in the instruction.
+    for u in rom:
+        if u is None or u.nano.get('dst') != 'FP' or u.nano.get('ctl') == 'END':
+            continue
+        for s in succ.get(u.addr, ()):
+            v = rom[s] if 0 <= s < FD.UROM_WORDS else None
+            if v is not None and 'FP' in (v.nano.get('asrc'), v.nano.get('bsrc')):
+                errors.append('%s: writes FP and the next word (%s) reads FP: no bypass' % (u.loc, v.loc))
+
     # The µPC stack: the deepest chain of calls.
     body = {}
     for entry in callers:

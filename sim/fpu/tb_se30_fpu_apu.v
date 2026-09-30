@@ -97,10 +97,11 @@ module tb_se30_fpu_apu;
   wire       c_taken, c_bsun;
   se30_fpu_cond cond (.pred(c_pred), .fpcc(c_cc), .taken(c_taken), .bsun(c_bsun));
 
-  // -- the register file's port B ------------------------------------------------
+  // -- the register file's port B: its p0 edges (ce low) are ours (7e) -----------
   task fp_write(input [2:0] i, input [79:0] v);
     begin
       fpb_addr = i; fpb_d = v; fpb_we = 1'b1;
+      if (ce) begin @(posedge clk); #1; end
       @(posedge clk); #1;
       fpb_we = 1'b0;
     end
@@ -109,6 +110,7 @@ module tb_se30_fpu_apu;
   task fp_read(input [2:0] i, output [79:0] v);
     begin
       fpb_addr = i;
+      if (ce) begin @(posedge clk); #1; end
       @(posedge clk); #1;
       v = fpb_q;
     end

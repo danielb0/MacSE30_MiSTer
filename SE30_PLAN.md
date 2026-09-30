@@ -11076,7 +11076,8 @@ at their ends). The bypass is kept as a guard, about 80 ALMs. The other
 choice is an assembler rule forbidding the pattern, which is how the
 assembler already enforces the datapath's limits (8.8.18); that is for
 7e to settle. 7e must also settle port B: it is the APU's for writes now,
-and the CU's overlap wants it too (8.8.13).
+and the CU's overlap wants it too (8.8.13). **Both settled in 8.9.6**
+(2026-09-30): the assembler rule, and port B split by phase.
 
 **Compile 22, the machine with the FPU (2026-09-30, Daniel's go-ahead
 for the night; not flashed).** `ed7e677`, tag `ed7e6772`, archived as
@@ -11100,6 +11101,77 @@ minutes. The chip is in the fit, reachable from the bus through GLUE
   the ROM boots from floppy to "Welcome to Macintosh", then loops on the
   F-line at $131A4, because the kernel still takes the F-line for ID 1 at
   decode.
+
+### 8.9.6 7e: the overlap (opened 2026-09-30)
+
+8.8.1's second step: the CU converts the next general instruction's
+operand while the APU still works on the one before, with 8.8.13's queue,
+register-conflict checks and the mid-instruction report. **First, the
+chip's groundwork** (Daniel, 2026-09-30: "start 7e, beginning with those
+two"), as built:
+
+- **The CU's frame fields reset.** The idle frame's longwords 5 and 6
+  (8.8.15: the BIU state's control word and the take primitive) showed X
+  in simulation - `pc_next`, `n_long`, `i_long`, `st_ca0`, `st_special`,
+  `cr_mask`, `mm_mask`, `take_prim` and `pend_vec` had no reset, and an
+  instruction that never used them left them unset (seen in 7d's B4).
+  They are now cleared by the reset and by the null restore (which is the
+  reset state, `cu_clear`), so every frame the chip saves is defined. On
+  the board they powered up 0 anyway; this is for the benches, and for a
+  frame saved after a null restore to equal one saved after a reset.
+  `sim/fpu`'s directed frames gain the check (every longword of the first
+  idle frame defined): it failed before, passes now.
+- **FP register-file port B, split by phase (Daniel's choice).** Port A
+  is the APU's reads; port B was the APU's writes at p1 edges and
+  otherwise the BIU's, used only while the unit was idle. Under the
+  overlap the CU writes and reads FP registers while the APU runs, and
+  the old mux would drop a CU write landing on an APU write's edge. Now
+  the p1 edges are the APU's and the **p0 edges the CU's**, a read or a
+  write each - one access per FPU clock for each unit, with no
+  arbitration, and each unit's timing its own. A CU write request stands
+  until a p0 edge takes it (`fpb_we` is cleared only at p0 edges; one set
+  at a p0 edge waits a clock); a CU read's address, set by a p1 edge, is
+  read at the p0 edge after it and taken at the next p1 edge (the CU's
+  source fetch, `cu_step`, and FMOVEM out's, `mm_step`); the null
+  restore's clearing writes one register at each p1 edge. A
+  simulation-only guard reports a standing write whose address or data
+  changes before its edge (`SIMERR port B`). The rejected choices: the
+  APU first with the CU retrying on a grant (a path from nanoword decode
+  into the CU's control, and a variable latency), and a second copy of
+  the file (4 M10K more, and the writes would still share one port).
+- **The FP bypass replaced by an assembler rule (Daniel's choice).** 8.9.5's
+  `byp_f` (about 80 ALMs) served a word that reads FP after one that writes
+  it, which no microcode does. `asm.py`'s `check` now refuses it: a word
+  with `d=FP` (not `ctl=end`, after which nothing follows) whose possible
+  next words - fall-through, branch target, dispatch table, callee, every
+  return point - read FP on A or B, whatever the selects (src and dst are
+  the command's and may name one register). The whole microcode passes
+  it; `test_asm.py` gains two rejections (the next word; a branch
+  target). `byp_f` and its register are gone from `se30_fpu_apu.v`.
+- **The cost:** the CU's source fetch now waits for its p1 edges, so an
+  instruction's APU starts up to 2 clk later after its command write than
+  before (the microcode's own clocks, counted from its first word, are
+  unchanged). Seen in the detour sweep: 2,061 busy saves land at a
+  checkpoint where 8.9.5 had 2,059, the bench's saves falling on
+  different microwords. The overlap's queue should hide it (the CU
+  fetching while the APU runs); to be measured against 8.8.16's budgets
+  when it is built.
+- **Verified:** `sim/fpu` - the directed checks; all 19,836 vectors plain
+  and under `+detour` (busy at a checkpoint 2,061, busy initial 2,239,
+  idle 2,075, idle after a come-again 9,868; the FMOVE.P sweep's 11 busy
+  frames right); the 7a APU bench, all 19,836 vectors at their clocks
+  (its port B tasks now wait for a p0 edge); `tools/fpu_ucode/run.sh`
+  whole; `sim/cpfpu` - all ten programs, no SIMERR; `sim/machine`.
+  **Mutants:** port B's write request cleared every clock (a write set at
+  a p0 edge is lost) - 8 directed checks fail, FMOVEM's registers first;
+  the CU's source fetch not waiting for p1 edges (it takes the APU's read)
+  - 5 directed checks and 5 of the first 300 vectors fail. No compile yet
+  (the ALMs `byp_f` saves are 8.9.5's estimate until one).
+
+**Next in 7e:** the overlap itself - the CU's own conversion datapath
+beside the APU (8.8.13), the queue, the conflict checks (UM 5.1.2.2), the
+FSAVE of the in-flight states and the mid-instruction report - then the
+cputest corpus (8.4 item 7).
 
 ---
 

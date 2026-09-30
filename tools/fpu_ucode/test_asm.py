@@ -271,6 +271,17 @@ expect_error('an entry table with holes and no default', """
     .entry reg $22 idle
 """, ['empty', 'default'])
 expect_error('a label on nothing', HEAD + "dangling:\n", ['name nothing'])
+expect_error('an FP read by the word after its write', HEAD + """
+    w: d=FP[dst] a=T0 alu=passa
+       d=T1 b=FP[src] alu=passb | goto idle
+    .export w
+""", ['writes FP', 'reads FP'])
+expect_error('... at a branch target', HEAD + """
+    w: d=FP[dst] a=T0 alu=passa | if Z goto r
+       alu=nop | goto idle
+    r: d=T1 a=FP[dst] b=0 alu=add | goto idle
+    .export w
+""", ['writes FP', 'reads FP'])
 expect_error("the µROM overflowing", HEAD + ".org $FFF\nalu=nop | goto idle\nalu=nop | goto idle\n", ['full'])
 
 n_fail = results.count(False)

@@ -44,9 +44,10 @@
 //   the simulator with T0-T31 poisoned at start); every other register is.
 //
 // THE REGISTER FILE (8.8.6)
-//   FP0-FP7, 80 bits, a true dual-port RAM: port A the APU's (a read at
-//   each p0 edge, a write at a p1 edge), port B the CU's - here the
-//   bench's and the BIU's while the unit is idle.
+//   FP0-FP7, 80 bits, a true dual-port RAM: port A the APU's reads (at
+//   p1 edges, 8.9.5); port B split by phase (7e) - its p1 edges the APU's
+//   writes, its p0 edges the CU's (here the bench's), a read or a write
+//   each.
 //
 // THE CHECKPOINTS AND THE FRAMES (8.8.12, 8.9.3; item 7c)
 //   With save_req set, a CHECKPOINT word completes and the sequencer
@@ -701,11 +702,12 @@ module se30_fpu_apu #(
   // FPU clock, two clk, from the RAMs to the results.  The K address takes
   // the LC this edge leaves, and the FP select and whether the constant is
   // indexed by LC come from nsel, the nanowords' fields by nanoword
-  // address (the nanoword itself is read at the same edge).  A temporary or
-  // FP register the word before writes at that edge is taken from the
-  // result register instead (the RAMs' read during a write of the other
-  // port is not the new data).  The FP file's port A only reads; the APU
-  // writes through port B, which is the BIU's only while the unit is idle.
+  // address (the nanoword itself is read at the same edge).  A temporary
+  // the word before writes at that edge is taken from the result register
+  // instead (the RAMs' read during a write of the other port is not the
+  // new data); an FP register never is (the assembler's rule).  The FP
+  // file's port A only reads; the APU writes through port B at p1 edges,
+  // and the p0 edges are the CU's.
   wire        w_load = (st == S_FETCH) || exec;       // uir <= urom_q at this p1 edge
   wire [`MICRO_W-1:0] w_word = w_load ? urom_q : uir;
   wire [4:0]  w_ra   = w_word[`MICRO_RA];
@@ -757,31 +759,32 @@ module se30_fpu_apu #(
   // the writes this edge, and the bypass for the word that reads them
   wire        t_we_c  = exec && !alu_nop && (n_dst == `NANO_DST_T) && !abort_p;
   wire        fp_we_c = fp_we && !abort_p;
-  reg         byp_a, byp_b, byp_f;
+  // An FP register has no bypass: the assembler refuses a word that reads
+  // FP after one that writes it (7e).
+  reg         byp_a, byp_b;
   reg  [85:0] res_r;
-  reg  [79:0] fpw_r;
   wire [79:0] fpa_d = {res_s, res_e[14:0], res_m[66:3]};
   always @(posedge clk)
     if (p1) begin
       byp_a <= t_we_c && (u_rd == w_ra);
       byp_b <= t_we_c && (u_rd == w_rb[4:0]);
-      byp_f <= fp_we_c && (fp_sel == fp_sel_n) && (st != S_IDLE);
       if (t_we_c)  res_r <= res;
-      if (fp_we_c) fpw_r <= fpa_d;
     end
   assign ta_e  = byp_a ? res_r : ta_q;
   assign tb_e  = byp_b ? res_r : tb_q;
-  assign fpa_e = byp_f ? fpw_r : fpa_q;
+  assign fpa_e = fpa_q;
 
   // FP port A: the APU's reads, at p1
   always @(posedge clk)
     if (p1) fpa_q <= fp[fpa_rd];
-  // FP port B: the APU's writes at p1, else the CU's (here the BIU's, while
-  // the unit is idle); a write reads its own data back (the M10K's true
-  // dual port reads new data during a write, not old)
-  wire        fpb_w  = (p1 && fp_we_c) || fpb_we;
-  wire [2:0]  fpb_a  = (p1 && fp_we_c) ? fp_sel : fpb_addr;
-  wire [79:0] fpb_dd = (p1 && fp_we_c) ? fpa_d : fpb_d;
+  // FP port B, split by phase (7e): the p1 edges are the APU's, for its
+  // writes; the p0 edges the CU's, a read or a write each - the CU's
+  // request stands until a p0 edge takes it, and what it read is fpb_q
+  // until the next p1 edge.  A write reads its own data back (the M10K's
+  // true dual port reads new data during a write, not old).
+  wire        fpb_w  = p1 ? fp_we_c : fpb_we;
+  wire [2:0]  fpb_a  = p1 ? fp_sel : fpb_addr;
+  wire [79:0] fpb_dd = p1 ? fpa_d : fpb_d;
   always @(posedge clk)
     if (fpb_w) begin
       fp[fpb_a] <= fpb_dd;

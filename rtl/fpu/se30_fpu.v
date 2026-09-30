@@ -476,6 +476,15 @@ module se30_fpu #(
 
   reg [1:0] cu_step;
 
+  // the CU's frame fields (longwords 5 and 6 of the idle frame, 8.8.15):
+  // the reset state, and the null restore's, so every frame saved is defined
+  task cu_clear;
+    begin
+      pc_next <= B_IDLE; n_long <= 2'd0; i_long <= 2'd0; st_ca0 <= 1'b0; st_special <= 1'b0;
+      cr_mask <= 3'd0; mm_mask <= 8'd0; take_prim <= 16'd0; pend_vec <= 8'd0;
+    end
+  endtask
+
   task restore_start;              // a restore CIR write: abort everything, check the word
     begin
       sv_on <= 1'b0; rs_on <= 1'b0; sv_req <= 1'b0; dead <= 1'b0;
@@ -486,6 +495,7 @@ module se30_fpu #(
         restore_rd <= din[31:16];
         pend <= 1'b0; pend_rep <= 1'b0; used <= 1'b0;
         rst_cnt <= 4'd8;
+        cu_clear;
       end else if (din[31:16] == 16'h1F38 || din[31:16] == 16'h1FD4) begin
         restore_rd <= din[31:16];
         rs_on <= 1'b1; fbz <= din[23]; fk <= 6'd1;
@@ -497,7 +507,7 @@ module se30_fpu #(
   always @(posedge clk) begin
     fpcr_we <= 1'b0;
     fpsr_we <= 1'b0;
-    fpb_we <= 1'b0;
+    if (!ce) fpb_we <= 1'b0;       // port B's p0 edge takes a write (7e); until then it stands
     apu_abort <= 1'b0;
     ctx_we <= 1'b0; x_twe <= 1'b0; x_exop_we <= 1'b0; x_obuf_we <= 1'b0;
     if (reset) begin
@@ -505,6 +515,8 @@ module se30_fpu #(
       apu_go <= 1'b0; go_pend <= 1'b0; fk <= 6'd1; fwait <= 2'd0; img <= 16'd0;
       bst <= B_IDLE;
       pend <= 1'b0; pend_rep <= 1'b0; take_fline <= 1'b0;
+      cu_clear;
+      fpb_we <= 1'b0;
       apu_start <= 1'b0; cu_busy <= 1'b0; cu_step <= 2'd0; mm_step <= 2'd0;
       kill <= 1'b1; conv_ok <= 1'b0;
       restore_rd <= 16'h0000;
@@ -514,10 +526,11 @@ module se30_fpu #(
       apu_abort <= 1'b1;
     end else begin
       // the CU starting the APU: fetch the source through port B, then start
+      // (steps 0 and 1 at p1 edges: the p0 edge between them reads fpb_addr)
       if (cu_busy) begin
         case (cu_step)
-          2'd0: cu_step <= 2'd1;                           // fpb_q follows fpb_addr
-          2'd1: begin src_fp <= fpb_q; cu_step <= 2'd2; end
+          2'd0: if (ce) cu_step <= 2'd1;
+          2'd1: if (ce) begin src_fp <= fpb_q; cu_step <= 2'd2; end
           2'd2: begin apu_start <= 1'b1; kill <= 1'b0; cu_step <= 2'd3; end
           default:
             if (apu_busy) begin
@@ -543,8 +556,9 @@ module se30_fpu #(
       if (go_pend) begin apu_go <= 1'b1; go_pend <= 1'b0; end
       if (apu_go && apu_busy && !apu_susp) apu_go <= 1'b0;
       if (fwait != 2'd0) fwait <= fwait - 2'd1;
-      // the null restore's clearing of the registers, one a clock
-      if (rst_cnt != 4'd0) begin
+      // the null restore's clearing of the registers, one at each p1 edge
+      // (port B writes it at the p0 edge after)
+      if (rst_cnt != 4'd0 && ce) begin
         rst_cnt <= rst_cnt - 4'd1;
         fpb_addr <= rst_cnt[2:0] - 3'd1;
         fpb_d <= FP_NAN;
@@ -554,11 +568,14 @@ module se30_fpu #(
         fpiar <= 32'd0;
       end
       // FMOVEM out: fetch the next register
-      // (the address at step 0, fpb_q follows it a clock later, latched at 2)
+      // (the address from step 0's p1 edge, read at the p0 edge after it,
+      // latched at the next p1 edge)
       if (bst == B_MMR && !mm_have) begin
         fpb_addr <= mm_reg;
-        if (mm_step == 2'd2) begin mm_buf <= fpb_q; mm_have <= 1'b1; mm_step <= 2'd0; end
-        else mm_step <= mm_step + 2'd1;
+        if (ce) begin
+          if (mm_step == 2'd1) begin mm_buf <= fpb_q; mm_have <= 1'b1; mm_step <= 2'd0; end
+          else mm_step <= 2'd1;
+        end
       end
 
       // -- one bus access ------------------------------------------------------
@@ -863,4 +880,14 @@ module se30_fpu #(
                   !((c_rx == 3'd1 || c_rx == 3'd5) && (fpsr[12] || fpsr[11] || fpcr[9]));
     end
   end
+
+`ifdef SIMULATION
+  // a port B write standing over a p1 edge must not change before its p0 edge
+  reg [83:0] pb_prev;
+  always @(posedge clk) begin
+    pb_prev <= {fpb_we, fpb_addr, fpb_d};
+    if (!reset && !ce && fpb_we && pb_prev[83] && pb_prev[82:0] != {fpb_addr, fpb_d})
+      $display("SIMERR port B: a standing write changed before its p0 edge");
+  end
+`endif
 endmodule
