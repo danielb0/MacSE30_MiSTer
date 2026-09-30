@@ -16,6 +16,16 @@
 //   first instruction: the kernel takes the F-line at decode ($DEAD000B at
 //   the marker) with no CIR cycle at all.
 //
+//   The stage programs (gen_program.py b1, b2, b3a-c, b4) each cover one
+//   part of stage B with their own checks; exceptions they expect have
+//   handlers that file the frames. Two aids, set by inject.txt, stand in
+//   for what the 68882 alone cannot provoke (B3): the reserved primitive
+//   $0B00 answering one instruction's first response read (the MPU's
+//   protocol violation), and VIA1's IRQ raised at a come-again or an
+//   FSAVE's not-ready (interrupts inside a dialog), dropped when the
+//   handler writes $3F00. +trace prints bus cycles and micro-states,
+//   +ntr=N the first N bus cycles (400 by default).
+//
 // CLOCKING AND MEMORY: as sim/system (tb_se30_system.v): clk 2 x C16M,
 //   GLUE and the FPU on phi1, a 32-bit RAM model acknowledging a clock
 //   after the request.
@@ -56,9 +66,10 @@ module tb_cpfpu;
   wire [12:0] dev_addr;
   wire  [7:0] dev_wdata;
   reg         hsync_n = 1;
+  reg         irq1_n = 1;             // VIA1's IRQ, raised by the bench (B3; below)
   wire        fpu_sel;
   wire  [1:0] fpu_dsack_n;
-  wire [31:0] fpu_rdata;
+  wire [31:0] fpu_rdata, fpu_q;
 
   se30_glue glue (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
@@ -74,7 +85,7 @@ module tb_cpfpu;
     .e_clk(e_clk), .c3m_en(c3m_en),
     .fpu_sel(fpu_sel), .fpu_dsack_n(fpu_dsack_n), .fpu_rdata(fpu_rdata),
     .slot_sel(slot_sel), .slot_dsack0_n(1'b1), .slot_rdata(8'h00),
-    .via1_irq_n(1'b1), .via2_irq_n(1'b1), .scc_irq_n(1'b1), .nmi_n(1'b1),
+    .via1_irq_n(irq1_n), .via2_irq_n(1'b1), .scc_irq_n(1'b1), .nmi_n(1'b1),
     .slot_irq_n(6'b111111), .slot_irq_or_n(slot_irq_or_n),
     .overlay(1'b0), .ramsiz(2'b01), .hsync_n(hsync_n));
 
@@ -85,8 +96,41 @@ module tb_cpfpu;
     .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex")
   ) fpu (
     .clk(clk), .ce(phi1), .reset(!(reset_n && reset_out_n)),
-    .cs(fpu_sel), .rw(cpu_rw_n), .a(cpu_addr[4:0]), .din(cpu_dout), .dout(fpu_rdata),
+    .cs(fpu_sel), .rw(cpu_rw_n), .a(cpu_addr[4:0]), .din(cpu_dout), .dout(fpu_q),
     .dsack_n(fpu_dsack_n), .dbg_exop(), .dbg_clocks(), .dbg_err(), .dbg_state());
+
+  // Interrupts inside a dialog (B3, inject.txt's second number = 1): VIA1's
+  // IRQ (level 1) rises when the first come-again ($8900) is read from the
+  // response CIR and when the next not-ready ($01xx) is read from the save
+  // CIR, and falls when the handler writes $3F00.
+  reg [31:0] irq_mode = 0;
+  integer nirq = 0;
+  always @(posedge clk) begin
+    if (irq_mode != 0 && irq1_n && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
+        ((nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h8900) ||
+         (nirq == 1 && cpu_addr[4:0] == 5'd4 && fpu_q[31:24] == 8'h01))) begin
+      irq1_n <= 0; nirq = nirq + 1;
+    end
+    if (phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F00 >> 2)) irq1_n <= 1;
+  end
+
+  // A coprocessor that answers what the 68882 never does (B3): the first
+  // response CIR read of the instruction at inject.txt's address (0: none)
+  // reads the reserved primitive $0B00, once - the MPU's protocol violation.
+  reg [31:0] inj_pc = 0;
+  reg inj_armed = 1, inj_q = 0;
+  wire inj_hit = inj_armed && inj_pc != 0 && fpu_sel && cpu_rw_n && cpu_addr[4:0] == 5'd0 &&
+                 cpu.kernel.opcode_pc == inj_pc;
+  always @(posedge clk) begin
+    if (inj_hit) inj_q <= 1;
+    if (inj_q && cpu_as_n) begin inj_armed <= 0; inj_q <= 0; end
+  end
+  assign fpu_rdata = inj_hit ? {16'h0B00, fpu_q[15:0]} : fpu_q;
+  integer fdi;
+  initial begin
+    fdi = $fopen("inject.txt", "r");
+    if (fdi) begin if ($fscanf(fdi, "%h %h", inj_pc, irq_mode)) ; $fclose(fdi); end
+  end
 
   // HSYNC* as the video PALs make it (only the UI6 timeout cares)
   integer px = 0;
@@ -126,11 +170,11 @@ module tb_cpfpu;
 
   // +trace: every bus cycle as it ends (address, FC, R/W, SIZ, data, DSACK/BERR)
   reg trace_on = 0;
-  integer ntr = 0;
-  initial trace_on = $test$plusargs("trace");
+  integer ntr = 0, ntrmax = 400;          // +ntr=N: trace N bus cycles (default 400)
+  initial begin trace_on = $test$plusargs("trace"); if ($value$plusargs("ntr=%d", ntrmax)) ; end
   // +trace: the kernel's micro-state as it changes, with the opcode
   integer trms = -1;
-  always @(posedge clk) if (trace_on && cpu.kernel.clkena_lw && ntr < 400 &&
+  always @(posedge clk) if (trace_on && cpu.kernel.clkena_lw && ntr < ntrmax &&
                             (cpu.kernel.micro_state != trms || cpu.kernel.decodeOPC)) begin
     trms = cpu.kernel.micro_state;
     $display("t=%0t     ustate=%0d next=%0d opcode=%04x brief=%04x state=%b setstate=%b decodeOPC=%b PC=%08x flv=%b", $time,
@@ -139,12 +183,12 @@ module tb_cpfpu;
   end
   reg tr_as_q = 1;
   always @(posedge clk) if (trace_on && phi1) begin
-    if (!cpu_as_n && tr_as_q && ntr < 400)
+    if (!cpu_as_n && tr_as_q && ntr < ntrmax)
       $display("t=%0t   start %s %08x fc=%0d siz=%0d  ustate=%0d", $time, cpu_rw_n ? "R" : "W", cpu_addr, cpu_fc, cpu_siz,
                cpu.kernel.micro_state);
     tr_as_q = cpu_as_n;
   end
-  always @(posedge clk) if (trace_on && phi1 && !cpu_as_n && (dsack_n != 2'b11 || berr) && ntr < 400) begin
+  always @(posedge clk) if (trace_on && phi1 && !cpu_as_n && (dsack_n != 2'b11 || berr) && ntr < ntrmax) begin
     ntr = ntr + 1;
     $display("t=%0t %s %08x fc=%0d siz=%0d %s=%08x dsack=%b berr=%b", $time,
              cpu_rw_n ? "R" : "W", cpu_addr, cpu_fc, cpu_siz, cpu_rw_n ? "din" : "dout",

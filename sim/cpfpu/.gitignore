@@ -3,3 +3,4 @@ transcript
 run.log
 program.hex
 expect.txt
+inject.txt

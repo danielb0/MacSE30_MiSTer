@@ -5,7 +5,8 @@
 # the header of tb_cpfpu.v (plan 8.9.4, item 7d).
 #
 #   MODELSIM  the win32aloem bin directory
-#   PROG      the program: b1 (stage B1, the default), b2, b4 or full
+#   PROG      the program: b1 (stage B1, the default), b2, b3a, b3b, b3c, b4
+#             or full
 #
 # Exit status is the bench's verdict: 0 on "==== PASS".
 set -u

@@ -865,6 +865,25 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_frcp      : std_logic;                      -- the transfer runs from the coprocessor to memory
 	signal cp_badlen    : std_logic;                      -- the counting format word's length is not a multiple of 4
 	signal trap_cpfmt   : bit;                            -- decode: a format error (vector 14)
+	-- B3, the conditionals' completion (UM 10.2.2)
+	signal cp_scc       : std_logic;                      -- the instruction is cpScc
+	signal trap_cptrap  : bit;                            -- decode: cpTRAPcc's trap (vector 7, frame $2)
+	signal cp_trap2     : std_logic := '0';               -- that frame's PC is cp_npc
+	signal cp_npc       : std_logic_vector(31 downto 0) := (others => '0');  -- the next instruction's address
+	-- B3, frame $9 (UM Fig. 10-43): take mid-instruction, the MPU's protocol
+	-- violations and interrupts inside a dialog stack SR, scanPC, the
+	-- format word, the instruction's address, an internal register (ours:
+	-- the word after the operation word), the operation word and tempEA;
+	-- RTE loads them back and reads the response CIR again (8.1.13).
+	signal trap_cp9     : bit;                            -- decode: this exception's frame is $9
+	signal trap_cppv    : bit;                            -- decode: an MPU-detected protocol violation (vector 13)
+	signal cp_f9        : std_logic := '0';               -- frame $9 is being stacked
+	signal cp_scanpc    : std_logic_vector(31 downto 0) := (others => '0');  -- scanPC when the primitive came
+	signal cp_tea       : std_logic_vector(31 downto 0) := (others => '0');  -- tempEA: the last EA evaluated
+	signal cp_tea_ld    : std_logic := '0';               -- cp_ea was computed at the last step
+	signal cp_irq_take  : std_logic;                      -- an interrupt is taken at this point of the dialog
+	signal cp_rte_pc    : std_logic_vector(31 downto 0) := (others => '0');  -- RTE of $9: the instruction's address
+	signal cp_rte_iw    : std_logic_vector(31 downto 0) := (others => '0');  -- ... the internal register, operation word
 	signal pmmu_ea_mode_latched  : std_logic_vector(5 downto 0);  -- BUG #302: Latch EA mode+reg bits
 	-- Helper signals: use latched values when F-line context valid
 	signal pmmu_brief          : std_logic_vector(15 downto 0);
@@ -3191,7 +3210,13 @@ PROCESS (clk)
 					-- frozen capture beacon 0008); push the boundary resume PC
 					-- LATCHED at setinterrupt from registered sources instead.
 					-- JSR/BSR/DIV0 keep the live value (their PC is stable).
-					IF trap_interrupt='1' OR trap_trace='1' THEN
+					-- An interrupt inside a coprocessor dialog (7d B3): frame
+					-- $9's scanPC, or cpSAVE's operation word for its frame $0.
+					IF cp_f9='1' THEN
+						data_write_tmp <= cp_scanpc;
+					ELSIF cp_trap_pc='1' AND trap_interrupt='1' THEN
+						data_write_tmp <= opcode_pc;
+					ELSIF trap_interrupt='1' OR trap_trace='1' THEN
 						data_write_tmp <= trap_pc_latched;
 					ELSE
 						data_write_tmp <= TG68_PC;
@@ -3217,7 +3242,13 @@ PROCESS (clk)
 					-- extension-word fetch or handler/RTE sequencing by the time the
 					-- frame PC longword is written. RTE Format Error (vector $38)
 					-- stacks the RTE instruction PC.
-					IF trap_vector(9 downto 0) = "00" & X"10" OR
+					IF cp_f9 = '1' THEN
+						-- frame $9: scanPC (B3)
+						data_write_tmp <= cp_scanpc;
+					ELSIF cp_trap2 = '1' THEN
+						-- cpTRAPcc's frame $2: the next instruction (B3)
+						data_write_tmp <= cp_npc;
+					ELSIF trap_vector(9 downto 0) = "00" & X"10" OR
 					   trap_vector(9 downto 0) = "00" & X"20" OR
 					   trap_vector(9 downto 0) = "00" & X"28" OR
 					   trap_vector(9 downto 0) = "00" & X"2C" OR
@@ -3244,10 +3275,18 @@ PROCESS (clk)
 						-- forever: T7 regression).
 						data_write_tmp <= TG68_PC_add;
 					END IF;
+				ELSIF micro_state = cp9a THEN
+					data_write_tmp <= cp_tea;                                -- frame $9 +$10: tempEA (B3)
+				ELSIF micro_state = cp9b THEN
+					data_write_tmp <= fline_brief_latch & fline_opcode_latch;  -- +$0C: internal register, operation word
+				ELSIF micro_state = cp9c THEN
+					data_write_tmp <= opcode_pc;                             -- +$08: the instruction's address
 				ELSIF micro_state = trap0 THEN
 					-- Priorities 5 & 6: Format $0/$2 format-and-vector word (16 bits only).
 					-- Only active for 010+; on 68000, writePC is asserted in trap0 instead.
-					IF useStackframe2='1' THEN
+					IF cp_f9='1' THEN
+						data_write_tmp(15 downto 0) <= "1001" & trap_vector(11 downto 0);   -- frame $9 (B3)
+					ELSIF useStackframe2='1' THEN
 						-- Format $2 (6-word frame)
 						data_write_tmp(15 downto 0) <= "0010" & trap_vector(11 downto 0); --TH
 					ELSE
@@ -3370,6 +3409,18 @@ PROCESS (clk)
 	-- B4: cpSAVE (100) and cpRESTORE (101); a save moves the frame to
 	-- memory, a restore from it, whatever the format word's bits
 	cp_ss    <= '1' WHEN fline_opcode_latch(8 downto 7) = "10" ELSE '0';
+	-- B3: the points of a dialog where the MPU services pending interrupts
+	-- (UM 10.5.2.6): a null primitive with CA = 1 and IA = 1, its PC request
+	-- served (frame $9), and cpSAVE's not-ready format word (frame $0) - the
+	-- same pending test as at an instruction boundary
+	cp_irq_take <= '1' WHEN (FlagsSR(2 downto 0) < IPL_nr OR IPL_nr = "111") AND
+	                        ((micro_state = cp_dsp AND cp_prim(15) = '1' AND cp_prim(13 downto 8) = "001001" AND
+	                          NOT (cp_prim(14) = '1' AND cp_pcdone = '0')) OR
+	                         (micro_state = cp_fmt AND fline_opcode_latch(8 downto 6) = "100" AND
+	                          cp_prim(15 downto 8) = x"01")) ELSE '0';
+	-- B3: cpScc is 001 with any EA but An (cpDBcc) and #/opmode 2-4 (cpTRAPcc)
+	cp_scc   <= '1' WHEN fline_opcode_latch(8 downto 6) = "001" AND fline_opcode_latch(5 downto 3) /= "001" AND
+	                     NOT (fline_opcode_latch(5 downto 3) = "111" AND fline_opcode_latch(2 downto 1) /= "00") ELSE '0';
 	cp_frcp  <= NOT fline_opcode_latch(6) WHEN cp_ss = '1' ELSE cp_prim(13);
 	-- the format word whose length counts the frame - the save CIR's, or
 	-- the copy a restore read from memory (UM Fig. 10-18 note 2) - is
@@ -3461,6 +3512,18 @@ PROCESS (clk)
 				cp_reg_we <= '1';                          -- FMOVEM -(An): below the last register
 				cp_reg_d <= cp_mmbase;
 			END IF;
+		ELSIF micro_state = cp_sccd THEN
+			-- cpScc to Dn: the low byte, all ones or zero (B3)
+			cp_reg_we <= '1';
+			cp_reg_n <= '0' & n(2 downto 0);
+			cp_reg_d <= regfile(conv_integer('0' & n(2 downto 0)));
+			cp_reg_d(7 downto 0) <= (others => cp_prim(0));
+		ELSIF micro_state = cp_db THEN
+			-- cpDBcc, false: the counter's low word less one (B3)
+			cp_reg_we <= '1';
+			cp_reg_n <= '0' & n(2 downto 0);
+			cp_reg_d <= regfile(conv_integer('0' & n(2 downto 0)));
+			cp_reg_d(15 downto 0) <= regfile(conv_integer('0' & n(2 downto 0)))(15 downto 0) - 1;
 		ELSIF micro_state = cp_rdreg THEN
 			-- a register destination (5.7): Dn takes the low byte or word, An
 			-- a sign-extended one
@@ -3535,6 +3598,26 @@ PROCESS (clk)
 					ELSE
 						cp_ea <= cp_an;
 					END IF;
+				ELSIF micro_state = cp_eat AND cp_scc = '1' THEN
+					-- B3: cpScc's destination is one byte (-(A7)/(A7)+: 2)
+					cp_len <= x"01";
+					cp_half <= '0';
+					cp_mm <= '0';
+					cp_pcbase <= TG68_PC;
+					IF fline_opcode_latch(5 downto 3) = "100" THEN
+						IF fline_opcode_latch(2 downto 0) = "111" THEN
+							cp_ea <= cp_an - 2;
+						ELSE
+							cp_ea <= cp_an - 1;
+						END IF;
+					ELSE
+						cp_ea <= cp_an;
+					END IF;
+					IF fline_opcode_latch(2 downto 0) = "111" THEN
+						cp_anew <= cp_an + 2;
+					ELSE
+						cp_anew <= cp_an + 1;
+					END IF;
 				ELSIF micro_state = cp_eat THEN
 					cp_len <= cp_prim(7 downto 0);
 					cp_half <= '0';
@@ -3579,8 +3662,50 @@ PROCESS (clk)
 						cp_anew <= cp_ea + 4 + cp_data(23 downto 16);
 					END IF;
 				END IF;
-				IF micro_state = cp_extw AND beat_valid = '1' THEN
-					cp_w <= data_read(15 downto 0);
+				IF (micro_state = cp_extw OR micro_state = cp_dlw) AND beat_valid = '1' THEN
+					cp_w <= data_read(15 downto 0);        -- (B3: a displacement word)
+				END IF;
+				-- B3: cpTRAPcc's operand words counted; its frame's PC
+				IF micro_state = cp_cond THEN
+					cp_half <= '0';
+				ELSIF micro_state = cp_tsk THEN
+					cp_half <= '1';
+				END IF;
+				IF micro_state = cp_trp THEN
+					cp_npc <= TG68_PC;
+				END IF;
+				-- B3, frame $9's fields: scanPC as the primitive arrives (a
+				-- cpBcc's is its displacement's first word, UM 10.4.1); tempEA
+				-- one step after each state that computes cp_ea, so the last
+				-- one's value stays; RTE of $9 bringing them back
+				IF micro_state = cp_dsp THEN
+					IF fline_opcode_latch(8 downto 7) = "01" THEN
+						cp_scanpc <= fline_opcode_pc;
+					ELSE
+						cp_scanpc <= TG68_PC;
+					END IF;
+				END IF;
+				IF micro_state = cp_eat OR micro_state = cp_ea1 OR micro_state = cp_extw2 THEN
+					cp_tea_ld <= '1';
+				ELSE
+					cp_tea_ld <= '0';
+				END IF;
+				IF cp_tea_ld = '1' THEN
+					cp_tea <= cp_ea;
+				END IF;
+				IF micro_state = rte5 AND beat_valid = '1' AND rte_format_word(15 downto 12) = "1001" THEN
+					CASE rot_cnt IS
+						WHEN "000011" => cp_rte_pc <= data_read;         -- +$08
+						WHEN "000010" => cp_rte_iw <= data_read;         -- +$0C
+						WHEN "000001" => cp_tea <= data_read;            -- +$10
+						WHEN OTHERS   => NULL;
+					END CASE;
+				END IF;
+				IF trap_cp9 = '1' OR (micro_state = cp_irq AND interrupt = '1' AND trap_interrupt = '1' AND
+				                      fline_opcode_latch(8 downto 6) /= "100") THEN
+					cp_f9 <= '1';
+				ELSIF setopcode = '1' THEN
+					cp_f9 <= '0';
 				END IF;
 				IF micro_state = cp_ea1 THEN
 					CASE fline_opcode_latch(5 downto 3) IS
@@ -3642,10 +3767,16 @@ PROCESS (clk)
 						cp_ea <= cp_mmbase - cp_prim(7 downto 0);
 					END IF;
 				END IF;
-				IF trap_cp = '1' THEN
-					cp_trap_pc <= '1';
+				IF trap_cp = '1' OR (micro_state = cp_irq AND interrupt = '1' AND trap_interrupt = '1' AND
+				                     fline_opcode_latch(8 downto 6) = "100") THEN
+					cp_trap_pc <= '1';                 -- (B3: cpSAVE's interrupt, frame $0 at it)
 				ELSIF setopcode = '1' THEN
 					cp_trap_pc <= '0';
+				END IF;
+				IF trap_cptrap = '1' THEN
+					cp_trap2 <= '1';
+				ELSIF setopcode = '1' THEN
+					cp_trap2 <= '0';
 				END IF;
 			END IF;
 		END IF;
@@ -3720,6 +3851,12 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 				END IF;
 				IF trap_1111='1' THEN
 					trap_vector(9 downto 0) <= "00" & X"2C";
+				END IF;
+				IF trap_cptrap='1' THEN
+					trap_vector(9 downto 0) <= "00" & X"1C";                 -- cpTRAPcc (B3)
+				END IF;
+				IF trap_cppv='1' THEN
+					trap_vector(9 downto 0) <= "00" & X"34";                 -- an MPU-detected protocol violation (B3)
 				END IF;
 				IF trap_cp='1' AND trap_cpfmt='1' THEN
 					trap_vector(9 downto 0) <= "00" & X"38";                 -- cpSAVE/cpRESTORE's format error (B4)
@@ -3821,10 +3958,12 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 					   (state = "00" OR (state(1) = '1' AND memmaskmux(3) = '1' AND setstate = "00")) THEN
 						memaddr_delta_rega <= TG68_PC_add;
 						use_base <= '0';
-					-- A coprocessor interface register (7d): CPU space $22000 + the
-					-- register, an absolute address for the beat this state schedules.
+					-- A coprocessor interface register (7d): CPU space $20000 + CpID
+					-- x $2000 + the register (UM 10.1.4.2), an absolute address for
+					-- the beat this state schedules.  The CpID is the operation
+					-- word's - after an RTE of frame $9, the frame's (B3).
 					ELSIF cp_cir_next = '1' AND memmaskmux(3) = '1' THEN
-						memaddr_delta_rega <= x"000220" & "000" & cp_cir_off;
+						memaddr_delta_rega <= x"0002" & fline_opcode_latch(11 downto 9) & x"00" & cp_cir_off;
 						use_base <= '0';
 					-- ... and an operand's memory part at cp_ea (B2); a split
 					-- operand's later beats take the adder's address below
@@ -4128,7 +4267,7 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 -----------------------------------------------------------------------------
 PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data, direct_data, next_micro_state, micro_state, stop, make_trace, make_trace_t0, make_berr, IPL_nr, FlagsSR, set_rot_cnt, opcode, writePCbig, set_exec, exec,
         PC_dataa, PC_datab, setnextpass, last_data_read, TG68_PC_brw, TG68_PC_word, Z_error, trap_trap, trap_trapv, interrupt, tmp_TG68_PC, TG68_PC, use_VBR_Stackframe, writePCnext, pmove_dn_mode, cpu_halted, exe_condition, dbcc_t0_suppress, c_out,
-        rte_b_resume_refetch, opc_buf_valid, beat_valid, dib_sub_hit, cp_br_sel, cp_br_disp, fline_opcode_pc)
+        rte_b_resume_refetch, opc_buf_valid, beat_valid, dib_sub_hit, cp_br_sel, cp_br_disp, fline_opcode_pc, cp_irq_take)
 	variable v_is_cof : std_logic;  -- T0 trace: change-of-flow instruction
 	variable v_irq_pending : std_logic;
 	variable v_pmmu_datatype : std_logic_vector(1 downto 0);
@@ -4333,7 +4472,13 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 				--     data_read on a fault-released edge is bus garbage.
 				setopcode <= '1';
 			END IF;
-		END IF;	
+		END IF;
+		-- An interrupt taken inside a coprocessor dialog (7d B3): at the
+		-- points cp_irq_take names, through the same dispatch as at a
+		-- boundary (the IACK in int1), cp_irq holding the dialog meanwhile.
+		IF cp_irq_take = '1' THEN
+			setinterrupt <= '1';
+		END IF;
 		setexecOPC <= '0';
 		-- BUG #32 FIX: Allow setstate="01" for PMMU operations ONLY!
 		-- Bug #30 sets setstate="01" to enable clkena_lw, but original check only allowed setstate="00".
@@ -4698,6 +4843,20 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					   micro_state /= pmmu_ld_229_3 AND
 					   micro_state /= pmmu_ld_229_4 THEN
 						fline_context_valid <= '0';
+					END IF;
+					-- RTE of a coprocessor's frame $9 (7d B3): the dialog's
+					-- F-line context back from the frame - the operation word,
+					-- the word after it (the internal register), the address
+					-- of that word
+					IF micro_state = cp_rte THEN
+						fline_opcode_latch <= cp_rte_iw(15 downto 0);
+						fline_brief_latch <= cp_rte_iw(31 downto 16);
+						fline_opcode_pc <= cp_rte_pc + 2;
+						fline_is_pmmu <= '0';
+						fline_is_fpu <= '1';
+						fline_has_brief <= '1';
+						pmmu_ea_mode_latched <= cp_rte_iw(5 downto 0);
+						fline_context_valid <= '1';
 					END IF;
 
 					-- BUG #389 FIX V2: Clear exec_write_back when PMMU states retire to idle!
@@ -5477,6 +5636,13 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- 	END IF;
 					-- END IF;
 
+						IF micro_state = cp_rte THEN
+							-- RTE of a coprocessor's frame $9 (7d B3): the
+							-- instruction the dialog belongs to is current again
+							opcode <= cp_rte_iw(15 downto 0);
+							exe_pc <= cp_rte_pc;
+							opcode_pc <= cp_rte_pc;
+						END IF;
 						IF setopcode='1' AND berr='0' THEN
 							IF state="00" THEN
 								opcode <= data_read(15 downto 0);
@@ -5987,7 +6153,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 			 rte_fmt_a_replay_needed, rte_fmt_a_replay_size, mmu_restart_active,
 			 cp_prim, cp_pcdone, opcode_pc, fline_opcode_latch, fline_context_valid, clkena_lw,
 			 cp_ea_ok, cp_pv, cp_len, cp_part, cp_psize, cp_psize0, cp_data, cp_half, cp_mm, cp_mmcnt, regfile,
-			 cp_ss, cp_frcp, cp_badlen)
+			 cp_ss, cp_frcp, cp_badlen, cp_scc, cp_w, cp_irq_take, cp_f9)
 	variable v_rte_format_valid : std_logic;
 	BEGIN
 		TG68_PC_brw <= '0';
@@ -6035,6 +6201,9 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		trap_1111 <='0';
 		trap_cp <= '0';
 		trap_cpfmt <= '0';
+		trap_cptrap <= '0';
+		trap_cp9 <= '0';
+		trap_cppv <= '0';
 		cp_cir_next <= '0';
 		cp_cir_off <= "00000";
 		cp_wdata <= (others => '0');
@@ -6159,11 +6328,13 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				-- BUG #401 FIX: Set setstackaddr at dispatch (see interrupt path above)
 				setstackaddr <= '1';
 			ELSIF cpu(1)='1' AND (trap_trapv='1' OR set_Z_error='1' OR exec(trap_chk)='1' OR
-			                       set(trap_chk)='1' OR trap_mmu_config='1') THEN
+			                       set(trap_chk)='1' OR trap_mmu_config='1' OR trap_cptrap='1') THEN
 				next_micro_state <= trap00;  -- Format $2 (6-word) per MC68030 reference
 				-- Note: trap_trap (TRAP #n) uses Format $0 per Table 8-4 - handled by else branch
 				-- Note: trap_mmu_config and trap_format_error use Format $0, matching WinUAE's
 				-- common exception frame selection for vector 56 and format-error dispatch.
+			ELSIF cpu(1)='1' AND trap_cp9='1' THEN
+				next_micro_state <= cp9a;    -- a coprocessor's frame $9 (7d B3)
 			else
 				next_micro_state <= trap0;
 			end if;
@@ -6180,6 +6351,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 -- paste and copy form TH	---------
 			if trap_trace='1' AND cpu(1) = '1' then
 				next_micro_state <= trap00;  --TH
+			elsif cp_f9='1' then
+				next_micro_state <= cp9a;    -- an interrupt inside a coprocessor dialog: frame $9 (7d B3)
 			else
 				next_micro_state <= trap0;
 			end if;
@@ -7977,8 +8150,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				-- displacement - is fetched and latched as the PMMU's is (the
 				-- F-line context), then the dialog runs in the cp_* states.
 				-- Not privileged (030 UM 10.2.1, 10.2.2).
+				-- B3: cpScc, cpDBcc and cpTRAPcc (001; the condition word
+				-- second - Scc's EA data alterable, TRAPcc's opmode 2-4) and
+				-- cpBcc.L (011) the same way.
 				ELSIF cpu(1)='1' AND opcode(11 downto 9)="001" AND
-				      (opcode(8 downto 6)="000" OR opcode(8 downto 6)="010") THEN
+				      (opcode(8 downto 6)="000" OR opcode(8 downto 7)="01" OR
+				       (opcode(8 downto 6)="001" AND
+				        (opcode(5 downto 3)/="111" OR opcode(2 downto 0)="000" OR opcode(2 downto 0)="001" OR
+				         opcode(2 downto 0)="010" OR opcode(2 downto 0)="011" OR opcode(2 downto 0)="100"))) THEN
 					IF decodeOPC='1' THEN
 						IF clkena_lw='0' THEN
 							set(get_2ndOPC) <= '1';
@@ -9401,6 +9580,12 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 								set(longaktion) <= '1';
 							END IF;
 							next_micro_state <= rte_mmu_replay;
+						ELSIF rte_format_word(15 downto 12) = "1001" AND cp_rte_iw(15 downto 12) = "1111" THEN
+							-- a coprocessor's frame $9: back into its dialog, which
+							-- reads the response CIR again (UM 8.1.13; 7d B3) - no
+							-- fetch at the restored PC, which is scanPC
+							setstate <= "01";
+							next_micro_state <= cp_rte;
 						ELSE
 							-- Last read completed - RTE is finishing
 							next_micro_state <= nop;
@@ -9715,6 +9900,10 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         IF fline_opcode_latch(8 downto 6) = "000" THEN
                             cp_cir_off <= "01010";
                             cp_wdata <= x"0000" & pmmu_brief;
+                        ELSIF fline_opcode_latch(8 downto 6) = "001" THEN
+                            -- cpScc, cpDBcc, cpTRAPcc: the condition word (B3)
+                            cp_cir_off <= "01110";
+                            cp_wdata <= x"0000" & pmmu_brief;
                         ELSE
                             cp_cir_off <= "01110";
                             cp_wdata <= x"0000" & fline_opcode_latch;
@@ -9754,26 +9943,33 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         -- null (5.2): CA = 1 reads again; CA = 0 ends the
                         -- dialog - a general instruction is done, a
                         -- conditional takes TF
-                        IF cp_prim(15) = '1' THEN
+                        IF cp_prim(15) = '1' AND cp_irq_take = '1' THEN
+                            -- CA = 1, IA = 1 and an interrupt pending: taken
+                            -- here with frame $9, the RTE reading the response
+                            -- again (5.2, UM 10.5.2.6; B3)
+                            next_micro_state <= cp_irq;
+                        ELSIF cp_prim(15) = '1' THEN
                             cp_cir_next <= '1';
                             cp_cir_off <= "00000";
                             datatype <= "01";
                             set_datatype <= "01";
                             setstate <= "10";
                             next_micro_state <= cp_rspw;
-                        ELSIF fline_opcode_latch(8 downto 6) = "000" OR cp_prim(0) = '0' THEN
+                        ELSIF fline_opcode_latch(8 downto 6) = "000" THEN
                             next_micro_state <= cp_done;
                         ELSE
-                            next_micro_state <= cp_bcc;
+                            next_micro_state <= cp_cond;   -- a conditional completes on TF (B3)
                         END IF;
                     ELSIF fline_opcode_latch(8 downto 6) = "000" AND
                           (cp_prim(12 downto 11) = "10" OR cp_prim(12 downto 8) = "00001") THEN
                         -- evaluate EA and transfer data (5.7), transfer multiple
                         -- coprocessor registers (5.14) - a general instruction's
                         next_micro_state <= cp_eat;
-                    ELSIF cp_prim(12 downto 8) = "01100" AND cp_prim(13) = '0' THEN
+                    ELSIF cp_prim(12 downto 8) = "01100" AND cp_prim(13) = '0' AND
+                          (fline_opcode_latch(8 downto 6) = "000" OR cp_prim(15) = '1') THEN
                         -- transfer single main-processor register (5.11) to the
-                        -- coprocessor: Dn or An, a long to the operand CIR
+                        -- coprocessor: Dn or An, a long to the operand CIR (a
+                        -- conditional's only with CA = 1, 3.3)
                         cp_cir_next <= '1';
                         cp_cir_off <= "10000";
                         cp_wdata <= regfile(conv_integer(cp_prim(3 downto 0)));
@@ -9781,10 +9977,10 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         set_datatype <= "10";
                         setstate <= "11";
                         next_micro_state <= cp_tsr;
-                    ELSIF cp_prim(13 downto 8) = "011100" THEN
-                        -- take pre-instruction exception (5.16): XA ($0002 to
-                        -- the control CIR, $02), then frame $0 at the
-                        -- operation word
+                    ELSIF cp_prim(13 downto 9) = "01110" THEN
+                        -- take pre-instruction (5.16) or mid-instruction
+                        -- (5.17, B3) exception: XA ($0002 to the control CIR,
+                        -- $02), then frame $0 at the operation word, or $9
                         cp_cir_next <= '1';
                         cp_cir_off <= "00010";
                         cp_wdata <= x"00000002";
@@ -9793,10 +9989,15 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         setstate <= "11";
                         next_micro_state <= cp_xa;
                     ELSE
-                        -- Every other primitive: stage B1 does not carry it yet.
-                        -- Take-mid (frame $9) and the MPU's protocol violation
-                        -- (frame $9, vector 13) are B3's; until then the F-line.
-                        trap_1111 <= '1';
+                        -- Every other primitive (B3): a protocol violation - no
+                        -- control CIR write, frame $9, vector 13 (UM 10.5.2.1).
+                        -- That covers the primitives the 68882 never sends too
+                        -- (busy, supervisor check, take post-instruction and
+                        -- the rest; docs/cp030_mpu_protocol.md 11.3): a handler
+                        -- can emulate them, as for any code the MPU does not
+                        -- recognise (UM 10.4).
+                        trap_cp9 <= '1';
+                        trap_cppv <= '1';
                         trapmake <= '1';
                     END IF;
 
@@ -9828,6 +10029,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         ELSE
                             next_micro_state <= cp_ea1;
                         END IF;
+                    ELSIF cp_scc = '1' THEN
+                        -- cpScc's destination (B3; checked at decode): a byte,
+                        -- its extension words at scanPC after the dialog
+                        IF fline_opcode_latch(5 downto 3) = "000" THEN
+                            next_micro_state <= cp_sccd;
+                        ELSIF fline_opcode_latch(5 downto 3) = "010" OR fline_opcode_latch(5 downto 3) = "011" THEN
+                            next_micro_state <= cp_xfr;
+                        ELSIF fline_opcode_latch(5 downto 3) = "100" THEN
+                            next_micro_state <= cp_prea;
+                        ELSE
+                            setstate <= "00";
+                            next_micro_state <= cp_extw;
+                        END IF;
                     ELSIF cp_ea_ok = '0' THEN
                         -- not in the primitive's class: AB ($0001 to the
                         -- control CIR), then the F-line, frame $0 (5.7 F1, 5.14)
@@ -9839,9 +10053,10 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         setstate <= "11";
                         next_micro_state <= cp_abf;
                     ELSIF cp_pv = '1' THEN
-                        -- a protocol violation (5.7 P2-P4, 5.14): frame $9 and
-                        -- vector 13 are B3's; until then the F-line
-                        trap_1111 <= '1';
+                        -- a protocol violation (5.7 P2-P4, 5.14's odd length;
+                        -- B3): frame $9, vector 13, no control CIR write
+                        trap_cp9 <= '1';
+                        trap_cppv <= '1';
                         trapmake <= '1';
                     ELSIF fline_opcode_latch(5 downto 4) = "00" THEN
                         -- register direct: the register's low bytes to the
@@ -9951,6 +10166,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         -- immediate: the data from the instruction stream
                         setstate <= "00";
                         next_micro_state <= cp_imw;
+                    ELSIF cp_scc = '1' THEN
+                        -- cpScc (B3): the byte, all ones for TF = 1, else zero
+                        cp_mem_next <= '1';
+                        cp_wdata <= (others => cp_prim(0));
+                        datatype <= "00";
+                        set_datatype <= "00";
+                        setstate <= "11";
+                        next_micro_state <= cp_mww;
                     ELSIF cp_frcp = '0' THEN
                         -- memory to the coprocessor: read the part
                         cp_mem_next <= '1';
@@ -10078,16 +10301,27 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
                 WHEN cp_xa =>
                     -- the acknowledge in flight: the exception, its vector
-                    -- from the primitive
+                    -- from the primitive; take mid-instruction's frame is $9
                     trap_cp <= '1';
+                    IF cp_prim(8) = '1' THEN
+                        trap_cp9 <= '1';
+                    END IF;
                     trapmake <= '1';
 
                 WHEN cp_bcc =>
                     -- cpBcc.W taken (4.2): PC := the displacement word's
                     -- address + the displacement; cpSAVE/cpRESTORE with no
                     -- extension word: PC := that word's address (B4)
+                    -- cpBcc.L: the displacement's two words; cpDBcc: from its
+                    -- displacement word's address, two past this base (B3)
                     cp_br_sel <= '1';
-                    IF cp_ss = '0' THEN
+                    IF cp_ss = '1' THEN
+                        NULL;
+                    ELSIF fline_opcode_latch(8 downto 6) = "011" THEN
+                        cp_br_disp <= pmmu_brief & cp_w;
+                    ELSIF fline_opcode_latch(8 downto 6) = "001" THEN
+                        cp_br_disp <= ((31 downto 16 => cp_w(15)) & cp_w) + 2;
+                    ELSE
                         cp_br_disp(31 downto 16) <= (others => pmmu_brief(15));
                         cp_br_disp(15 downto 0) <= pmmu_brief;
                     END IF;
@@ -10120,10 +10354,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
                 WHEN cp_fmt =>
                     setstate <= "01";
-                    IF cp_prim(15 downto 8) = x"01" THEN
-                        -- not ready, come again: read the same CIR again.  A
-                        -- save services pending interrupts first (10.2.3.2.2;
-                        -- B3's), a restore does not.
+                    IF cp_irq_take = '1' THEN
+                        -- cpSAVE not ready with an interrupt pending: taken
+                        -- with frame $0 at the operation word, the RTE
+                        -- starting cpSAVE again (10.2.3.2.2, 10.5.2.6; B3)
+                        next_micro_state <= cp_irq;
+                    ELSIF cp_prim(15 downto 8) = x"01" THEN
+                        -- not ready, come again: read the same CIR again (a
+                        -- restore services no interrupts)
                         cp_cir_next <= '1';
                         cp_cir_off <= "001" & fline_opcode_latch(6) & '0';
                         datatype <= "01";
@@ -10204,6 +10442,160 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     set_datatype <= "01";
                     setstate <= "10";
                     next_micro_state <= cp_fmtw;
+
+                -- ------------------------------------------------------------
+                -- A conditional's completion (7d stage B3; UM 10.2.2, docs/
+                -- cp030_mpu_protocol.md 4.2-4.5): the dialog has ended with a
+                -- null primitive, CA = 0, its TF in cp_prim(0).  scanPC (the
+                -- kernel's PC) is past the condition word - cpBcc's past its
+                -- displacement's first word - and the MPU consumes what
+                -- follows itself.
+                WHEN cp_cond =>
+                    setstate <= "01";
+                    IF fline_opcode_latch(8 downto 6) = "010" THEN
+                        -- cpBcc.W: the displacement came with the operation word
+                        IF cp_prim(0) = '1' THEN
+                            next_micro_state <= cp_bcc;
+                        ELSE
+                            next_micro_state <= cp_done;
+                        END IF;
+                    ELSIF fline_opcode_latch(8 downto 6) = "011" OR fline_opcode_latch(5 downto 3) = "001" THEN
+                        -- cpBcc.L: the displacement's second word; cpDBcc:
+                        -- its displacement (cp_w)
+                        setstate <= "00";
+                        next_micro_state <= cp_dlw;
+                    ELSIF cp_scc = '1' THEN
+                        next_micro_state <= cp_eat;     -- cpScc: the destination
+                    ELSIF fline_opcode_latch(2 downto 0) = "100" THEN
+                        next_micro_state <= cp_trp;     -- cpTRAPcc, no operand
+                    ELSE
+                        setstate <= "00";               -- cpTRAPcc: past the operand words
+                        next_micro_state <= cp_tsk;
+                    END IF;
+
+                WHEN cp_dlw =>
+                    -- the word in flight; cp_w takes it
+                    setstate <= "01";
+                    IF fline_opcode_latch(8 downto 6) = "011" THEN
+                        IF cp_prim(0) = '1' THEN
+                            next_micro_state <= cp_bcc;
+                        ELSE
+                            next_micro_state <= cp_done;
+                        END IF;
+                    ELSIF cp_prim(0) = '1' THEN
+                        next_micro_state <= cp_done;    -- cpDBcc, true: the next instruction
+                    ELSE
+                        next_micro_state <= cp_db;
+                    END IF;
+
+                WHEN cp_db =>
+                    -- cpDBcc, false: Dn.W - 1 (at this edge); on to the
+                    -- displacement's target unless it was 0 (now -1)
+                    setstate <= "01";
+                    IF regfile(conv_integer('0' & fline_opcode_latch(2 downto 0)))(15 downto 0) = x"0000" THEN
+                        next_micro_state <= cp_done;
+                    ELSE
+                        next_micro_state <= cp_bcc;
+                    END IF;
+
+                WHEN cp_tsk =>
+                    -- a cpTRAPcc operand word in flight; .L has two
+                    setstate <= "01";
+                    IF fline_opcode_latch(2 downto 0) = "011" AND cp_half = '0' THEN
+                        setstate <= "00";
+                        next_micro_state <= cp_tsk;
+                    ELSE
+                        next_micro_state <= cp_trp;
+                    END IF;
+
+                WHEN cp_trp =>
+                    -- cpTRAPcc: TF = 1 traps (vector 7, frame $2: the next
+                    -- instruction, this one's address; UM 10.2.2.4)
+                    setstate <= "01";
+                    IF cp_prim(0) = '1' THEN
+                        trap_cptrap <= '1';
+                        trapmake <= '1';
+                    ELSE
+                        next_micro_state <= cp_done;
+                    END IF;
+
+                WHEN cp_sccd =>
+                    -- cpScc to Dn: the low byte, at this edge
+                    setstate <= "01";
+                    next_micro_state <= cp_done;
+
+                -- ------------------------------------------------------------
+                -- Frame $9 (B3; UM Fig. 10-43): the three fields above the
+                -- format word, highest first - tempEA, the internal register
+                -- with the operation word, the instruction's address - then
+                -- trap0-trap2 stack the format word, scanPC and SR as for any
+                -- frame (cp_f9 selects the format and scanPC there).
+                WHEN cp9a =>
+                    IF exec(changeMode) = '1' THEN
+                        -- entry from the user state has just loaded A7: one
+                        -- cycle before the first push, as trap00 waits
+                        next_micro_state <= cp9a;
+                        setstackaddr <= '1';
+                        setstate <= "01";
+                    ELSE
+                        set(presub) <= '1';
+                        setstackaddr <= '1';
+                        setstate <= "11";
+                        datatype <= "10";
+                        next_micro_state <= cp9b;
+                    END IF;
+
+                WHEN cp9b =>
+                    set(presub) <= '1';
+                    setstackaddr <= '1';
+                    setstate <= "11";
+                    datatype <= "10";
+                    next_micro_state <= cp9c;
+
+                WHEN cp9c =>
+                    set(presub) <= '1';
+                    setstackaddr <= '1';
+                    setstate <= "11";
+                    datatype <= "10";
+                    next_micro_state <= trap0;
+
+                -- RTE of frame $9 (8.1.13): its fields are back (cp_rte_pc,
+                -- cp_rte_iw, cp_tea; the PC is scanPC) and load the dialog's
+                -- context at this edge; then the response CIR is read again.
+                -- A cpBcc's scanPC is the displacement's first word, which
+                -- the dialog holds as the context's second word: fetched
+                -- again, it puts the PC where the dialog left it.
+                WHEN cp_rte =>
+                    setstate <= "01";
+                    next_micro_state <= cp_rtef;
+
+                WHEN cp_rtef =>
+                    IF fline_opcode_latch(8 downto 7) = "01" THEN
+                        setstate <= "00";
+                    ELSE
+                        setstate <= "01";
+                    END IF;
+                    next_micro_state <= cp_rsp;
+
+                -- An interrupt at a dialog's service point (cp_irq_take): the
+                -- boundary's dispatch is under way (interrupt, trap_interrupt;
+                -- its int1 set before this CASE and left standing), frame $9
+                -- or, for cpSAVE, $0 at the operation word.  Without it (the
+                -- level has gone), the CIR is read again.
+                WHEN cp_irq =>
+                    IF interrupt = '1' AND trap_interrupt = '1' THEN
+                        NULL;
+                    ELSIF fline_opcode_latch(8 downto 6) = "100" THEN
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "00100";
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "10";
+                        next_micro_state <= cp_fmtw;
+                    ELSE
+                        setstate <= "01";
+                        next_micro_state <= cp_rsp;
+                    END IF;
 
                 WHEN pmove_decode =>		-- PMMU instruction dispatch based on extension word
                     setstate <= "01";       -- Suppress fetch during dispatch (PC already at +4)

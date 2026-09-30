@@ -10654,8 +10654,103 @@ the same way.
     a dynamic k-factor, and an An destination refused with AB and the
     F-line. `PROG=full` passes all but FSAVE and FRESTORE (B4), and
     `PROG=b1` still passes. The gate is unchanged.
-- **B3**: frame $9 and its RTE, take mid-instruction, protocol
-  violations, the interrupt points; cpScc, cpDBcc, cpTRAPcc, cpBcc.L.
+- **B3** (built 2026-09-30, after B4): the conditionals' completion,
+  frame $9 and its RTE, take mid-instruction, the MPU's protocol
+  violations, and the interrupt points. There are three benches, each
+  written first and failing first (the F-line at the first instruction
+  concerned).
+  - **B3a, the conditionals:**
+    - cpScc, cpDBcc and cpTRAPcc (001) and cpBcc.L (011) take cpGEN's
+      decode path, their second word latched. The condition word goes to
+      the condition CIR; cpBcc sends the operation word, as before.
+    - Scc's EA must be data alterable and TRAPcc's opmode 2-4; anything
+      else takes the F-line at decode.
+    - The dialog's final null gives TF, and `cp_cond` completes:
+      - cpBcc.W as in B1.
+      - cpBcc.L fetches the displacement's second word, and the branch uses
+        both.
+      - cpDBcc fetches its displacement. True: the next instruction.
+        False: Dn.W - 1 at this edge, then the branch unless the count was
+        0 - from the displacement word, through the PC adder with base
+        `fline_opcode_pc` + 2.
+      - cpTRAPcc skips its 0, 1 or 2 operand words. True: vector 7 with
+        frame $2 (trap00), the PC field the next instruction (`cp_npc`),
+        the instruction-address field this one (exe_pc).
+      - cpScc evaluates its EA after the dialog, as UM 4.3 has it
+        (extension words at scanPC), and writes the byte through B2's
+        transfer loop: all ones for TF = 1, else zero. -(A7)/(A7)+ move A7
+        by 2. Dn takes the low byte only.
+    - **Test:** `PROG=b3a` passes 20 checks: FScc to Dn, (An), (An)+,
+      -(An), (d16,An), (xxx).W, (xxx).L and -(A7); FDBEQ looping three
+      times to D3.W = -1 and FDBGT falling through; FTRAPcc with no
+      operand, .W and .L, false and true (frame $2's fields); FBGT.L taken
+      and FBEQ.L not.
+  - **B3b, frame $9:**
+    - Stacked by `cp9a-c` (tempEA; the internal register with the
+      operation word; the instruction's address), then trap0-2 (the format
+      word "1001", scanPC, SR) - `cp_f9` selects the format and scanPC.
+    - The internal register is ours to define (UM Table 8-6: "internal
+      registers"). It holds the word after the operation word, so an RTE
+      can rebuild the dialog's context from the frame alone.
+    - scanPC is TG68_PC when the primitive came, except for cpBcc, where it
+      is the displacement's first word (UM 10.4.1). The kernel's own PC is
+      past that word, so an RTE into a cpBcc fetches it once more.
+    - tempEA (`cp_tea`) is the EA the last primitive evaluated, before any
+      transfer moved `cp_ea`.
+    - **Take mid-instruction** ($1Dvv) writes XA, then frame $9 with the
+      primitive's vector.
+    - **The MPU's protocol violations** write no control CIR and take frame
+      $9 with vector 13. That covers:
+      - 5.7's P2-P4 and 5.14's odd length;
+      - a conditional's primitive outside its category, or transfer single
+        register with CA = 0;
+      - every primitive the kernel does not carry: busy, supervisor check,
+        take post-instruction and the rest, which the 68882 never sends
+        (`docs/cp030_mpu_protocol.md` 11.3).
+    - **RTE of $9** reads the frame as before (rte5) and keeps its three
+      high longs. When the operation word is an F-line word, it goes to
+      `cp_rte` instead of fetching at the restored PC:
+      - the F-line context comes back from the frame - the operation word,
+        the internal register, the second word's address;
+      - so do `opcode`, `opcode_pc` and `exe_pc`;
+      - the PC is scanPC from the frame;
+      - then the response CIR is read again (UM 8.1.13).
+    - The CIR address now carries the operation word's CpID (UM 10.1.4.2),
+      so a frame naming another coprocessor reads that one's response CIR.
+      Only ID 1 answers; the others' bus error is B5's.
+    - **Test:** `PROG=b3b` passes 15 checks:
+      - take-mid from an FMOVE.B of 1000 with OPERR enabled: vector 52,
+        every field of frame $9 checked, tempEA the destination (A0). The
+        handler FSAVEs to clear the exception, and the RTE ends the dialog
+        on $0802.
+      - a protocol violation. The 68882 sends nothing the MPU refuses:
+        FMOVE.D to Dn gets class 010 (memory alterable), so it takes AB and
+        the F-line (F1 before P2), as it should. So the bench answers an
+        FNOP's first response read with the reserved $0B00: vector 13,
+        scanPC the displacement word, and the RTE back into the cpBcc.
+  - **B3c, the interrupt points** (UM 10.5.2.6):
+    - A pending interrupt (the boundary's test) is taken in two places:
+      - at a null primitive with CA = 1 and IA = 1 whose PC request has
+        been served: frame $9;
+      - at cpSAVE's not-ready: frame $0 at the operation word, so the RTE
+        starts cpSAVE again.
+    - `cp_irq_take` raises `setinterrupt`, so the boundary's own dispatch
+      runs: IACK in int1, then cp9a, or trap0 for cpSAVE.
+    - For interrupts, trap1's `writePC` branch now stacks frame $9's scanPC,
+      or cpSAVE's operation word, instead of the boundary latch.
+    - cpRESTORE's not-ready services nothing, as before.
+    - **Test:** `PROG=b3c` passes 13 checks. The bench raises VIA1's IRQ
+      at the first come-again (the FSIN's, the FMOVECR before it still
+      running) and at an FSAVE's not-ready:
+      - the frames' fields are checked;
+      - FBGT after the interrupted FSIN is taken;
+      - the restarted FSAVE's frame is valid;
+      - sin(1.0) comes through the save and restore bit-exact in single
+        precision.
+  - **Not in B3** (B5, with trace): the trace-pending cases - the null
+    primitive with CA = 0, IA = 1 and PF = 0 as an interrupt point, and
+    reading on after CA = 0. With tracing on, an interrupt inside a dialog
+    would take the trace frame's path; that is not handled yet.
 - **B4** (built 2026-09-30): cpSAVE and cpRESTORE (030 UM 10.2.3,
   Figs. 10-16 and 10-18; 881UM 6.4.3-6.4.4; `docs/cp030_mpu_protocol.md`
   section 8).

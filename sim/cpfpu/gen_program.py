@@ -2,9 +2,9 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b4|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|full]
 
-Both programs: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
+Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
 (the F-line) in b1, which is a handler; the program at $1000 ends by
 writing $600D0001 to $3FF0 and stopping.
@@ -50,6 +50,26 @@ list, FMOVEM of the three control registers to memory, packed decimal
 with a static and a dynamic k-factor (transfer single register), and an
 An destination outside the primitive's class (AB, then the F-line).
 
+b3a (stage B3: the conditionals' completion) - after an FTST of +1: FScc
+to Dn (the low byte only), (An), (An)+, -(An), (d16,An), (xxx).W, (xxx).L
+and -(A7) (a byte moves A7 by 2); FDBEQ looping until the counter's low
+word is -1 and FDBGT falling through; FTRAPcc with no operand, .W and .L,
+false and true (vector 7, frame $2: the next instruction and this one's
+address); FBGT.L taken and FBEQ.L not.
+
+b3b (stage B3: frame $9 and its RTE) - take mid-instruction (an FMOVE.B
+out of range with OPERR enabled: vector 52; frame $9's scanPC, format
+word, instruction address, operation word and tempEA) and a protocol
+violation the MPU detects (the bench answers an FNOP's response read with
+the reserved $0B00: vector 13, scanPC the displacement word); each handler
+clears the chip and returns, and the RTE reads the response CIR again.
+
+b3c (stage B3: interrupts inside a dialog) - the bench raises VIA1's IRQ
+at the first come-again ($8900, IA = 1: frame $9, the RTE reading the
+response again) and at an FSAVE's not-ready ($01: frame $0 at the FSAVE,
+which the RTE starts again); an FSIN's result through the busy save and
+restore that follow.
+
 b4 (stage B4: cpSAVE and cpRESTORE) - the reset phase's null frame
 through (An) (the reserved word written 0, the next long untouched); an
 FDIV by zero with DZ enabled, its pending exception saved in an idle frame
@@ -66,11 +86,16 @@ null frames through (xxx).W and (xxx).L.
 full: the program the bench must run once stage B is whole (operand
 transfers, FMOVEM, FSAVE/FRESTORE).
 
-Writes program.hex (64K 16-bit words) and expect.txt (address, value, mask).
+Writes program.hex (64K 16-bit words), expect.txt (address, value, mask) and
+inject.txt: the instruction whose first response read the bench answers with
+the reserved primitive $0B00 (0 for none), and 1 when the bench raises VIA1's
+IRQ inside dialogs (b3c).
 """
 import sys
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else 'b1'
+inject = 0                                    # the instruction whose response read the bench answers $0B00
+irq = 0                                       # 1: the bench raises VIA1's IRQ inside dialogs (b3c)
 img = [0] * 65536
 
 
@@ -103,9 +128,18 @@ class Asm:
         self.fix.append((len(self.w), target))
         self.emit(0)
 
+    def br32(self, op, target):               # op, then a 32-bit displacement
+        self.emit(op)
+        self.fix.append((len(self.w), '=' + target))
+        self.emit(0, 0)
+
     def done(self):
         for i, t in self.fix:
-            self.w[i] = (self.lab[t] - (self.org + 2 * i)) & 0xFFFF
+            if t.startswith('='):
+                d = (self.lab[t[1:]] - (self.org + 2 * i)) & 0xFFFFFFFF
+                self.w[i], self.w[i + 1] = d >> 16, d & 0xFFFF
+            else:
+                self.w[i] = (self.lab[t] - (self.org + 2 * i)) & 0xFFFF
         return self.w
 
 
@@ -237,6 +271,185 @@ elif MODE == 'b2':
         (0x3200, 0x01FE0000, 0xFFFF0000),     # the word 300, then the byte -2 at $3201
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
+elif MODE == 'b3a':
+    # stage B3a: the conditional instructions' completion - cpScc, cpDBcc,
+    # cpTRAPcc, cpBcc.L - after an FTST of +1 (GT true, EQ false)
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x3100)                    # lea $3100.w,a0
+    a.emit(0x43F8, 0x3104)                    # lea $3104.w,a1
+    a.emit(0x45F8, 0x310A)                    # lea $310A.w,a2
+    a.emit([0x223C] + L(0x12345600))          # move.l #$12345600,d1
+    a.emit([0x243C] + L(0xABCDEFFF))          # move.l #$ABCDEFFF,d2
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0xF200, 0x003A)                    # ftst.x fp0
+    a.emit(0xF241, 0x0012)                    # fsgt d1            low byte FF
+    a.emit(0xF242, 0x0001)                    # fseq d2            low byte 00
+    a.emit(0xF250, 0x0012)                    # fsgt (a0)          $3100 FF
+    a.emit(0xF259, 0x0001)                    # fseq (a1)+         $3104 00, a1 $3105
+    a.emit(0xF262, 0x0012)                    # fsgt -(a2)         a2 $3109, $3109 FF
+    a.emit(0xF268, 0x000E, 0x0010)            # fsne ($10,a0)      $3110 FF
+    a.emit(0xF278, 0x0012, 0x3120)            # fsgt $3120.w       FF
+    a.emit(0xF279, 0x0001, 0x0000, 0x3121)    # fseq $00003121.l   00
+    a.emit(0xF267, 0x0012)                    # fsgt -(a7)         a7 $7FFE (a byte: 2)
+    a.emit(0x21CF, 0x3004)                    # move.l a7,$3004.w
+    a.emit(0x31DF, 0x3008)                    # move.w (a7)+,$3008.w
+    a.emit(0x21C1, 0x3024)                    # move.l d1,$3024.w
+    a.emit(0x21C2, 0x3028)                    # move.l d2,$3028.w
+    a.emit(0x21C9, 0x302C)                    # move.l a1,$302C.w
+    a.emit(0x21CA, 0x3030)                    # move.l a2,$3030.w
+    a.emit(0x7800)                            # moveq #0,d4
+    a.emit(0x7602)                            # moveq #2,d3
+    a.label('L2'); a.emit(0x5284)             # addq.l #1,d4
+    a.emit(0xF24B); a.br(0x0001, 'L2')        # fdbeq d3,L2        false: loops until d3.w = -1
+    a.emit(0xF24B); a.br(0x0012, 'BAD')       # fdbgt d3,BAD       true: falls through
+    a.emit(0x21C3, 0x300C)                    # move.l d3,$300C.w
+    a.emit(0x21C4, 0x3010)                    # move.l d4,$3010.w
+    a.emit(0xF27C, 0x0001)                    # ftrapeq            false
+    a.emit(0xF27A, 0x0012, 0x1234)            # ftrapgt.w #$1234   true: vector 7
+    a.emit(0xF27B, 0x0001, 0x1234, 0x5678)    # ftrapeq.l #...     false
+    a.label('TR2'); a.emit(0xF27C, 0x0012)    # ftrapgt            true: vector 7
+    a.label('AFT'); a.br32(0xF2D2, 'T5')      # fbgt.l T5          taken
+    a.emit(movel_abs(0xBAD5, 0x3034))
+    a.label('T5'); a.emit(movel_abs(0x600D5, 0x3034))
+    a.br32(0xF2C1, 'BAD')                     # fbeq.l BAD         not taken
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    a.label('BAD'); a.emit(movel_abs(0xBAD0BAD0, 0x3FF0))
+    a.emit(0x4E72, 0x2700)
+    p = a.done()
+    put(0x1000, p)
+    for s in range(0x3100, 0x3124, 4):
+        put(s, L(0xAAAAAAAA))
+    # vector 7 (cpTRAPcc): count, frame PC (the next instruction), format
+    # word, instruction address (frame $2)
+    put(4 * 7, L(0x2400))
+    put(0x2400, [0x52B8, 0x3014, 0x21EF, 0x0002, 0x3018, 0x31EF, 0x0006, 0x301C,
+                 0x21EF, 0x0008, 0x3020, 0x4E73])
+    expect = [
+        (0x3004, 0x00007FFE, 0xFFFFFFFF),     # FScc -(A7): down by 2
+        (0x3008, 0xFF000000, 0xFFFF0000),     # ... the byte at the new A7
+        (0x300C, 0x0000FFFF, 0xFFFFFFFF),     # FDBEQ ran D3.W down to -1
+        (0x3010, 0x00000003, 0xFFFFFFFF),     # ... three passes
+        (0x3014, 0x00000002, 0xFFFFFFFF),     # two FTRAPcc taken
+        (0x3018, a.lab['AFT'], 0xFFFFFFFF),   # ... the last one's frame PC: the next instruction
+        (0x301C, 0x201C0000, 0xFFFF0000),     # ... format $2, offset $1C
+        (0x3020, a.lab['TR2'], 0xFFFFFFFF),   # ... its instruction address
+        (0x3024, 0x123456FF, 0xFFFFFFFF),     # FSGT D1: the low byte only
+        (0x3028, 0xABCDEF00, 0xFFFFFFFF),     # FSEQ D2
+        (0x302C, 0x00003105, 0xFFFFFFFF),     # (A1)+ up by 1
+        (0x3030, 0x00003109, 0xFFFFFFFF),     # -(A2) down by 1
+        (0x3034, 0x000600D5, 0xFFFFFFFF),     # FBGT.L taken
+        (0x3100, 0xFFAAAAAA, 0xFFFFFFFF),     # FSGT (A0)
+        (0x3104, 0x00AAAAAA, 0xFFFFFFFF),     # FSEQ (A1)+
+        (0x3108, 0xAAFFAAAA, 0xFFFFFFFF),     # FSGT -(A2) at $3109
+        (0x3110, 0xFFAAAAAA, 0xFFFFFFFF),     # FSNE ($10,A0)
+        (0x3120, 0xFF00AAAA, 0xFFFFFFFF),     # (xxx).W FF, (xxx).L 00
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b3b':
+    # stage B3b: frame $9 and its RTE - a take mid-instruction primitive
+    # (an FMOVE.B out of range with OPERR enabled) and a protocol violation
+    # the MPU detects: the 68882 sends no primitive the MPU refuses, so the
+    # bench answers the FNOP's response read with the reserved $0B00
+    # (inject.txt); each handler clears the chip and returns, and the RTE
+    # reads the response CIR again to end the dialog - the FNOP's through
+    # cpBcc's scanPC, its displacement word
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x3100)                    # lea $3100.w,a0
+    a.emit(0xF23C, 0x9000, *L(0x2000))        # fmove.l #$2000,fpcr   OPERR enabled
+    a.emit(0xF23C, 0x4000, *L(1000))          # fmove.l #1000,fp0
+    a.label('MID'); a.emit(0xF210, 0x7800)    # fmove.b fp0,(a0)      take mid (vector 52)
+    a.label('AF1'); a.emit(movel_abs(0x600D1, 0x3008))
+    a.label('PVI'); a.emit(0xF280, 0x0000)    # fnop                  answered $0B00: protocol violation
+    a.label('AF2'); a.emit(movel_abs(0x600D2, 0x300C))
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    p = a.done()
+    put(0x1000, p)
+
+    def frame9(base, clear):                  # record a frame $9's fields at base..
+        return [0x52B8, base,                 # addq.l #1,base.w
+                0x21EF, 0x0002, base + 4,     # move.l 2(a7): scanPC
+                0x31EF, 0x0006, base + 8,     # move.w 6(a7): format, offset
+                0x21EF, 0x0008, base + 12,    # move.l 8(a7): the instruction's address
+                0x31EF, 0x000E, base + 16,    # move.w $E(a7): the operation word
+                0x21EF, 0x0010, base + 20,    # move.l $10(a7): the effective address
+                ] + clear + [0x4E73]          # rte
+    put(4 * 52, L(0x2400))
+    put(0x2400, frame9(0x3010, [0xF338, 0x3300]))     # fsave $3300.w: the exception cleared
+    put(4 * 13, L(0x2480))
+    put(0x2480, frame9(0x3030, [0xF378, 0x3400]))     # frestore $3400.w: a null frame
+    inject = a.lab['PVI']
+    expect = [
+        (0x3008, 0x000600D1, 0xFFFFFFFF),     # on past the FMOVE.B after the RTE
+        (0x300C, 0x000600D2, 0xFFFFFFFF),     # on past the FMOVE.D after the RTE
+        (0x3010, 0x00000001, 0xFFFFFFFF),     # take mid, once
+        (0x3014, a.lab['AF1'], 0xFFFFFFFF),   # ... scanPC: past the command word
+        (0x3018, 0x90D00000, 0xFFFF0000),     # ... format $9, offset $D0 (vector 52)
+        (0x301C, a.lab['MID'], 0xFFFFFFFF),   # ... the instruction's address
+        (0x3020, 0xF2100000, 0xFFFF0000),     # ... the operation word
+        (0x3024, 0x00003100, 0xFFFFFFFF),     # ... the evaluated EA
+        (0x3030, 0x00000001, 0xFFFFFFFF),     # the protocol violation, once
+        (0x3034, a.lab['PVI'] + 2, 0xFFFFFFFF),   # ... scanPC: cpBcc's displacement word
+        (0x3038, 0x90340000, 0xFFFF0000),     # ... format $9, offset $34 (vector 13)
+        (0x303C, a.lab['PVI'], 0xFFFFFFFF),
+        (0x3040, 0xF2800000, 0xFFFF0000),
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b3c':
+    # stage B3c: interrupts inside a dialog (UM 10.5.2.6) - the bench's
+    # VIA1 IRQ (level 1, autovector 25) at the first come-again - the FSIN's,
+    # the FMOVECR before it still running ($8900: null, CA = 1, IA = 1 -
+    # frame $9, the RTE reading the response again) and at an FSAVE's not-ready ($01: frame $0 at the
+    # FSAVE, the RTE starting it again); the handler files each frame's
+    # format word, scanPC/PC, instruction address and operation word
+    a = Asm(0x1000)
+    a.emit(0x47F8, 0x3400)                    # lea $3400.w,a3
+    a.emit(0x46FC, 0x2000)                    # move.w #$2000,sr     interrupts on
+    a.emit(0xF200, 0x5C32)                    # fmovecr.x #$32,fp0   1.0
+    a.label('FSIN'); a.emit(0xF200, 0x000E)   # fsin.x fp0           come again: IRQ
+    a.emit(0xF200, 0x003A)                    # ftst.x fp0
+    a.br(0xF292, 'T1')                        # fbgt.w T1
+    a.emit(movel_abs(0xBAD1, 0x3008))
+    a.label('T1'); a.emit(movel_abs(0x600D1, 0x3008))
+    a.emit(0xF200, 0x5C32)                    # fmovecr.x #$32,fp0
+    a.emit(0xF200, 0x000E)                    # fsin.x fp0           released, running
+    a.label('FSV'); a.emit(0xF323)            # fsave -(a3)          not ready: IRQ
+    a.emit(0x21D3, 0x3004)                    # move.l (a3),$3004.w  the format word
+    a.emit(0xF35B)                            # frestore (a3)+       the FSIN goes on
+    a.emit(0x21CB, 0x300C)                    # move.l a3,$300C.w
+    a.emit(0xF238, 0x6400, 0x3040)            # fmove.s fp0,$3040.w
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    p = a.done()
+    put(0x1000, p)
+    put(4 * 25, L(0x2400))
+    put(0x2400, [0x2E38, 0x3010,              # move.l $3010.w,d7
+                 0xE98F,                      # lsl.l #4,d7
+                 0x4DF8, 0x3020,              # lea $3020.w,a6
+                 0xDDC7,                      # adda.l d7,a6          this entry's slot
+                 0x3CAF, 0x0006,              # move.w 6(a7),(a6)     format, offset
+                 0x2D6F, 0x0002, 0x0004,      # move.l 2(a7),4(a6)    scanPC / PC
+                 0x2D6F, 0x0008, 0x0008,      # move.l 8(a7),8(a6)    ($9: the instruction's address)
+                 0x3D6F, 0x000E, 0x000C,      # move.w $E(a7),$C(a6)  ($9: the operation word)
+                 0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w: the bench drops the IRQ
+                 0x4E73])                     # rte
+    irq = 1
+    expect = [
+        (0x3004, 0x1F000000, 0xFF000000),     # FSAVE's frame (idle or busy) after the restart
+        (0x3008, 0x000600D1, 0xFFFFFFFF),     # FBGT after the interrupted FSIN: taken
+        (0x300C, 0x00003400, 0xFFFFFFFF),     # (A3)+ back to $3400
+        (0x3010, 0x00000002, 0xFFFFFFFF),     # two interrupts
+        (0x3020, 0x90640000, 0xFFFF0000),     # the first: frame $9, offset $64 (vector 25)
+        (0x3024, a.lab['FSIN'] + 4, 0xFFFFFFFF),   # ... scanPC: past the command word
+        (0x3028, a.lab['FSIN'], 0xFFFFFFFF),  # ... the instruction's address
+        (0x302C, 0xF2000000, 0xFFFF0000),     # ... the operation word
+        (0x3030, 0x00640000, 0xFFFF0000),     # the second: frame $0, offset $64
+        (0x3034, a.lab['FSV'], 0xFFFFFFFF),   # ... PC: the FSAVE, to start again
+        (0x3040, 0x3F576AA4, 0xFFFFFFFF),     # sin(1.0) through the save and restore
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
 elif MODE == 'b4':
     # stage B4: cpSAVE and cpRESTORE in every EA form the two allow
     a = Asm(0x1000)
@@ -358,6 +571,8 @@ else:
 
 with open('program.hex', 'w') as f:
     f.write(''.join('%04x\n' % w for w in img))
+with open('inject.txt', 'w') as f:
+    f.write('%08x %08x\n' % (inject, irq))
 with open('expect.txt', 'w') as f:
     f.write(''.join('%08x %08x %08x\n' % e for e in expect))
 print('program %s: %d words at $1000; %d results' % (MODE, len(p), len(expect)))
