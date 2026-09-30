@@ -7,7 +7,10 @@
 #
 #   ./run.sh [plusargs...]   e.g. +only=transcend, +first=100 +count=10,
 #                            +directed_only, +detour (chip: a context
-#                            switch inside every vector), +trace=N (apu: compare
+#                            switch inside every vector), +pairs=2|3 (chip:
+#                            each vector with one or two others issued
+#                            without waiting, against one at a time - 7e),
+#                            +trace=N (apu: compare
 #                            with rtlvec.py --trace N)
 #
 # First: the model's vectors (tools/fpu_model/out/fpu.vec) if missing; the

@@ -425,16 +425,19 @@ elif MODE == 'b3b':
     ]
 elif MODE == 'b3c':
     # stage B3c: interrupts inside a dialog (UM 10.5.2.6) - the bench's
-    # VIA1 IRQ (level 1, autovector 25) at the first come-again - the FSIN's,
-    # the FMOVECR before it still running ($8900: null, CA = 1, IA = 1 -
-    # frame $9, the RTE reading the response again) and at an FSAVE's not-ready ($01: frame $0 at the
-    # FSAVE, the RTE starting it again); the handler files each frame's
-    # format word, scanPC/PC, instruction address and operation word
+    # VIA1 IRQ (level 1, autovector 25) at the first come-again - an
+    # FMOVECR's, which waits for both units while the FSIN before it runs
+    # (7e: the FSIN itself goes to the CU and is released) - $8900: null,
+    # CA = 1, IA = 1 - frame $9, the RTE reading the response again - and
+    # at an FSAVE's not-ready ($01: frame $0 at the FSAVE, the RTE starting
+    # it again); the handler files each frame's format word, scanPC/PC,
+    # instruction address and operation word
     a = Asm(0x1000)
     a.emit(0x47F8, 0x3400)                    # lea $3400.w,a3
     a.emit(0x46FC, 0x2000)                    # move.w #$2000,sr     interrupts on
     a.emit(0xF200, 0x5C32)                    # fmovecr.x #$32,fp0   1.0
-    a.label('FSIN'); a.emit(0xF200, 0x000E)   # fsin.x fp0           come again: IRQ
+    a.emit(0xF200, 0x000E)                    # fsin.x fp0           released (the CU)
+    a.label('FCR'); a.emit(0xF200, 0x5C8F)    # fmovecr.x #$0f,fp1   come again: IRQ
     a.emit(0xF200, 0x003A)                    # ftst.x fp0
     a.br(0xF292, 'T1')                        # fbgt.w T1
     a.emit(movel_abs(0xBAD1, 0x3008))
@@ -469,8 +472,8 @@ elif MODE == 'b3c':
         (0x300C, 0x00003400, 0xFFFFFFFF),     # (A3)+ back to $3400
         (0x3010, 0x00000002, 0xFFFFFFFF),     # two interrupts
         (0x3020, 0x90640000, 0xFFFF0000),     # the first: frame $9, offset $64 (vector 25)
-        (0x3024, a.lab['FSIN'] + 4, 0xFFFFFFFF),   # ... scanPC: past the command word
-        (0x3028, a.lab['FSIN'], 0xFFFFFFFF),  # ... the instruction's address
+        (0x3024, a.lab['FCR'] + 4, 0xFFFFFFFF),    # ... scanPC: past the command word
+        (0x3028, a.lab['FCR'], 0xFFFFFFFF),   # ... the instruction's address
         (0x302C, 0xF2000000, 0xFFFF0000),     # ... the operation word
         (0x3030, 0x00640000, 0xFFFF0000),     # the second: frame $0, offset $64
         (0x3034, a.lab['FSV'], 0xFFFFFFFF),   # ... PC: the FSAVE, to start again
@@ -749,6 +752,71 @@ elif MODE == 'b5d':
         (0x3004, 0x00000007, 0xFFFFFFFF),     # 7.0 read
         (0x8000, 0x40000000, 0xFFFFFFFF),     # 3.0 stored on page 8
         (0x8004, 0xC0000000, 0xFFFFFFFF),
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b7e':
+    # item 7e-1 (plan 8.9.6): the CU's overlap through the kernel - with DZ
+    # enabled an FDIV by zero is released and runs while the next
+    # instruction goes to the CU; its exception is reported (UM 7.5,
+    # Figures 7-32/7-33; 5.2.3.6) as take mid-instruction by an FADD.B #3
+    # whose dialog is held until the hand-off (frame $9 - its RTE resumes
+    # the dialog), then as take pre-instruction by the FNOP after a
+    # register FADD the CU released (frame $0 - its RTE starts the FNOP
+    # again).  The handler is UM 5.2.2's: FSAVE, BSET of bit 27 in the BIU
+    # flags (serviced), FRESTORE, RTE; it files the frame's format word and
+    # PC, the FPU frame's format and FPIAR - the FDIV's while the CU's
+    # instruction waits, the FADD's once it has run
+    a = Asm(0x1000)
+    a.emit(0xF23C, 0x9000, *L(0x400))         # fmove.l #$400,fpcr   DZ enabled
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0xF23C, 0x4080, *L(0))             # fmove.l #0,fp1
+    a.label('FDV'); a.emit(0xF200, 0x0420)    # fdiv.x fp1,fp0       DZ, released
+    a.label('FAB'); a.emit(0xF23C, 0x58A2, 3) # fadd.b #3,fp1        the CU, held: take mid
+    a.emit(0xF238, 0xA400, 0x3004)            # fmove.l fpiar,$3004.w (before a store passes its own)
+    a.emit(0xF201, 0x6080)                    # fmove.l fp1,d1
+    a.emit(0x21C1, 0x3000)                    # move.l d1,$3000.w    0 + 3
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0xF23C, 0x4080, *L(0))             # fmove.l #0,fp1
+    a.emit(0xF23C, 0x4100, *L(5))             # fmove.l #5,fp2
+    a.emit(0xF23C, 0x4180, *L(2))             # fmove.l #2,fp3
+    a.label('FDV2'); a.emit(0xF200, 0x0420)   # fdiv.x fp1,fp0       DZ, released
+    a.label('FAD'); a.emit(0xF200, 0x0D22)    # fadd.x fp3,fp2       the CU, released
+    a.label('FNP'); a.emit(0xF280, 0x0000)    # fnop                 take pre, started again
+    a.emit(0xF238, 0xA400, 0x300C)            # fmove.l fpiar,$300C.w
+    a.emit(0xF202, 0x6100)                    # fmove.l fp2,d2
+    a.emit(0x21C2, 0x3008)                    # move.l d2,$3008.w    5 + 2
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    p = a.done()
+    put(0x1000, p)
+    put(4 * 50, L(0x2400))                    # vector 50: DZ
+    put(0x2400, [0x2E38, 0x3040,              # move.l $3040.w,d7
+                 0xE98F,                      # lsl.l #4,d7
+                 0x4DF8, 0x3050,              # lea $3050.w,a6
+                 0xDDC7,                      # adda.l d7,a6          this entry's slot
+                 0x3CAF, 0x0006,              # move.w 6(a7),(a6)     format, offset
+                 0x2D6F, 0x0002, 0x0004,      # move.l 2(a7),4(a6)    scanPC / PC
+                 0xF327,                      # fsave -(a7)
+                 0x3D57, 0x0008,              # move.w (a7),8(a6)     the FPU frame's format
+                 0xF22E, 0xA400, 0x000C,      # fmove.l fpiar,$C(a6)
+                 0x08EF, 0x0003, 0x0038,      # bset #3,$38(a7)       BIU flag 27: serviced
+                 0xF35F,                      # frestore (a7)+
+                 0x52B8, 0x3040,              # addq.l #1,$3040.w
+                 0x4E73])                     # rte
+    expect = [
+        (0x3000, 0x00000003, 0xFFFFFFFF),     # the FADD.B ran after the handler: 0 + 3
+        (0x3004, a.lab['FAB'], 0xFFFFFFFF),   # ... FPIAR its own
+        (0x3008, 0x00000007, 0xFFFFFFFF),     # the FADD ran after the handler: 5 + 2
+        (0x300C, a.lab['FAD'], 0xFFFFFFFF),
+        (0x3040, 0x00000002, 0xFFFFFFFF),     # two DZ exceptions
+        (0x3050, 0x90C80000, 0xFFFF0000),     # the first: frame $9, vector 50 - mid
+        (0x3054, a.lab['FAB'] + 6, 0xFFFFFFFF),    # ... scanPC past the immediate
+        (0x3058, 0x1F380000, 0xFFFF0000),     # ... an idle frame (the FADD.B in its CU area)
+        (0x305C, a.lab['FDV'], 0xFFFFFFFF),   # ... FPIAR the FDIV's
+        (0x3060, 0x00C80000, 0xFFFF0000),     # the second: frame $0 - pre, at the FNOP
+        (0x3064, a.lab['FNP'], 0xFFFFFFFF),
+        (0x3068, 0x1F380000, 0xFFFF0000),
+        (0x306C, a.lab['FDV2'], 0xFFFFFFFF),
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 elif MODE == 'mmu':

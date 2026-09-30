@@ -11198,10 +11198,184 @@ two"), as built:
   - 5 directed checks and 5 of the first 300 vectors fail. No compile yet
   (the ALMs `byp_f` saves are 8.9.5's estimate until one).
 
-**Next in 7e:** the overlap itself - the CU's own conversion datapath
-beside the APU (8.8.13), the queue, the conflict checks (UM 5.1.2.2), the
-FSAVE of the in-flight states and the mid-instruction report - then the
-cputest corpus (8.4 item 7).
+**The overlap: the design (2026-09-30, before the RTL).** UM 5.1.1.2
+(Tables 5-1 to 5-6, Figures 5-2 and 5-3), 5.2.3.6 (Figure 5-8), 6.x's
+EXC PEND text, 7.2.6, 7.5's Figures 7-32 to 7-34 and 8.4 read again for
+it. What the manual fixes:
+- **The CU takes the next general instruction while the APU runs.** By
+  class (8.8.5): the partial-concurrency instructions (Table 5-4:
+  arithmetic with an S, D or X memory source or an FP register source)
+  release the MPU - the evaluate-and-transfer with CA = 0, or the null
+  with CA = 0 for a register source - and wait in the CU for the APU;
+  the minimum-concurrency ones with a B, W or L source (Table 5-1) have
+  their operand transferred and then hold the MPU with the null CA = 1,
+  IA = 1 until the hand-off ("since the CU cannot convert the byte
+  operand ..."); packed sources are not even fetched; FMOVECR, FMOVEM,
+  the control registers, integer and packed stores wait for the APU
+  before their dialog starts; the fully concurrent FMOVEs (Table 5-5)
+  the CU does itself, with conditions (a)-(f) handing them over.
+- **A third instruction** (the CU busy or waiting) has its command
+  latched and answers the null CA = 1, IA = 1 until the CU is free; it
+  starts at the next response read after that (7.2.6, 8.4).
+- **The conditionals** wait for both units and no exception pending
+  (Table 5-6); an exception pending in each unit is reported one at a
+  time, the conditional restarted after each handler.
+- **An exception from the APU's instruction** while the CU holds the next
+  one: **the CU's instruction is not allowed to continue** until a
+  FRESTORE with BIU flag bit 27 set marks the exception serviced
+  (5.2.3.6's task-switch example: otherwise the FADD would overwrite FP0).
+  It is reported as a **take mid-instruction** when the MPU is still in
+  the CU instruction's dialog (the B/W/L case, a store converting - 7.5,
+  Figures 7-32/7-33), else as a take pre-instruction when the next
+  instruction starts. Only FSAVE removes the primitive (7.5.4; "the state
+  of the CU must be saved because a second instruction, in the CU, may be
+  partially executed"). The 68882's idle frame is 32 bytes longer than
+  the 68881's for the CU's state (6.4).
+
+**Ours, where the manual stops:**
+- **The CU slot**, separate from the BIU's dialog registers: the waiting
+  instruction's command (`cu_cmd`), the address the MPU passed for it
+  (`cu_iar`, FPIAR's value once it is handed off - FPIAR keeps the APU
+  instruction's address, which its exception handler needs), its state,
+  and its operand in the dialog's operand register (a prefetched FP
+  register is kept there too, so the CU's whole state fits the idle
+  frame's CU area). The APU takes its command from the slot at the
+  hand-off, so the BIU can latch the third instruction's word meanwhile.
+- **Register conflicts** (5.1.2.2, Table 5-5 notes a and f) are the APU
+  instruction's destination against the CU instruction's FP source
+  (FPm) or destination (FPn); a conflict makes the CU wait for the APU
+  before it prefetches or writes.
+- **Retirement in program order** (8.8.13): a fully concurrent FMOVE
+  writes its register (or its memory operand) as the manual says, as
+  soon as no conflict stops it, but **its FPSR effect** (FPCC, EXC, the
+  accrual) is held until the APU's instruction has ended - so the older
+  instruction's EXC is what a pending exception's vector and handler see
+  - and while an exception is pending it stays held, in the frame, and
+  applies when the CU continues. The CU's own FMOVEs never raise an
+  exception (every exceptional case is handed to the APU).
+- **The hand-off** happens when the APU is idle, no exception is
+  pending and no save is awaited; FSAVE then finds the CU's instruction
+  still in the slot (an idle frame when the APU had finished, a busy one
+  when it stopped at a checkpoint), and FRESTORE puts it back.
+- **The frame's CU area** (longwords 2-9): 2-4 the operand register (the
+  dialog's data or the slot's operand), 5 the dialog's state with the
+  CU's state in its four spare bits, 6 the take primitive and `cu_cmd`,
+  7 `cu_iar`, 8 the held FPSR effect, 9 zero.
+- **The invariant stays the bench's** (8.8.13): the same programs leave
+  the same registers, FPSR and memory with the overlap as without it;
+  only the clocks and the mid-instruction reports differ.
+
+**Stages:**
+- **7e-1 the queue**: the CU slot, the classes above with the fully
+  concurrent FMOVEs still handed to the APU (partial concurrency for
+  them - right results, less overlap), the third instruction's wait,
+  the conflicts, the exception rules, FSAVE/FRESTORE of the slot. Bench:
+  pairs and triples of instructions issued without waiting, against the
+  model run sequentially, and the frames with an instruction in the CU.
+- **7e-2 the CU's datapath**: FMOVE FPm,FPn, FMOVE `<ea>`,FPn (S, D, X)
+  and FMOVE FPm,`<ea>` (S, D, X, with the CU's rounding) done without the
+  APU, conditions (a)-(f), the held FPSR effect.
+- **7e-3 the clocks**: the heads and tails against Table 8-3 (8.8.3).
+- **7e-4 the cputest corpus** (8.4 item 7).
+
+**7e-1 as built (2026-09-30).** `se30_fpu.v`:
+- **The slot**: `cu_v`, `cu_cmd`, `cu_iar`/`cu_pcv` (a passed PC waits
+  with its instruction and becomes FPIAR when it starts in the APU - at
+  the dialog's own start, or the hand-off), `pc_apu` (the dialog's
+  instruction already started: its PC goes straight to FPIAR). The APU
+  and the unpacking take their command from `acmd`, loaded by
+  `start_apu` with the word it starts, so `cmd` is free for the BIU.
+- **The classes**: a general instruction's first response read, the APU
+  running and the slot free, no exception pending: from a register,
+  `$0900` (`$4900` with the PC) and the slot filled; from memory (not
+  packed), the operand's primitive as before, and the last operand write
+  fills the slot - `B_IDLE` for S, D, X (CA = 0), else **`B_HOLD`**:
+  `$8900` while the slot is full, then `$0900`, or the take
+  mid-instruction `$1Dvv` when an exception is pending (after XA back to
+  `B_HOLD`). Every other case while the APU runs or the slot is full
+  answers `$8900` - the packed source, FMOVECR, stores, FMOVEM, the
+  control registers, a third instruction; conditionals wait for both
+  units, a pending exception reported first.
+- **The hand-off**: the APU idle, the slot full, no exception pending,
+  no save awaited or frame moving, the slot's PC not still to come
+  (`B_PCW`), and no save or restore access on that edge.
+- **The frame**: longwords 2-4 the slot's operand when the slot is full;
+  longword 5's four low bits `cu_v`, `cu_pcv`, `pc_apu`, `take_hold`;
+  longword 6's low half `cu_cmd`; longword 7 `cu_iar`. FSAVE's end
+  empties the slot (it is in the frame), FRESTORE fills it, a restore
+  write and a protocol violation's XA abort it, AB aborts it when the
+  dialog is its own (`B_PCW`, `B_HOLD`).
+- **Waiting while an exception holds the slot**: FMOVEM and FMOVE of the
+  control registers do not report a pending exception (8.6.14 item 19),
+  so with one holding the slot they wait - only a program that never
+  takes its exception meets that; a handler's FSAVE empties the slot
+  first (5.2.2).
+
+**Benches.** `sim/fpu` directed `overlap` (8 checks, and the FSIN
+directed check now expects the CU to take the FADD and a third to wait):
+three in a row against one at a time; the FDIV's DZ as the FADD.B's take
+mid-instruction, kept after XA, the idle frame with the FADD.B, its
+command, PC and operand in the CU area, FPIAR the FDIV's, FRESTORE with
+bit 27 letting it go on; a released FADD's pre-instruction case. **+pairs**
+(`+pairs=3` triples): each vector, then one or two picked from the file,
+issued without waiting, against the same with an FNOP after each, with a
+handler for every take (FSAVE, bit 27, FRESTORE, then on or started
+again; F-line and BSUN skip) - registers, FPSR, FPIAR, stores, answers
+and the exceptions in order must agree. `sim/cpfpu PROG=b7e` (15 checks)
+the same through the kernel with UM 5.2.2's handler: frame `$9` from the
+FADD.B #3 (scanPC past its immediate), frame `$0` at the FNOP, FPIAR the
+FDIV's in each handler and the instruction's own after - it fails on the
+chip before 7e (both reported pre-instruction, the second at the FADD).
+**b3c** moved: its come-again was the FSIN's, which now goes to the CU
+and is released; an FMOVECR after it (waiting for both units) takes the
+interrupt instead.
+
+**Found by `+pairs=2 +detour`** (2,355 of 19,836 failing before):
+- **A restored busy frame's instruction overwritten by the hand-off.**
+  FRESTORE of a busy frame loads the stopped instruction's context while
+  the APU is idle and resumes it a clock or two later (`go_pend`,
+  `apu_go`); with the slot restored full, the hand-off saw the APU idle
+  in between and started the slot's instruction on top of it (group 58:
+  FMOD, then FADD.D into its destination - the FADD.D computed from the
+  unfinished FMOD). `apu_idle` now excludes the resume in progress, which
+  also closes the same window for a direct start at `B_CMD` (possible
+  before 7e, never met).
+- **A bench bug**: a context switch landing inside the bench's exception
+  handler (between its FSAVE and FRESTORE) overwrote the handler's saved
+  frame, and the handler restored the detour's instead - an FNOP then met
+  a latched command, a protocol violation. The detour now keeps its
+  caller's frame buffer.
+- **An instruction started over a pending exception** (7 groups still
+  failing after the first fix): an operand whose transfer began while the
+  APU ran can end after the APU has finished with an exception; its last
+  write took the direct start (APU idle, slot empty) without asking for
+  one pending, so the instruction ran and FPIAR moved on before the
+  exception was reported. It now waits in the slot. Directed check: the
+  second long of an FMOVE.D written after the FDIV's DZ is pending - in
+  the slot, the FNOP reports it, FPIAR the FDIV's.
+- **Found by `+pairs=3`** (48 of 19,836): the APU takes the slot's
+  operand from `opnd` a few clocks after the hand-off (the start sequence,
+  `cu_busy`); a third instruction's dialog starting in that window clears
+  `opnd` for its own operand, and the second computes from it (group 2578:
+  FDIV, FSUB.D, FMUL.X - the FSUB.D's result a bit off). No new dialog now
+  starts in the CU while `cu_busy`.
+- **Verification as committed** (Daniel, 2026-09-30: accept these, full
+  reruns overnight): on the final RTL - `sim/fpu` directed 104; the
+  first 5,000 triples (the CU took an instruction in 3,649, take
+  mid-instruction in 101); each of the 7 detour-pair and 8 triple groups
+  that had failed; `sim/cpfpu` all 13 programs; `sim/machine`. On the RTL
+  before the last two fixes (which change only the two cases above):
+  every vector plain and under `+detour` (19,836 each, 0 with other
+  clocks), all 19,836 pairs (CU 10,702, mid 296). **Still to run on the
+  final RTL**: all pairs, all triples, all pairs under `+detour`, and the
+  two vector sweeps.
+- **Mutants** (3,000 each): the last operand's start without the pending
+  check - 2 directed checks fail; no `cu_busy` gate - 8 triples fail.
+- **Mutants** (3,000 pairs each): the hand-off ignoring a pending
+  exception - 8 directed checks and 43 pairs fail; a passed PC going
+  straight to FPIAR - 2 directed and 98 pairs (the handler now records
+  FPIAR too, which the pairs first lacked); FRESTORE not refilling the
+  slot - 3 directed and 98 pairs.
 
 ---
 

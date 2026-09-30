@@ -38,6 +38,11 @@
 //      continued - every result bit for bit, the clocks the simulator's
 //      (at most, where the save cut END's padding short).  Under
 //      SIMULATION the APU also poisons what a busy frame leaves out.
+//   5. The overlap (7e, plan 8.9.6): directed (the CU taking an
+//      instruction, a third waiting, take mid- and pre-instruction with
+//      the CU's instruction in the frame, an operand ending after an
+//      exception); with +pairs=2|3 every vector followed by one or two
+//      others without waiting, against the same one at a time.
 //
 // THE MPU SIDE (docs/cp030_mpu_protocol.md sections 3-5, 9-10)
 //   The PC is passed first whenever a primitive asks; null CA=1 re-reads,
@@ -47,7 +52,8 @@
 //   12 bytes a set bit; take pre- or mid-instruction writes XA and ends.
 //
 // PLUSARGS: +vec=FILE +only=GROUP +first=N +count=M +show=N (as
-// tb_se30_fpu_apu.v), +directed_only, +detour.
+// tb_se30_fpu_apu.v), +directed_only, +detour, +pairs=2|3 (the overlap, 7e:
+// see run_pairs; with +detour a context switch in each overlapped run).
 
 `timescale 1ns/1ps
 
@@ -273,10 +279,14 @@ module tb_se30_fpu;
   always @(posedge clk)
     if (dut.apu_was_busy && !dut.apu_busy && !dut.kill && !det_dist) last_clk = dut.dbg_clocks;
 
+  reg [31:0] dsv_fr [1:53];        // the caller's frame buffer (a handler's frame, 7e)
+  reg [15:0] dsv_fmt;
   task detour;
     integer i, k;
     begin
       det_done = 1;
+      for (i = 1; i <= 53; i = i + 1) dsv_fr[i] = fr[i];
+      dsv_fmt = ffmt;
       fsave;
       det_dist = 1'b1;
       det_fmt = ffmt; det_ca = fca;
@@ -315,6 +325,8 @@ module tb_se30_fpu;
         frestore;
         if (rd[31:16] != det_fmt) begin det_bad = 1'b1; $display("  detour: FRESTORE read %h", rd[31:16]); end
       end
+      for (i = 1; i <= 53; i = i + 1) fr[i] = dsv_fr[i];
+      ffmt = dsv_fmt;
       det_dist = 1'b0;
     end
   endtask
@@ -435,14 +447,18 @@ module tb_se30_fpu;
       x_vec = 0;
       cp_cond(6'd0);
       check(x_vec == 0 && prims[0] == 16'h0800, "the F-line is not retained");
-      // an instruction held while the APU is busy
+      // an instruction taken by the CU while the APU is busy, a third one
+      // held (7e; more in overlap)
       load_fp(80'h3FFF_C000000000000000, NAN, NAN, NAN, NAN, NAN, NAN, NAN);
       wr16(5'h0A, 16'h000E);                                      // FSIN FP0,FP0
       rd16(5'h00);
       check(rd[31:16] == 16'h0900, "FSIN: released, $0900");
       wr16(5'h0A, 16'h0022);                                      // FADD FP0,FP0
       rd16(5'h00);
-      check(rd[31:16] == 16'h8900, "the next instruction waits: $8900");
+      check(rd[31:16] == 16'h0900 && dut.apu_busy, "the next one goes to the CU: $0900, the APU busy");
+      wr16(5'h0A, 16'h0022);
+      rd16(5'h00);
+      check(rd[31:16] == 16'h8900, "a third waits: $8900");
       service(1'b0);
       check(last_prim == 16'h0900 && !proto_bad, "then it starts: $0900");
       // protocol violations
@@ -672,6 +688,128 @@ module tb_se30_fpu;
     end
   endtask
 
+  // -- directed: the overlap (7e, plan 8.9.6) -----------------------------------------
+  reg [79:0] ov_fp [0:7];
+  reg [31:0] ov_sr, ov_iar;
+  task all_out;                    // FP0-FP7, FPSR and FPIAR, after an FNOP
+    integer q;
+    begin
+      cp_cond(6'd0);
+      cp_gen(16'hF0FF);
+      for (q = 0; q < 8; q = q + 1) ov_fp[q] = img(mm_out[3 * q], mm_out[3 * q + 1], mm_out[3 * q + 2]);
+      cp_gen(16'hA800); ov_sr = st_long[0];
+      cp_gen(16'hA400); ov_iar = st_long[0];
+    end
+  endtask
+  reg [79:0] sq_fp [0:7];
+  reg [31:0] sq_sr, sq_iar;
+  reg        same;
+  task overlap;
+    begin
+      $display("-- directed overlap");
+      // FSIN, FADD FP0,FP0 (in the CU, released), FMUL.S #2 (a third,
+      // held, then in the CU while the FADD runs), against the same with
+      // an FNOP after each
+      for (j = 0; j < 2; j = j + 1) begin
+        null_restore;
+        load_fp(ONE_5, 80'h3FFF_8000000000000000, NAN, NAN, NAN, NAN, NAN, NAN);
+        cp_gen(16'h000E);                                         // FSIN FP0
+        if (j == 0) cp_cond(6'd0);
+        cp_gen(16'h0022);                                         // FADD FP0,FP0
+        if (j == 0) cp_cond(6'd0);
+        op_long[0] = 32'h4000_0000;                               // 2.0 single
+        cp_gen(16'h44A3);                                         // FMUL.S <ea>,FP1
+        if (j == 1) check(prims[0] == 16'h8900 && last_prim == 16'h1504,
+                          "FMUL.S a third: $8900 until the CU is free, then its operand, $1504");
+        all_out;
+        if (j == 0) begin
+          for (i = 0; i < 8; i = i + 1) sq_fp[i] = ov_fp[i];
+          sq_sr = ov_sr; sq_iar = ov_iar;
+        end
+      end
+      same = (ov_sr == sq_sr);
+      for (i = 0; i < 8; i = i + 1) same = same && (ov_fp[i] == sq_fp[i]);
+      check(same && ov_fp[1] == 80'h4000_8000000000000000, "three in a row: the registers and FPSR as run one at a time");
+      // an exception in the APU while a B source waits in the CU: the
+      // CU's instruction reports it mid-instruction (UM 7.5, Figure 7-32)
+      null_restore;
+      load_cr(32'h0000_0400, 32'd0);                              // DZ enabled
+      load_fp(80'h3FFF_8000000000000000, 80'h0000_0000000000000000, NAN, NAN, NAN, NAN, NAN, NAN);
+      pc_val = 32'h0000_1000;
+      cp_gen(16'h0420);                                           // FDIV FP1,FP0: DZ
+      check(prims[0] == 16'h4900, "FDIV: released with the PC");
+      pc_val = 32'h0000_1004;
+      op_long[0] = 32'h0000_0003;                                 // the byte 3
+      x_vec = 0;
+      cp_gen(16'h58A2);                                           // FADD.B <ea>,FP1
+      check(x_vec == 8'h32 && x_when == 4'd2, "FADD.B in the CU: the FDIV's DZ as take mid-instruction $1D32");
+      rd16(5'h00);
+      check(rd[31:16] == 16'h1D32, "after XA the response still holds it");
+      wr16(5'h02, 16'h0002);                                      // (the MPU takes it again: XA)
+      fsave;                                                      // the handler, FSAVE first (5.2.2)
+      check(ffmt == 16'h1F38 && !fr[14][27], "FSAVE: idle, the exception pending");
+      check(fr[5][3] && fr[5][31:27] == 5'd20 && fr[6][15:0] == 16'h58A2 && fr[7] == 32'h0000_1004,
+            "... the FADD.B in the CU's slot: held, its command, its PC");
+      check(fr[4][7:0] == 8'h03, "... its operand");
+      rd16(5'h00);
+      check(rd[31:16] == 16'h0802, "after FSAVE: idle");
+      cp_gen(16'hA400);
+      check(st_long[0] == 32'h0000_1000, "FPIAR is the FDIV's");
+      fr[14][27] = 1'b1;                                          // the handler: serviced
+      ffmt = 16'h1F38; frestore;
+      service(1'b0);                                              // RTE: the dialog again
+      check(!proto_bad && last_prim == 16'h0900, "after FRESTORE the FADD.B goes on: $0900");
+      cp_cond(6'd0);
+      cp_gen(16'hF040); r0 = img(mm_out[0], mm_out[1], mm_out[2]);
+      check(r0 == 80'h4000_C000000000000000, "... FP1 = 0 + 3");
+      cp_gen(16'hA400);
+      check(st_long[0] == 32'h0000_1004, "... and FPIAR is now its PC");
+      // the same with a register source: released, so the next
+      // instruction reports it (pre-instruction), the FADD held meanwhile
+      null_restore;
+      load_cr(32'h0000_0400, 32'd0);
+      load_fp(80'h3FFF_8000000000000000, 80'h0000_0000000000000000,
+              80'h4000_8000000000000000, 80'h4001_A000000000000000, NAN, NAN, NAN, NAN);
+      cp_gen(16'h0420);                                           // FDIV FP1,FP0
+      cp_gen(16'h0D22);                                           // FADD FP3,FP2: 2 + 5
+      check(prims[0] == 16'h4900, "FADD FP3,FP2 in the CU: released");
+      x_vec = 0;
+      cp_cond(6'd0);
+      check(x_vec == 8'h32 && x_when == 4'd1, "FNOP: take pre-instruction $1C32");
+      fsave;
+      check(fr[5][3] && fr[6][15:0] == 16'h0D22, "FSAVE: the FADD in the CU's slot");
+      cp_gen(16'hF020); r0 = img(mm_out[0], mm_out[1], mm_out[2]);
+      check(r0 == 80'h4000_8000000000000000, "... FP2 not yet written");
+      fr[14][27] = 1'b1;
+      ffmt = 16'h1F38; frestore;
+      x_vec = 0;
+      cp_cond(6'd0);
+      check(x_vec == 0 && last_prim == 16'h0800, "FNOP restarted: $0800");
+      cp_gen(16'hF020); r0 = img(mm_out[0], mm_out[1], mm_out[2]);
+      check(r0 == 80'h4001_E000000000000000, "... after the FADD ran: FP2 = 7");
+      // an operand whose transfer began under the FDIV and ends after its
+      // exception: the instruction waits in the slot, it does not start
+      null_restore;
+      load_cr(32'h0000_0400, 32'd0);
+      load_fp(80'h3FFF_8000000000000000, 80'h0000_0000000000000000, NAN, NAN, NAN, NAN, NAN, NAN);
+      pc_val = 32'h0000_2000;
+      cp_gen(16'h0420);                                           // FDIV FP1,FP0
+      wr16(5'h0A, 16'h5500); rd16(5'h00);                         // FMOVE.D <ea>,FP2
+      if (rd[31:16] == 16'h5608) wr32(5'h18, 32'h0000_2004);      // (the PC)
+      wr32(5'h10, 32'h4000_0000);                                 // 2.0, its high long
+      while (!dut.pend) @(posedge clk);                           // the FDIV ends: DZ pending
+      wr32(5'h10, 32'h0000_0000);                                 // its low long
+      check(dut.cu_v && !dut.apu_busy, "the operand's last long after the exception: in the slot, not started");
+      x_vec = 0;
+      cp_cond(6'd0);
+      check(x_vec == 8'h32 && x_when == 4'd1, "... the FNOP reports DZ");
+      fsave;
+      cp_gen(16'hA400);
+      check(st_long[0] == 32'h0000_2000, "... FPIAR the FDIV's");
+      null_restore;
+    end
+  endtask
+
   // -- the vectors ------------------------------------------------------------------
   integer fd, r, c, n, idx, first, count, show, shown;
   integer npass, nfail, nclk, nskip;
@@ -760,7 +898,203 @@ module tb_se30_fpu;
     end
   endtask
 
+  // -- +pairs=2|3 (7e, plan 8.9.6): each vector's instruction, then one or
+  //    two others picked from the file, issued without waiting, against
+  //    the same with an FNOP after each - the overlap must leave the same
+  //    registers, FPSR, FPIAR, stores, answers and exceptions (in order);
+  //    only when an exception is reported may differ.  The handler for a
+  //    take: FSAVE, bit 27 set (serviced), FRESTORE, then the dialog goes on
+  //    (mid) or the instruction starts again (pre); the F-line and BSUN
+  //    skip the instruction instead.  Under +detour a context switch lands
+  //    at a point of the overlapped run.
+  localparam NVMAX = 32768;
+  reg [7:0]  a_kind  [0:NVMAX-1];
+  reg [15:0] a_cmd   [0:NVMAX-1];
+  reg [31:0] a_fpcr  [0:NVMAX-1];
+  reg [31:0] a_fpsr  [0:NVMAX-1];
+  reg [79:0] a_rx    [0:NVMAX-1];
+  reg [79:0] a_ry    [0:NVMAX-1];
+  reg [79:0] a_rc    [0:NVMAX-1];
+  reg [95:0] a_opnd  [0:NVMAX-1];
+  reg [31:0] a_dreg  [0:NVMAX-1];
+  integer    nv, npairs;
+  // what a run leaves
+  reg [79:0] pr_fp  [0:7];
+  reg [31:0] pr_sr, pr_iar;
+  reg [95:0] pr_st  [0:2];
+  reg [7:0]  pr_x   [0:7];
+  reg [31:0] pr_xi  [0:7];         // FPIAR in each handler
+  integer    pr_nx;
+  reg        pr_bad;
+  // ... the sequential run's copy
+  reg [79:0] ps_fp  [0:7];
+  reg [31:0] ps_sr, ps_iar;
+  reg [95:0] ps_st  [0:2];
+  reg [7:0]  ps_x   [0:7];
+  reg [31:0] ps_xi  [0:7];
+  integer    ps_nx;
+
+  reg [31:0] hs0;
+  task handler_take;               // after a take primitive and its XA
+    begin
+      if (pr_nx < 8) pr_x[pr_nx] = x_vec;
+      if (x_when == 4'd2) mid_uses = mid_uses + 1;
+      pr_nx = pr_nx + 1;
+      fsave;
+      if (ffmt != 16'h1F38 && ffmt != 16'h1FD4) pr_bad = 1'b1;
+      hs0 = st_long[0];                                           // (a store's data, kept)
+      cp_gen(16'hA400);                                           // FPIAR: the excepting instruction's
+      if (pr_nx <= 8) pr_xi[pr_nx - 1] = st_long[0];
+      st_long[0] = hs0;
+      if (ffmt == 16'h1F38) fr[14][27] = 1'b1; else fr[53][27] = 1'b1;
+      frestore;
+    end
+  endtask
+
+  task issue(input integer v, input integer slot);   // one instruction, its exceptions handled
+    integer tries, ln;
+    reg [2:0] oc, fx;
+    reg go;
+    begin
+      oc = a_cmd[v][15:13]; fx = a_cmd[v][12:10];
+      ln = (fx == 3'd0 || fx == 3'd1) ? 4 : (fx == 3'd4) ? 2 : (fx == 3'd5) ? 8 : (fx == 3'd6) ? 1 : 12;
+      if (ln == 12) begin op_long[0] = a_opnd[v][95:64]; op_long[1] = a_opnd[v][63:32]; op_long[2] = a_opnd[v][31:0]; end
+      else if (ln == 8) begin op_long[0] = a_opnd[v][63:32]; op_long[1] = a_opnd[v][31:0]; end
+      else op_long[0] = a_opnd[v][31:0];
+      dreg_val = a_dreg[v];
+      pc_val = 32'h0002_0000 + slot * 16;
+      tries = 0; go = 1'b1;
+      pr_st[slot] = 96'd0;
+      while (go && tries < 8) begin
+        tries = tries + 1;
+        x_vec = 0; x_when = 0; x_tf = 0;
+        if (a_kind[v] == "C") cp_cond(a_cmd[v][5:0]); else cp_gen(a_cmd[v]);
+        while (x_vec != 0 && x_when == 4'd2 && tries < 8) begin      // mid: the handler, then on
+          tries = tries + 1;
+          handler_take;
+          x_vec = 0; x_when = 0;
+          service(a_kind[v] == "C");
+        end
+        if (proto_bad) pr_bad = 1'b1;
+        if (x_vec == 0) begin
+          go = 1'b0;
+          if (a_kind[v] == "C") pr_st[slot] = {95'd0, x_tf};
+          else if (oc == 3'd3)
+            pr_st[slot] = (ln == 1) ? {88'd0, st_long[0][31:24]} : (ln == 2) ? {80'd0, st_long[0][31:16]} :
+                          (ln == 4) ? {64'd0, st_long[0]} : (ln == 8) ? {32'd0, st_long[0], st_long[1]} :
+                          {st_long[0], st_long[1], st_long[2]};
+        end else begin
+          handler_take;
+          if (x_vec == 8'h0B || x_vec == 8'd48) go = 1'b0;           // skipped
+        end
+      end
+      if (go) pr_bad = 1'b1;
+    end
+  endtask
+
+  task fnop_h;                     // an FNOP, its exceptions handled
+    integer t;
+    begin
+      t = 0; x_vec = 1;
+      while (x_vec != 0 && t < 8) begin
+        t = t + 1;
+        x_vec = 0;
+        cp_cond(6'd0);
+        if (proto_bad) pr_bad = 1'b1;
+        if (x_vec != 0) handler_take;
+      end
+    end
+  endtask
+
+  task run_group(input integer n3, input integer v0, input integer v1, input integer v2, input seq);
+    integer q;
+    begin
+      null_restore;
+      pr_nx = 0; pr_bad = 1'b0;
+      load_fp(NAN, a_rx[v0], a_ry[v0], NAN, NAN, a_rc[v0], NAN, NAN);
+      load_cr(a_fpcr[v0], a_fpsr[v0]);
+      if (!seq && detour_on) begin
+        h = v0 * 32'h9E3779B1; h = h ^ (h >> 15);
+        det_cnt = h % 40; det_arm = 1'b1;
+        det_done = 0; det_bad = 1'b0;
+      end
+      issue(v0, 0); if (seq) fnop_h;
+      issue(v1, 1); if (seq) fnop_h;
+      if (n3 == 3) begin issue(v2, 2); if (seq) fnop_h; end
+      else pr_st[2] = 96'd0;
+      fnop_h;
+      det_arm = 1'b0;
+      if (det_bad) pr_bad = 1'b1;
+      cp_gen(16'hF0FF);
+      for (q = 0; q < 8; q = q + 1) pr_fp[q] = img(mm_out[3 * q], mm_out[3 * q + 1], mm_out[3 * q + 2]);
+      cp_gen(16'hA800); pr_sr = st_long[0];
+      cp_gen(16'hA400); pr_iar = st_long[0];
+    end
+  endtask
+
+  integer pn_pass, pn_fail, pn_show, pn_det, pv1, pv2, pq;
+  integer pn_cu, pn_mid, cu_uses, mid_uses;
+  reg     cu_v_q = 1'b0;
+  always @(posedge clk) begin                     // the CU's take-overs, for the statistics
+    cu_v_q <= dut.cu_v;
+    if (dut.cu_v && !cu_v_q) cu_uses = cu_uses + 1;
+  end
+  reg     pn_bad;
+  task run_pairs(input integer n3);
+    begin
+      pn_pass = 0; pn_fail = 0; pn_show = 0; pn_det = 0; pn_cu = 0; pn_mid = 0;
+      for (idx = first; idx < nv && idx < first + count; idx = idx + 1) begin
+        pv1 = (idx * 7919 + 13) % nv;
+        pv2 = (idx * 104729 + 71) % nv;
+        run_group(n3, idx, pv1, pv2, 1'b1);
+        for (pq = 0; pq < 8; pq = pq + 1) ps_fp[pq] = pr_fp[pq];
+        ps_sr = pr_sr; ps_iar = pr_iar;
+        ps_st[0] = pr_st[0]; ps_st[1] = pr_st[1]; ps_st[2] = pr_st[2];
+        for (pq = 0; pq < 8; pq = pq + 1) begin ps_x[pq] = pr_x[pq]; ps_xi[pq] = pr_xi[pq]; end
+        ps_nx = pr_nx;
+        pn_bad = pr_bad;
+        cu_uses = 0; mid_uses = 0;
+        run_group(n3, idx, pv1, pv2, 1'b0);
+        if (cu_uses > 0) pn_cu = pn_cu + 1;
+        if (mid_uses > 0) pn_mid = pn_mid + 1;
+        if (det_done) pn_det = pn_det + 1;
+        pn_bad = pn_bad || pr_bad || (pr_sr !== ps_sr) || (pr_iar !== ps_iar) || (pr_nx !== ps_nx) ||
+                 (pr_st[0] !== ps_st[0]) || (pr_st[1] !== ps_st[1]) || (pr_st[2] !== ps_st[2]);
+        for (pq = 0; pq < 8; pq = pq + 1) pn_bad = pn_bad || (pr_fp[pq] !== ps_fp[pq]);
+        for (pq = 0; pq < 8 && pq < pr_nx; pq = pq + 1)
+          pn_bad = pn_bad || (pr_x[pq] !== ps_x[pq]) || (pr_xi[pq] !== ps_xi[pq]);
+        if (dbg_err) begin $display("FAIL group %0d: the APU raised err", idx); $finish; end
+        if (pn_bad) begin
+          pn_fail = pn_fail + 1;
+          if (pn_show < show) begin
+            pn_show = pn_show + 1;
+            $display("FAIL group %0d: %h %h%0s", idx, a_cmd[idx], a_cmd[pv1],
+                     (n3 == 3) ? "" : " (pair)");
+            if (n3 == 3) $display("    third %h", a_cmd[pv2]);
+            if (pr_bad)          $display("    a dialog broke (overlapped run)");
+            if (pr_sr !== ps_sr)  $display("    fpsr  seq %h  ov %h", ps_sr, pr_sr);
+            if (pr_iar !== ps_iar) $display("    fpiar seq %h  ov %h", ps_iar, pr_iar);
+            if (pr_nx !== ps_nx)  $display("    exceptions seq %0d  ov %0d", ps_nx, pr_nx);
+            for (pq = 0; pq < 8 && (pq < pr_nx || pq < ps_nx); pq = pq + 1)
+              if (pr_x[pq] !== ps_x[pq] || pr_xi[pq] !== ps_xi[pq])
+                $display("    exception %0d  seq vec %0d fpiar %h  ov vec %0d fpiar %h", pq, ps_x[pq], ps_xi[pq], pr_x[pq], pr_xi[pq]);
+            for (pq = 0; pq < 8; pq = pq + 1)
+              if (pr_fp[pq] !== ps_fp[pq]) $display("    fp%0d  seq %h  ov %h", pq, ps_fp[pq], pr_fp[pq]);
+            for (pq = 0; pq < 3; pq = pq + 1)
+              if (pr_st[pq] !== ps_st[pq]) $display("    store %0d  seq %h  ov %h", pq, ps_st[pq], pr_st[pq]);
+          end
+        end else pn_pass = pn_pass + 1;
+        if ((idx - first + 1) % 1000 == 0) $display("... %0d groups", idx - first + 1);
+      end
+      $display("%0s %0d: %0d pass, %0d fail%0s", (n3 == 3) ? "triples" : "pairs",
+               pn_pass + pn_fail, pn_pass, pn_fail, detour_on ? "" : "");
+      $display("  the CU took an instruction in %0d, a take mid-instruction in %0d", pn_cu, pn_mid);
+      if (detour_on) $display("  with a context switch in %0d", pn_det);
+    end
+  endtask
+
   reg directed_only;
+  integer pairs_n;
   initial begin
     if (!$value$plusargs("vec=%s", path)) path = "out/fpu_rtl.vec";
     if (!$value$plusargs("only=%s", only)) only = "";
@@ -768,6 +1102,8 @@ module tb_se30_fpu;
     if (!$value$plusargs("count=%d", count)) count = 1 << 30;
     if (!$value$plusargs("show=%d", show)) show = 10;
     directed_only = $test$plusargs("directed_only");
+    if (!$value$plusargs("pairs=%d", pairs_n)) pairs_n = 0;
+    nv = 0;
     detour_on = $test$plusargs("detour");
     nd_idle = 0; nd_busyc = 0; nd_busyi = 0; nd_cut = 0; nd_null = 0;
     repeat (4) @(posedge clk);
@@ -775,6 +1111,7 @@ module tb_se30_fpu;
     repeat (20) @(posedge clk);
     directed;
     frames;
+    overlap;
     $display("directed: %0d checks, %0d fail", nchk, nbad);
     if (dbg_err) begin $display("FAIL the APU raised err"); nbad = nbad + 1; end
     npass = 0; nfail = 0; nclk = 0; nskip = 0; shown = 0; n = 0;
@@ -791,7 +1128,15 @@ module tb_se30_fpu;
                       w_ry, w_rc, w_fpsr, w_vector, w_when, w_store, w_xop, v_clocks);
           if (r != 18) begin $display("FAIL line %0d: %0d fields", n + 1, r); $finish; end
           idx = n; n = n + 1;
-          if (idx < first || idx >= first + count || (only != "" && group != only)) nskip = nskip + 1;
+          if (pairs_n != 0) begin                                 // +pairs: load only
+            if (nv < NVMAX) begin
+              a_kind[nv] = kind; a_cmd[nv] = v_cmd; a_fpcr[nv] = v_fpcr; a_fpsr[nv] = v_fpsr;
+              a_rx[nv] = v_rx; a_ry[nv] = v_ry; a_rc[nv] = v_rc; a_opnd[nv] = v_operand;
+              a_dreg[nv] = v_dreg;
+              nv = nv + 1;
+            end
+            nskip = nskip + 1;
+          end else if (idx < first || idx >= first + count || (only != "" && group != only)) nskip = nskip + 1;
           else begin
             run_vector;
             bad = proto_bad || det_bad || (g_ry !== w_ry) || (g_rc !== w_rc) || (g_fpsr !== w_fpsr) ||
@@ -830,13 +1175,20 @@ module tb_se30_fpu;
           if (n % 2000 == 0) $display("... %0d vectors", n);
         end
       end
-      $display("vectors %0d: %0d pass, %0d fail, %0d with other clocks, %0d skipped",
-               n, npass, nfail, nclk, nskip);
-      if (detour_on)
-        $display("detours: busy at a checkpoint %0d, busy initial %0d, idle %0d, idle after come-again %0d, null %0d",
-                 nd_busyc, nd_busyi, nd_idle, nd_cut, nd_null);
+      if (pairs_n != 0) begin
+        $display("-- %0d vectors loaded for +pairs=%0d", nv, pairs_n);
+        run_pairs(pairs_n == 3 ? 3 : 2);
+      end else begin
+        $display("vectors %0d: %0d pass, %0d fail, %0d with other clocks, %0d skipped",
+                 n, npass, nfail, nclk, nskip);
+        if (detour_on)
+          $display("detours: busy at a checkpoint %0d, busy initial %0d, idle %0d, idle after come-again %0d, null %0d",
+                   nd_busyc, nd_busyi, nd_idle, nd_cut, nd_null);
+      end
     end
-    if (nbad == 0 && nfail == 0 && nclk == 0 && (directed_only || npass > 0)) $display("==== PASS");
+    if (pairs_n != 0 && !directed_only) begin
+      if (nbad == 0 && pn_fail == 0 && pn_pass > 0) $display("==== PASS"); else $display("==== FAIL");
+    end else if (nbad == 0 && nfail == 0 && nclk == 0 && (directed_only || npass > 0)) $display("==== PASS");
     else $display("==== FAIL");
     $finish;
   end
