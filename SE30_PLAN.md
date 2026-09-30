@@ -11005,14 +11005,44 @@ the same way.
         (two walker accesses back to back, e.g. a descriptor read and its
         U-bit write) is not established - 32-bit mode and VM certainly
         would.
-      - B5c's PMMU term goes in next and b5d is its test: it now walks,
-        runs FMOVE.L #1 and faults on the FADD's operand at $5000, then
-        takes the protocol violation (vector 13) - the missing term. A
-        page fault in a dialog is `pmmu_fault` force-releasing the beat,
-        with no `berr`. `cp_bf_now` takes the kernel's make_berr condition
-        for it, and the first-fire restart arming (`mmu_restart_pending`,
-        `pmmu_fault_restart_live`'s rollback) must skip a dialog, as it
-        does for the external case.
+      - **The PMMU term, as built (2026-09-30).** With the three fixed,
+        b5d walked, ran FMOVE.L #1, faulted on the FADD's operand at $5000
+        and then took a protocol violation (vector 13): the missing term.
+        A page fault in a dialog is `pmmu_fault` force-releasing the beat,
+        with no `berr`. Two changes:
+        - `cp_bf_now` takes `berr_k` **or** `cp_pmmu_f`, the condition
+          make_berr and the boundary's live dispatch use for a new PMMU
+          fault (TC enabled, the fault not a DIB substitution, not yet
+          dispatched or cleared and re-raised, no bus error trap pending).
+          Everything after is the external case's: cp_bf, the long frame
+          with the dialog in it, RTE through cp_rsm.
+        - The first-fire restart arming (`mmu_restart_pending`) skips a
+          dialog, as the external case's does. A data read's fault
+          otherwise arms it and the dispatch rolls the register file back
+          to the instruction's start, undoing what the dialog already
+          wrote. The live rollback term (`pmmu_fault_restart_live`) needs
+          no change: the first fire marks the fault dispatched, and cp_bf
+          dispatches later.
+        - A write fault arms nothing (the kernel's LASTWRITE rule), and
+          cp_bf forces the long frame over LASTWRITE's short one.
+
+        `PROG=b5d` is now 19 checks: the FADD's read on page 5 (1 + 2.0,
+        once), the FMOVE.X store to page 4, a store through -(A3) to page
+        8 (A3 decremented once), and a read through -(A4) from page 9 -
+        four long frames at the right fault addresses. Before the change
+        it failed 8 of its first 11 checks. **Mutant:** with the arming not
+        skipped, only the -(A4) read fails - A4 is back at $900C, the
+        predecrement undone by the rollback - which is why that case is
+        there (the first three touch no register before their fault).
+        A handler that completes the cycle itself (DF cleared) is still
+        not honoured for a dialog's frame. Gate: all twelve cpfpu
+        programs, kernel_bus 16/32/8, system, busfault, machine; upstream's
+        suite as `ours.txt`. **One unexplained result:** the first
+        kernel_bus PORT=16 run of the gate failed 318 of 338 checks (38 in
+        the five-byte bit fields); it passed alone right after, and twice
+        more beside a cpfpu run as the first had been. Nothing shares its
+        files (every bench has its own work library, nothing else wrote
+        the tree). Not reproduced; recorded in case it returns.
 
 ### 8.9.5 The first synthesis (item 8, begun 2026-09-30)
 

@@ -897,6 +897,7 @@ architecture logic of TG68KdotC_Kernel is
 	-- words hold the dialog; RTE of that frame loads them back and issues
 	-- the beat again (cp_rsm, cp_rsm2).
 	signal cp_bf_now    : std_logic;                      -- the beat ending now has faulted, in a dialog
+	signal cp_pmmu_f    : std_logic;                      -- ... by a new PMMU fault (make_berr's condition)
 	signal cp_bfr       : std_logic := '0';               -- the frame being stacked is a dialog's
 	signal cp_bk_st     : std_logic_vector(4 downto 0) := (others => '0');   -- the beat's state (cp_st_enc)
 	signal cp_bk_ss     : std_logic_vector(1 downto 0) := (others => '0');   -- ... its setstate
@@ -3540,8 +3541,14 @@ PROCESS (clk)
 	-- kernel's bus error processing never sees it
 	cp_nocp <= '1' WHEN cp_init = '1' AND berr = '1' ELSE '0';
 	berr_k  <= '0' WHEN cp_init = '1' ELSE berr;
-	-- B5c: any other beat of a dialog ending in a bus error stops it there
-	cp_bf_now <= '1' WHEN cp_st_enc(micro_state) /= "00000" AND cp_init = '0' AND berr_k = '1' AND
+	-- B5c: any other beat of a dialog ending in a bus error stops it there -
+	-- an external one, or a page fault (pmmu_fault releasing the beat, no
+	-- berr; the condition make_berr and the boundary's live dispatch take)
+	cp_pmmu_f <= '1' WHEN pmmu_tc_en = '1' AND pmmu_fault = '1' AND dib_sub_hit = '0' AND
+	                      ((berr_exception_active = '0' AND pmmu_fault_dispatched = '0') OR pmmu_fault_was_cleared = '1') AND
+	                      trap_berr = '0' AND trap_mmu_berr = '0' ELSE '0';
+	cp_bf_now <= '1' WHEN cp_st_enc(micro_state) /= "00000" AND cp_init = '0' AND
+	                      (berr_k = '1' OR cp_pmmu_f = '1') AND
 	                      fline_context_valid = '1' AND fline_is_fpu = '1' ELSE '0';
 	-- B3: cpScc is 001 with any EA but An (cpDBcc) and #/opmode 2-4 (cpTRAPcc)
 	cp_scc   <= '1' WHEN fline_opcode_latch(8 downto 6) = "001" AND fline_opcode_latch(5 downto 3) /= "001" AND
@@ -5242,7 +5249,8 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							END IF;
 							berr_pmmu_fault_valid <= '1';
 							IF (pmmu_fault_is_insn_out = '0' OR insn_fetch_consumer = '1') AND
-							   pmmu_fault_lastwrite_ok = '0' THEN
+							   pmmu_fault_lastwrite_ok = '0' AND
+							   cp_bf_now = '0' THEN   -- (not a coprocessor dialog's: it goes on from the fault, 7d B5c)
 								mmu_restart_pending <= '1';
 								mmu_restart_soft <= pmmu_fault_is_insn_out;
 								berr_restart_pc <= exe_pc;

@@ -667,12 +667,14 @@ elif MODE == 'b5c':
 elif MODE == 'b5d':
     # stage B5c with the PMMU: page faults inside dialogs, as virtual memory
     # makes them - 4 KB pages identity-mapped through three levels of short
-    # descriptors (TIA 4, TIB 8, TIC 8), pages 4 and 5 invalid; an FADD
-    # reads its operand from page 5, an FMOVE.X stores to page 4; the
-    # handler makes the faulted page valid (from the frame's fault address),
-    # PFLUSHAs and returns; the dialog goes on from the fault.  Its PMOVE
-    # and walk blockers are fixed (plan 8.9.4 B5c); it fails until the PMMU
-    # fault term is in cp_bf_now
+    # descriptors (TIA 4, TIB 8, TIC 8), pages 4, 5, 8 and 9 invalid; an
+    # FADD reads its operand from page 5, an FMOVE.X stores to page 4, one
+    # through -(A3) to page 8, and an FMOVE.X reads through -(A4) from page
+    # 9 - the predecrement written before the fault, so a rollback to the
+    # instruction's start (the kernel's restart for a data read) would
+    # leave A4 undecremented; the handler makes the faulted page valid
+    # (from the frame's fault address), PFLUSHAs and returns; the dialog
+    # goes on from the fault (plan 8.9.4 B5c)
     a = Asm(0x1000)
     a.emit(0x41F8, 0x6F00)                    # lea $6F00.w,a0
     a.emit(0xF010, 0x4C00)                    # pmove.q (a0),crp     (as the ROM's _SwapMMUMode)
@@ -682,6 +684,14 @@ elif MODE == 'b5d':
     a.label('FAD'); a.emit(0xF211, 0x4822)    # fadd.x (a1),fp0      page 5: faults
     a.emit(0x45F8, 0x4000)                    # lea $4000.w,a2
     a.label('FST'); a.emit(0xF212, 0x6800)    # fmove.x fp0,(a2)     page 4: faults
+    a.emit(0x47F9, *L(0x800C))                # lea $800C,a3
+    a.emit(0xF223, 0x6800)                    # fmove.x fp0,-(a3)    page 8: faults, A3 already down
+    a.emit(0x21CB, 0x301C)                    # move.l a3,$301C.w
+    a.emit(0x49F9, *L(0x900C))                # lea $900C,a4
+    a.emit(0xF224, 0x4880)                    # fmove.x -(a4),fp1    page 9: a read faults, A4 already down
+    a.emit(0x21CC, 0x3000)                    # move.l a4,$3000.w
+    a.emit(0xF201, 0x6080)                    # fmove.l fp1,d1
+    a.emit(0x21C1, 0x3004)                    # move.l d1,$3004.w
     a.emit(0xF200, 0x6000)                    # fmove.l fp0,d0
     a.emit(0x21C0, 0x3008)                    # move.l d0,$3008.w
     a.emit(0x2012)                            # move.l (a2),d0
@@ -693,12 +703,13 @@ elif MODE == 'b5d':
     p = a.done()
     put(0x1000, p)
     put(0x5000, L(0x40000000) + L(0x80000000) + L(0))    # 2.0 on page 5
+    put(0x9000, L(0x40010000) + L(0xE0000000) + L(0))    # 7.0 on page 9
     put(0x6F00, L(0x00000002) + L(0x00006000))           # CRP: short table descriptors at $6000
     put(0x6F08, L(0x80C04880))                           # TC: E, PS 12, IS 0, TIA 4, TIB 8, TIC 8
     put(0x6000, L(0x00006040 | 2))                       # A[0] -> B
     put(0x6040, L(0x00006800 | 2))                       # B[0] -> C
     for n in range(32):
-        if n not in (4, 5):
+        if n not in (4, 5, 8, 9):
             put(0x6800 + 4 * n, L((n << 12) | 1))        # C[n]: page n, valid
     # vector 2: file the frame as b5c's handler does, then make the
     # faulted page valid - C[fa >> 12] = (fa & $FFFFF000) | 1 - and flush
@@ -724,11 +735,20 @@ elif MODE == 'b5d':
         (0x3008, 0x00000003, 0xFFFFFFFF),     # 1 + 2.0, once
         (0x300C, 0x40000000, 0xFFFFFFFF),     # 3.0 stored on page 4
         (0x3018, 0xC0000000, 0xFFFFFFFF),
-        (0x3010, 0x00000002, 0xFFFFFFFF),     # two page faults
+        (0x3010, 0x00000004, 0xFFFFFFFF),     # four page faults
         (0x3020, 0xB0080000, 0xFFFF0000),     # ... long frames, vector 2
         (0x3024, 0x00005000, 0xFFFFFFFF),     # ... the FADD's operand
         (0x3030, 0xB0080000, 0xFFFF0000),
         (0x3034, 0x00004000, 0xFFFFFFFF),     # ... the store
+        (0x3040, 0xB0080000, 0xFFFF0000),
+        (0x3044, 0x00008000, 0xFFFFFFFF),     # ... the -(A3) store
+        (0x301C, 0x00008000, 0xFFFFFFFF),     # A3 decremented once, not rolled back
+        (0x3050, 0xB0080000, 0xFFFF0000),
+        (0x3054, 0x00009000, 0xFFFFFFFF),     # ... the -(A4) read
+        (0x3000, 0x00009000, 0xFFFFFFFF),     # A4 decremented once, not rolled back
+        (0x3004, 0x00000007, 0xFFFFFFFF),     # 7.0 read
+        (0x8000, 0x40000000, 0xFFFFFFFF),     # 3.0 stored on page 8
+        (0x8004, 0xC0000000, 0xFFFFFFFF),
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 elif MODE == 'mmu':
