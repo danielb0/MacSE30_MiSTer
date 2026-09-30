@@ -11323,6 +11323,33 @@ unchanged (they read the final value, as before). Gate: `sim/kernel_bus`
 16/32/8 (338, 237, 520), `system` 23, `busfault` 14, `sim/cpfpu` all 13,
 `sim/machine`; `sim/kernel_upstream` verdicts identical to `ours.txt`.
 
+**Compile 24 (2026-09-30): `b9d94be`, tag `b9d94be1`, archived as
+`output_files/MacSE30_b9d94be1_cumoves_tfix.rbf` (md5 `481ce66a...`); 30
+minutes. TIMING MET at every corner**: the flow's summary +0.098 ns;
+`sta_corners.tcl` worst slack outside the SDRAM capture +1.085 ns, and at
+every corner one of the capture's two clocks meets (the design lines'
+-0.361 setup at slow 100C and -0.139 hold at fast -40C are the other
+capture clock's, as in every compile since item 18). For Daniel to flash.
+
+**On the board, compile 23 (2026-09-30, Daniel's screenshots):** System
+6.0.5 / Finder 6.1.5 from the System Tools disk, **8,192K**; TattleTech's
+General Hardware: **"Machine = Mac SE/30 (ID=9g)"** - the shared
+IIx/IIcx/SE/30 ROM identified the machine from our hardware; **"FPU =
+MC68882, Hardware FPU = Yes"** (software tells a 68882 from a 68881 by its
+FSAVE frame); 32-bit capable No, booted 24-bit (the dirty ROM, as it
+should). **"CPU Speed = 10 MHz"** where a real SE/30 is 15.67: most likely
+the 68030's caches, not built (`tg68k.v`: plan 1.15 item 9) - a speed
+loop runs from the real chip's 256-byte instruction cache but fetches
+every word from RAM here (with the Guide's one wait state); TattleTech
+shows the caches "enabled" because the kernel keeps CACR as a register.
+Also possible: the kernel's clocks per instruction (not cycle-exact) and
+the time base (VBL ~61/s against 60.15 measured at compile 16). To
+measure: a known loop's clocks in `sim/machine` against the 030 UM's
+cache and no-cache times. Also: the 7.1 800K set's Disk Tools boots
+System 6.0.7 (its System's `vers` is 6.0.7, Finder 6.1.7) and its
+Install disk has no boot blocks and no System Folder - neither is a core
+fault.
+
 **7e-1 as built (2026-09-30).** `se30_fpu.v`:
 - **The slot**: `cu_v`, `cu_cmd`, `cu_iar`/`cu_pcv` (a passed PC waits
   with its instruction and becomes FPIAR when it starts in the APU - at
