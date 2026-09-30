@@ -10555,7 +10555,13 @@ on a bus error of the initiating access) can be built two ways:
   the authentic shape; but every step touches the decoder, the address,
   data and FC muxes of a kernel that is a mesh of numbered upstream fixes
   (`BUG #nnn FIX`), and the EA sequencing assumes one operand per
-  instruction.
+  instruction. There is a precedent in this kernel: upstream added the
+  PMMU's F-line instructions (PMOVE, PTEST, PLOAD, PFLUSH, CpID 0) this
+  way - an F-line context latch (`fline_opcode_latch`,
+  `fline_context_valid`), a decode state (`pmove_decode`) and EA
+  micro-states of their own (`pmmu_ld_nn`, `pmmu_ld_dAn1`,
+  `pmmu_ld_AnXn1/2`, `pmmu_ld_229_1-4`); the coprocessor's would sit
+  beside them, CpID 1.
 - **(b) a coprocessor engine beside the kernel**: its own state machine
   for the dialog and its own EA calculator (extension words fetched at
   scanPC through the kernel's bus path, so the PMMU still translates;
@@ -10635,8 +10641,40 @@ two clk among themselves, leaving out the p0 edge's µROM and entry reads,
 `ua` and the abort latch. The standalone fit: **5,251 ALMs, 47 RAM
 blocks; timing met at all four corners - setup +14.4 ns, hold +0.16 ns -
 with no combinational loop (Quartus 332125: none)**. Behaviour unchanged:
-the 80 directed checks, the detour slices (packed 800 with 370 busy saves,
-transcend 400), the machine bench.
+the 80 directed checks, all 19,836 vectors plain and under `+detour`
+(the same 2,059 busy saves at a checkpoint), the 7a APU bench, the
+machine bench. Mutants: without the T bypass 3 directed checks fail;
+with the K address on the old LC, 28 packed and 35 transcendental
+vectors fail. **Without the FP bypass all 19,836 still pass**: no word of
+the microcode reads an FP register the word before it wrote (they write FP
+at their ends). The bypass is kept as a guard, about 80 ALMs. The other
+choice is an assembler rule forbidding the pattern, which is how the
+assembler already enforces the datapath's limits (8.8.18); that is for
+7e to settle. 7e must also settle port B: it is the APU's for writes now,
+and the CU's overlap wants it too (8.8.13).
+
+**Compile 22, the machine with the FPU (2026-09-30, Daniel's go-ahead
+for the night; not flashed).** `ed7e677`, tag `ed7e6772`, archived as
+`output_files/MacSE30_ed7e6772_fpubus.rbf` (md5 `d715409f...`); 27
+minutes. The chip is in the fit, reachable from the bus through GLUE
+(7d stage A), though the kernel sends it nothing yet:
+- **28,982 ALMs (69%), 29,098 registers, 265 of 553 RAM blocks (48%), 40
+  DSP blocks.** The FPU is **5,728** of those ALMs (the APU 4,429, the BIU
+  and CU 1,142); compile 21 was 23,118 without it. This leaves some 9,000
+  ALMs below the ~38,000 routing ceiling of 8.3 for the kernel's
+  protocol (7d), the overlap (7e), SCSI, the SCC and sound.
+- **Timing met at every corner**: the flow's summary +0.117 ns; and
+  `scripts/sta_corners.tcl` gives a worst slack of +0.781 ns at every
+  corner outside the SDRAM read capture, where at each corner one of the
+  two capture clocks meets (A at the slow corners by >= 1.335, B at the
+  fast ones by >= 1.854 ns). The kernel's known 4-node combinational
+  loop (Quartus 332125, the carry item of 3.8) is still reported; the
+  APU has none.
+- The machine benches (`sim/machine`, `system`, `busfault`, `glue`) pass
+  on this RTL. The prediction for a board run is the previous build's:
+  the ROM boots from floppy to "Welcome to Macintosh", then loops on the
+  F-line at $131A4, because the kernel still takes the F-line for ID 1 at
+  decode.
 
 ---
 
