@@ -78,7 +78,7 @@ module tg68k (
   wire        k_clkena, k_beat_valid;
   wire [31:0] k_din, k_dout, k_addr;
   wire  [1:0] k_dsack, k_busstate, k_siz;
-  wire        k_nwr, k_nreset_out, k_clr_berr;
+  wire        k_nwr, k_nreset_out, k_clr_berr, k_cp_berr_ack;
   wire  [2:0] k_fc;
   wire        k_pmmu_busy, k_pmmu_fault, k_make_berr, k_trap_berr, k_halted;
   wire        k_exc_take;
@@ -98,7 +98,7 @@ module tg68k (
     .clk(clk), .nReset(reset_n), .clkena_in(k_clkena), .beat_valid(k_beat_valid),
     .data_in(k_din), .dsack(k_dsack), .IPL(ipl_n), .IPL_autovector(1'b1), .berr(k_berr), .CPU(2'b10),
     .addr_out(k_addr), .data_write(k_dout), .siz(k_siz), .nWr(k_nwr),
-    .busstate(k_busstate), .FC(k_fc), .nResetOut(k_nreset_out), .clr_berr(k_clr_berr),
+    .busstate(k_busstate), .FC(k_fc), .nResetOut(k_nreset_out), .clr_berr(k_clr_berr), .cp_berr_ack(k_cp_berr_ack),
     .pmmu_walker_req(w_req), .pmmu_walker_we(w_we), .pmmu_walker_addr(w_addr), .pmmu_walker_wdat(w_wdat),
     .pmmu_walker_ack(w_ack), .pmmu_walker_data(w_data), .pmmu_walker_berr(w_berr),
     .debug_pmmu_busy(k_pmmu_busy), .debug_pmmu_fault(k_pmmu_fault),
@@ -197,7 +197,7 @@ module tg68k (
         end
         if (s == 3'd2) s <= 3'd3;
         if (s == 3'd4) s <= 3'd5;
-        if (k_make_berr || k_trap_berr) berr_hold <= 0;
+        if (k_make_berr || k_trap_berr || k_cp_berr_ack) berr_hold <= 0;   // (7d B5: taken as no coprocessor)
       end
       if (phi2) begin
         case (s)

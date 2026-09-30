@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|b5a|b5b|full]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -83,19 +83,30 @@ word through (An)+ - the format error (vector 14, frame $0 at the
 FRESTORE, An not moved); FRESTORE of a null frame through (d16,PC), then
 null frames through (xxx).W and (xxx).L.
 
+b5a (stage B5: no coprocessor) - cpGEN, cpBcc, cpScc, cpSAVE and
+cpRESTORE with CpID 2: the initiating access ends in a bus error and the
+MPU takes the F-line at the operation word, one CPU-space cycle each.
+
+b5b (stage B5: trace) - under T1 each FPU instruction traced once, a cpGEN
+only once the 68882 is done (the trace handler's FSAVE finds it idle), the
+bench's IRQ taken at the FSIN's released-while-running null (IA = 1, frame
+$9); under T0 only the taken FBcc and the FDBcc's branch traced.
+
 full: the program the bench must run once stage B is whole (operand
 transfers, FMOVEM, FSAVE/FRESTORE).
 
 Writes program.hex (64K 16-bit words), expect.txt (address, value, mask) and
 inject.txt: the instruction whose first response read the bench answers with
 the reserved primitive $0B00 (0 for none), and 1 when the bench raises VIA1's
-IRQ inside dialogs (b3c).
+IRQ inside dialogs (b3c), and the number of CPU-space cycles to anything
+but the 68882 the run must make (b5a; all ones: unchecked).
 """
 import sys
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else 'b1'
 inject = 0                                    # the instruction whose response read the bench answers $0B00
 irq = 0                                       # 1: the bench raises VIA1's IRQ inside dialogs (b3c)
+cps = 0xFFFFFFFF                              # CPU-space cycles to IDs but 1 (and IACKs) expected; all ones: unchecked
 img = [0] * 65536
 
 
@@ -450,6 +461,117 @@ elif MODE == 'b3c':
         (0x3040, 0x3F576AA4, 0xFFFFFFFF),     # sin(1.0) through the save and restore
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
+elif MODE == 'b5a':
+    # stage B5a: no coprocessor (UM 10.5.2.8) - every category with CpID 2,
+    # which nothing answers: the initiating access (the command or
+    # condition write, the save read, the restore write after the format
+    # word's read) ends in a bus error and the MPU takes the F-line, frame
+    # $0 at the operation word; the 68882 (ID 1) then runs as before
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x3100)                    # lea $3100.w,a0
+    a.label('BG'); a.emit(0xF400, 0x0000)     # cpGEN, ID 2
+    a.label('BB'); a.emit(0xF480, 0x0000)     # cpBcc.W, ID 2
+    a.label('BC'); a.emit(0xF440, 0x0012)     # cpScc D0, ID 2
+    a.label('BS'); a.emit(0xF528, 0x0000)     # cpSAVE (0,a0), ID 2
+    a.label('BR'); a.emit(0xF568, 0x0000)     # cpRESTORE (0,a0), ID 2
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0      (ID 1)
+    a.emit(0xF200, 0x003A)                    # ftst.x fp0
+    a.br(0xF292, 'T1')                        # fbgt.w T1
+    a.emit(movel_abs(0xBAD1, 0x3008))
+    a.label('T1'); a.emit(movel_abs(0x600D1, 0x3008))
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    p = a.done()
+    put(0x1000, p)
+    put(0x3100, L(0x1F380000))                # a format word for the restore to read
+    cps = 5                                   # one initiating access each, bus-errored, nothing after it
+    put(4 * 11, L(0x2400))
+    put(0x2400, [0x2E38, 0x3010,              # move.l $3010.w,d7
+                 0xE58F,                      # lsl.l #2,d7
+                 0x4DF8, 0x3020,              # lea $3020.w,a6
+                 0xDDC7,                      # adda.l d7,a6
+                 0x2CAF, 0x0002,              # move.l 2(a7),(a6)   the frame's PC
+                 0x3D6F, 0x0006, 0x0020,      # move.w 6(a7),$20(a6)  the format word
+                 0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x58AF, 0x0002,              # addq.l #4,2(a7)     past the two words
+                 0x4E73])                     # rte
+    expect = [
+        (0x3008, 0x000600D1, 0xFFFFFFFF),     # the 68882 runs after
+        (0x3010, 0x00000005, 0xFFFFFFFF),     # five F-lines
+        (0x3020, a.lab['BG'], 0xFFFFFFFF),    # ... each at its operation word
+        (0x3024, a.lab['BB'], 0xFFFFFFFF),
+        (0x3028, a.lab['BC'], 0xFFFFFFFF),
+        (0x302C, a.lab['BS'], 0xFFFFFFFF),
+        (0x3030, a.lab['BR'], 0xFFFFFFFF),
+        (0x3040, 0x002C0000, 0xFFFF0000),     # ... format $0, offset $2C
+        (0x3044, 0x002C0000, 0xFFFF0000),
+        (0x3048, 0x002C0000, 0xFFFF0000),
+        (0x304C, 0x002C0000, 0xFFFF0000),
+        (0x3050, 0x002C0000, 0xFFFF0000),
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b5b':
+    # stage B5b: trace (UM 8.1.7, 10.5.2.5). Trace on every instruction
+    # (T1): each FPU instruction traced once, frame $2, its address in the
+    # frame - and a cpGEN not before the 68882 is done: the MPU reads on
+    # through the released-while-running nulls ($0900, CA = 0, PF = 0) to
+    # PF = 1, so an FSAVE in the trace handler finds the chip idle; the
+    # bench's IRQ at the FSIN's first $0900 is taken there (IA = 1) with
+    # frame $9, not the trace frame. Trace on change of flow (T0): a taken
+    # FBcc and an FDBcc branch traced, the FBcc not taken and the expired
+    # FDBcc not.
+    a = Asm(0x1000)
+    a.emit(0x46FC, 0xA000)                    # move.w #$A000,sr     T1
+    a.label('FMC'); a.emit(0xF200, 0x5C32)    # fmovecr.x #$32,fp0
+    a.label('FSN'); a.emit(0xF200, 0x000E)    # fsin.x fp0           IRQ at its first $0900
+    a.label('FTS'); a.emit(0xF200, 0x003A)    # ftst.x fp0
+    a.label('FB1'); a.br(0xF292, 'MS6')       # fbgt.w MS6           taken
+    a.emit(movel_abs(0xBAD1, 0x3008))
+    a.label('MS6'); a.emit(0x46FC, 0x6000)    # move.w #$6000,sr     T0 (traced: T1 was on)
+    a.label('FBQ'); a.br(0xF281, 'BAD')       # fbeq.w BAD           not taken: no trace
+    a.label('FB2'); a.br(0xF292, 'T2')        # fbgt.w T2            taken: traced
+    a.emit(movel_abs(0xBAD2, 0x3008))
+    a.label('T2'); a.emit(0x7601)             # moveq #1,d3          not traced
+    a.label('FDB'); a.emit(0xF24B); a.br(0x0001, 'FDB')   # fdbeq d3,FDB   branches once (traced), then expires
+    a.label('MS2'); a.emit(0x46FC, 0x2000)    # move.w #$2000,sr     alters SR: traced
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    a.label('BAD'); a.emit(movel_abs(0xBAD0BAD0, 0x3FF0))
+    a.emit(0x4E72, 0x2700)
+    p = a.done()
+    put(0x1000, p)
+    # vector 9 (trace): the instruction's address (frame $2 +8) to $3100 +
+    # 4n, and the format word of an FSAVE taken there to $3140 + 4n
+    put(4 * 9, L(0x2400))
+    put(0x2400, [0x2E38, 0x3010, 0xE58F,      # move.l $3010.w,d7; lsl.l #2,d7
+                 0x4DF8, 0x3100, 0xDDC7,      # lea $3100.w,a6; adda.l d7,a6
+                 0x2CAF, 0x0008,              # move.l 8(a7),(a6)
+                 0xF338, 0x3300,              # fsave $3300.w
+                 0x3D78, 0x3300, 0x0040,      # move.w $3300.w,$40(a6)
+                 0xF378, 0x3300,              # frestore $3300.w
+                 0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x4E73])                     # rte
+    # vector 25 (the bench's IRQ): count, format word, scanPC, PC
+    put(4 * 25, L(0x2480))
+    put(0x2480, [0x52B8, 0x3014,              # addq.l #1,$3014.w
+                 0x31EF, 0x0006, 0x3018,      # move.w 6(a7),$3018.w
+                 0x21EF, 0x0002, 0x301C,      # move.l 2(a7),$301C.w
+                 0x21EF, 0x0008, 0x3020,      # move.l 8(a7),$3020.w
+                 0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w: the bench drops the IRQ
+                 0x4E73])
+    irq = a.lab['FSN']
+    cps = 1                                   # the one IACK
+    traced = ['FMC', 'FSN', 'FTS', 'FB1', 'MS6', 'FB2', 'FDB', 'MS2']
+    expect = [(0x3100 + 4 * i, a.lab[t], 0xFFFFFFFF) for i, t in enumerate(traced)] + [
+        (0x3008, 0x00000000, 0xFFFFFFFF),     # no wrong path taken
+        (0x3010, len(traced), 0xFFFFFFFF),    # eight traces, no more
+        (0x3144, 0x1F380000, 0xFFFF0000),     # the FSIN's trace: the chip already idle
+        (0x3014, 0x00000001, 0xFFFFFFFF),     # the IRQ, once
+        (0x3018, 0x90640000, 0xFFFF0000),     # ... frame $9 at the FSIN's null, IA = 1
+        (0x301C, a.lab['FSN'] + 4, 0xFFFFFFFF),
+        (0x3020, a.lab['FSN'], 0xFFFFFFFF),
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
 elif MODE == 'b4':
     # stage B4: cpSAVE and cpRESTORE in every EA form the two allow
     a = Asm(0x1000)
@@ -572,7 +694,7 @@ else:
 with open('program.hex', 'w') as f:
     f.write(''.join('%04x\n' % w for w in img))
 with open('inject.txt', 'w') as f:
-    f.write('%08x %08x\n' % (inject, irq))
+    f.write('%08x %08x %08x\n' % (inject, irq, cps))
 with open('expect.txt', 'w') as f:
     f.write(''.join('%08x %08x %08x\n' % e for e in expect))
 print('program %s: %d words at $1000; %d results' % (MODE, len(p), len(expect)))

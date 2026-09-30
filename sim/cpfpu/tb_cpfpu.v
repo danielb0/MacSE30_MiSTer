@@ -16,14 +16,18 @@
 //   first instruction: the kernel takes the F-line at decode ($DEAD000B at
 //   the marker) with no CIR cycle at all.
 //
-//   The stage programs (gen_program.py b1, b2, b3a-c, b4) each cover one
+//   The stage programs (gen_program.py b1, b2, b3a-c, b4, b5a-b) each cover one
 //   part of stage B with their own checks; exceptions they expect have
 //   handlers that file the frames. Two aids, set by inject.txt, stand in
 //   for what the 68882 alone cannot provoke (B3): the reserved primitive
 //   $0B00 answering one instruction's first response read (the MPU's
 //   protocol violation), and VIA1's IRQ raised at a come-again or an
 //   FSAVE's not-ready (interrupts inside a dialog), dropped when the
-//   handler writes $3F00. +trace prints bus cycles and micro-states,
+//   handler writes $3F00 - or, for an instruction's address there, at
+//   that instruction's first released-while-running null (B5). A third
+//   number, unless all ones, is how many CPU-space cycles to anything but
+//   the 68882 (IDs 2-7, IACKs) the run must make (B5).
+//   +trace prints bus cycles and micro-states,
 //   +ntr=N the first N bus cycles (400 by default).
 //
 // CLOCKING AND MEMORY: as sim/system (tb_se30_system.v): clk 2 x C16M,
@@ -102,13 +106,18 @@ module tb_cpfpu;
   // Interrupts inside a dialog (B3, inject.txt's second number = 1): VIA1's
   // IRQ (level 1) rises when the first come-again ($8900) is read from the
   // response CIR and when the next not-ready ($01xx) is read from the save
-  // CIR, and falls when the handler writes $3F00.
+  // CIR, and falls when the handler writes $3F00.  A second number above 1
+  // (B5) is an instruction's address: the IRQ rises at the first released-
+  // while-running null ($0900) that instruction reads.
   reg [31:0] irq_mode = 0;
+  reg [31:0] cps_want = 32'hFFFFFFFF;       // inject.txt's third number: CPU-space cycles to other IDs (B5)
   integer nirq = 0;
   always @(posedge clk) begin
-    if (irq_mode != 0 && irq1_n && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
-        ((nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h8900) ||
-         (nirq == 1 && cpu_addr[4:0] == 5'd4 && fpu_q[31:24] == 8'h01))) begin
+    if (irq1_n && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
+        ((irq_mode == 1 && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h8900) ||
+         (irq_mode == 1 && nirq == 1 && cpu_addr[4:0] == 5'd4 && fpu_q[31:24] == 8'h01) ||
+         (irq_mode > 1 && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h0900 &&
+          cpu.kernel.opcode_pc == irq_mode))) begin
       irq1_n <= 0; nirq = nirq + 1;
     end
     if (phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F00 >> 2)) irq1_n <= 1;
@@ -129,7 +138,7 @@ module tb_cpfpu;
   integer fdi;
   initial begin
     fdi = $fopen("inject.txt", "r");
-    if (fdi) begin if ($fscanf(fdi, "%h %h", inj_pc, irq_mode)) ; $fclose(fdi); end
+    if (fdi) begin if ($fscanf(fdi, "%h %h %h", inj_pc, irq_mode, cps_want)) ; $fclose(fdi); end
   end
 
   // HSYNC* as the video PALs make it (only the UI6 timeout cares)
@@ -213,6 +222,10 @@ module tb_cpfpu;
     if (v[31:16] == 16'hDEAD) begin
       fails = fails + 1;
       $display("FAIL: exception vector %0d taken (%0s)", v[7:0], v[7:0] == 8'd11 ? "the F-line" : "unexpected");
+    end
+    if (cps_want != 32'hFFFFFFFF) begin
+      if (cpu_space_other == cps_want) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: %0d other CPU-space cycles, expected %0d", cpu_space_other, cps_want); end
     end
     if (cir_cycles > 0) pass = pass + 1;
     else begin fails = fails + 1; $display("FAIL: no coprocessor cycle"); end

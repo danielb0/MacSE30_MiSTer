@@ -150,6 +150,7 @@ entity TG68KdotC_Kernel is
 		nResetOut				: out std_logic;
 		FC							: out std_logic_vector(2 downto 0);
 		clr_berr					: out std_logic;
+		cp_berr_ack				: out std_logic;		-- a bus error the coprocessor interface took as no coprocessor (7d B5)
 -- for debug
 		skipFetch				: out std_logic;
 		regin_out				: out std_logic_vector(31 downto 0);
@@ -882,6 +883,13 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_tea       : std_logic_vector(31 downto 0) := (others => '0');  -- tempEA: the last EA evaluated
 	signal cp_tea_ld    : std_logic := '0';               -- cp_ea was computed at the last step
 	signal cp_irq_take  : std_logic;                      -- an interrupt is taken at this point of the dialog
+	-- B5: the initiating access (UM 10.5.2.8) - a bus error on it means no
+	-- coprocessor: the F-line, not bus error exception processing
+	signal cp_init      : std_logic := '0';               -- the initiating CIR access is on the bus
+	signal cp_nocp      : std_logic;                      -- ... and has ended in a bus error
+	signal berr_k       : std_logic;                      -- berr, but for the initiating access's
+	signal cp_cof       : std_logic := '0';               -- B5: this coprocessor instruction branched (T0 trace)
+	signal cp_twait     : std_logic;                      -- B5: a traced cpGEN reads on after CA = 0 until PF = 1
 	signal cp_rte_pc    : std_logic_vector(31 downto 0) := (others => '0');  -- RTE of $9: the instruction's address
 	signal cp_rte_iw    : std_logic_vector(31 downto 0) := (others => '0');  -- ... the internal register, operation word
 	signal pmmu_ea_mode_latched  : std_logic_vector(5 downto 0);  -- BUG #302: Latch EA mode+reg bits
@@ -1928,7 +1936,7 @@ ALU: TG68K_ALU
 	directpc_retry_hold <= '1' WHEN (exec(directPC)='1' OR exec(directSR)='1' OR
 	                                 exec(directCCR)='1') AND state="10" AND
 	                                  beat_valid='0' AND
-	                                  dib_sub_hit='0' AND berr='0' AND
+	                                  dib_sub_hit='0' AND berr_k='0' AND
 	                                  pmmu_walker_berr='0' AND
 	                                  (pmmu_fault='0' OR pmmu_fault_is_insn_out='1') AND
 	                                  (make_berr='0' OR
@@ -1936,6 +1944,7 @@ ALU: TG68K_ALU
 	                                    berr_pmmu_fault_is_insn='1'))
 	                       ELSE '0';
 	clr_berr <= '1' WHEN setopcode='1' AND trap_berr='1' ELSE '0';
+	cp_berr_ack <= cp_nocp;   -- (7d B5: the initiating access's bus error, taken as no coprocessor)
 
 	-- MMU RESTART qualifier.  Non-LASTWRITE PMMU DATA faults restart the
 	-- whole instruction; Format $A/LASTWRITE writes keep the existing replay
@@ -3411,13 +3420,25 @@ PROCESS (clk)
 	cp_ss    <= '1' WHEN fline_opcode_latch(8 downto 7) = "10" ELSE '0';
 	-- B3: the points of a dialog where the MPU services pending interrupts
 	-- (UM 10.5.2.6): a null primitive with CA = 1 and IA = 1, its PC request
-	-- served (frame $9), and cpSAVE's not-ready format word (frame $0) - the
-	-- same pending test as at an instruction boundary
+	-- served, or with CA = 0 and IA = 1 while a traced cpGEN reads on (B5) -
+	-- frame $9 - and cpSAVE's not-ready format word (frame $0); the same
+	-- pending test as at an instruction boundary
+	-- B5: trace on instruction execution pending (T1 when the instruction
+	-- began) in a general instruction: a null with CA = 0 and PF = 0 is read
+	-- past, the coprocessor still busy with it (UM 10.5.2.5)
+	cp_twait <= '1' WHEN make_trace = '1' AND fline_opcode_latch(8 downto 6) = "000" AND
+	                     cp_prim(15) = '0' AND cp_prim(1) = '0' ELSE '0';
 	cp_irq_take <= '1' WHEN (FlagsSR(2 downto 0) < IPL_nr OR IPL_nr = "111") AND
-	                        ((micro_state = cp_dsp AND cp_prim(15) = '1' AND cp_prim(13 downto 8) = "001001" AND
+	                        ((micro_state = cp_dsp AND (cp_prim(15) = '1' OR cp_twait = '1') AND
+	                          cp_prim(13 downto 8) = "001001" AND
 	                          NOT (cp_prim(14) = '1' AND cp_pcdone = '0')) OR
 	                         (micro_state = cp_fmt AND fline_opcode_latch(8 downto 6) = "100" AND
 	                          cp_prim(15 downto 8) = x"01")) ELSE '0';
+	-- B5: a bus error on the initiating access is the F-line's (the state
+	-- after it takes it), acknowledged to the wrapper with clr_berr; the
+	-- kernel's bus error processing never sees it
+	cp_nocp <= '1' WHEN cp_init = '1' AND berr = '1' ELSE '0';
+	berr_k  <= '0' WHEN cp_init = '1' ELSE berr;
 	-- B3: cpScc is 001 with any EA but An (cpDBcc) and #/opmode 2-4 (cpTRAPcc)
 	cp_scc   <= '1' WHEN fline_opcode_latch(8 downto 6) = "001" AND fline_opcode_latch(5 downto 3) /= "001" AND
 	                     NOT (fline_opcode_latch(5 downto 3) = "111" AND fline_opcode_latch(2 downto 1) /= "00") ELSE '0';
@@ -3564,6 +3585,7 @@ PROCESS (clk)
 				cp_prim <= (others => '0');
 				cp_pcdone <= '0';
 				cp_trap_pc <= '0';
+				cp_init <= '0';
 			ELSIF clkena_lw = '1' THEN
 				cp_cir <= cp_cir_next;
 				IF (micro_state = cp_rspw OR micro_state = cp_fmtw) AND beat_valid = '1' THEN
@@ -3777,6 +3799,22 @@ PROCESS (clk)
 					cp_trap2 <= '1';
 				ELSIF setopcode = '1' THEN
 					cp_trap2 <= '0';
+				END IF;
+				-- B5: a branch taken (cp_bcc, not cpSAVE/cpRESTORE's PC reset)
+				-- is a change of flow for T0 trace
+				IF micro_state = cp_bcc AND cp_ss = '0' THEN
+					cp_cof <= '1';
+				ELSIF setopcode = '1' THEN
+					cp_cof <= '0';
+				END IF;
+				-- B5: the initiating access is on the bus from the edge that
+				-- schedules it (cp_decode's command, condition or save read;
+				-- cp_rfw's restore write) to the end of its beat
+				IF (micro_state = cp_decode AND fline_context_valid = '1' AND
+				    fline_opcode_latch(8 downto 6) /= "101") OR micro_state = cp_rfw THEN
+					cp_init <= '1';
+				ELSIF micro_state = cp_rsp OR micro_state = cp_fmtw OR micro_state = cp_rfww THEN
+					cp_init <= '0';
 				END IF;
 			END IF;
 		END IF;
@@ -4267,7 +4305,7 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 -----------------------------------------------------------------------------
 PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data, direct_data, next_micro_state, micro_state, stop, make_trace, make_trace_t0, make_berr, IPL_nr, FlagsSR, set_rot_cnt, opcode, writePCbig, set_exec, exec,
         PC_dataa, PC_datab, setnextpass, last_data_read, TG68_PC_brw, TG68_PC_word, Z_error, trap_trap, trap_trapv, interrupt, tmp_TG68_PC, TG68_PC, use_VBR_Stackframe, writePCnext, pmove_dn_mode, cpu_halted, exe_condition, dbcc_t0_suppress, c_out,
-        rte_b_resume_refetch, opc_buf_valid, beat_valid, dib_sub_hit, cp_br_sel, cp_br_disp, fline_opcode_pc, cp_irq_take)
+        rte_b_resume_refetch, opc_buf_valid, beat_valid, dib_sub_hit, cp_br_sel, cp_br_disp, fline_opcode_pc, cp_irq_take, cp_cof)
 	variable v_is_cof : std_logic;  -- T0 trace: change-of-flow instruction
 	variable v_irq_pending : std_logic;
 	variable v_pmmu_datatype : std_logic_vector(1 downto 0);
@@ -4421,6 +4459,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 			-- term wakes the boundary logic exactly like make_trace does for
 			-- the T1 case (stop clears on setinterrupt).
 			IF opcode = x"4E72" THEN
+				v_is_cof := '1';
+			END IF;
+			-- A coprocessor instruction that branched: cpBcc taken, cpDBcc's
+			-- branch (7d B5; cpTRAPcc's trap is group 2's stacked trace)
+			IF cp_cof = '1' THEN
 				v_is_cof := '1';
 			END IF;
 		END IF;
@@ -4909,7 +4952,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								-- stale fault for one cycle and trips the double-fault guard.
 								pmmu_fault_dispatched <= '1';
 							else
-								make_berr <= (berr OR make_berr OR pmmu_walker_berr);
+								make_berr <= (berr_k OR make_berr OR pmmu_walker_berr);
 							end if;
 							-- BUG #159 FIX: Track if PMMU fault is a bus error (B bit = pmmu_fault_stat(15))
 							-- Track whether the fault originated in the PMMU path or the external
@@ -4923,7 +4966,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								make_mmu_berr <= make_mmu_berr;  -- Keep previous value
 							end if;
 						else
-							make_berr <= (berr OR make_berr);  -- No PMMU faults when MMU disabled
+							make_berr <= (berr_k OR make_berr);  -- No PMMU faults when MMU disabled
 							make_mmu_berr <= '0';
 						end if;
 						-- BUG #431 FIX: Latch RW and FC at the first cycle external BERR fires.
@@ -4931,7 +4974,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						-- where pmmu_rw='1' and fc_internal has updated to instruction-fetch FC,
 						-- losing the data-cycle values from state="11" (when BERR actually arrived).
 						-- Capture them here while state is still "11" and values are correct.
-						if berr='1' and make_berr='0' then
+						if berr_k='1' and make_berr='0' then
 							berr_external_rw <= pmmu_rw;
 							berr_external_fc <= fc_internal;
 							berr_external_datatype <= datatype;  -- BUG #433b FIX: latch at BERR first-fire
@@ -4946,12 +4989,12 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						-- exception window is a new double bus fault. A cleared dispatched bit
 						-- alone is not enough here because the PMMU can still be reporting the
 						-- original fault while the first frame write is starting.
-							if cpu(1) = '1' and (berr = '1' or (pmmu_tc_en = '1' and pmmu_fault = '1' and pmmu_fault_was_cleared = '1')) then
+							if cpu(1) = '1' and (berr_k = '1' or (pmmu_tc_en = '1' and pmmu_fault = '1' and pmmu_fault_was_cleared = '1')) then
 								cpu_halted <= '1';
 								-- synthesis translate_off
 								report "DOUBLE BUS FAULT: fault during bus error exception processing - CPU HALTED" severity warning;
 								report "HALT_CTX_A: cpu(1)=" & std_logic'image(cpu(1)) &
-								       " berr=" & std_logic'image(berr) &
+								       " berr_k=" & std_logic'image(berr_k) &
 								       " pmmu_tc_en=" & std_logic'image(pmmu_tc_en) &
 								       " pmmu_fault=" & std_logic'image(pmmu_fault) &
 								       " pmmu_fault_dispatched=" & std_logic'image(pmmu_fault_dispatched) &
@@ -5037,7 +5080,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- board).  After the no-fault clear above, which sees make_berr still
 					-- 0 on this first-fire clock.  Writes and locked cycles keep the old
 					-- path (sim/busfault covers reads only).
-					IF berr='1' AND make_berr='0' AND trap_berr='0' AND trap_mmu_berr='0' AND
+					IF berr_k='1' AND make_berr='0' AND trap_berr='0' AND trap_mmu_berr='0' AND
 					   berr_exception_active='0' AND
 					   fc_internal(1 downto 0)="01" AND pmmu_rw='1' AND pmmu_rmw='0' THEN
 						mmu_restart_pending <= '1';
@@ -5130,7 +5173,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 									report "DOUBLE BUS FAULT: bus error at handler dispatch - CPU HALTED" severity warning;
 									report "HALT_CTX_B: cpu(1)=" & std_logic'image(cpu(1)) &
 									       " make_berr=" & std_logic'image(make_berr) &
-									       " berr=" & std_logic'image(berr) &
+									       " berr_k=" & std_logic'image(berr_k) &
 									       " pmmu_tc_en=" & std_logic'image(pmmu_tc_en) &
 									       " pmmu_fault=" & std_logic'image(pmmu_fault) &
 									       " pmmu_fault_Bbit=" & std_logic'image(pmmu_fault_stat(15)) &
@@ -5349,8 +5392,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 									berr_ssw(3) <= '0';
 								end if;
 							END IF;
-						ELSIF make_trace='1' OR (make_trace_t0='1' AND v_is_cof='1') THEN
-							-- Trace (Group 1): lower priority than address error/bus error
+						ELSIF (make_trace='1' OR (make_trace_t0='1' AND v_is_cof='1')) AND cp_irq_take='0' THEN
+							-- Trace (Group 1): lower priority than address error/bus error.
+							-- Not at a coprocessor dialog's interrupt point (7d B5): the
+							-- instruction has not ended, its trace comes after it
+							-- (UM 10.5.2.5).
 							trap_trace <= '1';
 						ELSE
 							rIPL_nr <= IPL_nr;
@@ -5643,7 +5689,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							exe_pc <= cp_rte_pc;
 							opcode_pc <= cp_rte_pc;
 						END IF;
-						IF setopcode='1' AND berr='0' THEN
+						IF setopcode='1' AND berr_k='0' THEN
 							IF state="00" THEN
 								opcode <= data_read(15 downto 0);
 								exe_pc <= tg68_pc;--TH
@@ -5953,6 +5999,18 @@ PROCESS (clk, Reset, FlagsSR, last_data_read, OP2out, exec)
 					dbcc_t0_suppress <= '0';
 					interrupt_mode <= '0';
 				ELSIF clkena_lw = '1' THEN
+				-- A coprocessor dialog's exception (7d B5): frame $9, or an
+				-- interrupt at cpSAVE's not-ready, is not the instruction's end -
+				-- no trace after its stacking; RTE back into the dialog takes the
+				-- trace bits of the SR it restores (the trace, if pending, comes
+				-- when the instruction ends, UM 10.5.2.5)
+				IF micro_state = cp9a OR (micro_state = cp_irq AND interrupt = '1' AND trap_interrupt = '1') THEN
+					make_trace <= '0';
+					make_trace_t0 <= '0';
+				ELSIF micro_state = cp_rte THEN
+					make_trace <= FlagsSR(7);
+					make_trace_t0 <= FlagsSR(6) AND NOT FlagsSR(7);
+				END IF;
 				IF setopcode='1' THEN
 					-- The first instruction after RTE/STOP or a direct write to SR must
 					-- inherit the SR value being committed in this same cycle, not the
@@ -6153,7 +6211,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 			 rte_fmt_a_replay_needed, rte_fmt_a_replay_size, mmu_restart_active,
 			 cp_prim, cp_pcdone, opcode_pc, fline_opcode_latch, fline_context_valid, clkena_lw,
 			 cp_ea_ok, cp_pv, cp_len, cp_part, cp_psize, cp_psize0, cp_data, cp_half, cp_mm, cp_mmcnt, regfile,
-			 cp_ss, cp_frcp, cp_badlen, cp_scc, cp_w, cp_irq_take, cp_f9)
+			 cp_ss, cp_frcp, cp_badlen, cp_scc, cp_w, cp_irq_take, cp_f9, cp_nocp, cp_twait)
 	variable v_rte_format_valid : std_logic;
 	BEGIN
 		TG68_PC_brw <= '0';
@@ -8152,8 +8210,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 				-- Not privileged (030 UM 10.2.1, 10.2.2).
 				-- B3: cpScc, cpDBcc and cpTRAPcc (001; the condition word
 				-- second - Scc's EA data alterable, TRAPcc's opmode 2-4) and
-				-- cpBcc.L (011) the same way.
-				ELSIF cpu(1)='1' AND opcode(11 downto 9)="001" AND
+				-- cpBcc.L (011) the same way.  B5: every CpID but 0 (the
+				-- PMMU's): the MPU does not know which coprocessors exist, so
+				-- it tries the initiating access and takes the F-line if that
+				-- ends in a bus error (UM 10.5.2.8) - only ID 1 answers here.
+				ELSIF cpu(1)='1' AND opcode(11 downto 9)/="000" AND
 				      (opcode(8 downto 6)="000" OR opcode(8 downto 7)="01" OR
 				       (opcode(8 downto 6)="001" AND
 				        (opcode(5 downto 3)/="111" OR opcode(2 downto 0)="000" OR opcode(2 downto 0)="001" OR
@@ -8180,7 +8241,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							trapmake <= '1';
 						ELSIF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="011" AND
 						      (opcode(5 downto 3)/="111" OR opcode(2 downto 1)="00") AND
-						      opcode(11 downto 9)="001" THEN
+						      opcode(11 downto 9)/="000" THEN
 							-- The MC68882's (7d stage B4): the word after the
 							-- operation word - the first extension word, or the
 							-- next instruction's if there is none - is fetched and
@@ -8218,7 +8279,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							trapmake <= '1';
 						ELSIF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="100" AND
 						      (opcode(5 downto 3)/="111" OR opcode(2)='0') AND
-						      opcode(11 downto 9)="001" THEN
+						      opcode(11 downto 9)/="000" THEN
 							-- The MC68882's (B4), as cpSAVE's above
 							IF decodeOPC='1' THEN
 								IF clkena_lw='0' THEN
@@ -9913,13 +9974,21 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
                 WHEN cp_rsp =>
                     -- read the response CIR ($00), once a step: reading
-                    -- consumes a service primitive (881UM 7.2.1)
-                    cp_cir_next <= '1';
-                    cp_cir_off <= "00000";
-                    datatype <= "01";
-                    set_datatype <= "01";
-                    setstate <= "10";
-                    next_micro_state <= cp_rspw;
+                    -- consumes a service primitive (881UM 7.2.1) - unless
+                    -- the initiating write just ended in a bus error: no
+                    -- coprocessor, the F-line (UM 10.5.2.8; B5)
+                    IF cp_nocp = '1' THEN
+                        setstate <= "01";
+                        trap_1111 <= '1';
+                        trapmake <= '1';
+                    ELSE
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "00000";
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "10";
+                        next_micro_state <= cp_rspw;
+                    END IF;
 
                 WHEN cp_rspw =>
                     -- the read in progress; cp_prim takes its word
@@ -9943,12 +10012,13 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         -- null (5.2): CA = 1 reads again; CA = 0 ends the
                         -- dialog - a general instruction is done, a
                         -- conditional takes TF
-                        IF cp_prim(15) = '1' AND cp_irq_take = '1' THEN
-                            -- CA = 1, IA = 1 and an interrupt pending: taken
-                            -- here with frame $9, the RTE reading the response
-                            -- again (5.2, UM 10.5.2.6; B3)
+                        IF cp_irq_take = '1' THEN
+                            -- CA = 1 (or a traced cpGEN's read-on, B5), IA = 1
+                            -- and an interrupt pending: taken here with frame
+                            -- $9, the RTE reading the response again (5.2, UM
+                            -- 10.5.2.6; B3)
                             next_micro_state <= cp_irq;
-                        ELSIF cp_prim(15) = '1' THEN
+                        ELSIF cp_prim(15) = '1' OR cp_twait = '1' THEN
                             cp_cir_next <= '1';
                             cp_cir_off <= "00000";
                             datatype <= "01";
@@ -10349,8 +10419,15 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                 -- memory to the operand CIR from its first long up.
                 WHEN cp_fmtw =>
                     -- the save or restore CIR read in flight; cp_prim takes it
+                    -- (cpSAVE's first read is the initiating access: a bus
+                    -- error on it is the F-line, B5)
                     setstate <= "01";
-                    next_micro_state <= cp_fmt;
+                    IF cp_nocp = '1' THEN
+                        trap_1111 <= '1';
+                        trapmake <= '1';
+                    ELSE
+                        next_micro_state <= cp_fmt;
+                    END IF;
 
                 WHEN cp_fmt =>
                     setstate <= "01";
@@ -10435,13 +10512,21 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     next_micro_state <= cp_rfww;
 
                 WHEN cp_rfww =>
-                    -- the write in flight; then read the restore CIR back
-                    cp_cir_next <= '1';
-                    cp_cir_off <= "00110";
-                    datatype <= "01";
-                    set_datatype <= "01";
-                    setstate <= "10";
-                    next_micro_state <= cp_fmtw;
+                    -- the write in flight - the initiating access: a bus
+                    -- error on it is the F-line (B5); then read the restore
+                    -- CIR back
+                    IF cp_nocp = '1' THEN
+                        setstate <= "01";
+                        trap_1111 <= '1';
+                        trapmake <= '1';
+                    ELSE
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "00110";
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "10";
+                        next_micro_state <= cp_fmtw;
+                    END IF;
 
                 -- ------------------------------------------------------------
                 -- A conditional's completion (7d stage B3; UM 10.2.2, docs/

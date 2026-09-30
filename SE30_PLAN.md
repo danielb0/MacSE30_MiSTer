@@ -10825,7 +10825,84 @@ the same way.
     FPGA powers them up at 0 and the next command loads them. Giving them
     a reset would make every frame deterministic under simulation; that
     is 7c's code, left for Daniel.
-- **B5**: a bus error inside a dialog, and trace.
+- **B5**: a bus error inside a dialog, and trace. Three parts, each test
+  first.
+  - **B5a (built 2026-09-30): no coprocessor.**
+    - Decode now starts the dialog for every CpID but 0, the PMMU's. The
+      MPU does not know which coprocessors exist: UM 10.5.2.2 reserves the
+      decode F-line for bits 8-6 = 110/111 and invalid forms, and 10.5.2.8
+      has a bus error on the initiating access mean "not present".
+    - The initiating access is cpGEN's command write, a conditional's
+      condition write, cpSAVE's first save CIR read, or cpRESTORE's restore
+      write. While it is on the bus (`cp_init`), a bus error does not reach
+      the kernel's bus error processing (`berr_k` masks it). `cp_nocp`
+      marks it, the new kernel output `cp_berr_ack` clears the wrapper's
+      hold, and the state after the beat takes the F-line: frame $0 at the
+      operation word, no control CIR write, nothing after the access.
+    - Only ID 1 answers in this machine; the wrapper bus-errors IDs 2-7, as
+      before.
+    - **Test:** `PROG=b5a` passes 15 checks. cpGEN, cpBcc, cpScc, cpSAVE
+      and cpRESTORE with ID 2 each take the F-line at their own operation
+      word, with exactly five CPU-space cycles (one each: no response read
+      follows the failed write; the bench now checks that count), and the
+      68882 runs as before afterwards.
+    - **Upstream's suite:** `tb_stack_frame_push` fails two more lines
+      (5 for 3). Its TEST 10 expects `$F800` (cpGEN, ID 4) to take the
+      F-line at decode, in a bench whose BERR is tied to 0. By 10.5.2.2 that
+      is a valid cpGEN form, so the 68030 writes the command CIR; with no
+      bus error the write "succeeds" and the dialog reads what the bench's
+      bus returns. The test's premise is the emulator's model, not the
+      manual's. The same three benches fail as before (`ours.txt` updated).
+  - **B5b (built 2026-09-30): trace** (UM 8.1.7, 10.5.2.5).
+    - With T1 set when a general instruction began, a null with CA = 0 and
+      PF = 0 is read past (`cp_twait`) until PF = 1, so the trace comes
+      after the 68882 is done. While it waits, IA = 1 makes it an interrupt
+      point (frame $9).
+    - An interrupt taken inside a dialog now wins over the pending trace in
+      the boundary chain (`cp_irq_take`), which used to turn it into the
+      trace.
+    - An exception taken inside a dialog (frame $9, or cpSAVE's not-ready
+      interrupt) clears the pending trace for its own stacking - the
+      instruction has not ended. RTE back into the dialog (`cp_rte`)
+      re-latches T1/T0 from the SR it restores; there is no `setopcode`
+      there to do it.
+    - A taken cpBcc and a cpDBcc branch count as a change of flow for T0
+      (`cp_cof`). cpTRAPcc's trap already gets group 2's stacked trace
+      through trap00.
+    - **Test:** `PROG=b5b` passes 18 checks.
+      - Under T1, FMOVECR, FSIN, FTST, FBGT and the MOVE to SR that turns
+        on T0 are each traced once, with the instruction's address in frame
+        $2.
+      - An FSAVE in the FSIN's trace handler finds the chip idle ($1F38).
+        It found it busy ($1FD4) before the change.
+      - The bench's IRQ at the FSIN's first $0900 is taken there with frame
+        $9: scanPC FSIN + 4, one IACK.
+      - Under T0, FBGT taken and the FDBEQ's branch are traced; FBEQ not
+        taken, the expired FDBEQ and a MOVEQ are not; the closing MOVE to
+        SR is traced.
+  - **B5c: a bus error after the initiating access** (UM 10.5.2.8: bus
+    error processing, then "return to the point in the coprocessor
+    instruction at which the fault occurred").
+    - **The problem:** the kernel's own model for a data fault is to let
+      the instruction run on, dispatch at its end, roll the registers back
+      and re-execute on RTE. For a dialog that is wrong. The garbage
+      operand has already reached the 68882 (FADD (A0),FP0 adds it into
+      FP0), and re-executing writes the command again in the middle of the
+      chip's dialog.
+    - **What B5c needs:**
+      - stop the dialog at the faulted beat, and suppress that beat's
+        register updates;
+      - dispatch the bus error from there, as B3's interrupts do;
+      - no register rollback;
+      - a long $B frame, with the dialog's state in the frame's internal
+        words ($38-$57): the resume state, `cp_prim`, `cp_ea`, `cp_len`,
+        `cp_data`, `cp_anew`, `cp_mmbase` and count, the F-line context,
+        scanPC and tempEA, and a marker;
+      - RTE of such a frame restores them and resumes by issuing the
+        faulted beat again.
+    - **Tests:** first a bus error the bench injects on a memory operand,
+      then a PMMU page fault, then an instruction-stream fault inside a
+      dialog.
 
 ### 8.9.5 The first synthesis (item 8, begun 2026-09-30)
 
