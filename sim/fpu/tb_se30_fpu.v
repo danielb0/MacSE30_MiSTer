@@ -810,6 +810,252 @@ module tb_se30_fpu;
     end
   endtask
 
+  // -- directed: the CU's moves (7e-2, plan 8.9.6) --------------------------------
+  //    Each program run twice, with an FNOP after each instruction and
+  //    without, the registers, FPSR and FPIAR compared (the stores too);
+  //    and what the CU did, where it shows.
+  localparam [79:0] X_1 = 80'h3FFF_8000000000000000, X_3 = 80'h4000_C000000000000000,
+                    X_M25 = 80'hC000_A000000000000000, X_0 = 80'd0;
+  integer    mv_n, mv_j, mv_cu;
+  reg [95:0] mv_st [0:3];
+  reg [95:0] sq_st [0:3];
+  reg        mv_ok, mv_busy;
+  reg        cu_seen;
+  always @(posedge clk) if (dut.cu_fin) mv_cu = mv_cu + 1;
+  task mv_gen(input [15:0] c, input [31:0] pc);   // one instruction, then an FNOP in the sequential run
+    begin
+      pc_val = pc;
+      cp_gen(c);
+      if (c[15:13] == 3'd3 && mv_n < 4) begin
+        mv_st[mv_n] = (c[12:10] == 3'd1) ? {64'd0, st_long[0]} : (c[12:10] == 3'd5) ? {32'd0, st_long[0], st_long[1]}
+                                         : {st_long[0], st_long[1], st_long[2]};
+        mv_n = mv_n + 1;
+      end
+      if (mv_j == 0) cp_cond(6'd0);
+    end
+  endtask
+  task mv_begin;
+    begin
+      null_restore;
+      load_fp(X_1, X_3, X_0, X_M25, NAN, NAN, NAN, NAN);
+      mv_n = 0; mv_cu = 0;
+    end
+  endtask
+  task mv_end(input [8*64-1:0] what);   // the sequential run first (mv_j 0), then the overlapped
+    integer q;
+    begin
+      all_out;
+      if (mv_j == 0) begin
+        for (q = 0; q < 8; q = q + 1) sq_fp[q] = ov_fp[q];
+        for (q = 0; q < 4; q = q + 1) sq_st[q] = mv_st[q];
+        sq_sr = ov_sr; sq_iar = ov_iar;
+      end else begin
+        mv_ok = (ov_sr == sq_sr) && (ov_iar == sq_iar);
+        for (q = 0; q < 8; q = q + 1) mv_ok = mv_ok && (ov_fp[q] == sq_fp[q]);
+        for (q = 0; q < mv_n; q = q + 1) mv_ok = mv_ok && (mv_st[q] == sq_st[q]);
+        if (!mv_ok) $display("    fpsr seq %h ov %h, fpiar seq %h ov %h", sq_sr, ov_sr, sq_iar, ov_iar);
+        check(mv_ok, what);
+      end
+    end
+  endtask
+
+  task moves;
+    begin
+      $display("-- directed CU moves");
+      // FMOVE FP3,FP2 behind an FDIV: released, FP2 written, FPSR held
+      for (mv_j = 0; mv_j < 2; mv_j = mv_j + 1) begin
+        mv_begin;
+        load_cr(32'h0000_0400, 32'd0);                              // DZ enabled: the PCs pass
+        mv_gen(16'h0420, 32'h0000_3000);                            // FDIV FP1,FP0
+        mv_gen(16'h0D00, 32'h0000_3004);                            // FMOVE FP3,FP2
+        if (mv_j == 1) begin
+          mv_busy = dut.apu_busy;
+          repeat (8) @(posedge clk);
+          check(mv_busy && last_prim == 16'h4900, "FMOVE FP3,FP2 behind the FDIV: released with the PC ($4900)");
+          check(dut.apu_busy && dut.apu.fp[2] == X_M25 && dut.hv && mv_cu == 1,
+                "... by the CU, FP2 written while the FDIV runs, its FPSR effect held");
+        end
+        mv_end("... the registers, FPSR (FPCC the move's) and FPIAR (its PC) as one at a time");
+      end
+      // (a): FPm the FDIV's destination - it waits for the FDIV
+      for (mv_j = 0; mv_j < 2; mv_j = mv_j + 1) begin
+        mv_begin;
+        mv_gen(16'h0420, 32'h0000_3100);                            // FDIV FP1,FP0
+        mv_gen(16'h0100, 32'h0000_3104);                            // FMOVE FP0,FP2
+        if (mv_j == 1)
+          check(!dut.apu_busy && nprim > 2 && mv_cu == 1, "(a) FMOVE FP0,FP2: $8900 until the FDIV ends, then the CU's");
+        mv_end("... FP2 the quotient");
+      end
+      // (f): FPn the FDIV's destination - to the APU through the slot
+      for (mv_j = 0; mv_j < 2; mv_j = mv_j + 1) begin
+        mv_begin;
+        mv_gen(16'h0420, 32'h0000_3200);                            // FDIV FP1,FP0
+        mv_gen(16'h0C00, 32'h0000_3204);                            // FMOVE FP3,FP0
+        if (mv_j == 1) check(dut.cu_v && mv_cu == 0, "(f) FMOVE FP3,FP0: in the slot, for the APU");
+        mv_end("... FP0 the move's, not the quotient");
+      end
+      // FSINCOS's FPc is a destination too: (a) against FP5
+      for (mv_j = 0; mv_j < 2; mv_j = mv_j + 1) begin
+        mv_begin;
+        mv_gen(16'h0135, 32'h0000_3300);                            // FSINCOS FP0,FP5:FP2
+        mv_gen(16'h1700, 32'h0000_3304);                            // FMOVE FP5,FP6
+        if (mv_j == 1) check(!dut.apu_busy && nprim > 2, "(a) FMOVE FP5,FP6 behind FSINCOS FP0,FP5:FP2 waits");
+        mv_end("... FP6 the cosine");
+      end
+      // the APU's source overwritten by a move in right after it starts
+      for (mv_j = 0; mv_j < 2; mv_j = mv_j + 1) begin
+        mv_begin;
+        mv_gen(16'h0420, 32'h0000_3400);                            // FDIV FP1,FP0: 1/3
+        op_long[0] = 32'h4000_0000;
+        mv_gen(16'h4480, 32'h0000_3404);                            // FMOVE.S #2,FP1
+        if (mv_j == 1) repeat (8) @(posedge clk);
+        if (mv_j == 1) check(dut.apu_busy && mv_cu == 1, "FMOVE.S <ea>,FP1 by the CU while the FDIV (from FP1) runs");
+        mv_end("... the FDIV divided by 3, FP1 = 2");
+      end
+      // stores: S rounded, D and X, behind the FDIV
+      for (mv_j = 0; mv_j < 2; mv_j = mv_j + 1) begin
+        mv_begin;
+        load_fp(X_1, X_3, 80'h3FFD_AAAAAAAAAAAAAAAB, X_M25, NAN, NAN, NAN, NAN);
+        load_cr(32'h0000_0020, 32'd0);                              // RM
+        mv_gen(16'h0420, 32'h0000_3500);                            // FDIV FP1,FP0
+        mv_gen(16'h6500, 32'h0000_3504);                            // FMOVE.S FP2,<ea>: inexact
+        if (mv_j == 1) check(dut.apu_busy && last_prim == 16'h3104 && mv_cu == 1,
+                             "FMOVE.S FP2,<ea> by the CU behind the FDIV: CA = 0 ($3104)");
+        mv_gen(16'h7580, 32'h0000_3508);                            // FMOVE.D FP3,<ea>
+        op_long[0] = 32'h4000_0000; op_long[1] = 32'h8000_0000; op_long[2] = 32'd0;
+        mv_gen(16'h4A00, 32'h0000_350C);                            // FMOVE.X #2,FP4
+        mv_gen(16'h6900, 32'h0000_3510);                            // FMOVE.X FP2,<ea>
+        if (mv_j == 1) check(mv_cu == 4, "... four moves, all the CU's");
+        mv_end("... the stores, FPSR (INEX2, AEXC INEX) and the registers as one at a time");
+      end
+      // (d) INEX2 enabled: the store goes the APU's way
+      mv_begin;
+      load_cr(32'h0000_0200, 32'd0);
+      load_fp(X_1, X_3, 80'h3FFD_AAAAAAAAAAAAAAAB, X_M25, NAN, NAN, NAN, NAN);
+      mv_j = 1;
+      mv_gen(16'h6500, 32'h0000_3600);
+      check(mv_cu == 0 && x_vec == 8'd49 && x_when == 4'd2, "(d) FMOVE.S with INEX2 enabled: the APU's, INEX2 mid-instruction");
+      // (e) judged before rounding (the model's UNFL): just below the least
+      // normal single, rounding up to it, is the APU's - UNFL and INEX2
+      mv_begin;
+      load_fp(X_1, X_3, 80'h3F80_FFFFFFFFFFFFFFFF, X_M25, NAN, NAN, NAN, NAN);
+      mv_j = 1;
+      mv_gen(16'h6500, 32'h0000_3680);                            // FMOVE.S FP2,<ea>
+      cp_gen(16'hA800);
+      check(mv_cu == 0 && mv_st[0] == 96'h0080_0000 && st_long[0][11] && st_long[0][9],
+            "(e) FMOVE.S of 2^-126 less an ulp of X: the APU's, UNFL before rounding");
+      // the held effect across a pending exception: the handler sees the
+      // FDIV's FPSR and FPIAR; FRESTORE with bit 27 applies the move's
+      mv_begin;
+      load_cr(32'h0000_0400, 32'd0);
+      load_fp(X_1, X_0, NAN, X_M25, NAN, NAN, NAN, NAN);
+      pc_val = 32'h0000_3700; cp_gen(16'h0420);                   // FDIV FP1,FP0: DZ
+      pc_val = 32'h0000_3704; cp_gen(16'h0D00);                   // FMOVE FP3,FP2
+      x_vec = 0; cp_cond(6'd0);
+      check(x_vec == 8'h32 && x_when == 4'd1 && dut.apu.fp[2] == X_M25,
+            "FNOP after FDIV (DZ), FMOVE: take pre-instruction, FP2 already written");
+      fsave;
+      check(ffmt == 16'h1F38 && fr[8][31] && fr[8][29] && fr[9] == 32'h0000_3704,
+            "FSAVE: the move's effect held in longword 8, its PC in 9");
+      cp_gen(16'hA800);
+      check(st_long[0] == 32'h0000_0410, "... the handler's FPSR: the FDIV's (DZ, FPCC left by the trap)");
+      cp_gen(16'hA400);
+      check(st_long[0] == 32'h0000_3700, "... FPIAR the FDIV's");
+      ffmt = 16'h1F38; frestore;                                  // not serviced: still pending
+      x_vec = 0; cp_cond(6'd0);
+      check(x_vec == 8'h32, "FRESTORE without bit 27: the FNOP reports it again");
+      fsave;
+      fr[14][27] = 1'b1; ffmt = 16'h1F38; frestore;
+      x_vec = 0; cp_cond(6'd0);
+      check(x_vec == 0, "FRESTORE with bit 27: the FNOP goes on");
+      cp_gen(16'hA800);
+      check(st_long[0][27] && !st_long[0][25] && st_long[0][15:8] == 8'd0 && st_long[0][4],
+            "... FPSR the move's: FPCC N, EXC clear, AEXC DZ kept");
+      cp_gen(16'hA400);
+      check(st_long[0] == 32'h0000_3704, "... FPIAR the move's");
+      // FSAVE between a CU store's image and its transfer, the FDIV running:
+      // come again, then an idle frame carrying the image; restored, it goes on
+      mv_begin;
+      load_fp(X_1, X_3, NAN, X_M25, NAN, NAN, NAN, NAN);
+      cp_gen(16'h0420);                                           // FDIV FP1,FP0
+      wr16(5'h0A, 16'h6580);                                      // FMOVE.S FP3,<ea>
+      rd16(5'h00); while (rd[31:16] == 16'h8900 && !dut.cu_st) rd16(5'h00);
+      check(dut.cu_st && dut.apu_busy, "a CU store made while the FDIV runs");
+      fsave;
+      check(ffmt == 16'h1F38 && fca > 0 && fr[8][27] && fr[4] == 32'hC020_0000,
+            "FSAVE: come again, then idle with the store's image (-2.5) and the flag");
+      null_restore;
+      frestore;
+      rd16(5'h00);
+      check(rd[31:16] == 16'h3104, "FRESTORE: the store's transfer, CA = 0");
+      bus(1'b1, 5'h10, 32'd0);
+      check(rd == 32'hC020_0000, "... -2.5 single");
+      // the FDIV's exception pending before the CU store's transfer: its
+      // first real response is the take mid-instruction (UM 7.5.4.2)
+      mv_begin;
+      load_cr(32'h0000_0400, 32'd0);
+      load_fp(X_1, X_0, NAN, X_M25, NAN, NAN, NAN, NAN);
+      pc_val = 32'h0000_3800; cp_gen(16'h0420);                   // FDIV FP1,FP0: DZ
+      wr16(5'h0A, 16'h6580);                                      // FMOVE.S FP3,<ea>
+      rd16(5'h00); while (rd[31] && !dut.cu_st) begin
+        if (rd[30]) wr32(5'h18, 32'h0000_3804);
+        rd16(5'h00);
+      end
+      if (rd[30]) wr32(5'h18, 32'h0000_3804);
+      while (!dut.pend) @(posedge clk);
+      rd16(5'h00);
+      check(rd[31:16] == 16'h1D32, "a CU store, the FDIV's DZ pending since: take mid-instruction $1D32");
+      wr16(5'h02, 16'h0002);                                      // XA
+      fsave;
+      check(ffmt == 16'h1F38 && fr[5][31:27] == 5'd7 && fr[8][27] && fr[4] == 32'hC020_0000,
+            "... FSAVE: the store in B_CONV, its image, back there after XA");
+      fr[14][27] = 1'b1; frestore;
+      rd16(5'h00);
+      check(rd[31:16] == 16'h3104, "... FRESTORE with bit 27: the transfer, CA = 0");
+      bus(1'b1, 5'h10, 32'd0);
+      check(rd == 32'hC020_0000, "... -2.5 single");
+      cp_gen(16'hA400);
+      check(st_long[0] == 32'h0000_3804, "... FPIAR the store's");
+      // (a) across a busy frame: a store of the FMOD's destination waits;
+      // FSAVE stops the FMOD, an FSIN runs, FRESTORE resumes it - the clock
+      // after the frame's end the APU's own command is still the FSIN's,
+      // the conflict must be the frame's (found by +pairs=2 +detour)
+      for (mv_j = 0; mv_j < 2; mv_j = mv_j + 1) begin
+        mv_begin;
+        load_fp(X_1, X_3, 80'h43E8_E000000000000000, X_M25, NAN, NAN, NAN, NAN);
+        mv_gen(16'h0521, 32'h0000_3900);                          // FMOD FP1,FP2
+        if (mv_j == 1) begin
+          wr16(5'h0A, 16'h6900);                                  // FMOVE.X FP2,<ea>
+          rd16(5'h00);
+          fsave;
+          check(ffmt == 16'h1FD4 && fr[10][31], "FSAVE under a waiting store: busy, the FMOD stopped");
+          for (i = 1; i <= 53; i = i + 1) dsv_fr[i] = fr[i];
+          null_restore;
+          cp_gen(16'h000E);                                       // FSIN FP0 (the APU's command now)
+          cp_cond(6'd0);
+          load_fp(X_1, X_3, 80'h43E8_E000000000000000, X_M25, NAN, NAN, NAN, NAN);   // the registers back
+          for (i = 1; i <= 53; i = i + 1) fr[i] = dsv_fr[i];
+          ffmt = 16'h1FD4; frestore;
+          service(1'b0);                                          // the store's dialog goes on
+          mv_st[0] = {st_long[0], st_long[1], st_long[2]}; mv_n = 1;
+          cp_gen(16'hF020); r0 = img(mm_out[0], mm_out[1], mm_out[2]);
+        end else begin
+          mv_gen(16'h6900, 32'h0000_3904);
+          cp_gen(16'hF020); r0 = img(mm_out[0], mm_out[1], mm_out[2]);
+          sq_st[0] = mv_st[0];
+        end
+      end
+      check(mv_st[0] == sq_st[0] && mv_st[0] == {r0[79:64], 16'd0, r0[63:0]},
+            "... after FRESTORE the store is the FMOD's result");
+      // a conditional straight after a move to a register sees its FPCC
+      mv_begin;
+      cp_gen(16'h0900);                                           // FMOVE FP2,FP2 (+0)
+      x_tf = 0; cp_cond(6'd1);                                    // FBEQ
+      check(x_tf == 1'b1 && mv_cu == 1, "FBEQ after the CU's FMOVE of +0: true");
+      null_restore;
+    end
+  endtask
+
   // -- the vectors ------------------------------------------------------------------
   integer fd, r, c, n, idx, first, count, show, shown;
   integer npass, nfail, nclk, nskip;
@@ -837,10 +1083,58 @@ module tb_se30_fpu;
   reg [31:0] h;
   reg        detour_on;
   integer    nd_idle, nd_busyc, nd_busyi, nd_cut, nd_null;
+
+  // -- the CU's moves (7e-2, plan 8.9.6): which vectors the CU did itself.
+  //    Their clocks are the CU's, counted apart until 7e-3 (Table 8-3); the
+  //    route is checked against UM Table 5-5, (e) taken from the model's
+  //    own OVFL and UNFL
+  reg        cu_did;
+  integer    ncu, napu_mv, nroute;
+  always @(posedge clk) if (dut.cu_fin) cu_did = 1'b1;
+  function [1:0] t_cls;            // 0 handed over, 1 zero, 2 infinity, 3 normalized
+    input [79:0] x;
+    t_cls = (x[78:0] == 79'd0) ? 2'd1 : (x[78:64] == 15'h7FFF) ? ((x[63:0] == 64'd0) ? 2'd2 : 2'd0)
+          : x[63] ? 2'd3 : 2'd0;
+  endfunction
+  function [79:0] t_reg;           // the register a vector loads (load_fp: FP1, FP2, FP5)
+    input [2:0] r;
+    t_reg = (r == 3'd1) ? v_rx : (r == 3'd2) ? v_ry : (r == 3'd5) ? v_rc : NAN;
+  endfunction
+  function [79:0] t_in;            // an S, D or X operand as a register image
+    input [2:0]  f;
+    input [95:0] o;
+    t_in = (f == 3'd1) ? ((o[30:23] == 8'hFF) ? {o[31], 15'h7FFF, (o[22:0] == 0) ? 64'd0 : {1'b1, o[22:0], 40'd0}}
+                         : (o[30:23] == 8'd0) ? ((o[22:0] == 0) ? {o[31], 79'd0} : {o[31], 79'd1})
+                         : {o[31], 15'h3FFF, 1'b1, 63'd0})
+         : (f == 3'd5) ? ((o[62:52] == 11'h7FF) ? {o[63], 15'h7FFF, (o[51:0] == 0) ? 64'd0 : {1'b1, o[51:0], 11'd0}}
+                         : (o[62:52] == 11'd0) ? ((o[51:0] == 0) ? {o[63], 79'd0} : {o[63], 79'd1})
+                         : {o[63], 15'h3FFF, 1'b1, 63'd0})
+         : {o[95], o[94:80], o[63:0]};
+  endfunction
+  function exp_cu;                 // Table 5-5: the CU does it (one instruction, nothing before it)
+    input [15:0] w;
+    reg   [2:0]  oc, f;
+    reg          sdx;
+    begin
+      oc = w[15:13]; f = w[12:10];
+      sdx = (f == 3'd1) || (f == 3'd5) || (f == 3'd2);
+      exp_cu = 1'b0;
+      if (oc == 3'd0 && w[6:0] == 7'd0)
+        exp_cu = (v_fpcr[7:6] == 2'd0) && t_cls(t_reg(f)) != 2'd0;                 // b, c
+      else if (oc == 3'd2 && w[6:0] == 7'd0 && sdx)
+        exp_cu = (v_fpcr[7:6] == 2'd0) && t_cls(t_in(f, v_operand)) != 2'd0;       // b, c
+      else if (oc == 3'd3 && sdx)
+        exp_cu = t_cls(t_reg(w[9:7])) != 2'd0 &&                                   // b
+                 !(f != 3'd2 && v_fpcr[9]) &&                                       // d
+                 !(f != 3'd2 && t_cls(t_reg(w[9:7])) == 2'd3 && (w_fpsr[12] || w_fpsr[11]));   // e
+    end
+  endfunction
+
   task run_vector;
     begin
       null_restore;
       last_clk = 16'hFFFF;
+      cu_did = 1'b0;
       det_done = 0; det_bad = 1'b0; det_ca = 0; det_fmt = 16'h0000; det_susp = 1'b0;
       if (detour_on) begin
         // where the context switch lands: the loading FMOVEMs (30 hook
@@ -876,7 +1170,8 @@ module tb_se30_fpu;
                     (len == 4) ? {64'd0, st_long[0]} : (len == 8) ? {32'd0, st_long[0], st_long[1]} :
                     {st_long[0], st_long[1], st_long[2]};
         if (x_vec == 0) cp_cond(6'd0);                            // FNOP: a pending exception
-      end
+        if (cu_did) ran = 1'b0;                                   // the CU's clocks: 7e-3 (a move in
+      end                                                         // is done after its dialog)
       det_arm = 1'b0;
       g_vector = x_vec; g_when = x_when;
       g_clocks = last_clk;
@@ -1112,9 +1407,11 @@ module tb_se30_fpu;
     directed;
     frames;
     overlap;
+    moves;
     $display("directed: %0d checks, %0d fail", nchk, nbad);
     if (dbg_err) begin $display("FAIL the APU raised err"); nbad = nbad + 1; end
     npass = 0; nfail = 0; nclk = 0; nskip = 0; shown = 0; n = 0;
+    ncu = 0; napu_mv = 0; nroute = 0;
     if (!directed_only) begin
       fd = $fopen(path, "r");
       if (fd == 0) begin $display("FAIL cannot open %0s", path); $finish; end
@@ -1142,6 +1439,13 @@ module tb_se30_fpu;
             bad = proto_bad || det_bad || (g_ry !== w_ry) || (g_rc !== w_rc) || (g_fpsr !== w_fpsr) ||
                   (g_vector !== w_vector) || (g_when !== w_when) || (g_store !== w_store) ||
                   (g_xop !== w_xop) || (g_pend !== (w_vector != 8'h00 && w_vector != 8'h0B));
+            // the route (7e-2): the CU's moves, the rest the APU's
+            if (kind != "C" && (exp_cu(v_cmd) !== cu_did)) begin
+              bad = 1'b1; nroute = nroute + 1;
+            end
+            if (cu_did) ncu = ncu + 1;
+            else if (kind != "C" && ((v_cmd[15:13] == 3'd0 || v_cmd[15:13] == 3'd2 && v_cmd[12:10] != 3'd7) &&
+                                     v_cmd[6:0] == 7'd0 || v_cmd[15:13] == 3'd3)) napu_mv = napu_mv + 1;
             if (bad) nfail = nfail + 1; else npass = npass + 1;
             // the clocks: the simulator's, or at most them where a save
             // waited for the end (it cuts END's padding short)
@@ -1166,7 +1470,10 @@ module tb_se30_fpu;
               if (g_xop !== w_xop)       $display("    xop    want %h  got %h", w_xop, g_xop);
               if (g_pend !== (w_vector != 8'h00 && w_vector != 8'h0B)) $display("    frame bit 27 wrong");
               if (clk_bad)               $display("    clocks want %0d  got %0d", v_clocks, g_clocks);
-              if (det_done)              $display("    detour: %h after %0d come-agains%0s", det_fmt, det_ca,
+              if (kind != "C" && exp_cu(v_cmd) !== cu_did)
+                                         $display("    route  want %0s  got %0s", exp_cu(v_cmd) ? "CU" : "APU",
+                                                  cu_did ? "CU" : "APU");
+              if (det_done)             $display("    detour: %h after %0d come-agains%0s", det_fmt, det_ca,
                                                   det_susp ? ", the APU stopped" : "");
               $display("    primitives %0d: %h %h %h %h", nprim, prims[0], prims[1], prims[2], prims[3]);
             end
@@ -1181,6 +1488,8 @@ module tb_se30_fpu;
       end else begin
         $display("vectors %0d: %0d pass, %0d fail, %0d with other clocks, %0d skipped",
                  n, npass, nfail, nclk, nskip);
+        $display("  moves by the CU %0d (clocks not compared), FMOVE and stores by the APU %0d, wrong route %0d",
+                 ncu, napu_mv, nroute);
         if (detour_on)
           $display("detours: busy at a checkpoint %0d, busy initial %0d, idle %0d, idle after come-again %0d, null %0d",
                    nd_busyc, nd_busyi, nd_idle, nd_cut, nd_null);

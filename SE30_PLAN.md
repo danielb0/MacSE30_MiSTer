@@ -11376,6 +11376,224 @@ interrupt instead.
   straight to FPIAR - 2 directed and 98 pairs (the handler now records
   FPIAR too, which the pairs first lacked); FRESTORE not refilling the
   slot - 3 directed and 98 pairs.
+- **The full sweeps** started at 18:12 on 2026-09-30 were stopped at
+  once (Daniel: run them at night, fix what they find then, press on
+  meanwhile). They run tonight from a worktree at `7d51f88`, so 7e-2's
+  microcode and vectors cannot leak into them (the compiled bench reads
+  the microcode at start and plain/detour stream the vector file).
+
+**7e-2: the design (2026-09-30, before the RTL).** Read for it: UM Table
+5-5 from the **1987 first edition's page image** (p. 5-5; the NXP text
+copy scrambles its columns), 5.1.2.2, 5.1.2.3, Table 5-7, Table 8-3's
+FMOVE rows; the model's FMOVE (`fpu.py` `arith`, `_op_fmove`,
+`fmove_out`, `_to_ieee`; `rounding.py` `post_process`); the microcode's
+register reads. Table 5-5 as printed:
+
+| FMOVE | format | no concurrency | partial concurrency |
+|---|---|---|---|
+| FPm,FPn | X | a | b, c, f |
+| `<ea>`,FPn | S, D | | b, c, f |
+| `<ea>`,FPn | X | | b, c, f |
+| FPm,`<ea>` | S, D | a | b, d, e |
+| FPm,`<ea>` | X | a | b |
+
+(a) FPm is the preceding instruction's destination, (b) a NaN, unnormal
+or denormal, (c) PREC single or double, (d) INEX2 enabled, (e) an
+overflow or underflow, (f) FPn is the preceding instruction's
+destination. What the model fixes as the result the CU must equal:
+- **To a register** (FPm,FPn and `<ea>`,FPn): FPCC from the result, EXC
+  cleared, the quotient byte and AEXC unchanged (nothing to accrue),
+  FPIAR the instruction's when the PC is passed. With PREC extended and
+  a normalised, zero or infinite source the value is exact: S and D are
+  widened, X copied; a zero is written with exponent 0, whatever the
+  source's (`zero(s)`).
+- **To memory**: FPCC and the quotient byte **unchanged**, EXC cleared
+  then INEX2 if the rounding was inexact, AEXC's INEX accrued from it.
+  The rounding is FPCR's RND to the destination's precision; **PREC is
+  ignored**. UNFL is judged **before** rounding (the exponent below the
+  format's minimum, exact or not), OVFL after it. X is exact: `{s, e,
+  16'd0, m}`.
+- **The APU reads its source register only in its first microword**
+  (`pro_reg`, and `pro_st` for stores); every later read is FP[dst] or
+  FP[c], which (a) and (f) protect. So a CU write to the APU
+  instruction's source is safe once the APU has started, which the
+  existing "no CU dialog while `cu_busy`" already guarantees - to be
+  checked directly (below).
+
+**Ours, where the manual stops:**
+- **The CU does the FMOVEs itself whenever the conditions allow - with
+  the APU busy or idle** (the chip's: Table 8-3 gives FMOVE to FPn 21
+  clocks on the 68882 against 33 on the 68881, Table 5-7 the same 21).
+  Every FMOVE vector in the sweep then runs through the CU's datapath
+  and is held to the model's result, which is the strongest check the
+  rounding can get. Its clocks become the CU's, counted apart in the
+  bench (`by the CU`) until 7e-3 sets them against Table 8-3.
+  **Confirmed by Daniel 2026-09-30 ("always")**; the rejected
+  alternative, the CU only while the APU is busy, kept every vector's
+  clocks but tested the CU's rounding only in the pairs.
+- **What counts as (b)**: the tags the unpacker already makes (NaN,
+  unnormal, denormal), plus any encoding the model normalises rather
+  than copies - an X zero with a non-zero exponent, an infinity with a
+  non-zero mantissa. Handing over more than the chip might costs only
+  overlap; the APU's result is the model's in every case.
+- **What counts as (e)**: the rounded exponent above the format's
+  maximum, or the exponent before rounding below its minimum (the
+  model's UNFL, which is set with or without inexactness). The CU never
+  denormalises.
+- **The conflicts** are against the APU's instruction while it runs:
+  its FP[dst] if it writes one (not FCMP, FTST), and FP[c] too for
+  FSINCOS. (a) makes the CU wait for the APU to end, then do the move;
+  (f), (b) and (c) put a move to a register in the slot, handed to the
+  APU as 7e-1 does; (b), (d) and (e) send a store back to 7e-1's path
+  (wait for both units, the APU converts), found at the first response
+  read for (d), after the CU has read FPm for (b), after its rounding
+  for (e).
+- **The datapath** (8.8.13's estimate, about 350 ALMs with the slot):
+  the widening of S and D (the unpacker's fields, a second instance on
+  the BIU's `cmd` - the APU's is on `acmd`); FPm read through port B at
+  a p0 edge; the store's rounding - the mantissa's top 24 or 53 bits, G,
+  R and S from the rest, RN ties-to-even, RZ, RM, RP by the sign, a
+  53-bit incrementer whose carry bumps the exponent; the exponent range
+  checks; the S, D or X image. FPn written through port B at a p0 edge.
+  The store's image goes into `opnd` (the CU's register, free: the CU
+  moves only with the slot empty), and the store's operand reads take
+  it from there.
+- **The dialogs**: FPm,FPn answers `$0900` (`$4900` with the PC) at
+  once, as 7e-1 does; `<ea>`,FPn is 7e-1's CA = 0 transfer, the move
+  made at the last operand write; FPm,`<ea>` answers `$8900` while the
+  CU reads and rounds (a few clocks), then the CA = 0 transfer
+  (`$3104`, `$3208`, `$320C`), released after the last read.
+- **Retirement in program order** (8.8.13, as agreed): the move's
+  register or memory operand is written at once; its FPSR effect - the
+  new FPCC (moves in only), the EXC byte, the AEXC bits - and its passed
+  PC (FPIAR) are **held** while the APU runs an older instruction, and
+  applied at that instruction's end, after its own FPSR write. Several
+  moves in a row compose: the last FPCC and EXC, the AEXC bits ORed,
+  the last PC. With an exception pending they stay held until the
+  FRESTORE with bit 27 set (as the slot does), so the handler sees the
+  APU instruction's FPSR and FPIAR. With the APU idle they apply at
+  once.
+- **Busy**: a move in progress is the CU busy - a third instruction and
+  the conditionals wait for it (Table 5-6: both units idle), FSAVE
+  answers come again until it ends (a few clocks), so no frame holds a
+  move half done.
+- **The frame**: longword 8 the held effect `{valid, FPCC valid, FPCC,
+  EXC, AEXC}` and a flag for a CU store's image in `opnd` (longwords
+  2-4 then carry it, and a restore puts it back), longword 9 the held
+  PC. Both were zero.
+
+**7e-2's benches:**
+- `sim/fpu` plain and `+detour`: every FMOVE vector through the CU where
+  the conditions allow, against the model; the count by the CU and by
+  the APU reported, and a check that the degraded cases (each of b-f)
+  went to the APU.
+- `+pairs=2|3`, `+pairs=2 +detour`: moves overlapped with everything,
+  the held effect against the one-at-a-time run (FPSR, FPIAR after each
+  handler).
+- Directed: (a) and (f) each way; FSINCOS's FP[c]; a move in right after
+  the APU started on the register it reads (the first-word read); a
+  held effect across a pending exception, FSAVE, FRESTORE without and
+  with bit 27; FSAVE during a CU store's conversion and after it; a
+  conditional straight after a move; three moves behind one FDIV.
+- **Mutants**: no (a) check; no (f) check; the held effect applied at
+  once; RN rounding ties away; the UNFL test after rounding; FSINCOS's
+  FP[c] left out of the conflicts.
+
+**7e-2 as built (2026-09-30).** `se30_fpu.v`:
+- **The peek** (`pk`): in `B_CMD`, an FPm,FPn with PREC extended or an
+  S, D or X store without (d), the slot and the CU free, nothing
+  pending and no (a), reads FPm through port B into `cu_fp` (the
+  address, then two p1 edges). The first response read answers `$8900`
+  until it is in - usually it already is: the command write and the
+  synchronous response read leave it the time. (a) answers `$8900`
+  until the APU ends.
+- **The commit**, at that read: FPm,FPn with a class the CU takes
+  (`fcls`: normalized, zero with exponent 0, infinity with mantissa 0)
+  and no (f): FPn written (a port B write standing to its p0 edge),
+  `$0900`/`$4900`. A store whose image the CU can make (`st_ok`: the
+  class, not tiny before rounding, not over after): the image into
+  `opnd`, `cu_st`, `$8900`/`$C900`, then at `B_CONV` the CA = 0
+  transfer at once. Anything else takes 7e-1's path unchanged.
+- **A move in** (`mi`): at the last operand write of an S, D or X FMOVE
+  with PREC extended, the slot free and nothing pending, the CU takes
+  the command (`cu_cmd`) and releases the MPU; a clock later the operand
+  is widened (`widen`), the next FPn written - or, for (b), (f) or an
+  exception pending by then, the command goes into the slot for the
+  APU. A third instruction, a conditional and FSAVE (come again) wait
+  while `mi` runs.
+- **The store's rounding**: the top 24 or 53 bits, G and S from the
+  rest, RN to even, RZ, RM, RP by the sign, a 54-bit sum whose carry
+  bumps the exponent; tiny is the exponent before rounding below 16257
+  (S) or 15361 (D), overflow the biased exponent after it 255 or 2047
+  and above; the X image is the register with 16 zero bits.
+- **The held effect** (`hv`, `h_ccv`/`h_cc`, `h_exc`, `h_aexc`,
+  `h_iarv`/`h_iar`): `h_rec` at each commit composes it; the move's PC
+  arrives after its primitive (`mv_pcw` routes the instruction address
+  write into `h_iar`), or is already in `cu_iar` for a move in. Applied
+  when the APU is idle, nothing is pending, no PC is awaited and no
+  frame moves: FPCC if a move in set it, EXC replaced, AEXC ORed, FPIAR.
+  The hand-off and the direct starts wait for it, so the next APU
+  instruction sees the move's FPSR; FMOVE of the control registers waits
+  for it even with an exception pending (as for the slot, 7e-1).
+- **Found while writing the rules**: a CU store whose transfer is not
+  yet read when an older instruction's exception becomes pending
+  reports it there as take mid-instruction (UM 7.5.4.2, the store's
+  first real response), and after XA returns to `B_CONV` (`take_cst`),
+  as 7e-1's `B_HOLD` does.
+- **The frame**: longword 8 `{hv, h_ccv, h_iarv, mv_pcw, cu_st,
+  take_cst, 0, h_cc, h_exc, h_aexc}`, longword 9 `h_iar`; a CU store's
+  image in longwords 2-4. FSAVE's end, a save's AB, a restore write and
+  a protocol violation's XA clear them; FRESTORE reinstates them.
+- **The conflicts** use the APU's own copy of its command (`ctx_q`'s
+  `cmd_r`, which a restored busy frame reloads) or `acmd` while it is
+  being started.
+
+**Benches.** `sim/fpu`: every FMOVE vector's route checked against
+Table 5-5 (`exp_cu`: b and c from the vector, d from FPCR, (e) from the
+model's own OVFL/UNFL), the CU's counted apart with their clocks not
+compared (7e-3); directed `moves` (36 checks): FMOVE FP3,FP2 behind an
+FDIV released, FP2 written while it runs, FPSR held; (a) waiting; (f)
+to the slot; FSINCOS's FPc as (a); a move in overwriting the running
+FDIV's source; S (RM, inexact), D and X stores and an X move in behind
+the FDIV, all four the CU's; (d) to the APU with INEX2 mid-instruction;
+(e) at 2^-126 less an ulp (the APU's, UNFL); the held effect across a
+DZ - the handler's FPSR and FPIAR the FDIV's, FRESTORE without bit 27
+reporting again, with it the move's FPSR and FPIAR; FSAVE between a CU
+store's image and its transfer (come again, the image in the frame,
+restored and transferred); the FDIV's DZ pending before a CU store's
+transfer ($1D32, the frame, then the transfer after FRESTORE); FBEQ
+straight after a CU move. Each compared with the same program with an
+FNOP after every instruction.
+
+**Verified.** On the final RTL: `sim/fpu` directed 140; every vector
+under `+detour`, 19,836 by group (the CU did 453 moves - convert 349,
+rounding 52, ties 32, special 20 - 0 wrong routes, 0 other clocks); the
+first 3,000 pairs (the slot took an instruction in 2,036, take mid in
+20), triples (2,244, 34) and pairs under `+detour` (1,986, 20); `sim/cpfpu`
+all 13 programs; `sim/machine`. On the RTL before the detour guards
+(which change only the clock after a busy FRESTORE and a peek meeting a
+conflict): every vector plain, the same 453 CU moves. **Still to run**,
+tonight with 7e-1's full sweeps: all pairs, triples and detour pairs.
+**Mutants**: (a) off - 3 directed fail; (f) off
+- 2; the held effect at once - 7; FSINCOS's FPc left out - 1; RN ties
+away - 7 of the ties group's vectors; UNFL after rounding - no vector
+meets it (it needs a value just under the least normal rounding up),
+the (e) directed check added for it fails; neither detour guard (below)
+- the regression fails.
+- **A bench fix on the way**: a move in finishes a clock or two after
+  its dialog, so the bench now decides "the CU's clocks" after the FNOP
+  that follows (11 convert vectors had been compared as the APU's).
+- **Found by `+pairs=2 +detour`** (1 of the first 3,000, group 1764: an
+  FMOD into FP2, then FMOVE.X FP2,`<ea>` waiting on (a), a context switch
+  between): FRESTORE of the busy frame loads the APU's context at the
+  clock after the frame's end, and in that clock the APU's own command
+  was still the detour's FSIN - no conflict seen, the peek read FP2
+  before the resumed FMOD wrote it, and the store sent the old value.
+  Two guards: the conflict takes the frame's command while its context
+  is being loaded (`rs_ctx`), and a conflict seen during a peek drops it
+  (read again after). Either alone passes; both kept. Directed
+  regression: the same sequence by hand (FSAVE under the waiting store,
+  an FSIN, the registers back, FRESTORE) - fails before, passes after.
 
 ---
 

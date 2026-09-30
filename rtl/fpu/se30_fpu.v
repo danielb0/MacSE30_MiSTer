@@ -74,6 +74,24 @@
 //   gets take pre-instruction.  FMOVEM and the control registers do not
 //   report it and so wait while it holds the slot.
 //
+// THE CU'S MOVES (UM Table 5-5, 5.1.2.2; plan 8.9.6 - item 7e-2)
+//   The fully concurrent FMOVEs - FPm,FPn; <ea>,FPn and FPm,<ea> in S, D
+//   and X - the CU does itself, the APU busy or idle: FPm read through
+//   port B while the first response read waits ($8900), then FPm,FPn
+//   written and released ($0900), or the store's image made (rounded by
+//   RND, PREC ignored) and transferred with CA = 0; <ea>,FPn widened and
+//   written after its last operand write.  Handed over as the table says:
+//   FPm the APU instruction's destination waits for it (a); FPn its
+//   destination (f), a NaN, unnormal or denormal (b), PREC single or
+//   double (c) send a move in to the APU (the slot while it runs); INEX2
+//   enabled (d), the store over- or underflowing (e) or (b) send a store
+//   the APU's way.  The move's register or memory operand is written at
+//   once; its FPSR effect (FPCC for a move in, EXC, the AEXC bits) and its
+//   passed PC are held while an older instruction runs or its exception is
+//   pending, and applied after it, so FPSR and FPIAR retire in program
+//   order.  A move in progress keeps the CU busy: a third instruction and
+//   the conditionals wait, FSAVE answers come again.
+//
 // EXCEPTIONS (UM 6.1.9-6.1.12, 7.4.2.5-7.4.2.6, 7.5.4; plan 8.6.10)
 //   The APU's end leaves EXC AND ENABLE's exception pending (fpu_trapvec).
 //   An arithmetic or conditional instruction initiated with one pending
@@ -119,7 +137,11 @@
 //              the CU's (the slot full, its PC waiting, the dialog's
 //              instruction in the APU, a take from B_HOLD)
 //     6        the take primitive posted, the slot's command word
-//     7        the slot's PC;  8-9 zero
+//     7        the slot's PC
+//     8        the CU's moves: the held effect {valid, FPCC in it, FPIAR
+//              in it, a move's PC awaited, the dialog the CU's store (its
+//              image in 2-4), 0, FPCC, EXC, AEXC}
+//     9        the held PC
 //     10-15    busy: {APU stopped, the APU's context (se30_fpu_apu.v), 0}
 //     16-48    busy: T0-T10, three longwords each
 //     N-4..N-2 the exceptional operand;  N-1 the operand register image;
@@ -194,7 +216,7 @@ module se30_fpu #(
   reg  [15:0] img, rs_img, rs_take, rs_cucmd;
   reg  [31:0] rs_iar;
   reg  [95:0] rs_slot;
-  reg  [31:0] rs_ctl;
+  reg  [31:0] rs_ctl, rs_mv;
   reg  [191:0] rs_ctx;
   reg  [63:0] rs_t;
   reg  [79:0] rs_exop;
@@ -305,6 +327,21 @@ module se30_fpu #(
   reg        pc_apu;               // the dialog's instruction is already in the APU
   reg        take_hold;            // a take mid-instruction from B_HOLD: back there after XA
 
+  // -- the CU's own moves (7e-2, plan 8.9.6): the fully concurrent FMOVEs
+  //    (UM Table 5-5) done without the APU, their FPSR effect and PC held
+  //    while the APU runs an older instruction
+  reg [1:0]  pk;                   // B_CMD: FPm being read for a move (3: in cu_fp)
+  reg [1:0]  mi;                   // a move in: its operand widened (1), written (2)
+  reg [79:0] cu_fp;                // the move's value, a register image
+  reg        cu_st;                // the dialog is the CU's store: its image in opnd
+  reg        mv_pcw;               // a move's PC is still to come: it is held with it
+  reg        take_cst;             // a take mid-instruction from the CU's store: back to B_CONV after XA
+  reg        cu_fin;               // a move done (for the bench)
+  reg        hv, h_ccv, h_iarv;    // the held effect: valid, FPCC in it, FPIAR in it
+  reg [3:0]  h_cc;
+  reg [7:0]  h_exc, h_aexc;
+  reg [31:0] h_iar;
+
   // -- the command word (plan 8.6.7; the model's decode, vec.py) --------------
   wire [2:0] c_opclass = cmd[15:13];
   wire [2:0] c_rx      = cmd[12:10];
@@ -407,6 +444,110 @@ module se30_fpu #(
   // is loaded while the APU is idle, and nothing may start in between - 7e)
   wire apu_idle = !apu_busy && !apu_was_busy && !cu_busy && !apu_start && !go_pend && !apu_go;
 
+  // -- the CU's moves (7e-2): UM Table 5-5 and its notes -------------------------
+  //   FMOVE FPm,FPn; FMOVE <ea>,FPn in S, D, X; FMOVE FPm,<ea> in S, D, X.
+  //   (a) FPm, (f) FPn the APU instruction's destination; (b) a NaN,
+  //   unnormal or denormal - here anything but a normalized number, a zero
+  //   with exponent 0 or an infinity with mantissa 0; (c) PREC not extended
+  //   (moves to a register); (d) INEX2 enabled, (e) the store over- or
+  //   underflowing (S and D).  The results are the model's (fpu.py
+  //   _op_fmove, fmove_out): exact to a register with FPCC set and EXC
+  //   cleared; a store rounded by RND alone, EXC INEX2 if inexact, AEXC's
+  //   INEX from it, FPCC unchanged; UNFL judged before rounding.
+  wire        c_sdx    = (c_rx == 3'd1) || (c_rx == 3'd5) || (c_rx == 3'd2);
+  wire        c_mv_rr  = (c_opclass == 3'd0) && (cmd[6:0] == 7'd0);
+  wire        c_mv_in  = (c_opclass == 3'd2) && c_sdx && (cmd[6:0] == 7'd0);
+  wire        c_mv_out = (c_opclass == 3'd3) && c_sdx;
+  wire        prec_x   = (fpcr[7:6] == 2'd0);
+  wire        c_inx_en = (c_rx != 3'd2) && fpcr[9];
+  wire [2:0]  c_fpm    = c_opclass[0] ? cmd[9:7] : cmd[12:10];       // a store's source is ry
+  // the instruction the APU runs (being started, or its own copy - which
+  // a restored busy frame reloads, the clock after the frame's end: until
+  // then the frame's) and the FP registers it writes: FPn, and FSINCOS's
+  // FPc; not FCMP, FTST, nor a store
+  wire [15:0] a_run    = (cu_busy || apu_start) ? acmd : ctx_we ? rs_ctx[55:40] : ctx_q[27:12];
+  function a_writes;
+    input [15:0] w;
+    input [2:0]  r;
+    a_writes = ((w[15:13] == 3'd0) || (w[15:13] == 3'd2)) &&
+               (is_fmovecr(w) ? (r == w[9:7])
+                              : (w[6:0] != 7'h38) && (w[6:0] != 7'h3A) &&
+                                ((r == w[9:7]) || ((w[6:3] == 4'b0110) && (r == w[2:0]))));
+  endfunction
+  wire        conf_a   = !apu_idle && a_writes(a_run, c_fpm);
+  wire        conf_f   = !apu_idle && a_writes(a_run, cmd[9:7]);
+  // a register image's class: 0 anything the CU hands over, 1 zero, 2 infinity, 3 normalized
+  function [1:0] fcls;
+    input [79:0] x;
+    fcls = (x[78:0] == 79'd0)       ? 2'd1
+         : (x[78:64] == 15'h7FFF)   ? ((x[63:0] == 64'd0) ? 2'd2 : 2'd0)
+         : x[63]                    ? 2'd3 : 2'd0;
+  endfunction
+  function [3:0] fcc;              // FPCC: N Z I NAN
+    input [79:0] x;
+    fcc = {x[79], fcls(x) == 2'd1, fcls(x) == 2'd2, 1'b0};
+  endfunction
+  // S, D or X widened to a register image (a denormal keeps no integer
+  // bit, so fcls hands it over)
+  function [79:0] widen;
+    input [2:0]  f;
+    input [95:0] o;
+    case (f)
+      3'd1: widen = (o[30:23] == 8'hFF) ? {o[31], 15'h7FFF, (o[22:0] == 23'd0) ? 64'd0 : {1'b1, o[22:0], 40'd0}}
+                  : (o[30:23] == 8'd0)  ? {o[31], 15'd0, 1'b0, o[22:0], 40'd0}
+                  :                       {o[31], {7'd0, o[30:23]} + 15'd16256, 1'b1, o[22:0], 40'd0};
+      3'd5: widen = (o[62:52] == 11'h7FF) ? {o[63], 15'h7FFF, (o[51:0] == 52'd0) ? 64'd0 : {1'b1, o[51:0], 11'd0}}
+                  : (o[62:52] == 11'd0)   ? {o[63], 15'd0, 1'b0, o[51:0], 11'd0}
+                  :                         {o[63], {4'd0, o[62:52]} + 15'd15360, 1'b1, o[51:0], 11'd0};
+      default: widen = {o[95], o[94:80], o[63:0]};
+    endcase
+  endfunction
+
+  // the store's image, right-aligned as the store's operand reads want it;
+  // st_ok: the CU can make it (not (b), (e)); st_inx: inexact
+  wire [1:0]  pk_cls = fcls(cu_fp);
+  wire        pk_s   = cu_fp[79];
+  wire [14:0] pk_e   = cu_fp[78:64];
+  wire [63:0] pk_m   = cu_fp[63:0];
+  wire [1:0]  rnd    = fpcr[5:4];                                   // RN RZ RM RP
+  wire        dbl    = (c_rx == 3'd5);
+  wire [52:0] k_keep = dbl ? pk_m[63:11] : {29'd0, pk_m[63:40]};
+  wire        k_g    = dbl ? pk_m[10] : pk_m[39];
+  wire        k_s    = dbl ? (pk_m[9:0] != 10'd0) : (pk_m[38:0] != 39'd0);
+  wire        k_inx  = k_g || k_s;
+  wire        k_up   = (rnd == 2'd0) ? (k_g && (k_s || k_keep[0]))
+                     : (rnd == 2'd2) ? (pk_s && k_inx)
+                     : (rnd == 2'd3) ? (!pk_s && k_inx) : 1'b0;
+  wire [53:0] k_sum  = {1'b0, k_keep} + {53'd0, k_up};
+  wire        k_cy   = dbl ? k_sum[53] : k_sum[24];
+  wire [15:0] k_be   = {1'b0, pk_e} - (dbl ? 16'd15360 : 16'd16256) + {15'd0, k_cy};   // biased, after rounding
+  wire        k_tiny = dbl ? (pk_e < 15'd15361) : (pk_e < 15'd16257);
+  wire        k_ovf  = dbl ? (k_be >= 16'd2047) : (k_be >= 16'd255);
+  reg  [95:0] st_img;
+  always @* begin
+    if (c_rx == 3'd2)
+      st_img = (pk_cls == 2'd1) ? {pk_s, 95'd0} : {pk_s, pk_e, 16'd0, pk_m};
+    else if (dbl)
+      st_img = (pk_cls == 2'd1) ? {32'd0, pk_s, 63'd0}
+             : (pk_cls == 2'd2) ? {32'd0, pk_s, 11'h7FF, 52'd0}
+             :                    {32'd0, pk_s, k_be[10:0], k_cy ? 52'd0 : k_sum[51:0]};
+    else
+      st_img = (pk_cls == 2'd1) ? {64'd0, pk_s, 31'd0}
+             : (pk_cls == 2'd2) ? {64'd0, pk_s, 8'hFF, 23'd0}
+             :                    {64'd0, pk_s, k_be[7:0], k_cy ? 23'd0 : k_sum[22:0]};
+  end
+  wire        st_norm = (pk_cls == 2'd3) && (c_rx != 3'd2);
+  wire        st_ok   = (pk_cls != 2'd0) && !(st_norm && (k_tiny || k_ovf));
+  wire        st_inx  = st_norm && k_inx;
+
+  // at the first response read: the CU tries the move (FPm read first, pk);
+  // (a) waits for the APU, the rest go the APU's way (the slot, or at once)
+  wire cu_try  = ((c_mv_rr && prec_x) || (c_mv_out && !c_inx_en)) && !c_illegal &&
+                 !cu_v && !cu_busy && !pend;
+  wire cu_hold = cu_try && (conf_a || pk != 2'd3);
+  wire cu_do_rr = cu_try && c_mv_rr && !conf_a && pk == 2'd3 && pk_cls != 2'd0 && !conf_f;
+  wire cu_do_st = cu_try && c_mv_out && !conf_a && pk == 2'd3 && st_ok;
+
   // an access the FPU may not acknowledge yet
   wire opr_early = rw && (a[4:2] == 3'b100) &&
                    ((bst == B_CONV) ||
@@ -438,7 +579,7 @@ module se30_fpu #(
   reg [31:0] rdata;                // what this access reads
 
   // the store's operand, MSB-aligned, longword i_long of n_long
-  wire [95:0] ob = obuf;
+  wire [95:0] ob = cu_st ? opnd : obuf;                  // the CU's store's image (7e-2), or the APU's
   reg  [31:0] st_long;
   always @* begin
     case (c_rx)
@@ -463,7 +604,10 @@ module se30_fpu #(
   // the BIU flags (Figure 6-6): the CU's bits and 15-0 as WinUAE writes them
   wire [31:0] f_flags = {bst == B_PV, f_code, !pend, !f_rdpend, 2'b00,
                          (bst == B_OPR) ? 4'hF : 4'h0, 4'hE, 16'hFFFF};
-  wire [95:0] f_slot  = (bst == B_OPW || cu_v) ? opnd : (bst == B_MMW) ? {mm_buf, 16'd0} : obuf;
+  wire [95:0] f_slot  = (bst == B_OPW || cu_v || cu_st) ? opnd : (bst == B_MMW) ? {mm_buf, 16'd0} : obuf;
+  // longword 8: the CU's moves (7e-2) - the held effect, a move's PC
+  // awaited, the dialog the CU's store
+  wire [31:0] f_mv    = {hv, h_ccv, h_iarv, mv_pcw, cu_st, take_cst, 6'd0, h_cc, h_exc, h_aexc};
   wire [31:0] f_ctl   = {bst, pc_next, n_long, i_long, st_ca0, st_special, cr_mask, take_fline,
                          mm_mask, cu_v, cu_pcv, pc_apu, take_hold};
   wire [191:0] f_apu  = {apu_susp, ctx_q, 28'd0};
@@ -475,6 +619,8 @@ module se30_fpu #(
     else if (fk == 6'd5)                     f_lw = f_ctl;
     else if (fk == 6'd6)                     f_lw = {take_prim, cu_cmd};
     else if (fk == 6'd7)                     f_lw = cu_iar;
+    else if (fk == 6'd8)                     f_lw = f_mv;
+    else if (fk == 6'd9)                     f_lw = h_iar;
     else if (fk == f_n)                      f_lw = f_flags;
     else if (fk == f_n - 6'd1)               f_lw = (bst == B_OPR) ? st_long : 32'd0;
     else if (fk == f_n - 6'd4)               f_lw = {dbg_exop[79:64], 16'd0};
@@ -540,6 +686,27 @@ module se30_fpu #(
       cr_mask <= 3'd0; mm_mask <= 8'd0; take_prim <= 16'd0; pend_vec <= 8'd0;
       cu_v <= 1'b0; cu_cmd <= 16'd0; cu_iar <= 32'd0; cu_pcv <= 1'b0; pc_apu <= 1'b0;
       take_hold <= 1'b0; acmd <= 16'd0;
+      pk <= 2'd0; mi <= 2'd0; cu_fp <= 80'd0; cu_st <= 1'b0; mv_pcw <= 1'b0; take_cst <= 1'b0;
+      hv <= 1'b0; h_ccv <= 1'b0; h_iarv <= 1'b0; h_cc <= 4'd0; h_exc <= 8'd0; h_aexc <= 8'd0;
+      h_iar <= 32'd0;
+    end
+  endtask
+
+  // a CU move done: its FPSR effect joins the held one (the last FPCC and
+  // EXC, the AEXC bits ORed); FPIAR joins it when the move passes its PC
+  task h_rec;
+    input       fv;                // a move to a register: FPCC
+    input [3:0] cc;
+    input [7:0] ex;
+    input [7:0] ax;
+    begin
+      hv <= 1'b1;
+      h_ccv <= fv | (hv & h_ccv);
+      if (fv) h_cc <= cc;
+      h_exc <= ex;
+      h_aexc <= (hv ? h_aexc : 8'd0) | ax;
+      if (!hv) h_iarv <= 1'b0;
+      cu_fin <= 1'b1;
     end
   endtask
 
@@ -550,6 +717,7 @@ module se30_fpu #(
       bst <= B_IDLE; take_fline <= 1'b0;
       apu_abort <= 1'b1; apu_start <= 1'b0; cu_busy <= 1'b0; cu_step <= 2'd0;
       cu_v <= 1'b0; cu_pcv <= 1'b0; take_hold <= 1'b0;     // the CU's instruction too
+      mi <= 2'd0; cu_st <= 1'b0; mv_pcw <= 1'b0; hv <= 1'b0; take_cst <= 1'b0;   // and its moves (a frame reinstates them)
       if (din[31:24] == 8'h00) begin                        // null: the reset state
         restore_rd <= din[31:16];
         pend <= 1'b0; pend_rep <= 1'b0; used <= 1'b0;
@@ -569,6 +737,7 @@ module se30_fpu #(
     if (!ce) fpb_we <= 1'b0;       // port B's p0 edge takes a write (7e); until then it stands
     apu_abort <= 1'b0;
     ctx_we <= 1'b0; x_twe <= 1'b0; x_exop_we <= 1'b0; x_obuf_we <= 1'b0;
+    cu_fin <= 1'b0;
     if (reset) begin
       used <= 1'b0; sv_req <= 1'b0; sv_on <= 1'b0; rs_on <= 1'b0; dead <= 1'b0; fbz <= 1'b0;
       apu_go <= 1'b0; go_pend <= 1'b0; fk <= 6'd1; fwait <= 2'd0; img <= 16'd0;
@@ -637,11 +806,52 @@ module se30_fpu #(
         end
       end
 
+      // the CU's moves (7e-2).  In B_CMD, FPm is read for a move the CU may
+      // do itself (the address set, then two p1 edges: the p0 edge between
+      // them reads it); it is decided at the next response read.
+      if (bst != B_CMD || conf_a) pk <= 2'd0;             // (a conflict seen: read it again after)
+      else
+        case (pk)
+          2'd0: if (cu_try && !conf_a && !fpb_we && rst_cnt == 4'd0) begin
+                  fpb_addr <= c_fpm; pk <= 2'd1;
+                end
+          2'd1: if (ce) pk <= 2'd2;
+          2'd2: if (ce) begin cu_fp <= fpb_q; pk <= 2'd3; end
+          default: ;
+        endcase
+      // a move in (FMOVE <ea>,FPn): its operand widened, then FPn written
+      // through port B - or handed to the APU through the slot: (b), (f),
+      // or an exception pending (it waits there for the handler, UM 5.2.3.6)
+      case (mi)
+        2'd1: begin cu_fp <= widen(cu_cmd[12:10], opnd); mi <= 2'd2; end
+        2'd2:
+          if (!fpb_we && !(hv && apu_idle && !pend)) begin
+            if (fcls(cu_fp) != 2'd0 && !pend && !(!apu_idle && a_writes(a_run, cu_cmd[9:7]))) begin
+              fpb_addr <= cu_cmd[9:7]; fpb_d <= cu_fp; fpb_we <= 1'b1;
+              h_rec(1'b1, fcc(cu_fp), 8'd0, 8'd0);
+              if (cu_pcv) begin h_iar <= cu_iar; h_iarv <= 1'b1; cu_pcv <= 1'b0; end
+            end else
+              cu_v <= 1'b1;
+            mi <= 2'd0;
+          end
+        default: ;
+      endcase
+      // the held effect applied once the older instruction has ended with
+      // nothing pending (after its own FPSR write), the move's PC in
+      if (hv && apu_idle && !pend && !mv_pcw && !sv_req && !sv_on && !rs_on && rst_cnt == 4'd0) begin
+        fpsr_we <= 1'b1;
+        fpsr_d  <= {4'd0, h_ccv ? h_cc : fpsr[27:24], fpsr[23:16], h_exc, fpsr[7:0] | h_aexc};
+        if (h_iarv) fpiar <= h_iar;
+        hv <= 1'b0; h_ccv <= 1'b0; h_iarv <= 1'b0;
+      end
+
       // the hand-off (7e): the CU's instruction to the idle APU - not while
       // an exception is pending (it waits for the handler's FRESTORE, UM
       // 5.2.3.6), a save is awaited or a frame moves, nor while its PC is
-      // still to come; a save or restore access in progress wins the edge
+      // still to come; a save or restore access in progress wins the edge.
+      // A held move effect is applied first, and a CU write lands first.
       if (cu_v && apu_idle && !pend && !sv_req && !sv_on && !rs_on && bst != B_PCW &&
+          !hv && !fpb_we &&
           !(cs && (a[4:1] == 4'b0010 || a[4:1] == 4'b0011))) begin
         start_apu(cu_cmd[15:13] == 3'd0, cu_cmd[12:10], cu_cmd);
         cu_v <= 1'b0;
@@ -663,6 +873,7 @@ module se30_fpu #(
               if (sv_on) begin                                    // the chip is left idle
                 sv_on <= 1'b0; bst <= B_IDLE; pend <= 1'b0; pend_rep <= 1'b0; take_fline <= 1'b0;
                 cu_v <= 1'b0; cu_pcv <= 1'b0; take_hold <= 1'b0;
+                cu_st <= 1'b0; mv_pcw <= 1'b0; hv <= 1'b0; take_cst <= 1'b0;
                 if (apu_susp) apu_abort <= 1'b1;
               end
               rs_on <= 1'b0;
@@ -673,6 +884,7 @@ module se30_fpu #(
               sv_on <= 1'b0; bst <= B_IDLE; pend <= 1'b0; pend_rep <= 1'b0; take_fline <= 1'b0;
               mm_have <= 1'b0;
               cu_v <= 1'b0; cu_pcv <= 1'b0; take_hold <= 1'b0;   // the CU's instruction is in the frame
+              cu_st <= 1'b0; mv_pcw <= 1'b0; hv <= 1'b0; take_cst <= 1'b0;         // and its moves'
               if (apu_susp) apu_abort <= 1'b1;
             end else begin
               fk <= fk - 6'd1; fwait <= 2'd3;
@@ -683,6 +895,8 @@ module se30_fpu #(
             else if (fk == 6'd5)                      rs_ctl <= din;
             else if (fk == 6'd6)                      begin rs_take <= din[31:16]; rs_cucmd <= din[15:0]; end
             else if (fk == 6'd7)                      rs_iar <= din;
+            else if (fk == 6'd8)                      rs_mv <= din;
+            else if (fk == 6'd9)                      h_iar <= din;
             else if (fk == f_n - 6'd4)                rs_exop[79:64] <= din[31:16];
             else if (fk == f_n - 6'd3)                rs_exop[63:32] <= din;
             else if (fk == f_n - 6'd2)                rs_exop[31:0] <= din;
@@ -700,8 +914,10 @@ module se30_fpu #(
               take_fline <= rs_ctl[12]; mm_mask <= rs_ctl[11:4];
               cu_v <= rs_ctl[3]; cu_pcv <= rs_ctl[2]; pc_apu <= rs_ctl[1]; take_hold <= rs_ctl[0];
               cu_cmd <= rs_cucmd; cu_iar <= rs_iar;
+              {hv, h_ccv, h_iarv, mv_pcw, cu_st, take_cst} <= rs_mv[31:26];
+              h_cc <= rs_mv[19:16]; h_exc <= rs_mv[15:8]; h_aexc <= rs_mv[7:0];
               take_prim <= rs_take; img <= rs_img; cmd <= rs_img; pred <= rs_img[5:0];
-              if (rs_ctl[31:27] == B_OPW || rs_ctl[3]) opnd <= rs_slot;
+              if (rs_ctl[31:27] == B_OPW || rs_ctl[3] || rs_mv[27]) opnd <= rs_slot;
               else if (rs_ctl[31:27] == B_MMW) mm_buf <= rs_slot[95:16];
               else                             x_obuf_we <= 1'b1;
               x_exop_we <= 1'b1;
@@ -728,6 +944,28 @@ module se30_fpu #(
                     rdata[31:16] = {8'h1C, pend_vec};
                     take_prim <= {8'h1C, pend_vec}; take_fline <= 1'b0;
                     pend_rep <= 1'b1; bst <= B_TAKE;
+                  end else if (mi != 2'd0 || cu_hold ||
+                               (hv && apu_idle && (!pend || c_opclass[2:1] == 2'b10)))
+                    // the CU busy with a move in, reading FPm for this one,
+                    // or (a): it waits; a held effect about to apply
+                    // (with one pending, FMOVE of the control registers
+                    // waits for the handler, as for the slot)
+                    rdata[31:16] = 16'h8900;
+                  else if (cu_do_rr) begin
+                    // FMOVE FPm,FPn by the CU (7e-2): FPn written, released
+                    rdata[31:16] = 16'h0900 | pcbit;
+                    fpb_addr <= cmd[9:7]; fpb_d <= cu_fp; fpb_we <= 1'b1;
+                    h_rec(1'b1, fcc(cu_fp), 8'd0, 8'd0);
+                    mv_pcw <= c_pcb; pc_apu <= 1'b0;
+                    pc_next <= B_IDLE; bst <= c_pcb ? B_PCW : B_IDLE;
+                  end else if (cu_do_st) begin
+                    // FMOVE FPm,<ea> by the CU (7e-2): the image made, the
+                    // CA = 0 transfer at the next read
+                    rdata[31:16] = 16'h8900 | pcbit;
+                    opnd <= st_img; cu_st <= 1'b1; st_ca0 <= 1'b1; st_special <= 1'b0;
+                    h_rec(1'b0, 4'd0, {6'd0, st_inx, 1'b0}, st_inx ? 8'h08 : 8'h00);
+                    mv_pcw <= c_pcb; pc_apu <= 1'b0;
+                    pc_next <= B_CONV; bst <= c_pcb ? B_PCW : B_CONV;
                   end else if (!apu_idle && !cu_v && !cu_busy && !pend && c_ov && !c_illegal) begin
                     // (not while the APU is still taking the last one's
                     // operand from opnd: cu_busy)
@@ -797,7 +1035,7 @@ module se30_fpu #(
                     rdata[31:16] = {8'h1C, pend_vec};
                     take_prim <= {8'h1C, pend_vec}; take_fline <= 1'b0;
                     pend_rep <= 1'b1; bst <= B_TAKE;
-                  end else if (cu_v) rdata[31:16] = 16'h8900;            // both units (Table 5-6)
+                  end else if (cu_v || mi != 2'd0 || hv) rdata[31:16] = 16'h8900;   // both units (Table 5-6)
                   else begin
                     if (c_bsun) begin
                       fpsr_we <= 1'b1; fpsr_d <= fpsr | 32'h0000_8080;
@@ -824,7 +1062,18 @@ module se30_fpu #(
                   end else if (cu_v) rdata[31:16] = 16'h8900;
                   else begin rdata[31:16] = 16'h0900; bst <= B_IDLE; end
                 B_CONV:
-                  if (!conv_ok) rdata[31:16] = 16'h8900;
+                  if (cu_st && pend) begin
+                    // an older instruction's exception, pending since: the
+                    // store's first real response reports it (UM 7.5.4.2),
+                    // after XA back here
+                    rdata[31:16] = {8'h1D, pend_vec};
+                    take_prim <= {8'h1D, pend_vec}; take_fline <= 1'b0;
+                    pend_rep <= 1'b1; take_cst <= 1'b1; bst <= B_TAKE;
+                  end else if (cu_st) begin                       // the CU's store: made already
+                    rdata[31:16] = o_prim;
+                    n_long <= longs(o_len); i_long <= 2'd0;
+                    bst <= B_OPR;
+                  end else if (!conv_ok) rdata[31:16] = 16'h8900;
                   else begin
                     rdata[31:16] = o_prim;
                     n_long <= longs(o_len); i_long <= 2'd0;
@@ -852,7 +1101,7 @@ module se30_fpu #(
               dead <= 1'b0;
               if (!used)
                 rdata[31:16] = 16'h0038;                          // reset phase: null
-              else if (!(apu_idle || (apu_susp && !apu_go))) begin
+              else if (!(apu_idle || (apu_susp && !apu_go)) || mi != 2'd0) begin   // (or a CU move in)
                 rdata[31:16] = 16'h0138;                          // come again
                 sv_req <= 1'b1;
               end else begin
@@ -868,7 +1117,7 @@ module se30_fpu #(
                 if (bst == B_OPR) begin
                   rdata = st_long;
                   i_long <= i_long + 2'd1;
-                  if (i_long + 2'd1 == n_long) bst <= st_ca0 ? B_IDLE : B_FIN;
+                  if (i_long + 2'd1 == n_long) begin bst <= st_ca0 ? B_IDLE : B_FIN; cu_st <= 1'b0; end
                 end else if (bst == B_CRR) begin
                   rdata = cr_mask[2] ? fpcr : cr_mask[1] ? fpsr : fpiar;
                   cr_mask <= cr_mask[2] ? {1'b0, cr_mask[1:0]} : cr_mask[1] ? {2'b00, cr_mask[0]} : 3'd0;
@@ -896,8 +1145,10 @@ module se30_fpu #(
                   bst <= B_IDLE; pend <= 1'b0; pend_rep <= 1'b0;
                   apu_abort <= 1'b1; apu_start <= 1'b0; cu_busy <= 1'b0; cu_step <= 2'd0;
                   cu_v <= 1'b0; cu_pcv <= 1'b0; take_hold <= 1'b0;
+                  mi <= 2'd0; cu_st <= 1'b0; mv_pcw <= 1'b0; hv <= 1'b0; take_cst <= 1'b0;
                 end else if (bst == B_TAKE) begin
-                  bst <= take_hold ? B_HOLD : B_IDLE; take_hold <= 1'b0;
+                  bst <= take_hold ? B_HOLD : take_cst ? B_CONV : B_IDLE;
+                  take_hold <= 1'b0; take_cst <= 1'b0;
                   if (take_fline) take_fline <= 1'b0;
                 end
               end
@@ -906,7 +1157,10 @@ module se30_fpu #(
                 // the dialog aborted: the CU's instruction if it is its
                 // own (its PC pass or its hold), else only the dialog's PC
                 if (!cu_v || bst == B_PCW || bst == B_HOLD) begin cu_v <= 1'b0; cu_pcv <= 1'b0; end
-                if (bst == B_CONV || bst == B_DREG || bst == B_OPR || bst == B_FIN) begin
+                // a CU move's own dialog: the move is done, its PC not
+                // coming; a CU store's leaves the APU alone (7e-2)
+                mv_pcw <= 1'b0; cu_st <= 1'b0; take_cst <= 1'b0;
+                if (!cu_st && (bst == B_CONV || bst == B_DREG || bst == B_OPR || bst == B_FIN)) begin
                   apu_abort <= 1'b1; apu_start <= 1'b0; cu_busy <= 1'b0; cu_step <= 2'd0;
                 end
               end
@@ -941,7 +1195,11 @@ module se30_fpu #(
                     if (i_long + 2'd1 == n_long) begin
                       // (the APU may have ended with an exception while
                       // the operand came: then it waits in the slot, 7e)
-                      if (apu_idle && !cu_v && !pend) begin
+                      if (c_mv_in && prec_x && !cu_v && !pend) begin
+                        // FMOVE <ea>,FPn: the CU's (7e-2), from the next clock
+                        mi <= 2'd1; cu_cmd <= cmd;
+                        bst <= B_IDLE;                            // S, D and X are CA = 0
+                      end else if (apu_idle && !cu_v && !pend && !hv) begin
                         start_apu(1'b0, 3'd0, cmd);
                         bst <= i_ca0 ? B_IDLE : B_REL;
                       end else begin                              // the APU busy: into the CU (7e)
@@ -982,7 +1240,9 @@ module se30_fpu #(
               end else if (x_ia) begin                            // instruction address
                 // FPIAR, once the instruction is in the APU; until then it
                 // waits with it (7e: FPIAR stays the APU instruction's)
-                if (pc_apu) fpiar <= din;
+                // (a CU move's: held with its effect, 7e-2)
+                if (mv_pcw) begin h_iar <= din; h_iarv <= 1'b1; mv_pcw <= 1'b0; end
+                else if (pc_apu) fpiar <= din;
                 else begin cu_iar <= din; cu_pcv <= 1'b1; end
                 if (bst == B_PCW) bst <= pc_next;
               end
@@ -993,7 +1253,7 @@ module se30_fpu #(
 
       // the store's evaluate-and-transfer form, once the conversion is done
       // (UM 7.5.1.3): CA = 0 for S, D, X unless the conditions hold
-      if (bst == B_CONV && apu_idle)
+      if (bst == B_CONV && apu_idle && !cu_st)
         st_ca0 <= (c_rx == 3'd1 || c_rx == 3'd5 || c_rx == 3'd2) && !st_special &&
                   !((c_rx == 3'd1 || c_rx == 3'd5) && (fpsr[12] || fpsr[11] || fpcr[9]));
     end
