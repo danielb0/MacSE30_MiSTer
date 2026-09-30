@@ -4316,10 +4316,13 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 						IF micro_state = pmove_mem_to_mmu_hi AND
 						   (pmmu_brief(14 downto 10)="10010" OR pmmu_brief(14 downto 10)="10011") THEN
 							-- READ direction: LO word bus read is initiated by HI handler (setstate="10").
-							-- During HI longword bus cycle, mem_addsub ELSIF contaminates delta_rega
-							-- with the second-word address (EA+2) on clkena_core edges where memmaskmux(3)='0'.
-							-- Correct the LO address to EA+4 by adding 2 to the contaminated addr.
-							memaddr_delta_rega <= addr + 2;
+							-- addr is the HI long's last beat; the LO long starts past the
+							-- bytes that beat moves, EA+4 (SE30_PLAN.md 1.15 item 4's rule).
+							-- The constant 2 was the 16-bit shape's (last beat at EA+2): on
+							-- the 32-bit port the long is one beat at EA and the LO long was
+							-- read at EA+2 (EA+5 on an 8-bit port) - PMOVE (A0),CRP in the
+							-- ROM's _SwapMMUMode, found by sim/cpfpu b5d (plan 8.9.4 B5c).
+							memaddr_delta_rega <= addr + ("00000000000000000000000000000" & beat_step);
 							use_base <= '0';
 							-- (An) / (An)+ / -(An) modes: zero delta, use register base
 						-- For -(An), the register was already decremented by presub during

@@ -13,7 +13,9 @@ THE PROGRAM
     to (A0), read it back into D1, store D1 as a long at a result slot
     from $3000.  Then the bit fields: at each offset, BFINS D0 into a
     16-bit field at bit offset 4 (three bytes) and a 32-bit one (five
-    bytes), each followed by a BFEXTU of the same field.  Then STOP.
+    bytes), each followed by a BFEXTU of the same field.  Then PMOVE of
+    CRP and SRP from and to memory in every control alterable mode, two
+    long operands each (preloaded sources, `Program.data`).  Then STOP.
 
     After the operands, control flow - a subroutine, a loop, a forward
     branch, TRAP #0 and a level-1 interrupt that the bench raises when the
@@ -74,6 +76,7 @@ class Program:
     def __init__(self):
         self.words = []          # code words from ORG
         self.accesses = []       # (label, case, A, dir, data bytes or None)
+        self.data = []           # (A, long) preloaded into memory
 
     def emit(self, *ws):
         self.words.extend(ws)
@@ -151,6 +154,52 @@ def build(bf5=True):
         p.access("bf5 ins w +%d" % off, "bf5", a, "w")
         p.emit(0xE9D0, 0x1100)                                     # BFEXTU (A0){4:32},D1
         p.access("bf5 ext r +%d" % off, "bf5", a, "r")
+    # PMOVE of a 64-bit root pointer (CRP, SRP): two long operands, the
+    # high long at EA and the low long at EA + 4.  The ROM's _SwapMMUMode
+    # does PMOVE (A0),CRP.  On the 32-bit port the kernel stepped from the
+    # high long by the beat step (1.15 item 4) instead of PMOVE's +4 and
+    # read the low long at EA + 2 (EA + 1 on the 8-bit device).  Every
+    # control alterable mode (the 030's PMOVE takes no other; (An)+ and
+    # -(An) are the F-line), and (An) misaligned by 2.  Each load is
+    # written back with PMOVE to memory in the same mode, so the value the
+    # MMU took is on the lanes.  Sources are preloaded (p.data) in the
+    # operand area, so PORT=8 runs every access on the 8-bit device.
+    src, dst = BASE + 0x10, BASE + 0x80
+    k = 0
+    for name, ld, st in (("crp", 0x4C00, 0x4E00), ("srp", 0x4800, 0x4A00)):
+        for mode in ("(an)", "(an)+2", "(d16,an)", "(d8,an,xn)", "(xxx).w", "(xxx).l"):
+            if mode == "(an)+2":
+                src += 2
+                dst += 2
+            hi = ((0x7F01 + k) << 16) | 0x0002                     # L/U 0, limit, DT = 2
+            lo = 0x00012340 + k * 0x01010100                       # table address, bits 3-0 clear
+            v = [(hi >> s) & 0xFF for s in (24, 16, 8, 0)] + [(lo >> s) & 0xFF for s in (24, 16, 8, 0)]
+            p.data.append((src, hi))
+            p.data.append((src + 4, lo))
+            for a, ext, dirn in ((src, ld, "r"), (dst, st, "w")):
+                if mode in ("(an)", "(an)+2"):
+                    p.lea(a)
+                    p.emit(0xF010, ext)                            # PMOVE (A0),rp / rp,(A0)
+                elif mode == "(d16,an)":
+                    p.lea(a - 0x10)
+                    p.emit(0xF028, ext, 0x0010)                    # ($10,A0)
+                elif mode == "(d8,an,xn)":
+                    p.lea(a - 0x20)
+                    p.emit(0x43F8, 0x0010)                         # LEA $10.w,A1
+                    p.emit(0xF030, ext, 0x9010)                    # ($10,A0,A1.W)
+                elif mode == "(xxx).w":
+                    p.emit(0xF038, ext, a)                         # (a).W
+                else:
+                    p.emit(0xF039, ext, a >> 16, a & 0xFFFF)       # (a).L
+                p.access("pm %s %s %sh" % (name, mode, dirn), "long", a, dirn, v[:4] if dirn == "w" else None)
+                p.access("pm %s %s %sl" % (name, mode, dirn), "long", a + 4, dirn, v[4:] if dirn == "w" else None)
+            if mode == "(an)+2":
+                src += 2
+                dst += 2
+            src += 8
+            dst += 8
+            k += 1
+    assert src <= BASE + 0x80 and dst <= BASE + 0x100
     # control flow (not in the beat stream; checked by its results and the
     # fetch rule): a subroutine, a loop, a forward branch, a trap, an
     # interrupt.  D2..D6 land in slots 12..16.
@@ -284,6 +333,8 @@ def main():
         mem[ORG // 2 + i] = w
     for i in range(0x100):                                          # data area: $FF, so a
         mem[BASE // 2 + i] = 0xFFFF                                 # bit-field insert shows
+    for a, v in p.data:                                             # PMOVE's sources
+        mem[a // 2], mem[a // 2 + 1] = v >> 16, v & 0xFFFF
     with open(os.path.join(HERE, "program.hex"), "w", newline="\n") as f:
         for w in mem:
             f.write("%04x\n" % w)
