@@ -11349,6 +11349,9 @@ cache and no-cache times. Also: the 7.1 800K set's Disk Tools boots
 System 6.0.7 (its System's `vers` is 6.0.7, Finder 6.1.7) and its
 Install disk has no boot blocks and no System Folder - neither is a core
 fault.
+**The ADB keyboard works** (Daniel, 2026-09-30, the first time it could be
+tried: typing at the desktop) - with compile 18's mouse, the ADB section's
+devices are both confirmed on the board.
 
 **The 10 MHz, measured (2026-09-30, compile 24 on the board).** A JTAG
 peek of low memory: the ROM's own start-up calibration left **TimeDBRA
