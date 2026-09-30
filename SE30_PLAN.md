@@ -10958,19 +10958,56 @@ the same way.
         - a long of the FRESTORE (A3)+ read (A3 back where it was).
 
         Each gets a long frame, vector 2, the right fault address.
-    - **The PMMU half is blocked.** `PROG=b5d` is its test: 4 KB pages
+    - **The PMMU half.** `PROG=b5d` is its test: 4 KB pages
       identity-mapped, pages 4 and 5 invalid, an FADD reading page 5 and an
       FMOVE.X storing to page 4, the handler validating the faulted page
       and PFLUSHAing.
-      - It stops before any FPU instruction. The kernel's `PMOVE (A0),CRP`
-        - the ROM's own `_SwapMMUMode` form - reads CRP's low long at
-        A0 + 2 on this 32-bit port, so the walk starts at a wrong root and
-        the CPU double-faults.
-      - The likely cause is `TG68K_ALU.vhd`'s address step: `long_start`'s
-        `beat_step` (1.15 item 4) wins over PMOVE's +4. That is a kernel
-        bug of its own, flagged as a separate task; it may bite on the
-        board once the ROM switches to 32-bit mode or VM builds tables.
-      - After it is fixed, B5c's PMMU term goes in and b5d is its test: a
+      - It stopped before any FPU instruction, on three bugs outside the
+        dialog, all fixed 2026-09-30 (each with a failing test first):
+        1. **PMOVE of CRP/SRP from memory read the low long at EA + 2** on
+           the 32-bit port (EA + 5 on an 8-bit one) - the ROM's own
+           `_SwapMMUMode` form, `PMOVE (A0),CRP`, so the walk started at a
+           wrong root. Not the ALU (the suspicion here before): the
+           kernel's BUG #390 line in `pmove_mem_to_mmu_hi` set the low
+           long's address to `addr + 2`, the 16-bit shape's last beat
+           (EA + 2) plus 2. Now `addr + beat_step`, 1.15 item 4's rule, as
+           3.8 item 23 did for MOVEM. `sim/kernel_bus` gains PMOVE of CRP
+           and SRP both ways in every control alterable mode ((An),
+           misaligned by 2, (d16,An), (d8,An,Xn), (xxx).W, (xxx).L -
+           (An)+ and -(An) are the F-line, which the kernel already did):
+           before the fix ports 32 and 8 failed at the first low long,
+           after it port 16 338 checks, 32 237, 8 520, all PASS. The
+           writes to memory were already right.
+        2. **The wrapper started a walker cycle on a stale request.** The
+           walker's `mem_req` is registered and drops at the edge that
+           takes `w_ack`, so the clk after an acknowledge `tg68k.v`
+           started a cycle at the walker's old address and R/W (the next
+           access's address arriving mid-cycle): B[0] was read as A[0]'s
+           data and A[0]'s U-bit write landed on B[0]. The kernel's side
+           had this guard already (`ecs` waits out `ack_pending`); the
+           walker is now not selected while `w_ack` is high.
+        3. **A write to an invalid page reached memory before its fault.**
+           The wrapper parked the kernel's cycle while the PMMU was busy
+           but not once the translation had faulted, so the access went out
+           at the untranslated address, then the fault dispatched; the
+           kernel gates its own strobes on `pmmu_fault` (`nUDS`/`nLDS`),
+           which this bus does not use. The 68030 runs no cycle for an
+           invalid page; `park` now includes `k_pmmu_fault`. Under VM this
+           is a write to whatever the logical address names physically.
+        `PROG=mmu` is the test of 2 and 3, no dialog faulting: b5d's
+        tables, a three-level walk with its U-bit writes, an FPU
+        instruction fetched translated, a plain MOVE reading page 5 and one
+        writing page 4, each faulted and re-run, the handler turning
+        translation off to read physical $4000 (still $A5A5A5A5 at the
+        write's fault). 11 checks PASS; without 2 it double-faults in the
+        walk, without 3 physical $4000 holds the new data. Items 1-3 are
+        in every board build so far; whether the boot's own walks meet 2
+        (two walker accesses back to back, e.g. a descriptor read and its
+        U-bit write) is not established - 32-bit mode and VM certainly
+        would.
+      - B5c's PMMU term goes in next and b5d is its test: it now walks,
+        runs FMOVE.L #1 and faults on the FADD's operand at $5000, then
+        takes the protocol violation (vector 13) - the missing term. A
         page fault in a dialog is `pmmu_fault` force-releasing the beat,
         with no `berr`. `cp_bf_now` takes the kernel's make_berr condition
         for it, and the first-fire restart arming (`mmu_restart_pending`,

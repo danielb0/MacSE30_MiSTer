@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|b5a|b5b|b5c|b5d|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|b5a|b5b|b5c|b5d|mmu|full]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -98,8 +98,14 @@ reads and writes, FMOVEM, an extension word's fetch, an FSAVE frame's
 write, an FRESTORE frame's read); each long frame's fields are filed and
 the RTE goes on from the fault - FADD's sum right, not re-executed.
 
-b5d (the same under the PMMU: page faults) - blocked by the kernel's
-PMOVE to CRP on a 32-bit port (plan 8.9.4 B5c).
+b5d (the same under the PMMU: page faults) - fails until B5c's PMMU
+term is in (plan 8.9.4): the page fault inside FADD's dialog takes the
+protocol violation.
+
+mmu (the PMMU through the wrapper) - b5d's tables and walk, an FPU
+instruction fetched translated, and page faults on a plain MOVE's read
+and write, re-run by the handler; the write must not reach memory before
+its fault.
 
 full: the program the bench must run once stage B is whole (operand
 transfers, FMOVEM, FSAVE/FRESTORE).
@@ -664,11 +670,9 @@ elif MODE == 'b5d':
     # descriptors (TIA 4, TIB 8, TIC 8), pages 4 and 5 invalid; an FADD
     # reads its operand from page 5, an FMOVE.X stores to page 4; the
     # handler makes the faulted page valid (from the frame's fault address),
-    # PFLUSHAs and returns; the dialog goes on from the fault.  BLOCKED
-    # (2026-09-30): the kernel's PMOVE to CRP reads the low long at EA+2 on
-    # this 32-bit port, so the walk starts at a wrong root and the CPU
-    # double-faults before the first FPU instruction - a PMOVE fix first,
-    # then the PMMU fault term for cp_bf_now (plan 8.9.4 B5c)
+    # PFLUSHAs and returns; the dialog goes on from the fault.  Its PMOVE
+    # and walk blockers are fixed (plan 8.9.4 B5c); it fails until the PMMU
+    # fault term is in cp_bf_now
     a = Asm(0x1000)
     a.emit(0x41F8, 0x6F00)                    # lea $6F00.w,a0
     a.emit(0xF010, 0x4C00)                    # pmove.q (a0),crp     (as the ROM's _SwapMMUMode)
@@ -725,6 +729,71 @@ elif MODE == 'b5d':
         (0x3024, 0x00005000, 0xFFFFFFFF),     # ... the FADD's operand
         (0x3030, 0xB0080000, 0xFFFF0000),
         (0x3034, 0x00004000, 0xFFFFFFFF),     # ... the store
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'mmu':
+    # the PMMU through the wrapper, no dialog faulting: b5d's tables and
+    # pages 4 and 5 invalid; a walk of three levels with its U-bit writes,
+    # an FPU instruction fetched translated, then a plain MOVE reading page
+    # 5 and one writing page 4 - each a page fault that the handler makes
+    # valid, the access re-run.  The handler turns translation off to read
+    # physical $4000: the write must not have reached memory before its
+    # fault (the 68030 runs no bus cycle for an invalid page).
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x6F00)                    # lea $6F00.w,a0
+    a.emit(0xF010, 0x4C00)                    # pmove.q (a0),crp
+    a.emit(0xF028, 0x4000, 0x0008)            # pmove.l 8(a0),tc     translation on
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0xF200, 0x6000)                    # fmove.l fp0,d0
+    a.emit(0x21C0, 0x3000)                    # move.l d0,$3000.w
+    a.emit(0x2238, 0x5000)                    # move.l $5000.w,d1    page 5: faults
+    a.emit(0x21C1, 0x3004)                    # move.l d1,$3004.w
+    a.emit(movel_abs(0xC0DE0004, 0x4000))     # move.l #..,$4000.w   page 4: faults
+    a.emit(0x2438, 0x4000)                    # move.l $4000.w,d2
+    a.emit(0x21C2, 0x3008)                    # move.l d2,$3008.w
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    p = a.done()
+    put(0x1000, p)
+    put(0x4000, L(0xA5A5A5A5))
+    put(0x5000, L(0x12345678))
+    put(0x6F00, L(0x00000002) + L(0x00006000))           # CRP: short table descriptors at $6000
+    put(0x6F08, L(0x80C04880))                           # TC: E, PS 12, IS 0, TIA 4, TIB 8, TIC 8
+    put(0x6F0C, L(0x00C04880))                           # ... and with E clear
+    put(0x6000, L(0x00006040 | 2))                       # A[0] -> B
+    put(0x6040, L(0x00006800 | 2))                       # B[0] -> C
+    for n in range(32):
+        if n not in (4, 5):
+            put(0x6800 + 4 * n, L((n << 12) | 1))        # C[n]: page n, valid
+    put(4 * 2, L(0x2400))
+    put(0x2400, [0x2E38, 0x3010, 0xE98F,      # move.l $3010.w,d7; lsl.l #4,d7
+                 0x4DF8, 0x3020, 0xDDC7,      # lea $3020.w,a6; adda.l d7,a6
+                 0x3CAF, 0x0006,              # move.w 6(a7),(a6)
+                 0x2D6F, 0x0010, 0x0004,      # move.l $10(a7),4(a6)   the fault address
+                 0xF038, 0x4000, 0x6F0C,      # pmove.l $6F0C.w,tc     translation off
+                 0x2D78, 0x4000, 0x0008,      # move.l $4000.w,8(a6)   physical $4000
+                 0xF038, 0x4000, 0x6F08,      # pmove.l $6F08.w,tc     and on
+                 0x2C2F, 0x0010,              # move.l $10(a7),d6
+                 0x2A06,                      # move.l d6,d5
+                 0x0285, 0xFFFF, 0xF000,      # andi.l #$FFFFF000,d5
+                 0x5285,                      # addq.l #1,d5        a valid page descriptor
+                 0xE08E, 0xE48E,              # lsr.l #8,d6; lsr.l #2,d6
+                 0x0206, 0x00FC,              # andi.b #$FC,d6      its entry's offset
+                 0x4BF8, 0x6800,              # lea $6800.w,a5
+                 0x2B85, 0x6000,              # move.l d5,(0,a5,d6.w)
+                 0xF000, 0x2400,              # pflusha
+                 0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x4E73])                     # rte
+    expect = [
+        (0x3000, 0x00000001, 0xFFFFFFFF),     # the FPU, fetched translated
+        (0x3004, 0x12345678, 0xFFFFFFFF),     # page 5 read, re-run
+        (0x3008, 0xC0DE0004, 0xFFFFFFFF),     # page 4 written, re-run
+        (0x3010, 0x00000002, 0xFFFFFFFF),     # two page faults
+        (0x3020, 0xB0080000, 0xFFFF0000),     # ... long frames, vector 2
+        (0x3024, 0x00005000, 0xFFFFFFFF),
+        (0x3030, 0x00080000, 0x0FFF0000),     # ... vector 2 (the MOVE's last access: short
+        (0x3034, 0x00004000, 0xFFFFFFFF),     #     frame or long, 030 UM 8.1.2)
+        (0x3038, 0xA5A5A5A5, 0xFFFFFFFF),     # ... and physical $4000 not yet written
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 elif MODE == 'b4':

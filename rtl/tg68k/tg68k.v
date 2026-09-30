@@ -18,10 +18,10 @@
 //   takes the exception (plan 1.4 item 4, the IIvi's contract).
 //
 //   The PMMU (inside the kernel) is served as plan 1.4 says: the kernel's
-//   cycle does not start while a translation is pending or a table walk is
-//   in progress (the address is not physical yet), and the kernel does not
-//   advance then either, except to dispatch a fault - a force-released
-//   beat with beat_valid low.  The walker's descriptor reads and writes
+//   cycle does not start while a translation is pending, a table walk is
+//   in progress (the address is not physical yet) or the translation has
+//   faulted, and the kernel does not advance then either, except to
+//   dispatch a fault - a force-released beat with beat_valid low.  The walker's descriptor reads and writes
 //   are the wrapper's own long cycles at the physical address, FC = 5,
 //   in the beats the port needs.
 //
@@ -116,9 +116,19 @@ module tg68k (
   reg         walk;                    // a walker cycle is in progress (a long, in beats)
   reg   [2:0] walk_done;               // bytes of the walker's long moved so far
   reg  [31:0] walk_buf;
+  // The walker's request is registered and drops only at the edge that
+  // takes w_ack, so for the clk w_ack is high it is the one just served:
+  // a cycle started then carried the old address and R/W (a walk's second
+  // access went out at the first's address, corrupting the table - sim/
+  // cpfpu mmu, b5d).  Not the walker's that clk, and parked, as ecs waits
+  // out ack_pending below.  A translation that has faulted (an invalid
+  // descriptor) parks the kernel's cycle too: the 68030 runs no bus cycle
+  // to an invalid page, it takes the bus error (k_force) - the kernel
+  // gates its own strobes so (nUDS/nLDS), which this bus does not use,
+  // and a write to an invalid page reached memory before its fault.
   wire        k_req  = (k_busstate != 2'b01);
-  wire        park   = k_pmmu_busy || w_req;
-  wire        wsel   = walk || w_req;                  // the bus is the walker's
+  wire        park   = k_pmmu_busy || k_pmmu_fault || w_req;
+  wire        wsel   = walk || (w_req && !w_ack);      // the bus is the walker's
   wire        eff_req  = wsel || (k_req && !park);
   wire [31:0] eff_addr = wsel ? {w_addr[31:2], walk_done[1:0]} : k_addr;
   wire        eff_rw   = wsel ? !w_we : k_nwr;
