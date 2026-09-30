@@ -857,6 +857,14 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_xn        : std_logic_vector(31 downto 0);  -- a brief extension's index, sized and scaled
 	signal cp_ea_ok     : std_logic;                      -- the EA is in the primitive's class
 	signal cp_pv        : std_logic;                      -- the primitive is a protocol violation here
+	-- B4, cpSAVE and cpRESTORE (030 UM 10.2.3): no primitives - cp_prim
+	-- holds the format word the save or restore CIR answers, cp_data the
+	-- memory copy a restore wrote; the frame moves a long at a time
+	-- through the B2 transfer loop, a save's from the highest long down.
+	signal cp_ss        : std_logic;                      -- the instruction is cpSAVE or cpRESTORE
+	signal cp_frcp      : std_logic;                      -- the transfer runs from the coprocessor to memory
+	signal cp_badlen    : std_logic;                      -- the counting format word's length is not a multiple of 4
+	signal trap_cpfmt   : bit;                            -- decode: a format error (vector 14)
 	signal pmmu_ea_mode_latched  : std_logic_vector(5 downto 0);  -- BUG #302: Latch EA mode+reg bits
 	-- Helper signals: use latched values when F-line context valid
 	signal pmmu_brief          : std_logic_vector(15 downto 0);
@@ -3359,6 +3367,17 @@ PROCESS (clk)
 	            "01" WHEN cp_len(1) = '1' ELSE "00";
 	cp_psize0 <= "10" WHEN cp_prim(7 downto 2) /= "000000" ELSE
 	             "01" WHEN cp_prim(1) = '1' ELSE "00";
+	-- B4: cpSAVE (100) and cpRESTORE (101); a save moves the frame to
+	-- memory, a restore from it, whatever the format word's bits
+	cp_ss    <= '1' WHEN fline_opcode_latch(8 downto 7) = "10" ELSE '0';
+	cp_frcp  <= NOT fline_opcode_latch(6) WHEN cp_ss = '1' ELSE cp_prim(13);
+	-- the format word whose length counts the frame - the save CIR's, or
+	-- the copy a restore read from memory (UM Fig. 10-18 note 2) - is
+	-- valid ($10-$FF) with a length not a multiple of four (10.2.3.2.4)
+	cp_badlen <= '1' WHEN (fline_opcode_latch(6) = '0' AND cp_prim(15 downto 12) /= "0000" AND
+	                       cp_prim(1 downto 0) /= "00") OR
+	                      (fline_opcode_latch(6) = '1' AND cp_data(31 downto 28) /= "0000" AND
+	                       cp_data(17 downto 16) /= "00") ELSE '0';
 
 	-- a brief extension word's index: Xn.W sign-extended or Xn.L, scaled
 	PROCESS (cp_w, regfile)
@@ -3484,15 +3503,39 @@ PROCESS (clk)
 				cp_trap_pc <= '0';
 			ELSIF clkena_lw = '1' THEN
 				cp_cir <= cp_cir_next;
-				IF micro_state = cp_rspw AND beat_valid = '1' THEN
-					cp_prim <= data_read(15 downto 0);
+				IF (micro_state = cp_rspw OR micro_state = cp_fmtw) AND beat_valid = '1' THEN
+					cp_prim <= data_read(15 downto 0);     -- (B4: the save or restore CIR's format word)
 					cp_pcdone <= '0';
 				END IF;
 				IF micro_state = cp_pcw THEN
 					cp_pcdone <= '1';
 				END IF;
 				-- B2: the operand's address, count and data
-				IF micro_state = cp_eat THEN
+				IF micro_state = cp_eat AND cp_ss = '1' THEN
+					-- B4: a save's count is its format word's length, none
+					-- for the empty frame ($00); -(An) goes down by the whole
+					-- frame, format word included, before the frame is
+					-- written (881UM 6.4.3).  The first extension word came
+					-- with the operation word, at the address after it.
+					cp_half <= '0';
+					cp_mm <= '0';
+					cp_w <= pmmu_brief;
+					cp_pcbase <= fline_opcode_pc;
+					IF cp_prim(15 downto 12) = "0000" THEN
+						cp_len <= x"00";
+					ELSE
+						cp_len <= cp_prim(7 downto 0);
+					END IF;
+					IF fline_opcode_latch(5 downto 3) = "100" THEN
+						IF cp_prim(15 downto 12) = "0000" THEN
+							cp_ea <= cp_an - 4;
+						ELSE
+							cp_ea <= cp_an - 4 - cp_prim(7 downto 0);
+						END IF;
+					ELSE
+						cp_ea <= cp_an;
+					END IF;
+				ELSIF micro_state = cp_eat THEN
 					cp_len <= cp_prim(7 downto 0);
 					cp_half <= '0';
 					cp_pcbase <= TG68_PC;
@@ -3515,6 +3558,25 @@ PROCESS (clk)
 						cp_anew <= cp_an + 2;
 					ELSE
 						cp_anew <= cp_an + cp_prim(7 downto 0);
+					END IF;
+				END IF;
+				-- B4: a save's frame from its last long down, after the
+				-- format word; a restore's from the long after the format
+				-- word up, its count and (An)+'s final An from the memory
+				-- copy (the empty frame: four bytes)
+				IF micro_state = cp_sfw THEN
+					cp_ea <= cp_ea + cp_len;
+				END IF;
+				IF micro_state = cp_rfr AND beat_valid = '1' THEN
+					cp_data <= data_read;
+				END IF;
+				IF micro_state = cp_rfww THEN
+					cp_ea <= cp_ea + 4;
+					cp_len <= cp_data(23 downto 16);
+					IF cp_data(31 downto 28) = "0000" THEN
+						cp_anew <= cp_ea + 4;
+					ELSE
+						cp_anew <= cp_ea + 4 + cp_data(23 downto 16);
 					END IF;
 				END IF;
 				IF micro_state = cp_extw AND beat_valid = '1' THEN
@@ -3542,7 +3604,11 @@ PROCESS (clk)
 					cp_data <= data_read;
 				END IF;
 				IF micro_state = cp_oww OR micro_state = cp_mww THEN
-					cp_ea <= cp_ea + cp_part;
+					IF cp_ss = '1' AND cp_frcp = '1' THEN
+						cp_ea <= cp_ea - 4;                -- a save's frame: downward (B4)
+					ELSE
+						cp_ea <= cp_ea + cp_part;
+					END IF;
 					cp_len <= cp_len - cp_part;
 				END IF;
 				IF micro_state = cp_rdreg THEN
@@ -3655,7 +3721,9 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 				IF trap_1111='1' THEN
 					trap_vector(9 downto 0) <= "00" & X"2C";
 				END IF;
-				IF trap_cp='1' THEN
+				IF trap_cp='1' AND trap_cpfmt='1' THEN
+					trap_vector(9 downto 0) <= "00" & X"38";                 -- cpSAVE/cpRESTORE's format error (B4)
+				ELSIF trap_cp='1' THEN
 					trap_vector(9 downto 0) <= cp_prim(7 downto 0) & "00";   -- the primitive's vector (7d)
 				END IF;
 				IF trap_trap='1' AND trap_trace='0' THEN
@@ -5918,7 +5986,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 			 moves_writeback_pending, moves_active, pmmu_opcode, pmmu_brief, rte_format_word, rte_format_b_version_error,
 			 rte_fmt_a_replay_needed, rte_fmt_a_replay_size, mmu_restart_active,
 			 cp_prim, cp_pcdone, opcode_pc, fline_opcode_latch, fline_context_valid, clkena_lw,
-			 cp_ea_ok, cp_pv, cp_len, cp_part, cp_psize, cp_psize0, cp_data, cp_half, cp_mm, cp_mmcnt, regfile)
+			 cp_ea_ok, cp_pv, cp_len, cp_part, cp_psize, cp_psize0, cp_data, cp_half, cp_mm, cp_mmcnt, regfile,
+			 cp_ss, cp_frcp, cp_badlen)
 	variable v_rte_format_valid : std_logic;
 	BEGIN
 		TG68_PC_brw <= '0';
@@ -5965,6 +6034,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 		trap_1010 <='0';
 		trap_1111 <='0';
 		trap_cp <= '0';
+		trap_cpfmt <= '0';
 		cp_cir_next <= '0';
 		cp_cir_off <= "00000";
 		cp_wdata <= (others => '0');
@@ -7930,6 +8000,24 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							trap_priv <= '1';
 							trapmake <= '1';
 						ELSIF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="011" AND
+						      (opcode(5 downto 3)/="111" OR opcode(2 downto 1)="00") AND
+						      opcode(11 downto 9)="001" THEN
+							-- The MC68882's (7d stage B4): the word after the
+							-- operation word - the first extension word, or the
+							-- next instruction's if there is none - is fetched and
+							-- latched as cpGEN's is, then the dialog (cp_decode).
+							IF decodeOPC='1' THEN
+								IF clkena_lw='0' THEN
+									set(get_2ndOPC) <= '1';
+									setstate <= "00";
+								ELSE
+									set(get_2ndOPC) <= '1';
+									setstate <= "01";
+									getbrief <= '1';
+									next_micro_state <= cp_decode;
+								END IF;
+							END IF;
+						ELSIF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="011" AND
 						      (opcode(5 downto 3)/="111" OR opcode(2 downto 1)="00") THEN
 							-- No external coprocessor: supervisor cpSAVE is F-line.
 							trap_1111 <= '1';
@@ -7949,6 +8037,21 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						IF SVmode='0' THEN
 							trap_priv <= '1';
 							trapmake <= '1';
+						ELSIF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="100" AND
+						      (opcode(5 downto 3)/="111" OR opcode(2)='0') AND
+						      opcode(11 downto 9)="001" THEN
+							-- The MC68882's (B4), as cpSAVE's above
+							IF decodeOPC='1' THEN
+								IF clkena_lw='0' THEN
+									set(get_2ndOPC) <= '1';
+									setstate <= "00";
+								ELSE
+									set(get_2ndOPC) <= '1';
+									setstate <= "01";
+									getbrief <= '1';
+									next_micro_state <= cp_decode;
+								END IF;
+							END IF;
 						ELSIF opcode(5 downto 4)/="00" AND opcode(5 downto 3)/="100" AND
 						      (opcode(5 downto 3)/="111" OR opcode(2)='0') THEN
 							-- No external coprocessor: supervisor cpRESTORE is F-line.
@@ -9588,6 +9691,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     setstate <= "01";
                     IF fline_context_valid = '0' THEN
                         next_micro_state <= cp_decode;
+                    ELSIF fline_opcode_latch(8 downto 6) = "100" THEN
+                        -- cpSAVE (B4; UM 10.2.3.3): the initiating access is a
+                        -- read of the save CIR ($04)
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "00100";
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "10";
+                        next_micro_state <= cp_fmtw;
+                    ELSIF fline_opcode_latch(8 downto 6) = "101" THEN
+                        -- cpRESTORE (UM 10.2.3.4): the effective address first,
+                        -- then the format word from memory
+                        next_micro_state <= cp_eat;
                     ELSE
                         -- the command word to the command CIR ($0A), or the
                         -- operation word to the condition CIR ($0E): the
@@ -9702,7 +9818,17 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     -- the operand's effective address, from the operation word's
                     -- EA field; cp_ea, cp_len and the rest are set at this edge
                     setstate <= "01";
-                    IF cp_ea_ok = '0' THEN
+                    IF cp_ss = '1' THEN
+                        -- cpSAVE/cpRESTORE (B4): the EA's class was checked at
+                        -- decode; the first extension word is cp_w already
+                        IF fline_opcode_latch(5 downto 3) = "100" THEN
+                            next_micro_state <= cp_prea;
+                        ELSIF fline_opcode_latch(5 downto 3) = "010" OR fline_opcode_latch(5 downto 3) = "011" THEN
+                            next_micro_state <= cp_ssea;
+                        ELSE
+                            next_micro_state <= cp_ea1;
+                        END IF;
+                    ELSIF cp_ea_ok = '0' THEN
                         -- not in the primitive's class: AB ($0001 to the
                         -- control CIR), then the F-line, frame $0 (5.7 F1, 5.14)
                         cp_cir_next <= '1';
@@ -9762,7 +9888,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     -- -(An): An takes the decremented address before the
                     -- transfer (5.7 step 1)
                     setstate <= "01";
-                    next_micro_state <= cp_xfr;
+                    IF cp_ss = '1' THEN
+                        next_micro_state <= cp_ssea;     -- a save's frame (B4)
+                    ELSE
+                        next_micro_state <= cp_xfr;
+                    END IF;
 
                 WHEN cp_extw =>
                     -- the extension word in flight; cp_w takes it
@@ -9779,9 +9909,22 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     ELSIF (fline_opcode_latch(5 downto 3) = "110" OR fline_opcode_latch(5 downto 0) = "111011") AND
                           cp_w(8) = '1' THEN
                         -- the full extension format (bd, od, memory indirect):
-                        -- not carried yet - the F-line
-                        trap_1111 <= '1';
-                        trapmake <= '1';
+                        -- not carried yet - the F-line (a save the chip has
+                        -- begun is ended first with AB)
+                        IF cp_ss = '1' AND fline_opcode_latch(6) = '0' THEN
+                            cp_cir_next <= '1';
+                            cp_cir_off <= "00010";
+                            cp_wdata <= x"00000001";
+                            datatype <= "01";
+                            set_datatype <= "01";
+                            setstate <= "11";
+                            next_micro_state <= cp_abf;
+                        ELSE
+                            trap_1111 <= '1';
+                            trapmake <= '1';
+                        END IF;
+                    ELSIF cp_ss = '1' THEN
+                        next_micro_state <= cp_ssea;
                     ELSIF cp_prim(12 downto 8) = "00001" THEN
                         next_micro_state <= cp_rsel;
                     ELSE
@@ -9791,7 +9934,9 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                 WHEN cp_extw2 =>
                     -- (xxx).L's second word in flight; cp_ea takes both
                     setstate <= "01";
-                    IF cp_prim(12 downto 8) = "00001" THEN
+                    IF cp_ss = '1' THEN
+                        next_micro_state <= cp_ssea;
+                    ELSIF cp_prim(12 downto 8) = "00001" THEN
                         next_micro_state <= cp_rsel;
                     ELSE
                         next_micro_state <= cp_xfr;
@@ -9806,7 +9951,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         -- immediate: the data from the instruction stream
                         setstate <= "00";
                         next_micro_state <= cp_imw;
-                    ELSIF cp_prim(13) = '0' THEN
+                    ELSIF cp_frcp = '0' THEN
                         -- memory to the coprocessor: read the part
                         cp_mem_next <= '1';
                         datatype <= cp_psize;
@@ -9907,6 +10052,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     setstate <= "01";
                     IF cp_mm = '1' AND cp_mmcnt /= "0000" THEN
                         next_micro_state <= cp_mmreg;
+                    ELSIF cp_ss = '1' AND (fline_opcode_latch(5 downto 4) = "01" OR
+                                           fline_opcode_latch(5 downto 3) = "100") THEN
+                        -- cpSAVE/cpRESTORE through (An), (An)+ or -(An) (B4):
+                        -- the word fetched after the operation word was the
+                        -- next instruction's - the PC back to it (cp_bcc)
+                        next_micro_state <= cp_bcc;
+                    ELSIF cp_ss = '1' THEN
+                        next_micro_state <= cp_done;
                     ELSIF cp_prim(15) = '1' THEN
                         cp_cir_next <= '1';
                         cp_cir_off <= "00000";
@@ -9931,10 +10084,13 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 
                 WHEN cp_bcc =>
                     -- cpBcc.W taken (4.2): PC := the displacement word's
-                    -- address + the displacement
+                    -- address + the displacement; cpSAVE/cpRESTORE with no
+                    -- extension word: PC := that word's address (B4)
                     cp_br_sel <= '1';
-                    cp_br_disp(31 downto 16) <= (others => pmmu_brief(15));
-                    cp_br_disp(15 downto 0) <= pmmu_brief;
+                    IF cp_ss = '0' THEN
+                        cp_br_disp(31 downto 16) <= (others => pmmu_brief(15));
+                        cp_br_disp(15 downto 0) <= pmmu_brief;
+                    END IF;
                     skipFetch <= '1';
                     TG68_PC_brw <= '1';
                     setstate <= "00";
@@ -9948,6 +10104,106 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     -- word this instruction consumed.
                     setstate <= "00";
                     next_micro_state <= nop;
+
+                -- ------------------------------------------------------------
+                -- cpSAVE and cpRESTORE (7d stage B4; UM 10.2.3, Figs. 10-16
+                -- and 10-18; docs/cp030_mpu_protocol.md section 8).  No
+                -- primitives: the save or restore CIR answers with a format
+                -- word (cp_prim), and the frame moves through the B2
+                -- transfer loop a long at a time - a save's from the operand
+                -- CIR to memory from its last long down, a restore's from
+                -- memory to the operand CIR from its first long up.
+                WHEN cp_fmtw =>
+                    -- the save or restore CIR read in flight; cp_prim takes it
+                    setstate <= "01";
+                    next_micro_state <= cp_fmt;
+
+                WHEN cp_fmt =>
+                    setstate <= "01";
+                    IF cp_prim(15 downto 8) = x"01" THEN
+                        -- not ready, come again: read the same CIR again.  A
+                        -- save services pending interrupts first (10.2.3.2.2;
+                        -- B3's), a restore does not.
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "001" & fline_opcode_latch(6) & '0';
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "10";
+                        next_micro_state <= cp_fmtw;
+                    ELSIF (cp_prim(15 downto 12) = "0000" AND cp_prim(11 downto 8) /= "0000") OR cp_badlen = '1' THEN
+                        -- invalid ($02) or reserved ($03-$0F) - or valid with
+                        -- a length that is not a multiple of four, checked
+                        -- only now for a restore (10.5.2.7): AB ($0001 to
+                        -- the control CIR), then the format error
+                        cp_cir_next <= '1';
+                        cp_cir_off <= "00010";
+                        cp_wdata <= x"00000001";
+                        datatype <= "01";
+                        set_datatype <= "01";
+                        setstate <= "11";
+                        next_micro_state <= cp_ferr;
+                    ELSIF fline_opcode_latch(6) = '0' THEN
+                        next_micro_state <= cp_eat;      -- a save: the EA, then the frame
+                    ELSIF cp_prim(15 downto 8) = x"00" THEN
+                        next_micro_state <= cp_fin;      -- a restore of the empty frame: done
+                    ELSE
+                        next_micro_state <= cp_xfr;      -- a restore: the frame, as many bytes as memory's copy says
+                    END IF;
+
+                WHEN cp_ferr =>
+                    -- the abort in flight: the format error, vector 14, frame
+                    -- $0 at the operation word - an RTE restarts the
+                    -- instruction (10.5.2.7)
+                    trap_cp <= '1';
+                    trap_cpfmt <= '1';
+                    trapmake <= '1';
+
+                WHEN cp_ssea =>
+                    -- the effective address is cp_ea: a save writes the
+                    -- format word there - the whole first long, its reserved
+                    -- word 0 (Fig. 10-14) - and a restore reads it
+                    cp_mem_next <= '1';
+                    datatype <= "10";
+                    set_datatype <= "10";
+                    IF fline_opcode_latch(6) = '0' THEN
+                        cp_wdata <= cp_prim & x"0000";
+                        setstate <= "11";
+                        next_micro_state <= cp_sfw;
+                    ELSE
+                        setstate <= "10";
+                        next_micro_state <= cp_rfr;
+                    END IF;
+
+                WHEN cp_sfw =>
+                    -- the format word in flight; cp_ea moves to the frame's
+                    -- last long, then the transfer loop
+                    setstate <= "01";
+                    next_micro_state <= cp_xfr;
+
+                WHEN cp_rfr =>
+                    -- the format word's read in flight; cp_data takes it
+                    setstate <= "01";
+                    next_micro_state <= cp_rfw;
+
+                WHEN cp_rfw =>
+                    -- the format word to the restore CIR ($06): the
+                    -- initiating access
+                    cp_cir_next <= '1';
+                    cp_cir_off <= "00110";
+                    cp_wdata <= x"0000" & cp_data(31 downto 16);
+                    datatype <= "01";
+                    set_datatype <= "01";
+                    setstate <= "11";
+                    next_micro_state <= cp_rfww;
+
+                WHEN cp_rfww =>
+                    -- the write in flight; then read the restore CIR back
+                    cp_cir_next <= '1';
+                    cp_cir_off <= "00110";
+                    datatype <= "01";
+                    set_datatype <= "01";
+                    setstate <= "10";
+                    next_micro_state <= cp_fmtw;
 
                 WHEN pmove_decode =>		-- PMMU instruction dispatch based on extension word
                     setstate <= "01";       -- Suppress fetch during dispatch (PC already at +4)

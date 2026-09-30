@@ -10656,8 +10656,81 @@ the same way.
     `PROG=b1` still passes. The gate is unchanged.
 - **B3**: frame $9 and its RTE, take mid-instruction, protocol
   violations, the interrupt points; cpScc, cpDBcc, cpTRAPcc, cpBcc.L.
-- **B4**: cpSAVE and cpRESTORE. **B5**: a bus error inside a dialog, and
-  trace.
+- **B4** (built 2026-09-30): cpSAVE and cpRESTORE (030 UM 10.2.3,
+  Figs. 10-16 and 10-18; 881UM 6.4.3-6.4.4; `docs/cp030_mpu_protocol.md`
+  section 8).
+  - **Decode:** CpID 1, supervisor, and an EA in the instruction's class
+    (cpSAVE: control alterable or -(An); cpRESTORE: control or (An)+) take
+    cpGEN's path - the word after the operation word is fetched and latched
+    - into `cp_decode`. The privilege check comes first, as before; any
+    other EA, and every other CpID, still takes the F-line at decode.
+  - **The extra word:** that word is the first extension word when the EA
+    has one, so it becomes `cp_w` and is not fetched again; PC-relative
+    modes take their base from its address (`fline_opcode_pc`). With no
+    extension word - (An), (An)+, -(An) - it is the next instruction's
+    first word. The instruction then ends through `cp_bcc` with a zero
+    displacement: the PC goes back to that word, and the fetch starts
+    again from it.
+  - **cpSAVE:** it reads the save CIR ($04). If the answer is $01 (come
+    again), it reads again; servicing pending interrupts first is B3's.
+    $02-$0F, or a valid code whose length is not a multiple of four, gets
+    AB and then the format error. Otherwise the EA is evaluated: -(An)
+    drops by 4 + length (4 for the empty frame) and An is written before
+    the frame, as 881UM 6.4.3 says. The format word is written at the EA,
+    and then `length / 4` longs are read from the operand CIR and written
+    from EA + length down to EA + 4.
+  - **cpRESTORE:** the EA is evaluated and the format long is read from
+    it. Its word goes to the restore CIR ($06), which is then read back;
+    $01 means read again, with no interrupt service (10.2.3.2.2). A
+    returned $02-$0F, or a valid memory copy whose length is not a multiple
+    of four (checked after the read-back, 10.5.2.7), gets AB and then the
+    format error. A returned $00 ends the instruction. Otherwise the memory
+    copy's length (Fig. 10-18 note 2) is moved as longs from EA + 4 upward
+    to the operand CIR. (An) + gets 4 + length only after the whole frame.
+  - **The frame** moves through B2's transfer loop (`cp_xfr`); `cp_frcp`
+    gives the direction, and a save's address steps down by 4.
+  - **The format error:** vector 14 with frame $0 at the operation word,
+    so an RTE restarts the instruction. It is `trap_cp` with
+    `trap_cpfmt`. The RTE format error's own path (`trap_format_error`)
+    is not used.
+  - **Readings where the manuals are silent** (protocol doc 8.2, 8.4):
+    - The format word is stored and fetched as the whole first long, with
+      the reserved word written 0. Fig. 10-14 draws the frame as longwords.
+    - FRESTORE (An)+ of the empty frame adds 4, the frame's size.
+    - A cpSAVE whose EA is in the full extension format (not carried yet,
+      as in B2) writes AB before the F-line, because the chip has already
+      begun the save.
+  - **Test:** `sim/cpfpu` `PROG=b4` passes 24 checks, 115 CIR cycles. It
+    runs:
+    - the reset phase's null frame through (An): $0038, reserved word 0,
+      and the next long untouched;
+    - an FDIV by zero with DZ enabled, saved through -(An): 60 bytes, the
+      command image $0420 first after the format word, EXC_PEND active at
+      +$38. The FNOP after it takes nothing;
+    - an idle frame through (d16,An);
+    - FRESTORE (An)+ bringing the exception back, taken by the next FNOP
+      (vector 50, frame $0 at the FNOP). The handler resets the chip with a
+      null frame through (xxx).W;
+    - FRESTORE through (d8,An,Xn), then an FSAVE of what it restored
+      (idle);
+    - an invalid format word through (An)+: the format error, at the
+      FRESTORE, with An not moved;
+    - a null FRESTORE through (d16,PC), then null FSAVEs through (xxx).W
+      and (xxx).L.
+
+    **`PROG=full` now passes whole** (15 checks, 140 CIR cycles), and
+    `b1` and `b2` still pass. It failed first, as it must: the F-line at
+    the first FSAVE with no CIR cycle. A test-layout slip on the first run
+    (null frames placed inside the 60 bytes of an idle frame) was the
+    bench's, not the kernel's.
+  - **Seen in passing:** the chip's idle frames carry X in simulation at
+    longwords 5 and 6. These are CU registers that only mean something
+    mid-instruction (`n_long`, `i_long`, `st_ca0`, `st_special`,
+    `mm_mask`, `take_prim`) and have no reset. They are harmless: the
+    FPGA powers them up at 0 and the next command loads them. Giving them
+    a reset would make every frame deterministic under simulation; that
+    is 7c's code, left for Daniel.
+- **B5**: a bus error inside a dialog, and trace.
 
 ### 8.9.5 The first synthesis (item 8, begun 2026-09-30)
 

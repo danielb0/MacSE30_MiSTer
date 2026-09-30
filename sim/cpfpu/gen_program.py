@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|full]
+    python gen_program.py [b1|b2|b4|full]
 
 Both programs: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -49,6 +49,19 @@ word immediates, a byte into Dn (the low byte only), a dynamic FMOVEM
 list, FMOVEM of the three control registers to memory, packed decimal
 with a static and a dynamic k-factor (transfer single register), and an
 An destination outside the primitive's class (AB, then the F-line).
+
+b4 (stage B4: cpSAVE and cpRESTORE) - the reset phase's null frame
+through (An) (the reserved word written 0, the next long untouched); an
+FDIV by zero with DZ enabled, its pending exception saved in an idle frame
+through -(An) (60 bytes, the command image at +4, EXC_PEND active at
++$38), the chip then idle with nothing pending (an FNOP takes nothing);
+an idle frame through (d16,An); FRESTORE (An)+ reinstating the exception,
+taken by the next FNOP (vector 50, frame $0 at the FNOP - the handler
+resets the chip with FRESTORE of a null frame through (xxx).W); FRESTORE
+through (d8,An,Xn) and an FSAVE of what it restored; an invalid format
+word through (An)+ - the format error (vector 14, frame $0 at the
+FRESTORE, An not moved); FRESTORE of a null frame through (d16,PC), then
+null frames through (xxx).W and (xxx).L.
 
 full: the program the bench must run once stage B is whole (operand
 transfers, FMOVEM, FSAVE/FRESTORE).
@@ -222,6 +235,79 @@ elif MODE == 'b2':
         (0x3184, 0x00000000, 0xFFFFFFFF),
         (0x3188, 0x00000000, 0xFFFFFFFF),
         (0x3200, 0x01FE0000, 0xFFFF0000),     # the word 300, then the byte -2 at $3201
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b4':
+    # stage B4: cpSAVE and cpRESTORE in every EA form the two allow
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x3100)                    # lea $3100.w,a0
+    a.emit(0x43F8, 0x3200)                    # lea $3200.w,a1
+    a.emit(0x45F8, 0x3180)                    # lea $3180.w,a2
+    a.emit(0x47F8, 0x3400)                    # lea $3400.w,a3
+    a.emit(0x7208)                            # moveq #8,d1
+    a.emit(0xF310)                            # fsave (a0)            reset phase: null
+    a.emit(0xF23C, 0x9000, *L(0x0400))        # fmove.l #$400,fpcr    DZ enabled
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0xF23C, 0x4080, *L(0))             # fmove.l #0,fp1
+    a.emit(0xF200, 0x0420)                    # fdiv.x fp1,fp0        DZ pending
+    a.emit(0xF323)                            # fsave -(a3)           idle, the exception in it
+    a.emit(0x21CB, 0x3004)                    # move.l a3,$3004.w
+    a.emit(0xF328, 0x0010)                    # fsave ($10,a0)        idle, nothing pending
+    a.emit(0xF280, 0x0000)                    # fnop                  takes nothing
+    a.emit(movel_abs(0x600D1, 0x3008))
+    a.emit(0xF35B)                            # frestore (a3)+        the exception back
+    a.emit(0x21CB, 0x300C)                    # move.l a3,$300C.w
+    a.label('FNOPX'); a.emit(0xF280, 0x0000)  # fnop                  takes DZ (vector 50)
+    a.emit(0xF370, 0x1008)                    # frestore (8,a0,d1.w)  the frame at $3110
+    a.emit(0xF312)                            # fsave (a2)
+    a.label('BADR'); a.emit(0xF359)           # frestore (a1)+        $1F3A: format error
+    a.emit(0x21C9, 0x3010)                    # move.l a1,$3010.w
+    a.emit(0xF37A)                            # frestore (NULLF,pc)   the displacement is
+    a.fix.append((len(a.w), 'NULLF'))         #   from its own word
+    a.emit(0)
+    a.emit(0xF338, 0x31D0)                    # fsave $31D0.w         null again (past the idle frame at $3180)
+    a.emit(0xF339, 0x0000, 0x31D8)            # fsave $000031D8.l
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    a.label('NULLF'); a.emit(*L(0))           # a null frame
+    p = a.done()
+    put(0x1000, p)
+    for s in (0x3104, 0x31D4, 0x31DC):
+        put(s, L(0xAAAAAAAA))                 # the long after each null frame
+    put(0x3200, L(0x1F3A0000))                # an invalid format word
+    # vector 50 (DZ): count, frame PC, format word; reset the chip with a
+    # null frame through (xxx).W; resume past the FNOP
+    put(4 * 50, L(0x2400))
+    put(0x2400, [0x52B8, 0x3014, 0x21EF, 0x0002, 0x3018, 0x31EF, 0x0006, 0x301C,
+                 0xF378, 0x3300,              # frestore $3300.w
+                 0x58AF, 0x0002, 0x4E73])     # addq.l #4,2(a7); rte
+    # vector 14 (format error): as vector 50's, past the one-word FRESTORE
+    put(4 * 14, L(0x2440))
+    put(0x2440, [0x52B8, 0x3020, 0x21EF, 0x0002, 0x3024, 0x31EF, 0x0006, 0x3028,
+                 0x54AF, 0x0002, 0x4E73])     # addq.l #2,2(a7); rte
+    expect = [
+        (0x3004, 0x000033C4, 0xFFFFFFFF),     # -(A3): 60 bytes below $3400
+        (0x3008, 0x000600D1, 0xFFFFFFFF),     # the FNOP after FSAVE took nothing
+        (0x300C, 0x00003400, 0xFFFFFFFF),     # (A3)+: past the 60 bytes
+        (0x3010, 0x00003200, 0xFFFFFFFF),     # (A1)+ not moved by the format error
+        (0x3014, 0x00000001, 0xFFFFFFFF),     # DZ taken once
+        (0x3018, a.lab['FNOPX'], 0xFFFFFFFF), # ... at the FNOP
+        (0x301C, 0x00C80000, 0xFFFF0000),     # ... format 0, offset $C8
+        (0x3020, 0x00000001, 0xFFFFFFFF),     # the format error once
+        (0x3024, a.lab['BADR'], 0xFFFFFFFF),  # ... at the FRESTORE
+        (0x3028, 0x00380000, 0xFFFF0000),     # ... format 0, offset $38
+        (0x3100, 0x00380000, 0xFFFFFFFF),     # the null frame, reserved word 0
+        (0x3104, 0xAAAAAAAA, 0xFFFFFFFF),     # ... and nothing after it
+        (0x3110, 0x1F380000, 0xFFFFFFFF),     # the idle frame through (d16,An)
+        (0x3148, 0x08000000, 0x08000000),     # ... nothing pending (bit 27 high)
+        (0x3180, 0x1F380000, 0xFFFFFFFF),     # FSAVE after FRESTORE of an idle frame
+        (0x31D0, 0x00380000, 0xFFFFFFFF),     # null through (xxx).W
+        (0x31D4, 0xAAAAAAAA, 0xFFFFFFFF),
+        (0x31D8, 0x00380000, 0xFFFFFFFF),     # null through (xxx).L
+        (0x31DC, 0xAAAAAAAA, 0xFFFFFFFF),
+        (0x33C4, 0x1F380000, 0xFFFFFFFF),     # the idle frame through -(An)
+        (0x33C8, 0x04200000, 0xFFFFFFFF),     # ... the command image first after it
+        (0x33FC, 0x00000000, 0x08000000),     # ... the exception pending (bit 27 low)
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 else:
