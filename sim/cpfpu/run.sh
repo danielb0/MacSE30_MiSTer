@@ -6,7 +6,7 @@
 #
 #   MODELSIM  the win32aloem bin directory
 #   PROG      the program: b1 (stage B1, the default), b2, b3a, b3b, b3c, b4,
-#             b5a, b5b
+#             b5a, b5b, b5c, b5d (blocked: plan 8.9.4 B5c)
 #             or full
 #
 # Exit status is the bench's verdict: 0 on "==== PASS".

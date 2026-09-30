@@ -44,7 +44,8 @@ package TG68K_Pack is
                           cp_rselw, cp_mmreg, cp_fin,
                           cp_fmtw, cp_fmt, cp_ferr, cp_ssea, cp_sfw, cp_rfr, cp_rfw, cp_rfww,
                           cp_cond, cp_dlw, cp_db, cp_tsk, cp_trp, cp_sccd,
-                          cp9a, cp9b, cp9c, cp_rte, cp_rtef, cp_irq);
+                          cp9a, cp9b, cp9c, cp_rte, cp_rtef, cp_irq,
+                          cp_bf, cp_rsm, cp_rsm2);
 	
 	constant opcMOVE				: integer := 0; --
 	constant opcMOVEQ				: integer := 1; --

@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|b5a|b5b|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|b5a|b5b|b5c|b5d|full]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -92,6 +92,15 @@ only once the 68882 is done (the trace handler's FSAVE finds it idle), the
 bench's IRQ taken at the FSIN's released-while-running null (IA = 1, frame
 $9); under T0 only the taken FBcc and the FDBcc's branch traced.
 
+b5c (stage B5: a bus error after the initiating access) - the bench
+bus-errors the first access to six addresses inside dialogs (operand
+reads and writes, FMOVEM, an extension word's fetch, an FSAVE frame's
+write, an FRESTORE frame's read); each long frame's fields are filed and
+the RTE goes on from the fault - FADD's sum right, not re-executed.
+
+b5d (the same under the PMMU: page faults) - blocked by the kernel's
+PMOVE to CRP on a 32-bit port (plan 8.9.4 B5c).
+
 full: the program the bench must run once stage B is whole (operand
 transfers, FMOVEM, FSAVE/FRESTORE).
 
@@ -107,6 +116,7 @@ MODE = sys.argv[1] if len(sys.argv) > 1 else 'b1'
 inject = 0                                    # the instruction whose response read the bench answers $0B00
 irq = 0                                       # 1: the bench raises VIA1's IRQ inside dialogs (b3c)
 cps = 0xFFFFFFFF                              # CPU-space cycles to IDs but 1 (and IACKs) expected; all ones: unchecked
+berrs = []                                    # data addresses whose first access the bench bus-errors (b5c)
 img = [0] * 65536
 
 
@@ -572,6 +582,151 @@ elif MODE == 'b5b':
         (0x3020, a.lab['FSN'], 0xFFFFFFFF),
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
+elif MODE == 'b5c':
+    # stage B5c: a bus error after the initiating access (UM 10.5.2.8) -
+    # the bench fails the first access to: FADD's second operand long (the
+    # sum must be 1 + 2, not an addend twice), an FMOVE.X store's third long,
+    # FMOVEM's second register through (A2)+, a second FADD's extension word
+    # (fetched inside its dialog), a long of an FSAVE's frame written and of
+    # the FRESTORE's read; the handler files each long frame's format word,
+    # SSW, fault address and PC, and returns; the dialog goes on from the
+    # fault
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x3200)                    # lea $3200.w,a0
+    a.emit(0x43F8, 0x3300)                    # lea $3300.w,a1
+    a.emit(0x45F8, 0x3400)                    # lea $3400.w,a2
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.label('FAD'); a.emit(0xF210, 0x4822)    # fadd.x (a0),fp0       $3204 faults
+    a.label('FST'); a.emit(0xF211, 0x6800)    # fmove.x fp0,(a1)      $3308 faults
+    a.label('FMM'); a.emit(0xF21A, 0xD00C)    # fmovem.x (a2)+,fp4/fp5  $3410 faults
+    a.emit(0x21CA, 0x3004)                    # move.l a2,$3004.w
+    a.emit(0x47F8, 0x3700)                    # lea $3700.w,a3
+    while a.here() % 4:
+        a.emit(0x4E71)                        # nop: the next FADD's extension word on a long of its own
+    a.label('FA2'); a.emit(0xF238, 0x4822, 0x3210)   # fadd.x $3210.w,fp0  its extension word's fetch faults
+    a.label('FSV'); a.emit(0xF323)            # fsave -(a3)           a frame long's write faults
+    a.label('FRS'); a.emit(0xF35B)            # frestore (a3)+        a frame long's read faults
+    a.emit(0x21CB, 0x300C)                    # move.l a3,$300C.w
+    a.emit(0xF200, 0x6000)                    # fmove.l fp0,d0
+    a.emit(0x21C0, 0x3008)                    # move.l d0,$3008.w
+    a.emit(0xF238, 0x6A00, 0x3500)            # fmove.x fp4,$3500.w
+    a.emit(0xF238, 0x6A80, 0x3510)            # fmove.x fp5,$3510.w
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    p = a.done()
+    put(0x1000, p)
+    put(0x3200, L(0x40000000) + L(0x80000000) + L(0))    # 2.0
+    put(0x3400, L(0x40010000) + L(0xA0000000) + L(0))    # 5.0
+    put(0x340C, L(0x40010000) + L(0xC0000000) + L(0))    # 6.0
+    put(0x3210, L(0x40010000) + L(0x80000000) + L(0))    # 4.0
+    berrs = [0x3204, 0x3308, 0x3410, a.lab['FA2'] + 4, 0x36E4, 0x36E9]   # (bit 0: the read)
+    # vector 2 (bus error): per fault at $3020 + 16n - format word, SSW,
+    # fault address, PC
+    put(4 * 2, L(0x2400))
+    put(0x2400, [0x2E38, 0x3010, 0xE98F,      # move.l $3010.w,d7; lsl.l #4,d7
+                 0x4DF8, 0x3020, 0xDDC7,      # lea $3020.w,a6; adda.l d7,a6
+                 0x3CAF, 0x0006,              # move.w 6(a7),(a6)
+                 0x3D6F, 0x000A, 0x0002,      # move.w $A(a7),2(a6)
+                 0x2D6F, 0x0010, 0x0004,      # move.l $10(a7),4(a6)
+                 0x2D6F, 0x0002, 0x0008,      # move.l 2(a7),8(a6)
+                 0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x4E73])                     # rte
+    expect = [
+        (0x3004, 0x00003418, 0xFFFFFFFF),     # (A2)+ past both registers, once
+        (0x3008, 0x00000007, 0xFFFFFFFF),     # 1 + 2.0 + 4.0
+        (0x300C, 0x00003700, 0xFFFFFFFF),     # -(A3) then (A3)+: back where it was
+        (0x3010, 0x00000006, 0xFFFFFFFF),     # six bus errors
+        (0x3020, 0xB0080000, 0xFFFF0000),     # ... long frames, vector 2
+        (0x3024, 0x00003204, 0xFFFFFFFF),     # ... at the faulted accesses
+        (0x3030, 0xB0080000, 0xFFFF0000),
+        (0x3034, 0x00003308, 0xFFFFFFFF),
+        (0x3040, 0xB0080000, 0xFFFF0000),
+        (0x3044, 0x00003410, 0xFFFFFFFF),
+        (0x3050, 0xB0080000, 0xFFFF0000),     # the extension word's fetch
+        (0x3054, a.lab['FA2'] + 4, 0xFFFFFFFF),
+        (0x3058, a.lab['FA2'] + 4, 0xFFFFFFFF),   # ... inside the dialog: its PC the fetch's address
+        (0x3060, 0xB0080000, 0xFFFF0000),     # the save's write
+        (0x3064, 0x000036E4, 0xFFFFFFFF),
+        (0x3070, 0xB0080000, 0xFFFF0000),     # the restore's read
+        (0x3074, 0x000036E8, 0xFFFFFFFF),
+        (0x3300, 0x40000000, 0xFFFFFFFF),     # 3.0 stored whole
+        (0x3304, 0xC0000000, 0xFFFFFFFF),
+        (0x3308, 0x00000000, 0xFFFFFFFF),
+        (0x3500, 0x40010000, 0xFFFFFFFF),     # FP4 = 5.0
+        (0x3504, 0xA0000000, 0xFFFFFFFF),
+        (0x3510, 0x40010000, 0xFFFFFFFF),     # FP5 = 6.0
+        (0x3514, 0xC0000000, 0xFFFFFFFF),
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b5d':
+    # stage B5c with the PMMU: page faults inside dialogs, as virtual memory
+    # makes them - 4 KB pages identity-mapped through three levels of short
+    # descriptors (TIA 4, TIB 8, TIC 8), pages 4 and 5 invalid; an FADD
+    # reads its operand from page 5, an FMOVE.X stores to page 4; the
+    # handler makes the faulted page valid (from the frame's fault address),
+    # PFLUSHAs and returns; the dialog goes on from the fault.  BLOCKED
+    # (2026-09-30): the kernel's PMOVE to CRP reads the low long at EA+2 on
+    # this 32-bit port, so the walk starts at a wrong root and the CPU
+    # double-faults before the first FPU instruction - a PMOVE fix first,
+    # then the PMMU fault term for cp_bf_now (plan 8.9.4 B5c)
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x6F00)                    # lea $6F00.w,a0
+    a.emit(0xF010, 0x4C00)                    # pmove.q (a0),crp     (as the ROM's _SwapMMUMode)
+    a.emit(0xF028, 0x4000, 0x0008)            # pmove.l 8(a0),tc     translation on
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0x43F8, 0x5000)                    # lea $5000.w,a1
+    a.label('FAD'); a.emit(0xF211, 0x4822)    # fadd.x (a1),fp0      page 5: faults
+    a.emit(0x45F8, 0x4000)                    # lea $4000.w,a2
+    a.label('FST'); a.emit(0xF212, 0x6800)    # fmove.x fp0,(a2)     page 4: faults
+    a.emit(0xF200, 0x6000)                    # fmove.l fp0,d0
+    a.emit(0x21C0, 0x3008)                    # move.l d0,$3008.w
+    a.emit(0x2012)                            # move.l (a2),d0
+    a.emit(0x21C0, 0x300C)                    # move.l d0,$300C.w
+    a.emit(0x202A, 0x0004)                    # move.l 4(a2),d0
+    a.emit(0x21C0, 0x3018)                    # move.l d0,$3018.w
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    p = a.done()
+    put(0x1000, p)
+    put(0x5000, L(0x40000000) + L(0x80000000) + L(0))    # 2.0 on page 5
+    put(0x6F00, L(0x00000002) + L(0x00006000))           # CRP: short table descriptors at $6000
+    put(0x6F08, L(0x80C04880))                           # TC: E, PS 12, IS 0, TIA 4, TIB 8, TIC 8
+    put(0x6000, L(0x00006040 | 2))                       # A[0] -> B
+    put(0x6040, L(0x00006800 | 2))                       # B[0] -> C
+    for n in range(32):
+        if n not in (4, 5):
+            put(0x6800 + 4 * n, L((n << 12) | 1))        # C[n]: page n, valid
+    # vector 2: file the frame as b5c's handler does, then make the
+    # faulted page valid - C[fa >> 12] = (fa & $FFFFF000) | 1 - and flush
+    put(4 * 2, L(0x2400))
+    put(0x2400, [0x2E38, 0x3010, 0xE98F,      # move.l $3010.w,d7; lsl.l #4,d7
+                 0x4DF8, 0x3020, 0xDDC7,      # lea $3020.w,a6; adda.l d7,a6
+                 0x3CAF, 0x0006,              # move.w 6(a7),(a6)
+                 0x3D6F, 0x000A, 0x0002,      # move.w $A(a7),2(a6)
+                 0x2D6F, 0x0010, 0x0004,      # move.l $10(a7),4(a6)
+                 0x2D6F, 0x0002, 0x0008,      # move.l 2(a7),8(a6)
+                 0x2C2F, 0x0010,              # move.l $10(a7),d6   the fault address
+                 0x2A06,                      # move.l d6,d5
+                 0x0285, 0xFFFF, 0xF000,      # andi.l #$FFFFF000,d5
+                 0x5285,                      # addq.l #1,d5        a valid page descriptor
+                 0xE08E, 0xE48E,              # lsr.l #8,d6; lsr.l #2,d6
+                 0x0206, 0x00FC,              # andi.b #$FC,d6      its entry's offset
+                 0x4BF8, 0x6800,              # lea $6800.w,a5
+                 0x2B85, 0x6000,              # move.l d5,(0,a5,d6.w)
+                 0xF000, 0x2400,              # pflusha
+                 0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x4E73])                     # rte
+    expect = [
+        (0x3008, 0x00000003, 0xFFFFFFFF),     # 1 + 2.0, once
+        (0x300C, 0x40000000, 0xFFFFFFFF),     # 3.0 stored on page 4
+        (0x3018, 0xC0000000, 0xFFFFFFFF),
+        (0x3010, 0x00000002, 0xFFFFFFFF),     # two page faults
+        (0x3020, 0xB0080000, 0xFFFF0000),     # ... long frames, vector 2
+        (0x3024, 0x00005000, 0xFFFFFFFF),     # ... the FADD's operand
+        (0x3030, 0xB0080000, 0xFFFF0000),
+        (0x3034, 0x00004000, 0xFFFFFFFF),     # ... the store
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
 elif MODE == 'b4':
     # stage B4: cpSAVE and cpRESTORE in every EA form the two allow
     a = Asm(0x1000)
@@ -694,7 +849,7 @@ else:
 with open('program.hex', 'w') as f:
     f.write(''.join('%04x\n' % w for w in img))
 with open('inject.txt', 'w') as f:
-    f.write('%08x %08x %08x\n' % (inject, irq, cps))
+    f.write(' '.join('%08x' % v for v in [inject, irq, cps] + (berrs + [0] * 8)[:8]) + '\n')
 with open('expect.txt', 'w') as f:
     f.write(''.join('%08x %08x %08x\n' % e for e in expect))
 print('program %s: %d words at $1000; %d results' % (MODE, len(p), len(expect)))

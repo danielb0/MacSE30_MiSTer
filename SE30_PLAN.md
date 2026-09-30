@@ -10903,6 +10903,79 @@ the same way.
     - **Tests:** first a bus error the bench injects on a memory operand,
       then a PMMU page fault, then an instruction-stream fault inside a
       dialog.
+    - **Built 2026-09-30 for external bus errors.**
+      - **Recording:** every beat a dialog state schedules is recorded
+        (`cp_bk_*`): the state it goes to, one of 18 in-flight states
+        encoded by `cp_st_enc`; its setstate and datatype; CIR or memory;
+        the CIR register; the write data; TG68_PC.
+      - **Detection:** `cp_bf_now` is a bus error (`berr_k`) as such a
+        state's beat ends, outside the initiating access. On that edge:
+        - after the state CASE, the decode sends the state to `cp_bf` with
+          no new beat and no trap;
+        - the dialog's registered process and register-write port change
+          nothing;
+        - the kernel's restart arming (`mmu_restart_pending`) is skipped,
+          so there is no rollback.
+      - **Dispatch:** `cp_bf` raises `setinterrupt`, and the boundary chain
+        dispatches the bus error from there. The frame is forced long, its
+        PC the faulted fetch's address or scanPC, which is what RTE's PC pop
+        restores.
+      - **The frame:** the berr states write the dialog into its internal
+        words (`cp_bfr`):
+        - $14 the PC-relative base;
+        - $1C tempEA;
+        - $20 the instruction's address;
+        - $28 the extension words;
+        - $30 the primitive, count and flags;
+        - $38 the marker (`1100`) with the recorded beat;
+        - $3C its write data;
+        - $40 `cp_ea`, $44 `cp_data`, $48 `cp_anew`, $4C `cp_mmbase`;
+        - $50 the F-line context's two words;
+        - $54 scanPC.
+
+        The SSW, fault address, stage B address, data input buffer and
+        version stay the kernel's.
+      - **RTE:** RTE of a long frame keeps those words (rte5). With the
+        marker, it goes to `cp_rsm` instead of fetching:
+        - the dialog's registers, the F-line context, the opcode and the
+          trace bits load back;
+        - `cp_rsm2` issues the recorded beat again and goes to its state.
+
+        That is the 68030's "return to the point ... at which the fault
+        occurred": the faulted cycle runs again (DF set). A handler that
+        clears DF, completing the cycle itself, is not yet honoured for a
+        dialog's frame.
+      - **Test:** `PROG=b5c` passes 26 checks. The bench bus-errors the
+        first access to six addresses:
+        - the second long of FADD (A0)'s operand: the sum is 1 + 2, where a
+          re-execution would have added the operand twice or broken the
+          chip's dialog - the unfixed kernel took a protocol violation;
+        - the third long an FMOVE.X store writes;
+        - FMOVEM's second register through (A2)+ (A2 ends at +24);
+        - a second FADD's extension word, fetched inside its dialog: the
+          frame's PC is that fetch's address;
+        - a long of an FSAVE -(A3) frame written;
+        - a long of the FRESTORE (A3)+ read (A3 back where it was).
+
+        Each gets a long frame, vector 2, the right fault address.
+    - **The PMMU half is blocked.** `PROG=b5d` is its test: 4 KB pages
+      identity-mapped, pages 4 and 5 invalid, an FADD reading page 5 and an
+      FMOVE.X storing to page 4, the handler validating the faulted page
+      and PFLUSHAing.
+      - It stops before any FPU instruction. The kernel's `PMOVE (A0),CRP`
+        - the ROM's own `_SwapMMUMode` form - reads CRP's low long at
+        A0 + 2 on this 32-bit port, so the walk starts at a wrong root and
+        the CPU double-faults.
+      - The likely cause is `TG68K_ALU.vhd`'s address step: `long_start`'s
+        `beat_step` (1.15 item 4) wins over PMOVE's +4. That is a kernel
+        bug of its own, flagged as a separate task; it may bite on the
+        board once the ROM switches to 32-bit mode or VM builds tables.
+      - After it is fixed, B5c's PMMU term goes in and b5d is its test: a
+        page fault in a dialog is `pmmu_fault` force-releasing the beat,
+        with no `berr`. `cp_bf_now` takes the kernel's make_berr condition
+        for it, and the first-fire restart arming (`mmu_restart_pending`,
+        `pmmu_fault_restart_live`'s rollback) must skip a dialog, as it
+        does for the external case.
 
 ### 8.9.5 The first synthesis (item 8, begun 2026-09-30)
 

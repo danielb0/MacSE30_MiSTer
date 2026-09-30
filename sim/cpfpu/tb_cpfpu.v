@@ -16,7 +16,7 @@
 //   first instruction: the kernel takes the F-line at decode ($DEAD000B at
 //   the marker) with no CIR cycle at all.
 //
-//   The stage programs (gen_program.py b1, b2, b3a-c, b4, b5a-b) each cover one
+//   The stage programs (gen_program.py b1, b2, b3a-c, b4, b5a-d) each cover one
 //   part of stage B with their own checks; exceptions they expect have
 //   handlers that file the frames. Two aids, set by inject.txt, stand in
 //   for what the 68882 alone cannot provoke (B3): the reserved primitive
@@ -26,7 +26,8 @@
 //   handler writes $3F00 - or, for an instruction's address there, at
 //   that instruction's first released-while-running null (B5). A third
 //   number, unless all ones, is how many CPU-space cycles to anything but
-//   the 68882 (IDs 2-7, IACKs) the run must make (B5).
+//   the 68882 (IDs 2-7, IACKs) the run must make (B5). The rest (B5c) are
+//   addresses whose first access, data or program, the bench bus-errors.
 //   +trace prints bus cycles and micro-states,
 //   +ntr=N the first N bus cycles (400 by default).
 //
@@ -48,6 +49,9 @@ module tb_cpfpu;
   // ------------------------------------------------------------ the bus
   wire [31:0] cpu_addr, cpu_dout, cpu_din;
   wire        cpu_as_n, cpu_ds_n, cpu_rw_n, berr, reset_out_n, halted;
+  wire        glue_berr;
+  reg         berr_inj = 0;                // an injected bus error (B5c; below)
+  assign berr = glue_berr | berr_inj;
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
 
@@ -79,7 +83,7 @@ module tb_cpfpu;
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc),
     .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n),
+    .dsack_n(dsack_n), .berr(glue_berr), .ipl_n(ipl_n),
     .ram_req(ram_req), .ram_we(ram_we), .ram_addr(ram_addr), .ram_be(ram_be), .ram_wdata(ram_wdata),
     .ram_rdata(ram_rdata), .ram_ack(ram_ack), .ram_refresh(ram_refresh),
     .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(32'h0), .rom_ack(1'b0),
@@ -111,6 +115,20 @@ module tb_cpfpu;
   // while-running null ($0900) that instruction reads.
   reg [31:0] irq_mode = 0;
   reg [31:0] cps_want = 32'hFFFFFFFF;       // inject.txt's third number: CPU-space cycles to other IDs (B5)
+  // inject.txt's fourth to eleventh numbers (B5c): addresses whose first
+  // access - data or program space - ends in a bus error, once each (0: none)
+  reg [31:0] ba [0:7];
+  reg  [7:0] ba_used = 0;
+  integer bi;
+  initial for (bi = 0; bi < 8; bi = bi + 1) ba[bi] = 0;
+  always @(posedge clk) begin
+    if (!cpu_as_n && cpu_fc != 3'd7)
+      for (bi = 0; bi < 8; bi = bi + 1)
+        if (ba[bi] != 0 && !ba_used[bi] && cpu_addr == {ba[bi][31:1], 1'b0} && (!ba[bi][0] || cpu_rw_n)) begin
+          berr_inj <= 1; ba_used[bi] <= 1;                  // (bit 0 set: a read only)
+        end
+    if (cpu_as_n) berr_inj <= 0;
+  end
   integer nirq = 0;
   always @(posedge clk) begin
     if (irq1_n && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
@@ -138,7 +156,8 @@ module tb_cpfpu;
   integer fdi;
   initial begin
     fdi = $fopen("inject.txt", "r");
-    if (fdi) begin if ($fscanf(fdi, "%h %h %h", inj_pc, irq_mode, cps_want)) ; $fclose(fdi); end
+    if (fdi) begin if ($fscanf(fdi, "%h %h %h %h %h %h %h %h %h %h %h", inj_pc, irq_mode, cps_want,
+                            ba[0], ba[1], ba[2], ba[3], ba[4], ba[5], ba[6], ba[7])) ; $fclose(fdi); end
   end
 
   // HSYNC* as the video PALs make it (only the UI6 timeout cares)

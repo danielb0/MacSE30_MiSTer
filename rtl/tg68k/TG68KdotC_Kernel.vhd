@@ -889,6 +889,27 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_nocp      : std_logic;                      -- ... and has ended in a bus error
 	signal berr_k       : std_logic;                      -- berr, but for the initiating access's
 	signal cp_cof       : std_logic := '0';               -- B5: this coprocessor instruction branched (T0 trace)
+	-- B5c: a bus error after the initiating access (UM 10.5.2.8).  Each beat
+	-- a dialog state schedules is kept (cp_bk_*): the state it goes to, its
+	-- kind and size, the CIR or cp_ea, the write data, a fetch's address.
+	-- A fault on it stops the dialog there (cp_bf, the beat's register
+	-- updates suppressed) and dispatches a long $B frame whose internal
+	-- words hold the dialog; RTE of that frame loads them back and issues
+	-- the beat again (cp_rsm, cp_rsm2).
+	signal cp_bf_now    : std_logic;                      -- the beat ending now has faulted, in a dialog
+	signal cp_bfr       : std_logic := '0';               -- the frame being stacked is a dialog's
+	signal cp_bk_st     : std_logic_vector(4 downto 0) := (others => '0');   -- the beat's state (cp_st_enc)
+	signal cp_bk_ss     : std_logic_vector(1 downto 0) := (others => '0');   -- ... its setstate
+	signal cp_bk_dt     : std_logic_vector(1 downto 0) := (others => '0');   -- ... its datatype
+	signal cp_bk_cir    : std_logic := '0';               -- ... a CIR access
+	signal cp_bk_mem    : std_logic := '0';               -- ... an operand's memory part at cp_ea
+	signal cp_bk_off    : std_logic_vector(4 downto 0) := (others => '0');
+	signal cp_bk_wd     : std_logic_vector(31 downto 0) := (others => '0');
+	signal cp_bk_pc     : std_logic_vector(31 downto 0) := (others => '0');  -- ... TG68_PC when it was scheduled
+	signal cp_rb        : std_logic_vector(31 downto 0) := (others => '0');  -- RTE: the marker long ($38)
+	signal cp_rb_prim   : std_logic_vector(31 downto 0) := (others => '0');  -- ... $30
+	signal cp_rb_wd, cp_rb_ea, cp_rb_data, cp_rb_anew, cp_rb_mmb, cp_rb_iw, cp_rb_opc, cp_rb_w,
+	       cp_rb_pcb, cp_rb_tea, cp_rb_spc : std_logic_vector(31 downto 0) := (others => '0');
 	signal cp_twait     : std_logic;                      -- B5: a traced cpGEN reads on after CA = 0 until PF = 1
 	signal cp_rte_pc    : std_logic_vector(31 downto 0) := (others => '0');  -- RTE of $9: the instruction's address
 	signal cp_rte_iw    : std_logic_vector(31 downto 0) := (others => '0');  -- ... the internal register, operation word
@@ -992,8 +1013,60 @@ architecture logic of TG68KdotC_Kernel is
 --     return s;
 --   end function;
 
+	-- B5c: the coprocessor dialog's states a beat can be in flight in and be
+	-- resumed from after a bus error, as a 5-bit code for the frame (0: not
+	-- one of them)
+	FUNCTION cp_st_enc(s : micro_states) RETURN std_logic_vector IS
+	BEGIN
+		CASE s IS
+			WHEN cp_rsp   => RETURN "00001";
+			WHEN cp_rspw  => RETURN "00010";
+			WHEN cp_pcw   => RETURN "00011";
+			WHEN cp_tsr   => RETURN "00100";
+			WHEN cp_extw  => RETURN "00101";
+			WHEN cp_extw2 => RETURN "00110";
+			WHEN cp_dlw   => RETURN "00111";
+			WHEN cp_imw   => RETURN "01000";
+			WHEN cp_tsk   => RETURN "01001";
+			WHEN cp_mrdw  => RETURN "01010";
+			WHEN cp_oww   => RETURN "01011";
+			WHEN cp_ordw  => RETURN "01100";
+			WHEN cp_mww   => RETURN "01101";
+			WHEN cp_rdreg => RETURN "01110";
+			WHEN cp_rselw => RETURN "01111";
+			WHEN cp_fmtw  => RETURN "10000";
+			WHEN cp_sfw   => RETURN "10001";
+			WHEN cp_rfr   => RETURN "10010";
+			WHEN OTHERS   => RETURN "00000";
+		END CASE;
+	END FUNCTION;
+	FUNCTION cp_st_dec(v : std_logic_vector(4 downto 0)) RETURN micro_states IS
+	BEGIN
+		CASE v IS
+			WHEN "00001" => RETURN cp_rsp;
+			WHEN "00010" => RETURN cp_rspw;
+			WHEN "00011" => RETURN cp_pcw;
+			WHEN "00100" => RETURN cp_tsr;
+			WHEN "00101" => RETURN cp_extw;
+			WHEN "00110" => RETURN cp_extw2;
+			WHEN "00111" => RETURN cp_dlw;
+			WHEN "01000" => RETURN cp_imw;
+			WHEN "01001" => RETURN cp_tsk;
+			WHEN "01010" => RETURN cp_mrdw;
+			WHEN "01011" => RETURN cp_oww;
+			WHEN "01100" => RETURN cp_ordw;
+			WHEN "01101" => RETURN cp_mww;
+			WHEN "01110" => RETURN cp_rdreg;
+			WHEN "01111" => RETURN cp_rselw;
+			WHEN "10000" => RETURN cp_fmtw;
+			WHEN "10001" => RETURN cp_sfw;
+			WHEN "10010" => RETURN cp_rfr;
+			WHEN OTHERS  => RETURN cp_done;
+		END CASE;
+	END FUNCTION;
 
-BEGIN  
+
+BEGIN
 
   -- The RESET instruction asserts the external reset output only. In this
   -- integration, routing it into the PMMU reset path can strand the board
@@ -3315,6 +3388,30 @@ PROCESS (clk)
 				-- By the time the bus write happens, micro_state has already moved to the
 				-- next berr state. Loading data_write_tmp here (sequential) captures the
 				-- correct data because sequential reads see the OLD micro_state value.
+					ELSIF micro_state = berr_fill AND cp_bfr = '1' AND
+					      rot_cnt /= "000010" AND rot_cnt /= "000100" AND rot_cnt /= "000110" THEN
+						-- A coprocessor dialog's long frame (7d B5c): its state in
+						-- the internal words - $20 the instruction's address, $28
+						-- the extension words, $30 the primitive, count and flags,
+						-- $38 the marker and the faulted beat, $3C its write data,
+						-- $40 cp_ea, $44 cp_data, $48 cp_anew, $4C cp_mmbase, $50
+						-- the context's two words, $54 scanPC, $58 0; the stage B
+						-- address, data input buffer and version stay the kernel's
+						CASE rot_cnt IS
+							WHEN "000001" => data_write_tmp <= opcode_pc;
+							WHEN "000011" => data_write_tmp <= cp_w & cp_wh;
+							WHEN "000101" => data_write_tmp <= cp_prim & cp_len & cp_mm & cp_half & cp_pcdone & cp_cof & cp_mmcnt;
+							WHEN "000111" => data_write_tmp <= "1100" & "000" & cp_bk_st & cp_bk_ss & cp_bk_dt & cp_bk_cir & cp_bk_mem &
+							                                   cp_bk_off & "000000000";
+							WHEN "001000" => data_write_tmp <= cp_bk_wd;
+							WHEN "001001" => data_write_tmp <= cp_ea;
+							WHEN "001010" => data_write_tmp <= cp_data;
+							WHEN "001011" => data_write_tmp <= cp_anew;
+							WHEN "001100" => data_write_tmp <= cp_mmbase;
+							WHEN "001101" => data_write_tmp <= fline_brief_latch & fline_opcode_latch;
+							WHEN "001110" => data_write_tmp <= cp_scanpc;
+							WHEN OTHERS   => data_write_tmp <= (others => '0');
+						END CASE;
 					ELSIF micro_state = berr_fill THEN
 						-- Format $B extra fields (offsets $58-$20). 68030 MMU
 						-- handlers use the stage-B address at $24 to re-run PTEST
@@ -3328,6 +3425,10 @@ PROCESS (clk)
 							WHEN OTHERS =>
 								data_write_tmp <= (others => '0');
 						END CASE;
+				ELSIF micro_state = berr1 AND cp_bfr = '1' THEN
+					data_write_tmp <= cp_tea;                               -- a dialog's frame (B5c): $1C tempEA
+				ELSIF micro_state = berr3 AND cp_bfr = '1' THEN
+					data_write_tmp <= cp_pcbase;                            -- ... $14 the PC-relative base
 				ELSIF micro_state = berr1 THEN
 					-- MC68030 Format $A frame offset $1C: Internal registers (pipeline
 					-- prefetch validity/position on real 68030). TG68K doesn't track
@@ -3439,6 +3540,9 @@ PROCESS (clk)
 	-- kernel's bus error processing never sees it
 	cp_nocp <= '1' WHEN cp_init = '1' AND berr = '1' ELSE '0';
 	berr_k  <= '0' WHEN cp_init = '1' ELSE berr;
+	-- B5c: any other beat of a dialog ending in a bus error stops it there
+	cp_bf_now <= '1' WHEN cp_st_enc(micro_state) /= "00000" AND cp_init = '0' AND berr_k = '1' AND
+	                      fline_context_valid = '1' AND fline_is_fpu = '1' ELSE '0';
 	-- B3: cpScc is 001 with any EA but An (cpDBcc) and #/opmode 2-4 (cpTRAPcc)
 	cp_scc   <= '1' WHEN fline_opcode_latch(8 downto 6) = "001" AND fline_opcode_latch(5 downto 3) /= "001" AND
 	                     NOT (fline_opcode_latch(5 downto 3) = "111" AND fline_opcode_latch(2 downto 1) /= "00") ELSE '0';
@@ -3514,7 +3618,7 @@ PROCESS (clk)
 	END PROCESS;
 
 	-- the coprocessor's register writes, at the edge that ends the state
-	PROCESS (micro_state, fline_opcode_latch, cp_ea, cp_anew, cp_mmbase, cp_mm, cp_mmcnt, cp_prim, data_read, regfile)
+	PROCESS (micro_state, fline_opcode_latch, cp_ea, cp_anew, cp_mmbase, cp_mm, cp_mmcnt, cp_prim, data_read, regfile, cp_bf_now)
 		VARIABLE n : std_logic_vector(3 downto 0);
 	BEGIN
 		n := fline_opcode_latch(3 downto 0);
@@ -3569,6 +3673,9 @@ PROCESS (clk)
 				END IF;
 			END IF;
 		END IF;
+		IF cp_bf_now = '1' THEN
+			cp_reg_we <= '0';          -- (B5c: a faulted beat writes no register)
+		END IF;
 	END PROCESS;
 
 -----------------------------------------------------------------------------
@@ -3586,6 +3693,11 @@ PROCESS (clk)
 				cp_pcdone <= '0';
 				cp_trap_pc <= '0';
 				cp_init <= '0';
+				cp_bfr <= '0';
+			ELSIF clkena_lw = '1' AND cp_bf_now = '1' THEN
+				-- a dialog's beat has faulted (B5c): none of what its end would
+				-- have loaded, so the frame holds the state it was issued in
+				cp_cir <= '0';
 			ELSIF clkena_lw = '1' THEN
 				cp_cir <= cp_cir_next;
 				IF (micro_state = cp_rspw OR micro_state = cp_fmtw) AND beat_valid = '1' THEN
@@ -3815,6 +3927,67 @@ PROCESS (clk)
 					cp_init <= '1';
 				ELSIF micro_state = cp_rsp OR micro_state = cp_fmtw OR micro_state = cp_rfww THEN
 					cp_init <= '0';
+				END IF;
+				-- B5c: the beat a dialog state schedules, as it goes out
+				IF cp_st_enc(next_micro_state) /= "00000" AND setstate /= "01" THEN
+					cp_bk_st  <= cp_st_enc(next_micro_state);
+					cp_bk_ss  <= setstate;
+					cp_bk_dt  <= datatype;
+					cp_bk_cir <= cp_cir_next;
+					cp_bk_mem <= cp_mem_next;
+					cp_bk_off <= cp_cir_off;
+					cp_bk_wd  <= cp_wdata;
+					cp_bk_pc  <= TG68_PC;
+				END IF;
+				IF micro_state = cp_bf THEN
+					cp_bfr <= '1';
+				ELSIF setopcode = '1' THEN
+					cp_bfr <= '0';
+				END IF;
+				-- B5c: RTE of a long frame - its internal words, for a
+				-- dialog's (the marker at $38) to be loaded back
+				IF micro_state = rte5 AND beat_valid = '1' AND rte_format_word(15 downto 12) = "1011" THEN
+					CASE rot_cnt IS
+						WHEN "010010" => cp_rb_pcb  <= data_read;   -- $14
+						WHEN "010000" => cp_rb_tea  <= data_read;   -- $1C
+						WHEN "001111" => cp_rb_opc  <= data_read;   -- $20
+						WHEN "001101" => cp_rb_w    <= data_read;   -- $28
+						WHEN "001011" => cp_rb_prim <= data_read;   -- $30
+						WHEN "001001" => cp_rb      <= data_read;   -- $38
+						WHEN "001000" => cp_rb_wd   <= data_read;   -- $3C
+						WHEN "000111" => cp_rb_ea   <= data_read;   -- $40
+						WHEN "000110" => cp_rb_data <= data_read;   -- $44
+						WHEN "000101" => cp_rb_anew <= data_read;   -- $48
+						WHEN "000100" => cp_rb_mmb  <= data_read;   -- $4C
+						WHEN "000011" => cp_rb_iw   <= data_read;   -- $50
+						WHEN "000010" => cp_rb_spc  <= data_read;   -- $54
+						WHEN OTHERS   => NULL;
+					END CASE;
+				END IF;
+				IF micro_state = cp_rsm THEN
+					cp_prim   <= cp_rb_prim(31 downto 16);
+					cp_len    <= cp_rb_prim(15 downto 8);
+					cp_mm     <= cp_rb_prim(7);
+					cp_half   <= cp_rb_prim(6);
+					cp_pcdone <= cp_rb_prim(5);
+					cp_cof    <= cp_rb_prim(4);
+					cp_mmcnt  <= cp_rb_prim(3 downto 0);
+					cp_bk_st  <= cp_rb(24 downto 20);
+					cp_bk_ss  <= cp_rb(19 downto 18);
+					cp_bk_dt  <= cp_rb(17 downto 16);
+					cp_bk_cir <= cp_rb(15);
+					cp_bk_mem <= cp_rb(14);
+					cp_bk_off <= cp_rb(13 downto 9);
+					cp_bk_wd  <= cp_rb_wd;
+					cp_ea     <= cp_rb_ea;
+					cp_data   <= cp_rb_data;
+					cp_anew   <= cp_rb_anew;
+					cp_mmbase <= cp_rb_mmb;
+					cp_w      <= cp_rb_w(31 downto 16);
+					cp_wh     <= cp_rb_w(15 downto 0);
+					cp_pcbase <= cp_rb_pcb;
+					cp_tea    <= cp_rb_tea;
+					cp_scanpc <= cp_rb_spc;
 				END IF;
 			END IF;
 		END IF;
@@ -4519,8 +4692,8 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 		-- An interrupt taken inside a coprocessor dialog (7d B3): at the
 		-- points cp_irq_take names, through the same dispatch as at a
 		-- boundary (the IACK in int1), cp_irq holding the dialog meanwhile.
-		IF cp_irq_take = '1' THEN
-			setinterrupt <= '1';
+		IF cp_irq_take = '1' OR (micro_state = cp_bf AND make_berr = '1' AND interrupt = '0') THEN
+			setinterrupt <= '1';       -- (B5c: a dialog's bus error, dispatched where it stopped)
 		END IF;
 		setexecOPC <= '0';
 		-- BUG #32 FIX: Allow setstate="01" for PMMU operations ONLY!
@@ -4900,6 +5073,16 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						fline_has_brief <= '1';
 						pmmu_ea_mode_latched <= cp_rte_iw(5 downto 0);
 						fline_context_valid <= '1';
+					ELSIF micro_state = cp_rsm THEN
+						-- ... and of a dialog's long bus fault frame (B5c)
+						fline_opcode_latch <= cp_rb_iw(15 downto 0);
+						fline_brief_latch <= cp_rb_iw(31 downto 16);
+						fline_opcode_pc <= cp_rb_opc + 2;
+						fline_is_pmmu <= '0';
+						fline_is_fpu <= '1';
+						fline_has_brief <= '1';
+						pmmu_ea_mode_latched <= cp_rb_iw(5 downto 0);
+						fline_context_valid <= '1';
 					END IF;
 
 					-- BUG #389 FIX V2: Clear exec_write_back when PMMU states retire to idle!
@@ -5081,7 +5264,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- 0 on this first-fire clock.  Writes and locked cycles keep the old
 					-- path (sim/busfault covers reads only).
 					IF berr_k='1' AND make_berr='0' AND trap_berr='0' AND trap_mmu_berr='0' AND
-					   berr_exception_active='0' AND
+					   berr_exception_active='0' AND cp_bf_now='0' AND   -- (not a coprocessor dialog's: it goes on from the fault, 7d B5c)
 					   fc_internal(1 downto 0)="01" AND pmmu_rw='1' AND pmmu_rmw='0' THEN
 						mmu_restart_pending <= '1';
 						mmu_restart_soft <= '0';
@@ -5283,6 +5466,18 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								       " faddr_hi=" & integer'image(conv_integer(pmmu_fault_addr_out(31 downto 16))) severity note;
 								-- synthesis translate_on
 								berr_opcode_saved <= exe_opcode;
+								-- A coprocessor dialog's fault (7d B5c): always the long
+								-- frame (the dialog's state rides in it), its PC the
+								-- faulted fetch's address or scanPC - what RTE's PC
+								-- pop restores for the beat to go out again
+								IF micro_state = cp_bf THEN
+									berr_long_frame <= '1';
+									IF cp_bk_ss = "00" THEN
+										berr_frame_pc <= cp_bk_pc;
+									ELSE
+										berr_frame_pc <= TG68_PC;
+									END IF;
+								END IF;
 								-- Save data output buffer for berr2 (data being written at fault time).
 								-- For PMMU write faults use the presented bus data - register-sourced
 								-- writes (exec(write_reg)/MOVES forwarding) bypass data_write_tmp
@@ -5688,6 +5883,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							opcode <= cp_rte_iw(15 downto 0);
 							exe_pc <= cp_rte_pc;
 							opcode_pc <= cp_rte_pc;
+						ELSIF micro_state = cp_rsm THEN
+							-- ... or of its long bus fault frame (B5c)
+							opcode <= cp_rb_iw(15 downto 0);
+							exe_pc <= cp_rb_opc;
+							opcode_pc <= cp_rb_opc;
 						END IF;
 						IF setopcode='1' AND berr_k='0' THEN
 							IF state="00" THEN
@@ -6004,10 +6204,10 @@ PROCESS (clk, Reset, FlagsSR, last_data_read, OP2out, exec)
 				-- no trace after its stacking; RTE back into the dialog takes the
 				-- trace bits of the SR it restores (the trace, if pending, comes
 				-- when the instruction ends, UM 10.5.2.5)
-				IF micro_state = cp9a OR (micro_state = cp_irq AND interrupt = '1' AND trap_interrupt = '1') THEN
+				IF micro_state = cp9a OR micro_state = cp_bf OR (micro_state = cp_irq AND interrupt = '1' AND trap_interrupt = '1') THEN
 					make_trace <= '0';
 					make_trace_t0 <= '0';
-				ELSIF micro_state = cp_rte THEN
+				ELSIF micro_state = cp_rte OR micro_state = cp_rsm THEN
 					make_trace <= FlagsSR(7);
 					make_trace_t0 <= FlagsSR(6) AND NOT FlagsSR(7);
 				END IF;
@@ -6211,7 +6411,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 			 rte_fmt_a_replay_needed, rte_fmt_a_replay_size, mmu_restart_active,
 			 cp_prim, cp_pcdone, opcode_pc, fline_opcode_latch, fline_context_valid, clkena_lw,
 			 cp_ea_ok, cp_pv, cp_len, cp_part, cp_psize, cp_psize0, cp_data, cp_half, cp_mm, cp_mmcnt, regfile,
-			 cp_ss, cp_frcp, cp_badlen, cp_scc, cp_w, cp_irq_take, cp_f9, cp_nocp, cp_twait)
+			 cp_ss, cp_frcp, cp_badlen, cp_scc, cp_w, cp_irq_take, cp_f9, cp_nocp, cp_twait,
+			 cp_bf_now, cp_bk_st, cp_bk_ss, cp_bk_dt, cp_bk_cir, cp_bk_mem, cp_bk_off, cp_bk_wd, cp_rb, trap_mmu_berr)
 	variable v_rte_format_valid : std_logic;
 	BEGIN
 		TG68_PC_brw <= '0';
@@ -9647,6 +9848,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							-- fetch at the restored PC, which is scanPC
 							setstate <= "01";
 							next_micro_state <= cp_rte;
+						ELSIF rte_format_word(15 downto 12) = "1011" AND cp_rb(31 downto 28) = "1100" THEN
+							-- a coprocessor dialog's long frame (7d B5c): back into
+							-- it, the faulted beat to go out again
+							setstate <= "01";
+							next_micro_state <= cp_rsm;
 						ELSE
 							-- Last read completed - RTE is finishing
 							next_micro_state <= nop;
@@ -10682,6 +10888,36 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         next_micro_state <= cp_rsp;
                     END IF;
 
+                -- A bus error after the initiating access (B5c): the dialog
+                -- stopped at the faulted beat; the boundary's dispatch runs
+                -- from here (setinterrupt, the berr states, a long frame
+                -- carrying the dialog - cp_bfr), its dispatch set before this
+                -- CASE and left standing.
+                WHEN cp_bf =>
+                    IF interrupt = '1' AND (trap_berr = '1' OR trap_mmu_berr = '1') THEN
+                        NULL;
+                    ELSE
+                        setstate <= "01";
+                        next_micro_state <= cp_bf;
+                    END IF;
+
+                -- RTE of a dialog's bus fault frame (B5c): the dialog's state
+                -- loads at this edge, then the faulted beat goes out again
+                -- (the PC, from the frame, is its fetch address or scanPC)
+                WHEN cp_rsm =>
+                    setstate <= "01";
+                    next_micro_state <= cp_rsm2;
+
+                WHEN cp_rsm2 =>
+                    cp_cir_next <= cp_bk_cir;
+                    cp_mem_next <= cp_bk_mem;
+                    cp_cir_off <= cp_bk_off;
+                    cp_wdata <= cp_bk_wd;
+                    datatype <= cp_bk_dt;
+                    set_datatype <= cp_bk_dt;
+                    setstate <= cp_bk_ss;
+                    next_micro_state <= cp_st_dec(cp_bk_st);
+
                 WHEN pmove_decode =>		-- PMMU instruction dispatch based on extension word
                     setstate <= "01";       -- Suppress fetch during dispatch (PC already at +4)
                     set(update_FC) <= '1';  -- Ensure FC reflects supervisor mode
@@ -11567,6 +11803,24 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 			-- instruction's decode (set signals overriding MOVEA, etc).
 			IF moves_active = '1' AND (micro_state = moves0 OR micro_state = moves1 OR moves_writeback_pending = '1') THEN
 				set(no_Flags) <= '1';
+			END IF;
+			-- A coprocessor dialog's beat ending in a bus error (7d B5c):
+			-- whatever the state meant to do next, nothing - no new beat, no
+			-- trap; cp_bf dispatches the bus error from here
+			IF cp_bf_now = '1' THEN
+				next_micro_state <= cp_bf;
+				setstate <= "01";
+				cp_cir_next <= '0';
+				cp_mem_next <= '0';
+				trapmake <= '0';
+				trap_1111 <= '0';
+				trap_cp <= '0';
+				trap_cp9 <= '0';
+				trap_cppv <= '0';
+				trap_cpfmt <= '0';
+				trap_cptrap <= '0';
+				cp_br_sel <= '0';
+				TG68_PC_brw <= '0';
 			END IF;
 		END PROCESS;
 
