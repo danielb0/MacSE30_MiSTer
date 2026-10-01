@@ -8625,6 +8625,16 @@ Daniel, 2026-09-30**:
     out): documented as "ignores the access completely" - no DSACK, the
     system's bus-error watchdog ends it (6.1.12). Replicated (the rule for
     documented behaviour).
+22. **When an integer source and FMOVECR release the MPU** (found by 7e-3,
+    2026-10-01). Figures 7-17 and 7-18 show the release ($0900) at once -
+    after the operand transfer for B, W, L, at the first read for
+    FMOVECR. Table 8-3 says otherwise, systematically: every integer row
+    has total = head + tail + 19 (FADD.L 21 + 54 + 19 = 94, FMOVE.L
+    21 + 8 + 19 = 48, FABS.L 21 + 28 + 19 = 68), and FMOVECR has tail 0
+    (head 10, total 32) - the MPU held while the APU converts the integer
+    (which the CU cannot, 5.1.1.2's minimum concurrency) and through
+    FMOVECR's run. A held null ($8900) is legal protocol; the figures
+    show only the final encoding. **Daniel (2026-10-01): Table 8-3 - hold.**
 
 ### 8.6.15 What WinUAE and MAME say (read 2026-09-29)
 
@@ -11797,8 +11807,10 @@ which take only a few clocks where the chip spends the conversion.
    CU's clocks become comparable too (no longer "not compared").
 
 **Daniel's choices (2026-10-01): (1) the conversion moves to the CU;
-(3) exactly, for the typical operands.** (2), (6) and (7) follow; (4) and
-(5) are read in UM 7.5 before anything changes.
+(3) exactly, for the typical operands; (4) and (5) Table 8-3 - an integer
+source and FMOVECR hold the MPU ($8900) until the APU has converted (and,
+for FMOVECR, finished), against Figures 7-17/7-18 (8.6.14 item 22).**
+(2), (6) and (7) follow.
 
 ---
 
