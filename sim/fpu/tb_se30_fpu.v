@@ -79,7 +79,8 @@ module tb_se30_fpu;
     .NROM_HEX("../../rtl/fpu/ucode/ucode.nrom.hex"),
     .ENTRY_HEX("../../rtl/fpu/ucode/ucode.entry.hex"),
     .KROM_HEX("../../rtl/fpu/ucode/ucode.krom.hex"),
-    .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex")
+    .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex"),
+    .CVT_HEX("../../rtl/fpu/ucode/ucode.cvt.hex"), .CVSEL_HEX("../../rtl/fpu/ucode/ucode.cvsel.hex"), .TADJ_HEX("../../rtl/fpu/ucode/ucode.tadj.hex")
   ) dut (
     .clk(clk), .ce(ce), .reset(reset),
     .cs(cs), .rw(rw), .a(a), .din(din), .dout(dout), .dsack_n(dsack_n),
@@ -200,6 +201,11 @@ module tb_se30_fpu;
       if (!done) begin proto_bad = 1'b1; $display("  no end to the dialog"); end
     end
   endtask
+
+  // until the instruction just issued is in the APU: since 7e-3 it first
+  // spends its conversion in the CU (plan 8.9.7), so a test whose point is
+  // the next instruction meeting a running APU waits for that
+  task wait_apu; begin while (!dut.apu_busy) @(posedge clk); end endtask
 
   task cp_gen(input [15:0] c);
     begin
@@ -424,7 +430,7 @@ module tb_se30_fpu;
       check(st_long[0] == 32'h0001_2340, "the passed PC is FPIAR");
       // a divide by zero: pending, retained after XA, not reported by FMOVEM
       load_fp(80'h3FFF_8000000000000000, 80'h0000_0000000000000000, NAN, NAN, NAN, NAN, NAN, NAN);
-      cp_gen(16'h0420);                                           // FDIV FP1,FP0
+      cp_gen(16'h0420); wait_apu;                                           // FDIV FP1,FP0
       x_vec = 0;
       cp_cond(6'd0);                                              // FNOP
       check(x_vec == 8'h32 && x_when == 4'd1 && last_prim == 16'h1C32,
@@ -453,6 +459,7 @@ module tb_se30_fpu;
       wr16(5'h0A, 16'h000E);                                      // FSIN FP0,FP0
       rd16(5'h00);
       check(rd[31:16] == 16'h0900, "FSIN: released, $0900");
+      wait_apu;
       wr16(5'h0A, 16'h0022);                                      // FADD FP0,FP0
       rd16(5'h00);
       check(rd[31:16] == 16'h0900 && dut.apu_busy, "the next one goes to the CU: $0900, the APU busy");
@@ -533,7 +540,7 @@ module tb_se30_fpu;
       load_cr(32'h0000_0400, 32'd0);                              // DZ enabled
       load_fp(80'h3FFF_8000000000000000, 80'h0000_0000000000000000, NAN, NAN, NAN, NAN, NAN, NAN);
       pc_val = 32'h0000_1000;
-      cp_gen(16'h0420);                                           // FDIV FP1,FP0
+      cp_gen(16'h0420); wait_apu;                                           // FDIV FP1,FP0
       x_vec = 0; cp_cond(6'd0);
       check(x_vec == 8'h32, "FDIV by zero: FNOP takes DZ");
       fsave;
@@ -609,6 +616,7 @@ module tb_se30_fpu;
       // an abandoned save: a new instruction lets the stopped APU go on
       load_fp(ONE_5, NAN, NAN, NAN, NAN, NAN, NAN, NAN);
       wr16(5'h0A, 16'h000E); rd16(5'h00);
+      wait_apu;
       rd16(5'h04);
       check(rd[31:16] == 16'h0138, "FSAVE while FSIN runs: come again");
       repeat (400) @(posedge clk);
@@ -736,7 +744,7 @@ module tb_se30_fpu;
       load_cr(32'h0000_0400, 32'd0);                              // DZ enabled
       load_fp(80'h3FFF_8000000000000000, 80'h0000_0000000000000000, NAN, NAN, NAN, NAN, NAN, NAN);
       pc_val = 32'h0000_1000;
-      cp_gen(16'h0420);                                           // FDIV FP1,FP0: DZ
+      cp_gen(16'h0420); wait_apu;                                           // FDIV FP1,FP0: DZ
       check(prims[0] == 16'h4900, "FDIV: released with the PC");
       pc_val = 32'h0000_1004;
       op_long[0] = 32'h0000_0003;                                 // the byte 3
@@ -770,7 +778,7 @@ module tb_se30_fpu;
       load_cr(32'h0000_0400, 32'd0);
       load_fp(80'h3FFF_8000000000000000, 80'h0000_0000000000000000,
               80'h4000_8000000000000000, 80'h4001_A000000000000000, NAN, NAN, NAN, NAN);
-      cp_gen(16'h0420);                                           // FDIV FP1,FP0
+      cp_gen(16'h0420); wait_apu;                                           // FDIV FP1,FP0
       cp_gen(16'h0D22);                                           // FADD FP3,FP2: 2 + 5
       check(prims[0] == 16'h4900, "FADD FP3,FP2 in the CU: released");
       x_vec = 0;
@@ -793,7 +801,7 @@ module tb_se30_fpu;
       load_cr(32'h0000_0400, 32'd0);
       load_fp(80'h3FFF_8000000000000000, 80'h0000_0000000000000000, NAN, NAN, NAN, NAN, NAN, NAN);
       pc_val = 32'h0000_2000;
-      cp_gen(16'h0420);                                           // FDIV FP1,FP0
+      cp_gen(16'h0420); wait_apu;                                           // FDIV FP1,FP0
       wr16(5'h0A, 16'h5500); rd16(5'h00);                         // FMOVE.D <ea>,FP2
       if (rd[31:16] == 16'h5608) wr32(5'h18, 32'h0000_2004);      // (the PC)
       wr32(5'h10, 32'h4000_0000);                                 // 2.0, its high long
@@ -826,6 +834,7 @@ module tb_se30_fpu;
     begin
       pc_val = pc;
       cp_gen(c);
+      if (mv_j == 1 && c[15:13] == 3'd0 && c[6:0] != 7'd0) wait_apu;   // (an arithmetic one: into the APU, 7e-3)
       if (c[15:13] == 3'd3 && mv_n < 4) begin
         mv_st[mv_n] = (c[12:10] == 3'd1) ? {64'd0, st_long[0]} : (c[12:10] == 3'd5) ? {32'd0, st_long[0], st_long[1]}
                                          : {st_long[0], st_long[1], st_long[2]};
@@ -949,7 +958,7 @@ module tb_se30_fpu;
       mv_begin;
       load_cr(32'h0000_0400, 32'd0);
       load_fp(X_1, X_0, NAN, X_M25, NAN, NAN, NAN, NAN);
-      pc_val = 32'h0000_3700; cp_gen(16'h0420);                   // FDIV FP1,FP0: DZ
+      pc_val = 32'h0000_3700; cp_gen(16'h0420); wait_apu;                   // FDIV FP1,FP0: DZ
       pc_val = 32'h0000_3704; cp_gen(16'h0D00);                   // FMOVE FP3,FP2
       x_vec = 0; cp_cond(6'd0);
       check(x_vec == 8'h32 && x_when == 4'd1 && dut.apu.fp[2] == X_M25,
@@ -977,7 +986,7 @@ module tb_se30_fpu;
       // come again, then an idle frame carrying the image; restored, it goes on
       mv_begin;
       load_fp(X_1, X_3, NAN, X_M25, NAN, NAN, NAN, NAN);
-      cp_gen(16'h0420);                                           // FDIV FP1,FP0
+      cp_gen(16'h0420); wait_apu;                                           // FDIV FP1,FP0
       wr16(5'h0A, 16'h6580);                                      // FMOVE.S FP3,<ea>
       rd16(5'h00); while (rd[31:16] == 16'h8900 && !dut.cu_st) rd16(5'h00);
       check(dut.cu_st && dut.apu_busy, "a CU store made while the FDIV runs");
@@ -995,7 +1004,7 @@ module tb_se30_fpu;
       mv_begin;
       load_cr(32'h0000_0400, 32'd0);
       load_fp(X_1, X_0, NAN, X_M25, NAN, NAN, NAN, NAN);
-      pc_val = 32'h0000_3800; cp_gen(16'h0420);                   // FDIV FP1,FP0: DZ
+      pc_val = 32'h0000_3800; cp_gen(16'h0420); wait_apu;                   // FDIV FP1,FP0: DZ
       wr16(5'h0A, 16'h6580);                                      // FMOVE.S FP3,<ea>
       rd16(5'h00); while (rd[31] && !dut.cu_st) begin
         if (rd[30]) wr32(5'h18, 32'h0000_3804);
@@ -1052,7 +1061,7 @@ module tb_se30_fpu;
       mv_begin;
       load_cr(32'h0000_8000, 32'd0);                              // BSUN enabled: the PCs pass
       load_fp(X_1, X_3, X_0, NAN, NAN, NAN, NAN, NAN);
-      pc_val = 32'h0000_3A00; cp_gen(16'h0420);                   // FDIV FP1,FP0
+      pc_val = 32'h0000_3A00; cp_gen(16'h0420); wait_apu;                   // FDIV FP1,FP0
       pc_val = 32'h0000_3A04; cp_gen(16'h0D22);                   // FADD FP3,FP2: a NaN, into the slot
       check(prims[0] == 16'h4900, "FADD behind the FDIV: into the slot, released with its PC");
       pc_val = 32'h0000_3A08; x_vec = 0;

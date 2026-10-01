@@ -11812,6 +11812,80 @@ source and FMOVECR hold the MPU ($8900) until the APU has converted (and,
 for FMOVECR, finished), against Figures 7-17/7-18 (8.6.14 item 22).**
 (2), (6) and (7) follow.
 
+**7e-3 as built so far (2026-10-01).**
+- **The measurement, corrected twice.** (i) The tail runs from the
+  instruction's *release* as UM 8.2 means it on the 68882 - the later of
+  the MPU's release and the CU's hand-off, since the next instruction, FP
+  or MPU, can begin only then; with that reading Table 8-3 is
+  self-consistent (every FPm row frees the CU at total - tail = 21, S at
+  31, D at 37, X at 43, the integers at 40). (ii) The operands are the
+  typical ones: source 3.0 into 2.25 (FADD's equal exponents), 2.5 for
+  FINT/FINTRZ, 0.5 for FASIN/FACOS/FATANH, 7.25 for FMOD/FREM. `+matrix`
+  runs every operation in FPm, S, D, X and L.
+- **The conversion moved** (`asm.py`: `.table NAME TAGPAIR cu|hold`).
+  The `cu` tables' (register, X, S, D, dyadic and in-memory monadic)
+  budgets leave the microwords for `ucode.cvt.hex`, which `ucode.cvsel.hex`
+  indexes by entry; 388 nanowords, from 399. The CU: every register or
+  S/D/X instruction goes through the slot, APU idle or not; the slot reads
+  FPm (or widens the operand) and FPn through port B, classes them as the
+  APU's tag logic does, looks up the time and spends it from the operand's
+  arrival before the hand-off; FSAVE answers come again meanwhile; a
+  restored slot's time was spent before its save.
+- **The integers** (`hold` tables, which keep their budgets in the APU):
+  through the slot too, the MPU held in `B_HOLD`; their table time plus a
+  constant is a wait *after* the APU is free (the APU converts: the head
+  is 21 behind another instruction, then the hold, then the release).
+  **FMOVECR** holds the MPU to its end.
+- **The constants** (`se30_fpu.v`, against the heads): K_REG -8, K_S -2,
+  K_D +2, K_X +10, K_MONO +2 (monadic memory figures are 2 below the
+  dyadic, the 68882's heads are not), K_INT -12, K_INTM +6; D_REG 4 (a
+  register source's hand-off: total = H + T + 4). The CU's own moves: in
+  FPm 11, S 19, D 21, X 23 clocks of the CU busy; out S 20, D 24, X 22.
+- **The per-operation calibration** (`ucode/t882.uc`, `.tadj KINDS
+  OPMODE N | cr N | out.F N`, `ucode.tadj.hex`): N < 0 starts the APU's
+  elapsed count at -N; N > 0 is added at END to whichever ends the
+  instruction, its path or its budget (looked up again at END from
+  `cmd_r`, so a busy frame keeps it). `sim.py` does the same, so the
+  vectors' clocks follow; `vec.py`'s check against `timing.py` now
+  subtracts the CU's conversion (`timing.cu_conv`) and adds N > 0;
+  `cpgap.py` measures from the count's start.
+- **The reading (+matrix, typical operands, 37 operations x FPm/S/D/X/L
+  = 185 rows): 129 exact in head, tail and total; 165 exact in total and
+  tail** (the 36 others of those are integer rows whose heads read 20
+  against 21); 168 within one clock. Exact everywhere: every
+  transcendental, FADD, FSUB, FMUL, FMOD, FREM, FINT, FINTRZ, FTST,
+  FGETEXP, FSGLMUL. The CU's moves in (FPm, S, D, X) exact in total, their
+  heads total - 1 (the harness's end waits for the FSIN).
+- **What is left:**
+  1. **Path-bound operations**: with the conversion gone from the budget,
+     the microcode's own path is longer than the 68882's tail - FCMP 28
+     clocks against a budget of 10 (+8 FPm, +5 S/D/X), FSGLDIV +5/+2,
+     FDIV +7/+4, FSQRT +4/+1, FABS and FNEG +2 (FPm), FSCALE +2 (FPm),
+     FMOVE.L +7. A budget cannot shorten a path; the microcode would have
+     to be faster (8.8.16 assumed every path fits its figure: true of the
+     68881's, not of the 68882's shorter tails). **For Daniel.**
+  2. **Instructions the MPU waits on** (stores, FMOVECR, the integer
+     hold): the MPU sees the FPU ready only at its next response read, five
+     clocks apart, so a total moves in steps (a store's 2 clocks less moved
+     it 6). The manual's figures assume the read "at exactly the moment"
+     (8.4). To measure them as the manual does, the harness would take the
+     FPU's ready time plus the ideal dialog. **For Daniel** (the stores sit
+     at -2..+2 now, FMOVECR +4).
+  3. **Packed** (FADD.P -27, FMOVE.P -33, stores -2): not yet calibrated.
+  4. FATANH from an integer: an operand artefact (no integer is a typical
+     atanh argument).
+- **Verified on this build:** `sim/fpu` directed 143 (eight checks
+  needed `wait_apu`: they meant the APU busy when the next instruction
+  came, and an instruction now spends its conversion in the CU first);
+  every vector plain, 19,836, results and clocks (the CU's 453 moves'
+  clocks not compared); the first 2,000 pairs, triples and detour pairs;
+  the 7a APU bench, the first 3,000; `tools/fpu_ucode/run.sh` 57 PASS, the
+  clocks check 13,853 against the restated figures and 3,095 over them
+  (all the path-bound operations above); `sim/cpfpu` all 13 (b3c's
+  interrupt now lands in the first FMOVECR, which holds the MPU: its
+  expectation moved there); `sim/machine`. ModelSim found a use-before-
+  declare Icarus hides (the APU's END lookup above `cmd_r`): moved.
+
 ---
 
 ## Appendix - where the sources are

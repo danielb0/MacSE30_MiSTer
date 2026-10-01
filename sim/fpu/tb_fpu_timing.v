@@ -14,7 +14,10 @@
 //     total  from the prefetch to the later of the MPU's release (the end of
 //            the dialog's last cycle) and the FPU's end (the APU and the CU
 //            idle, a CU move written);
-//     tail   from the release to the FPU's end;
+//     tail   from the instruction's release - the later of the MPU's (the
+//            end of its last dialog cycle) and the CU's (the hand-off to the
+//            APU: on the 68882 the next instruction, FP or MPU, may begin
+//            only then, UM 8.2) - to the FPU's end;
 //     head   UM 8.2's "begins when the instruction is initiated by the MPU,
 //            and ends when [it] can no longer operate under the tail of a
 //            previous instruction": the same instruction issued after an
@@ -49,7 +52,8 @@ module tb_fpu_timing;
     .NROM_HEX("../../rtl/fpu/ucode/ucode.nrom.hex"),
     .ENTRY_HEX("../../rtl/fpu/ucode/ucode.entry.hex"),
     .KROM_HEX("../../rtl/fpu/ucode/ucode.krom.hex"),
-    .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex")
+    .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex"),
+    .CVT_HEX("../../rtl/fpu/ucode/ucode.cvt.hex"), .CVSEL_HEX("../../rtl/fpu/ucode/ucode.cvsel.hex"), .TADJ_HEX("../../rtl/fpu/ucode/ucode.tadj.hex")
   ) dut (
     .clk(clk), .ce(ce), .reset(reset),
     .cs(cs), .rw(rw), .a(a), .din(din), .dout(dout), .dsack_n(dsack_n),
@@ -66,6 +70,12 @@ module tb_fpu_timing;
   wire fpu_quiet = !dut.apu_busy && !dut.apu_was_busy && !dut.cu_busy && !dut.apu_start &&
                    !dut.cu_v && (dut.mi == 2'd0) && !dut.fpb_we && !dut.hv;
   integer t_quiet;                 // the half clock the FPU last went quiet
+  integer t_cu;                    // ... the instruction last left the CU (a hand-off or a start)
+  reg     cub_prev = 1'b0;
+  always @(posedge clk) begin
+    if (dut.cu_busy && !cub_prev) t_cu = hc;
+    cub_prev <= dut.cu_busy;
+  end
   reg     q_prev = 1'b1;
   always @(posedge clk) begin
     if (fpu_quiet && !q_prev) t_quiet = hc;
@@ -136,17 +146,20 @@ module tb_fpu_timing;
   task wait_quiet; begin rise; while (!fpu_quiet) rise; repeat (4) rise; end endtask
 
   // -- one row: alone (total, tail) and behind an FSIN (head) -------------------------
-  localparam [79:0] X_075 = 80'h3FFE_C000000000000000, X_225 = 80'h4000_9000000000000000,
+  // the typical operands (8.9.7 point 6): source 3.0 and destination 2.25 -
+  // normalized, the same exponent (FADD's base case), the memory sources' 3.0
+  localparam [79:0] X_075 = 80'h4000_C000000000000000, X_225 = 80'h4000_9000000000000000,
                     X_1   = 80'h3FFF_8000000000000000;
   integer t0, tot, tail, t_l, t_i, head;
   // the FSIN's end: the APU's busy falling with FSIN's command in it
   integer t_fsin_end;
   always @(posedge clk) if (dut.apu_was_busy && !dut.apu_busy && dut.acmd == 16'h000E) t_fsin_end = hc;
   reg [8*12-1:0] nm, onlyname;
+  reg [79:0] src_x = 80'h4000_C000000000000000, dst_x = 80'h4000_9000000000000000;
   task setup;
     begin
       null_restore;
-      load_fp(3'd0, X_1); load_fp(3'd1, X_075); load_fp(3'd2, X_225);
+      load_fp(3'd0, X_1); load_fp(3'd1, src_x); load_fp(3'd2, dst_x);
       wait_quiet;
     end
   endtask
@@ -158,10 +171,13 @@ module tb_fpu_timing;
         // alone
         setup;
         prefetch; t0 = t_pf;
+        t_cu = 0;
         cp_gen(c);
         wait_quiet;
         tot  = ((t_quiet > t_rel ? t_quiet : t_rel) - t0) / 2;
-        tail = (t_quiet > t_rel) ? (t_quiet - t_rel) / 2 : 0;
+        t_l  = (t_cu > t_rel) ? t_cu : t_rel;               // the release, as UM 8.2 means it
+        if (t_cu == 0) t_l = (t_quiet > t_rel) ? t_quiet : t_rel;   // (a CU move: no APU)
+        tail = (t_quiet > t_l) ? (t_quiet - t_l) / 2 : 0;
         // behind an FSIN FP0 (its tail covers any head)
         setup;
         prefetch; cp_gen(16'h000E);                       // FSIN FP0
@@ -175,8 +191,45 @@ module tb_fpu_timing;
     end
   endtask
 
+  // one operation in every source format: FP1, S, D, X, L (B and W are L's
+  // column), its typical source v (0: 3.0, 1: 2.5 - a fraction, for FINT; 2:
+  // 0.5 - inside the inverse functions' domain) and destination (2.25, or
+  // 7.25 for FMOD and FREM: a one-chunk quotient)
+  task op5(input [8*12-1:0] name, input [6:0] om, input [1:0] v, input big);
+    begin
+      src_x = (v == 2'd0) ? 80'h4000_C000000000000000 : (v == 2'd1) ? 80'h4000_A000000000000000
+                                                      : 80'h3FFE_8000000000000000;
+      dst_x = big ? 80'h4001_E800000000000000 : 80'h4000_9000000000000000;
+      row(name, "FPm", 16'h0500 | om, 0, 0, 0);
+      row(name, "S", 16'h4500 | om, (v == 2'd0) ? 32'h4040_0000 : (v == 2'd1) ? 32'h4020_0000 : 32'h3F00_0000, 0, 0);
+      row(name, "D", 16'h5500 | om, (v == 2'd0) ? 32'h4008_0000 : (v == 2'd1) ? 32'h4004_0000 : 32'h3FE0_0000, 0, 0);
+      row(name, "X", 16'h4900 | om, (v == 2'd2) ? 32'h3FFE_0000 : 32'h4000_0000,
+          (v == 2'd0) ? 32'hC000_0000 : (v == 2'd1) ? 32'hA000_0000 : 32'h8000_0000, 0);
+      row(name, "L", 16'h4100 | om, (v == 2'd2) ? 32'd1 : 32'd3, 0, 0);
+      src_x = 80'h4000_C000000000000000; dst_x = 80'h4000_9000000000000000;
+    end
+  endtask
+
   initial begin
     if (!$value$plusargs("only=%s", onlyname)) onlyname = "";
+    if ($test$plusargs("matrix")) begin
+      repeat (4) @(posedge clk); reset = 1'b0; repeat (40) @(posedge clk);
+      op5("FABS", 7'h18, 0, 0);    op5("FNEG", 7'h1A, 0, 0);    op5("FADD", 7'h22, 0, 0);
+      op5("FSUB", 7'h28, 0, 0);    op5("FMUL", 7'h23, 0, 0);    op5("FDIV", 7'h20, 0, 0);
+      op5("FCMP", 7'h38, 0, 0);    op5("FTST", 7'h3A, 0, 0);    op5("FSQRT", 7'h04, 0, 0);
+      op5("FINT", 7'h01, 1, 0);    op5("FINTRZ", 7'h03, 1, 0);  op5("FGETEXP", 7'h1E, 0, 0);
+      op5("FGETMAN", 7'h1F, 0, 0); op5("FSCALE", 7'h26, 0, 0);  op5("FSGLMUL", 7'h27, 0, 0);
+      op5("FSGLDIV", 7'h24, 0, 0); op5("FMOD", 7'h21, 0, 1);    op5("FREM", 7'h25, 0, 1);
+      op5("FSIN", 7'h0E, 0, 0);    op5("FCOS", 7'h1D, 0, 0);    op5("FTAN", 7'h0F, 0, 0);
+      op5("FSINCOS", 7'h33, 0, 0); op5("FATAN", 7'h0A, 0, 0);   op5("FASIN", 7'h0C, 2, 0);
+      op5("FACOS", 7'h1C, 2, 0);   op5("FATANH", 7'h0D, 2, 0);  op5("FSINH", 7'h02, 0, 0);
+      op5("FCOSH", 7'h19, 0, 0);   op5("FTANH", 7'h09, 0, 0);   op5("FETOX", 7'h10, 0, 0);
+      op5("FETOXM1", 7'h08, 0, 0); op5("FTWOTOX", 7'h11, 0, 0); op5("FTENTOX", 7'h12, 0, 0);
+      op5("FLOGN", 7'h14, 0, 0);   op5("FLOGNP1", 7'h06, 0, 0); op5("FLOG10", 7'h15, 0, 0);
+      op5("FLOG2", 7'h16, 0, 0);   op5("FMOVE", 7'h00, 0, 0);
+      $display("TIMING done");
+      $finish;
+    end
     repeat (4) @(posedge clk);
     reset = 1'b0;
     repeat (40) @(posedge clk);

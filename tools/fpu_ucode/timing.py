@@ -427,6 +427,30 @@ def spec(v):
     return total, case, own
 
 
+def cu_conv(v):
+    """The input conversion the 68882's CU does (plan 8.9.7): a general
+    instruction's register, S, D or X source - Table 8-13's time, which the
+    APU no longer spends (asm.py's `cu` tables).  0 for anything else."""
+    group, kind, cmd, fpcr, fpsr, rx, ry, rc, operand, dreg, expect = v
+    if kind == 'C':
+        return 0
+    opclass, rxf, ext = cmd >> 13, (cmd >> 10) & 7, cmd & 0x7F
+    if opclass not in (0, 2) or (opclass == 2 and rxf == 7) or ext >= 0x40:
+        return 0
+    op = OPNAMES.get(ext) or OPNAMES.get(FPU.REDUNDANT.get(ext, -1))
+    if op is None:
+        return 0
+    fmt = 'reg' if opclass == 0 else FMT_NAMES[rxf]
+    if fmt not in ('reg', 'S', 'D', 'X'):
+        return 0
+    rnd = (fpcr >> 4) & 3
+    src = _src_reg(v, rxf) if opclass == 0 else _source(fmt, operand, rnd)
+    s, d = cls(src), cls(ry)
+    if fmt in ('S', 'D'):
+        s = _ieee_cls(fmt, operand)
+    return conversion(fmt, s, src.s, d, op in MONADIC_OPS)
+
+
 def _ieee_cls(fmt, raw):
     """A single or double operand's class in its own format: a denormal
     there is "not normalized" though extended holds it normalized."""

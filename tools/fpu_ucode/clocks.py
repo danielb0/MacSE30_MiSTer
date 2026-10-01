@@ -45,7 +45,7 @@ MONADIC = TRIG + (0x0A, 0x0C, 0x1C, 0x10, 0x11, 0x12, 0x08, 0x14, 0x16, 0x15, 0x
 
 def main():
     r, labels = vec.load([os.path.join(HERE, 'ucode', 'fpu.uc')])
-    chip = vec.Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'))
+    chip = vec.Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'), tadj=r.tadj)
     clk = defaultdict(list)
     normal = lambda x: x.e not in (0, 0x7FFF) and x.m >> 63
     for line in open(os.path.join(HERE, '..', 'fpu_model', 'out', 'fpu.vec')):

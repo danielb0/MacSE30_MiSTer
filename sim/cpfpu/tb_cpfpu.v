@@ -101,7 +101,8 @@ module tb_cpfpu;
   se30_fpu #(
     .UROM_HEX("../../rtl/fpu/ucode/ucode.urom.hex"), .NROM_HEX("../../rtl/fpu/ucode/ucode.nrom.hex"),
     .ENTRY_HEX("../../rtl/fpu/ucode/ucode.entry.hex"), .KROM_HEX("../../rtl/fpu/ucode/ucode.krom.hex"),
-    .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex")
+    .NSEL_HEX("../../rtl/fpu/ucode/ucode.nsel.hex"),
+    .CVT_HEX("../../rtl/fpu/ucode/ucode.cvt.hex"), .CVSEL_HEX("../../rtl/fpu/ucode/ucode.cvsel.hex"), .TADJ_HEX("../../rtl/fpu/ucode/ucode.tadj.hex")
   ) fpu (
     .clk(clk), .ce(phi1), .reset(!(reset_n && reset_out_n)),
     .cs(fpu_sel), .rw(cpu_rw_n), .a(cpu_addr[4:0]), .din(cpu_dout), .dout(fpu_q),

@@ -36,15 +36,27 @@ Sequencing, after `|` (default: next):
     | dispatch KEY L | wait N | budget N | waitb [N]   (fields.WAITMODE)
 Directives:
     .include "file"          .org N           .align N        .export label
-    .table NAME KEY          (entries until .end: `SRC DST label` for TAGPAIR,
+    .table NAME KEY [cu|hold]  (entries until .end: `SRC DST label` for TAGPAIR,
                               `VALUE label` otherwise, `*` a wildcard,
                               `default label`; `KEYS :: microinstruction`
                               puts the word in the slot (it must end in
                               goto or dispatch); an OPMODE table's
                               `redundant model` copies 8.6.14 item 6's
                               opmodes from their bases, as .redundant does)
+                             `cu` (TAGPAIR, inline words: plan 8.9.7): the
+                              conversion the 68882's CU does - each word's
+                              budget=N leaves the microword for the CU's
+                              table (ucode.cvt.hex), the CU spending it
+                              before the hand-off; `hold`: the APU keeps it,
+                              and the same N is how long the MPU is held
+                              (an integer source, 8.6.14 item 22)
     .entry KINDS OPMODE label    KINDS: reg, L S X P W D B, `*`, comma lists
     .entry cr label          .entry out.F label      .entry default label
+    .tadj KINDS OPMODE N | cr N | out.F N   (plan 8.9.7) a signed adjustment of the
+                              instruction's clocks, for the entries .entry's
+                              KINDS OPMODE name: the APU starts with budget N
+                              (N > 0) or its elapsed count at -N (N < 0) -
+                              Table 8-3's 68882 against the 68881's phases
     .redundant model         (the redundant opmodes as the model decodes
                               them, 8.6.14 item 6)
 Numbers: decimal, $hex or 0xhex.
@@ -108,6 +120,8 @@ class Table:
         self.default = None
         self.redundant = False
         self.addr = None
+        self.kind = ''                      # '', 'cu' or 'hold' (plan 8.9.7)
+        self.cvid = 0                       # its number in ucode.cvt.hex
 
 
 class Program:
@@ -119,6 +133,7 @@ class Program:
         self.tables = OrderedDict()
         self.entries = {}                   # index -> (label, loc)
         self.entry_default = None
+        self.tadj = {}                      # entry index -> (N, loc)
         self.redundant = False
         self.exports = []
         self.warnings = []
@@ -411,6 +426,39 @@ def _enum_code(enum, s, loc):
 ENTRY_KINDS = ['reg'] + [f for f in FD.FMT.names if f != 'PK']
 
 
+def parse_tadj(prog, args, loc):
+    w = args.split()
+    if len(w) == 2 and (w[0].lower() == 'cr' or w[0].lower().startswith('out.')):
+        n = int(w[1].replace('+', ''))
+        if not -128 <= n <= 127:
+            raise AsmError('%s: .tadj: N -128 to 127' % loc)
+        if w[0].lower() == 'cr':
+            idx = FD.ENTRY_FMOVECR
+        else:
+            f = w[0][4:].upper()
+            if f not in FD.FMT:
+                raise AsmError('%s: out.%s: a format of %s' % (loc, f, ', '.join(FD.FMT.names)))
+            idx = FD.entry_store(f)
+        if idx in prog.tadj:
+            raise AsmError('%s: .tadj for entry $%03X already given at %s' % (loc, idx, prog.tadj[idx][1]))
+        prog.tadj[idx] = (n, loc)
+        return
+    if len(w) != 3:
+        raise AsmError('%s: .tadj KINDS OPMODE N | cr N | out.F N' % loc)
+    kinds = ENTRY_KINDS if w[0] == '*' else w[0].split(',')
+    op, n = num(w[1]), int(w[2].replace('+', ''))
+    if not 0 <= op < 0x40 or not -128 <= n <= 127:
+        raise AsmError('%s: .tadj: opmode $00-$3F, N -128 to 127' % loc)
+    for k in kinds:
+        kk = 'reg' if k.lower() == 'reg' else k.upper()
+        if kk != 'reg' and (kk not in FD.FMT or kk == 'PK'):
+            raise AsmError('%s: source kind %s: reg or one of L S X P W D B' % (loc, k))
+        idx = FD.entry_general(kk, op)
+        if idx in prog.tadj:
+            raise AsmError('%s: .tadj for entry $%03X already given at %s' % (loc, idx, prog.tadj[idx][1]))
+        prog.tadj[idx] = (n, loc)
+
+
 def parse_entry(prog, args, loc):
     w = args.split()
     def put(idx, label):
@@ -528,22 +576,26 @@ def parse_file(prog, path, knames, seen=None):
                 prog.exports.append((args.strip(), loc))
             elif d == '.table':
                 w = args.split()
-                if len(w) != 2 or w[1].upper() not in FD.DISPATCH_BITS:
-                    raise AsmError('%s: .table NAME KEY' % loc)
+                if len(w) not in (2, 3) or w[1].upper() not in FD.DISPATCH_BITS or                    (len(w) == 3 and (w[2].lower() not in ('cu', 'hold') or w[1].upper() != 'TAGPAIR')):
+                    raise AsmError('%s: .table NAME KEY [cu|hold] (cu and hold are TAGPAIR tables)' % loc)
                 if w[0] in prog.labels or w[0] in prog.tables:
                     raise AsmError('%s: %s defined twice' % (loc, w[0]))
                 table = Table(w[0], w[1].upper(), loc)
+                if len(w) == 3:
+                    table.kind = w[2].lower()
                 prog.tables[w[0]] = table
                 prog.labels[w[0]] = ('table', table)
             elif d == '.entry':
                 parse_entry(prog, args, loc)
+            elif d == '.tadj':
+                parse_tadj(prog, args, loc)
             elif d == '.redundant':
                 if args.strip().lower() != 'model':
                     raise AsmError('%s: .redundant model' % loc)
                 prog.redundant = True
             else:
                 raise AsmError('%s: unknown directive %s' % (loc, d))
-            if prog.pending_labels and d not in ('.org', '.align', '.export', '.entry', '.redundant', '.include'):
+            if prog.pending_labels and d not in ('.org', '.align', '.export', '.entry', '.tadj', '.redundant', '.include'):
                 raise AsmError('%s: a label must name a microinstruction' % loc)
             continue
         u = parse_uinstr(text, loc, knames)
@@ -1022,10 +1074,59 @@ class Result:
     pass
 
 
+# -- the CU's conversion times (plan 8.9.7) --------------------------------------------
+# A `cu` or `hold` table's slots are each a word with budget=N: the time
+# Table 8-13 gives that conversion.  ucode.cvt.hex holds the Ns, at
+# {table number, tag pair}; ucode.cvsel.hex says, for each entry index, the
+# table its first word dispatches to - {hold, number[3:0]}, 0 for none.  A `cu`
+# table's words lose the budget (the CU spends it); a `hold` table's keep it.
+CV_TABLES = 15                              # numbers 1-15
+
+def cu_tables(prog):
+    cvt = [0] * 512
+    n = 0
+    for t in prog.tables.values():
+        if not t.kind:
+            continue
+        n += 1
+        if n > CV_TABLES:
+            raise AsmError('%s: more than %d cu/hold tables' % (t.loc, CV_TABLES))
+        t.cvid = n
+        for code in range(32):
+            u = t.entries.get(code)
+            if u is None:
+                continue                    # (the default: a pair that cannot occur)
+            if not isinstance(u, UInstr):
+                raise AsmError('%s: table %s: the slots of a %s table must be inline words' % (t.loc, t.name, t.kind))
+            if u.nano.get('ctl') != 'BUDGET':
+                raise AsmError('%s: table %s slot %s: a %s word needs budget=N' % (u.loc, t.name, _key_name(t.key, code), t.kind))
+            cvt[(n << 5) | code] = u.nano['lit'] * 2
+    for t in prog.tables.values():          # strip after reading: a word may fill several slots
+        if t.kind == 'cu':
+            for x in t.entries.values():
+                if x.nano.get('ctl') == 'BUDGET':
+                    del x.nano['ctl']
+                    del x.nano['lit']
+    return cvt
+
+
+def cu_select(prog, rom, entry):
+    sel = [0] * FD.ENTRY_WORDS
+    for i, a in enumerate(entry):
+        u = rom[a] if a is not None and a < len(rom) else None
+        if u is None or u.seq != 'DISP' or FD.DISPATCH.names[u.cond] != 'TAGPAIR':
+            continue
+        ent = prog.labels.get(u.target)
+        if ent and ent[0] == 'table' and ent[1].kind:
+            sel[i] = ((ent[1].kind == 'hold') << 4) | ent[1].cvid
+    return sel
+
+
 def assemble(paths):
     prog = Program()
     for p in paths:
         parse_file(prog, p, consts.NAMES)
+    cvt = cu_tables(prog)                   # (before layout copies the table words)
     rom = layout(prog)
     resolve(prog, rom)
     for label, loc in prog.exports:
@@ -1036,6 +1137,8 @@ def assemble(paths):
     r = Result()
     r.prog, r.rom, r.urom, r.nrom, r.entry = prog, rom, urom, nrom, entry
     r.krom = consts.ROM
+    r.cvt, r.cvsel = cvt, cu_select(prog, rom, entry)
+    r.tadj = [prog.tadj.get(i, (0, None))[0] for i in range(FD.ENTRY_WORDS)]
     r.nnano, r.errors, r.warnings, r.depth = nnano, errors, warnings, depth
     return r
 
@@ -1059,6 +1162,9 @@ def write(r, outdir, stem='ucode'):
         n = FD.NANO.unpack(w)
         nsel.append((int(n['bsrc'] == FD.BSRC.code['KLC']) << 2) | n['fpsel'])
     put(stem + '.nsel.hex', hexlines(nsel, 3))
+    put(stem + '.cvt.hex', hexlines(r.cvt, 8))
+    put(stem + '.cvsel.hex', hexlines(r.cvsel, 5))
+    put(stem + '.tadj.hex', hexlines([v & 0xFF for v in r.tadj], 8))
     put('fpu_ucode.vh', FD.verilog_header() + _addr_defines(r))
     sym = {'labels': {n: e[1].addr for n, e in r.prog.labels.items()},
            'constants': consts.NAMES,

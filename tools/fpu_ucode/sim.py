@@ -176,8 +176,9 @@ class Unimplemented(Exception):
 
 
 class Chip:
-    def __init__(self, urom, nrom, entry, krom, unimpl=None, idle=0):
+    def __init__(self, urom, nrom, entry, krom, unimpl=None, idle=0, tadj=None):
         self.urom, self.nrom, self.entry, self.krom = urom, nrom, entry, krom
+        self.tadj = tadj                       # plan 8.9.7: asm.py's .tadj, by entry index
         self.unimpl, self.idle = unimpl, idle
         self._dec = [None] * len(urom)
         self.fp = [(0, EMAX, M64)] * 8
@@ -644,7 +645,7 @@ class Chip:
             # BIU's logic, as it takes the pending exception.  It holds
             # until the budget's clocks have passed (8.8.19).
             self.fpsr = accrue(self.fpsr)
-            self.hold_end = max(0, self.BUDGET - (self.clocks + 1))
+            self.hold_end = max(0, self.BUDGET - (self.clocks + 1)) + getattr(self, 'tpos', 0)
             self.done = True
         elif c == 'BUDGET':
             self.BUDGET += 2 * e['lit']
@@ -674,6 +675,10 @@ class Chip:
     # -- one instruction -----------------------------------------------------------------------
     def run(self, entry_index, max_clocks=200000):
         self.upc = self.entry[entry_index]
+        a = self.tadj[entry_index] if self.tadj else 0
+        self.tpos = max(a, 0)                  # (as the RTL: N > 0 at END, beyond path or budget;
+        if a < 0:                              #  N < 0 the elapsed count's start)
+            self.clocks = -a
         steps = 0
         while not self.done:
             self.step()

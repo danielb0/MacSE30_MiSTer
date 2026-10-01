@@ -49,7 +49,7 @@ pro_intm: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec | dispatch TAGPA
 pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
          d=T1 a=T1 alu=passa osh=norm budget=2 | goto pro_go
 
-.table cv_reg TAGPAIR
+.table cv_reg TAGPAIR cu
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=14 | goto pro_go
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=26 | goto pro_go
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=20 | goto pro_go
@@ -77,7 +77,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   NAN  NAN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=24 | goto pro_go
 .end
 
-.table cv_x TAGPAIR
+.table cv_x TAGPAIR cu
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=10 | goto pro_go
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=22 | goto pro_go
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=16 | goto pro_go
@@ -105,7 +105,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   NAN  NAN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=20 | goto pro_go
 .end
 
-.table cv_xm TAGPAIR
+.table cv_xm TAGPAIR cu
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=8 | goto pro_go
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=8 | goto pro_go
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=8 | goto pro_go
@@ -133,7 +133,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   NAN  NAN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=12 | goto pro_go
 .end
 
-.table cv_s TAGPAIR
+.table cv_s TAGPAIR cu
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=18 | goto pro_go
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=30 | goto pro_go
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=24 | goto pro_go
@@ -161,7 +161,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   NAN  NAN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=32 | goto pro_go
 .end
 
-.table cv_sm TAGPAIR
+.table cv_sm TAGPAIR cu
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=16 | goto pro_go
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=16 | goto pro_go
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=16 | goto pro_go
@@ -189,7 +189,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   NAN  NAN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=24 | goto pro_go
 .end
 
-.table cv_d TAGPAIR
+.table cv_d TAGPAIR cu
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=16 | goto pro_go
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=28 | goto pro_go
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=22 | goto pro_go
@@ -217,7 +217,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   NAN  NAN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=30 | goto pro_go
 .end
 
-.table cv_dm TAGPAIR
+.table cv_dm TAGPAIR cu
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=14 | goto pro_go
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=14 | goto pro_go
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=14 | goto pro_go
@@ -245,7 +245,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   NAN  NAN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=22 | goto pro_go
 .end
 
-.table cv_int TAGPAIR
+.table cv_int TAGPAIR hold
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=24 | goto pro_int2
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=36 | goto pro_int2
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=30 | goto pro_int2
@@ -259,7 +259,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   default   unimpl                               ; B/W/L are never UNN, INF or NAN
 .end
 
-.table cv_intm TAGPAIR
+.table cv_intm TAGPAIR hold
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=22 | goto pro_int2
   NORM UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=22 | goto pro_int2
   NORM ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=22 | goto pro_int2
@@ -1780,3 +1780,4 @@ cr_r0:  stk=clr | ret
 
 .include "transcend.uc"
 .include "packed.uc"
+.include "t882.uc"

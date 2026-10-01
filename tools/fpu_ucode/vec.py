@@ -144,6 +144,18 @@ def fmt_val(name, x):
     return '%X' % x
 
 
+def entry_index(cmd):
+    """The APU's entry index of a command word (se30_fpu.v idx_fn)."""
+    oc, rxf, ext = cmd >> 13, (cmd >> 10) & 7, cmd & 0x7F
+    if oc == 0:
+        return FD.entry_general('reg', ext & 0x3F)
+    if oc == 2 and rxf == 7:
+        return FD.ENTRY_FMOVECR
+    if oc == 2:
+        return FD.entry_general(FMT_NAMES[rxf], ext & 0x3F)
+    return FD.entry_store(FMT_NAMES[rxf])
+
+
 def main(argv):
     import argparse
     ap = argparse.ArgumentParser()
@@ -157,7 +169,7 @@ def main(argv):
     a = ap.parse_args(argv)
     import timing
     r, labels = load(a.sources)
-    chip = Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'))
+    chip = Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'), tadj=r.tadj)
     stats = defaultdict(Counter)
     shown = Counter()
     worst = Counter()
@@ -198,6 +210,11 @@ def main(argv):
         # the clocks (plan 8.8.16): the tables' figure for the vector's case
         if not a.no_clocks:
             sp = timing.spec(v)
+            if sp is not None:
+                # the 68882 (plan 8.9.7): the CU's conversion is not the APU's,
+                # and a positive .tadj adds at END (a negative one starts the
+                # elapsed count later: the count at END is the same)
+                sp = (sp[0] - timing.cu_conv(v) + max(r.tadj[entry_index(v[2])], 0),) + tuple(sp[1:])
             if sp is not None and sp[2] and got[7] > sp[0]:
                 stats[(g, k)]['own'] += 1                   # a floor, and our algorithm's own time
                 stats[(g, k)]['clkok'] += 1

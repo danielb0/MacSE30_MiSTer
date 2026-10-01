@@ -67,7 +67,7 @@ def main(argv):
     a = ap.parse_args(argv)
     r, labels = vec.load(a.ucode)
     if a.trace is not None:
-        chip = TraceChip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'))
+        chip = TraceChip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'), tadj=r.tadj)
         chip.lines = []
         for i, line in enumerate(vectors(a.vec)):
             if i == a.trace:
@@ -78,7 +78,7 @@ def main(argv):
         text = '\n'.join(chip.lines) + '\n'
         out = a.out or os.path.join(HERE, 'out', 'trace_%d.txt' % a.trace)
     else:
-        chip = Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'))
+        chip = Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'), tadj=r.tadj)
         lines, bad = [], 0
         for line in vectors(a.vec):
             v = parse(line)

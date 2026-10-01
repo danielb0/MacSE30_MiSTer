@@ -34,7 +34,7 @@ def main(argv):
     ap.add_argument('--only', default=None, help='a vector group')
     a = ap.parse_args(argv)
     r, labels = vec.load([os.path.join(HERE, 'ucode', 'fpu.uc')])
-    chip = vec.Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'))
+    chip = vec.Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'), tadj=r.tadj)
     names = sorted((ad, n) for n, ad in labels.items())
 
     def where(addr):
@@ -53,6 +53,8 @@ def main(argv):
     def counted():
         a = chip.upc
         c0 = chip.clocks
+        if state['since'] is None:                 # (a .tadj may start the count above 0, 8.9.7)
+            state['since'] = c0
         m, n = chip._decode(a)
         step()
         if chip.done:                              # END: its own clock counts, not the pad
@@ -70,7 +72,7 @@ def main(argv):
         v = parse(line)
         if a.only and v[0] != a.only:
             continue
-        state.update(since=0, gap=(0, ''), **{'from': 'start'})
+        state.update(since=None, gap=(0, ''), **{'from': 'start'})
         try:
             vec.execute(chip, v)
         except vec.Unimplemented:

@@ -43,7 +43,7 @@ class Unit:
     def __init__(self):
         r, labels = vec.load([os.path.join(HERE, 'ucode', 'fpu.uc')])
         self.labels = labels
-        self.chip = vec.Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'))
+        self.chip = vec.Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'), tadj=r.tadj)
 
     def call(self, label, fpcr=0, **temps):
         c = self.chip

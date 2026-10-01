@@ -74,7 +74,8 @@ module se30_fpu_apu #(
   parameter NROM_HEX  = "ucode.nrom.hex",
   parameter ENTRY_HEX = "ucode.entry.hex",
   parameter KROM_HEX  = "ucode.krom.hex",
-  parameter NSEL_HEX  = "ucode.nsel.hex"
+  parameter NSEL_HEX  = "ucode.nsel.hex",
+  parameter TADJ_HEX  = "ucode.tadj.hex"    // the 68882's clocks against the 68881's phases (8.9.7)
 ) (
   input             clk,
   input             reset,
@@ -141,6 +142,9 @@ module se30_fpu_apu #(
   reg [11:0]         entry [0:1023];
   reg [`KWORD_W-1:0] krom  [0:255];
   reg [2:0]          nsel  [0:1023];       // each nanoword's {KLC, FPSEL} (asm.py)
+  reg [7:0]          tadj  [0:1023];       // asm.py's .tadj: a signed start for budget or clocks
+  reg [7:0]          tadj_q;               // ... for entry_idx (set clocks before start)
+  reg [7:0]          tadj_e;               // ... for the running command (END's: it survives a frame)
   reg [85:0]         t_a   [0:31];         // the temporaries: two copies,
   reg [85:0]         t_b   [0:31];         // one per read port (8.8.10)
   reg [79:0]         fp    [0:7];
@@ -151,7 +155,9 @@ module se30_fpu_apu #(
     $readmemh(ENTRY_HEX, entry);
     $readmemh(KROM_HEX, krom);
     $readmemh(NSEL_HEX, nsel);
+    $readmemh(TADJ_HEX, tadj);
   end
+  always @(posedge clk) tadj_q <= tadj[entry_idx];
 
   wire p0 = ~ce;
   wire p1 = ce;
@@ -192,6 +198,14 @@ module se30_fpu_apu #(
 
   // the instruction
   reg [15:0] cmd_r;
+  // the entry index of a command, as the BIU's idx_fn: END looks N up again
+  // from cmd_r, which a busy frame restores
+  wire [9:0] idx_r_cmd = (cmd_r[15:13] == 3'd0) ? {4'd0, cmd_r[5:0]}
+                       : (cmd_r[15:13] == 3'd2 && cmd_r[12:10] == 3'd7) ? 10'h200
+                       : (cmd_r[15:13] == 3'd2) ? {1'b0, cmd_r[12:10] + 3'd1, cmd_r[5:0]}
+                       :                          10'h208 + {7'd0, cmd_r[12:10]};
+  always @(posedge clk) tadj_e <= tadj[idx_r_cmd];
+  wire [15:0] tpos = tadj_e[7] ? 16'd0 : {8'd0, tadj_e};
   reg [9:0]  idx_r;
   reg [85:0] cu;
   reg [95:0] opnd;
@@ -879,8 +893,11 @@ module se30_fpu_apu #(
               lzc <= 7'd0; kdir <= 2'd0; rprec <= 2'd0; rm_set <= 1'b0; rm_val <= 2'd0;
               obuf <= 96'd0; exop <= 80'd0;
               sp <= 3'd0; holding <= 1'b0; hcnt <= 16'd0;
+              // Table 8-3's 68882, against the 68881's phases the microcode
+              // pads to: N < 0 starts the elapsed count at -N; N > 0 is added
+              // at END to whichever ends the instruction, its path or its budget
               budget <= 16'd0; rb <= 1'b1;
-              clocks <= 16'd0;
+              clocks <= tadj_q[7] ? {8'd0, -tadj_q} : 16'd0;
             end
           S_ENT: begin
             // the destination's tags, from FP[RY] on port A
@@ -984,8 +1001,11 @@ module se30_fpu_apu #(
                 `NANO_CTL_RP_DFMT: rprec <= (rx == 3'd1) ? 2'd1 : (rx == 3'd5) ? 2'd2 : 2'd0;
                 default: ;
               endcase
-              if (n_ctl == `NANO_CTL_END)
-                st <= (budget_n > clocks + 16'd1 && !save_req) ? S_ENDH : S_IDLE;
+              if (n_ctl == `NANO_CTL_END) begin
+                budget <= ((budget_n > clocks + 16'd1) ? budget_n : clocks + 16'd1) + tpos;
+                st <= (((budget_n > clocks + 16'd1) ? budget_n : clocks + 16'd1) + tpos > clocks + 16'd1 &&
+                       !save_req) ? S_ENDH : S_IDLE;
+              end
               if (n_ctl == `NANO_CTL_CHECKPOINT && save_req)
                 st <= S_SUSP;
               // sim.py's SimErrors: the microcode did what the hardware cannot

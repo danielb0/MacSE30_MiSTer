@@ -31,7 +31,7 @@ if [ ! -f "$MODEL/out/fpu.vec" ]; then
   (cd "$MODEL" && "$PY" vectors.py out/fpu.vec) || exit 1
 fi
 "$PY" "$UC/asm.py" "$UC/ucode/fpu.uc" -o out/ucode > /dev/null || exit 1
-for f in ucode.urom.hex ucode.nrom.hex ucode.entry.hex ucode.krom.hex ucode.nsel.hex fpu_ucode.vh; do
+for f in ucode.urom.hex ucode.nrom.hex ucode.entry.hex ucode.krom.hex ucode.nsel.hex ucode.cvt.hex ucode.cvsel.hex ucode.tadj.hex fpu_ucode.vh; do
   if ! cmp -s "out/ucode/$f" "../../rtl/fpu/ucode/$f"; then
     echo "FAIL rtl/fpu/ucode/$f is not the assembled microcode"
     exit 1

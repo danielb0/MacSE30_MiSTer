@@ -21,7 +21,7 @@ import vec                                                    # noqa: E402
 
 def main(op, count=40, span=8):
     r, labels = vec.load([os.path.join(HERE, 'ucode', 'fpu.uc')])
-    chip = vec.Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'))
+    chip = vec.Chip(r.urom, r.nrom, r.entry, r.krom, unimpl=labels.get('unimpl'), tadj=r.tadj)
     by_addr = sorted((a, n) for n, a in labels.items() if r.rom[a] is not None and r.rom[a].table_of is None)
     owner = {}
     j = 0

@@ -425,9 +425,10 @@ elif MODE == 'b3b':
     ]
 elif MODE == 'b3c':
     # stage B3c: interrupts inside a dialog (UM 10.5.2.6) - the bench's
-    # VIA1 IRQ (level 1, autovector 25) at the first come-again - an
-    # FMOVECR's, which waits for both units while the FSIN before it runs
-    # (7e: the FSIN itself goes to the CU and is released) - $8900: null,
+    # VIA1 IRQ (level 1, autovector 25) at the first come-again - the
+    # first FMOVECR's, which holds the MPU to its end (7e-3: Table 8-3's
+    # T = 0, 8.6.14 item 22; before, the second one's, waiting for the
+    # FSIN) - $8900: null,
     # CA = 1, IA = 1 - frame $9, the RTE reading the response again - and
     # at an FSAVE's not-ready ($01: frame $0 at the FSAVE, the RTE starting
     # it again); the handler files each frame's format word, scanPC/PC,
@@ -435,9 +436,9 @@ elif MODE == 'b3c':
     a = Asm(0x1000)
     a.emit(0x47F8, 0x3400)                    # lea $3400.w,a3
     a.emit(0x46FC, 0x2000)                    # move.w #$2000,sr     interrupts on
-    a.emit(0xF200, 0x5C32)                    # fmovecr.x #$32,fp0   1.0
+    a.label('FCR'); a.emit(0xF200, 0x5C32)    # fmovecr.x #$32,fp0   1.0, held: IRQ
     a.emit(0xF200, 0x000E)                    # fsin.x fp0           released (the CU)
-    a.label('FCR'); a.emit(0xF200, 0x5C8F)    # fmovecr.x #$0f,fp1   come again: IRQ
+    a.emit(0xF200, 0x5C8F)                    # fmovecr.x #$0f,fp1   waits for the FSIN
     a.emit(0xF200, 0x003A)                    # ftst.x fp0
     a.br(0xF292, 'T1')                        # fbgt.w T1
     a.emit(movel_abs(0xBAD1, 0x3008))
