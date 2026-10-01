@@ -11715,6 +11715,87 @@ the (e) directed check added for it fails; neither detour guard (below)
   regression: the same sequence by hand (FSAVE under the waiting store,
   an FSIN, the registers back, FRESTORE) - fails before, passes after.
 
+### 8.9.7 7e-3: the clocks against Table 8-3 (design, 2026-10-01)
+
+**What the manual fixes** (UM 8.1, 8.2, 8.4, read again for it). The
+overall times include the coprocessor interface: **11 clocks** when the
+FPU is idle (Figure 8-2: a three-clock prefetch, the command write, a
+five-clock response read), measured with an MC68020 on the same clock.
+The tail is the time after the MPU is released while the FPU still
+works; the head "begins when the instruction is initiated by the MPU,
+and ends when [it] can no longer operate under the tail of a previous
+instruction" - on the 68882 the time the CU spends fetching and
+converting the operand. Head + tail need not equal the total.
+
+**The measurement** (`sim/fpu/tb_fpu_timing.v`, committed `188a9f5`): an
+MC68020 on the same clock - three-clock cycles, DSACK sampled at the
+falling edges (the chip's synchronous reads come out at the manual's five
+clocks), a prefetch before each instruction; total, tail, and head (the
+same instruction behind an FSIN: total less what it adds after the FSIN
+ends). 57 rows, against `sim/fpu/table8_3.csv` (Table 8-3 from the page
+images). Operands: FP1 = 0.75 (source), FP2 = 2.25, memory sources 3.0.
+
+**The reading (2026-10-01), ours minus the table:**
+
+| source | head | tail | total |
+|---|---|---|---|
+| register, every operation | -8 | +10 | +1 (FADD/FSUB +7, FMUL/FDIV +5, FGETEXP +3, FREM -30) |
+| single | -16 | +16 | +1 |
+| double | -18 | +14 | -3 |
+| extended | -20 | +8 | -11 |
+| integer (B, W, L) | -7 | 0 | -18 |
+| packed | -9 | +25 | -27 |
+| FMOVE to FPn S / D / X (the CU's) | -19 / -21 / -23 | 0 | -18 / -20 / -22 |
+| FMOVE to memory S / D / X (the CU's) | -17 / -19 / -21 | 0 | -16 / -18 / -20 |
+| FMOVE to memory L / P | | | -28 / -26 |
+| FMOVECR | -6 | +21 | +1 |
+
+**What it says.** The tails are long by **Table 8-13's conversion time**
+for a normalized operand - extended (and a register) 10, single 18,
+double 16 - and by nothing for an integer, the one format UM 5.1.1.2
+leaves to the APU ("the CU cannot convert the byte operand"). Our APU
+budgets (8.8.16) are the 68881's phases, conversion included; on the
+68882 the CU converts during the head, so the heads are short by about
+as much. The totals are already within a few clocks except where the
+dialog differs (extended's three-longword transfer, the integer hold),
+the data-dependent figures (FREM's quotient, FADD's exponent alignment:
+our operands are not the table's "typical" ones), and the CU's own moves,
+which take only a few clocks where the chip spends the conversion.
+
+**The design (for Daniel to settle):**
+1. **The conversion phase moves from the APU to the CU.** The CU spends
+   Table 8-13's input-conversion time (by the source's format and type,
+   the destination's type) before the hand-off; each APU entry's budget
+   loses the same time. Integers and packed stay the APU's. This is UM
+   5.1.1.2's picture, and the 68881's own phase times still decide every
+   case's length - only which unit spends them changes.
+2. **The CU's moves take their time too**: FMOVE to FPn the input
+   conversion, FMOVE to memory the output conversion (Table 8-17's S/D
+   times, X's), so FMOVE.S/D/X to and from a register land on Table
+   8-3's 34/40/46 and 38/44/50.
+3. **Calibrated to Table 8-3 exactly** for the table's typical operands
+   (normalized, the operations' typical cases), under the reference
+   harness: whatever the phases leave over - the dialog's own clocks,
+   the hand-off - is a small constant per format in the CU, set so head,
+   tail and total all equal the table. Other operand types then differ
+   from the typical by the detail tables' differences, as on the chip.
+   The rejected alternative: accept a few clocks' difference as the
+   manual's "guidelines, not exact timings" - but 8.8.3 chose the
+   table's clocks.
+4. **The integer hold**: Table 8-3's FADD.L (H 21, T 54, total 94) has
+   the MPU held while the APU converts (minimum concurrency, Table 5-1);
+   ours releases it 18 clocks sooner. To be checked against UM 7.5's
+   dialog for B, W, L before changing the release.
+5. **FMOVECR** (H 10, T 0, total 32): T = 0 says the MPU is held until it
+   ends; ours releases it with $0900. To be read in UM 7.5 first.
+6. **The measurement's operands** become the detail tables' typical cases
+   (FADD with equal exponents, FREM and FMOD with a one-chunk quotient,
+   the transcendentals inside (-9, 9)), so a residual is a design
+   difference, not an operand.
+7. **The vector bench**: the APU's clocks per vector change with (1), so
+   `sim.py`'s timing and `rtlvec.py`'s clocks follow the new budgets; the
+   CU's clocks become comparable too (no longer "not compared").
+
 ---
 
 ## Appendix - where the sources are
