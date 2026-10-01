@@ -11796,6 +11796,10 @@ which take only a few clocks where the chip spends the conversion.
    `sim.py`'s timing and `rtlvec.py`'s clocks follow the new budgets; the
    CU's clocks become comparable too (no longer "not compared").
 
+**Daniel's choices (2026-10-01): (1) the conversion moves to the CU;
+(3) exactly, for the typical operands.** (2), (6) and (7) follow; (4) and
+(5) are read in UM 7.5 before anything changes.
+
 ---
 
 ## Appendix - where the sources are
