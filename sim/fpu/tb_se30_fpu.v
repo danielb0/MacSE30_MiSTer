@@ -1047,6 +1047,19 @@ module tb_se30_fpu;
       end
       check(mv_st[0] == sq_st[0] && mv_st[0] == {r0[79:64], 16'd0, r0[63:0]},
             "... after FRESTORE the store is the FMOD's result");
+      // BSUN's PC is FPIAR even when the last dialog put an instruction in
+      // the slot (found by the full +pairs=3: FPIAR held the slot's PC)
+      mv_begin;
+      load_cr(32'h0000_8000, 32'd0);                              // BSUN enabled: the PCs pass
+      load_fp(X_1, X_3, X_0, NAN, NAN, NAN, NAN, NAN);
+      pc_val = 32'h0000_3A00; cp_gen(16'h0420);                   // FDIV FP1,FP0
+      pc_val = 32'h0000_3A04; cp_gen(16'h0D22);                   // FADD FP3,FP2: a NaN, into the slot
+      check(prims[0] == 16'h4900, "FADD behind the FDIV: into the slot, released with its PC");
+      pc_val = 32'h0000_3A08; x_vec = 0;
+      cp_cond(6'h10);                                             // FBSF: a NaN, BSUN
+      check(x_vec == 8'd48, "the conditional after it: BSUN");
+      cp_gen(16'hA400);
+      check(st_long[0] == 32'h0000_3A08, "... FPIAR the conditional's, not the FADD's");
       // a conditional straight after a move to a register sees its FPCC
       mv_begin;
       cp_gen(16'h0900);                                           // FMOVE FP2,FP2 (+0)

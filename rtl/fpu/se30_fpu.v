@@ -1042,6 +1042,10 @@ module se30_fpu #(
                     end
                     if (c_bsun && fpcr[15]) begin                 // BSUN: pending, with the PC
                       rdata[31:16] = 16'h5C30;
+                      // (the conditional's PC is FPIAR, whatever the last
+                      // dialog left pc_apu - a slot instruction's leaves 0,
+                      // which sent it to cu_iar: found by +pairs=3)
+                      pc_apu <= 1'b1;
                       take_prim <= 16'h5C30; take_fline <= 1'b0;
                       pend <= 1'b1; pend_vec <= 8'd48; pend_rep <= 1'b1;
                       bst <= B_TAKE;

@@ -11349,6 +11349,29 @@ cache and no-cache times. Also: the 7.1 800K set's Disk Tools boots
 System 6.0.7 (its System's `vers` is 6.0.7, Finder 6.1.7) and its
 Install disk has no boot blocks and no System Folder - neither is a core
 fault.
+**The deferred full runs (the night of 2026-09-30, from worktrees; logs in
+`sim/fpu/out/night_0930/`).** 7e-1 at `7d51f88`: every vector plain and
+under `+detour` (19,836 each, 0 fail, 0 other clocks), all pairs, all
+detour pairs (CU 10,478, mid 295, a context switch in 16,449) PASS. 7e-2
+at `bad8592`: every vector plain (the CU's 453 moves, 0 wrong routes), all
+pairs, all detour pairs PASS. **All triples FAILED, 25 of 19,836 on both
+commits** (so 7e-1's, inherited): every one an older instruction, a second
+taken into the CU's slot, then a conditional on a NaN raising BSUN - and
+in the BSUN handler FPIAR was the second instruction's PC, not the
+conditional's. BSUN's take ($5C30) passes the conditional's PC, and the
+instruction address write routes by `pc_apu`, which the second
+instruction's dialog had left 0 - so the PC went to `cu_iar` (with a stray
+`cu_pcv` that a later direct start could have stamped into FPIAR). The
+pairs never meet it (no instruction between the older one and the
+conditional); the first 5,000 triples had no vector with BSUN enabled
+before a NaN conditional. **Fix: the BSUN take sets `pc_apu`.** Directed
+regression (FDIV, FADD of a NaN into the slot, FBSF: FPIAR the FBSF's) -
+fails without the fix, passes with it. **On the fix (the night of
+2026-10-01), every full run: every vector plain, all pairs, all triples,
+all detour pairs - 19,836 each, 0 fail, 0 other clocks; directed 143;
+`sim/cpfpu` all 13; `sim/machine`.** 7e-1 and 7e-2 are now verified in
+full on their final RTL; nothing deferred remains.
+
 **The ADB keyboard works** (Daniel, 2026-09-30, the first time it could be
 tried: typing at the desktop) - with compile 18's mouse, the ADB section's
 devices are both confirmed on the board.
