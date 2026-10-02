@@ -2012,6 +2012,16 @@ Each count is 24 bits and wraps; `read_probes.tcl` prints the CACR bits
 and each count's change since the last sample. sim/machine and sim/system
 pass with it in.
 
+**Compile 27** (2026-10-02): both caches and PCCH.
+- **Tag d2908ead, 31 min.** Archived as
+  `output_files/MacSE30_d2908ead_dcache.rbf`.
+- **33,975 ALMs (81 %)**: the data cache and PCCH add 871 over compile 26.
+- `sta_corners.tcl`: our paths meet timing at every corner, worst
+  **0.674 ns**. The capture meets its A/B rule at every corner; B's
+  -0.370 ns setup at slow 100C is covered by A's 1.622 ns margin.
+- **The flow's summary has no negative slack anywhere.** This time the
+  framework's HDMI clock passes too.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
