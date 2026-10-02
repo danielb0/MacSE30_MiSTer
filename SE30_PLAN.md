@@ -6721,6 +6721,15 @@ the framework's HDMI clock, -0.016 ns at the slow -40C corner (as compiles
 18 and 20). For the board: two 800K images, both read in the Finder, files
 copied between them, `PFL2` on the probe deck.
 
+**On the board (2026-10-02, Daniel): the two drives work.** The system
+disk in one drive and TattleTech's in the other; TattleTech loaded and ran
+from them. The probe deck, sampled while it loaded: the external drive
+selected (`/ENBL2` low), its head stepping (cylinders 3, 20, 1 - settling,
+spinning up), its encoder building each track and its port words
+climbing; the internal drive's encoder following its head (27 to 70) and
+the bytes the ROM took from the SWIM climbing; F-line 0, the bus errors
+the Slot Manager's 255; `_Read` and `_GetResource` among the traps.
+
 **The work.**
 1. `se30_flp_dkmux.v` to four requesters; `sim/flpmux`.
 2. `se30_machine.v`: the external drive and its disk interface; RD.
