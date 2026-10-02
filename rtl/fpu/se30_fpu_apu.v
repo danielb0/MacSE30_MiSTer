@@ -92,6 +92,8 @@ module se30_fpu_apu #(
   input             cu_den,
   input             cu_neg,
   input      [95:0] operand,
+  input             cu_dt_v,     // the CU classed FPn already (7e-3): no S_ENT
+  input      [5:0]  cu_dt,       // ... {tag, snan, den, neg}
   output            busy,
   output reg [15:0] clocks,      // the instruction's clocks so far
   output reg        err,
@@ -757,7 +759,7 @@ module se30_fpu_apu #(
 
   always @(posedge clk) begin
     if (p0) begin
-      ent_q <= entry[idx_r];
+      ent_q <= entry[(st == S_IDLE) ? entry_idx : idx_r];   // (idle: the next start's, 7e-3)
       if (u_en) begin
         urom_q <= urom[u_addr];
         ua     <= u_addr;
@@ -880,7 +882,13 @@ module se30_fpu_apu #(
               st <= S_FETCH;
               rsm <= 1'b1;
             end else if (start) begin
-              st <= S_ENT;
+              // the CU's tags of FPn (UM 5.1.1.2: it tags the operands), or
+              // FP[RY]'s through port A in S_ENT
+              if (cu_dt_v) begin
+                st <= S_FETCH;
+                {dtag, d_snan, d_den, d_neg} <= cu_dt;
+              end else
+                st <= S_ENT;
               cmd_r <= cmd;
               idx_r <= entry_idx;
               cu <= cu_word;

@@ -11886,6 +11886,90 @@ for FMOVECR, finished), against Figures 7-17/7-18 (8.6.14 item 22).**
   expectation moved there); `sim/machine`. ModelSim found a use-before-
   declare Icarus hides (the APU's END lookup above `cmd_r`): moved.
 
+**Daniel's choices on what was left (2026-10-01, "OK. We will go with your
+recommendations"):** (1) measure the instructions the MPU waits on with
+ideal response reads, as UM 8.4 means them; (2) make the path-bound
+microcode faster rather than accept it; (3) packed last; (4) then the full
+gate, the commit, and 7e-4.
+
+**7e-3 completed (2026-10-02).**
+- **Ideal response reads** (`tb_fpu_timing.v`): the harness's MPU reads
+  the response at the clock the FPU is ready for it (the chip's own state:
+  B_REL, B_HOLD, B_CONV), not at its next 5-clock poll; `+poll` restores
+  the polling. Every total that moved in 5-clock steps now reads exactly.
+- **The CU hands the APU what it has** (UM 5.1.1.2: the CU fetches and
+  tags the operands). At the hand-off the slot's source - FPm as port B
+  read it, or the widened S/D/X operand - goes in with the command, and
+  the APU skips its fetch (`start_apu_f`); FPn's tags, when nothing could
+  have written FPn since the CU read it (`cv_dstok`), go in on `cu_dt`
+  and the APU skips S_ENT. Both are clocks the 68882 does not spend in
+  its tail.
+- **The path-bound microcode made faster** (the typical NORM NORM paths;
+  every other case keeps its own): FCMP's normalized pair goes straight to
+  the signs and exponents, and each cc word ends the instruction itself
+  (`cmp_fn`); FDIV compares the mantissas in the table's word and takes
+  one more quotient step when the dividend's is the smaller, so the
+  quotient comes out normalized and rounds without pp's normalize
+  (`div_c`, `pp_md1`), the sticky bit taken on the remainder's add
+  itself; FSGLDIV the same, its source truncated inline (`sgd_n`); FSQRT's
+  normalized operand skips the shift (`sq_n`, `pp1`); FMOVE, FABS and FNEG of a normalized
+  value round without the normalize (`mv_fn`, `pp1`); FMOVECR's constant
+  is normalized (`cr_pp`, `pp1`), its below-the-true-value case to nearest
+  goes straight on (`cr_dn`), and an ulp added or taken calls pp from the
+  same word; **FMOVE from an integer** has its own entry (`pro_imv`,
+  table `cv_imv`): an integer is exact, never tiny or huge, and has no
+  exceptional operand, so no destination read, no T9 copy, no OPMODE and
+  STAG dispatches - 9 words where it was 13. The CU's per-table constant
+  covers `cv_imv` as it does `cv_intm` (`cvk`).
+- **Packed** (`se30_fpu.v`): every P row of Table 8-3 has total = H + T +
+  69, the integers' H + T + 19 - the MPU held while the APU converts, as
+  8.6.14 item 22 rules for the integers. A packed source now holds the
+  MPU ($8900 in B_REL) for `P_HOLD` = 54 clocks from the APU's start
+  (calibrated: the operand's own dialog lies inside it). The hold timer
+  this uses replaces a dead one (the earlier integer hold's `hold_T`,
+  `cvt_h`, `cvsel_h`: `hold_on` was only ever set with `hold_end`, and
+  `hold_t` was never cleared) - two ROM copies fewer.
+- **The calibration** (`tools/fpu_ucode/t882cal.py`, new; `ucode/t882.uc`
+  its output): `zero` (every N 0), measure; `set` (N = minus each row's
+  tail error), measure; `refine` (a row still too long there is
+  path-bound by that much: N = -d0 + d1, the least shortening that has
+  effect, and it is reported) - so a negative N never goes past where it
+  acts and shortens an operation's other cases. By operation and source
+  class: register, S/D/X, B/W/L, P. FATANH's integer row borrows FASIN's
+  (no integer is a typical atanh argument); the CU's own moves have no APU
+  time to adjust. The `cr` and `out.F` lines are set by hand: FMOVECR -6,
+  stores L/W/B +29, P +25.
+- **The reading** (`+matrix`: 38 operations x FPm, S, D, X, L, P = 228
+  rows, typical operands): **185 exact in head, tail and total; 227 exact
+  in tail and total** - the 42 heads off are FMOVE FPm/S/D/X at total - 1
+  (the harness: the CU's moves finish under the FSIN, and its end waits
+  for the FSIN) and every packed row at 9 against 13 (the dialog before
+  packed's wait for both units: nothing in the manual says what the
+  68882's 4 clocks are); the one row off in tail and total is FATANH from
+  an integer (atanh(3) is an operand error, not the table's case).
+  **FMOVECR 32** (head 9 against 10); **FMOVE to memory L 110, S 38, D 44,
+  X 50, P 2006** - all exact in total.
+- **What the typical calibration leaves in other cases** (`vec.py`'s
+  clocks check, the 68881's per-case figures restated for the 68882):
+  14,190 of the 16,948 vectors with a per-case figure match it, 2,758
+  run over it (3,095 at `b53c2b0`) - all atypical cases: the special
+  operands, zeros, infinities, NaNs and denormals (1,697 of 5,888), the
+  rounding group's carries, overflows and underflows (755), unnormalized
+  and denormal sources (200), FMOVECR in the other rounding modes (57),
+  the transcendentals' special arguments (43); by at most 13 clocks, nearly
+  all at most 10. Table 8-3 gives the 68882 only for the typical case; the
+  per-case figures are the 68881's less the CU's conversion. A negative N
+  shortens every case of an operation alike, and where an atypical case's
+  own path is longer than its shortened figure it runs over it. No document
+  gives the 68882's atypical figures, so there is nothing to chase.
+- **Verified on this build:** `tools/fpu_ucode/run.sh` 57 PASS and every vector
+  (results); `sim/fpu` (out/fpu_rtl.vec regenerated) directed 143, every
+  vector plain and under `+detour` (19,836 each, results and clocks), the
+  first 2,000 pairs, triples and detour pairs; the 7a APU bench, every
+  vector; `sim/cpfpu` all 13 (ModelSim: no use-before-declare); `sim/machine`.
+  Logs in sim/fpu/out/gate3 (ignored). The full pairs, triples and detour
+  pairs run overnight on the commit.
+
 ---
 
 ## Appendix - where the sources are

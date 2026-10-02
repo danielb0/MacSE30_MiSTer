@@ -104,6 +104,17 @@ module tb_fpu_timing;
   task prefetch; begin rise; t_pf = hc; @(posedge clk); @(posedge clk); @(posedge clk); @(posedge clk); @(posedge clk); end endtask
 
   // -- the MPU's side of a general instruction ---------------------------------------
+  // UM 8.4: "the main processor reads the response register at exactly the
+  // moment when the FPCP is prepared to return a service request primitive"
+  // - after a $8900 in a wait (a store converting, an integer held, FMOVECR
+  // to its end) the next read starts when the chip is ready, not at the
+  // next of a polling MPU's reads, five clocks apart (+poll: as a real MPU)
+  reg         poll;
+  reg  [15:0] gcmd;
+  wire [7:0]  st_need = (gcmd[12:10] == 3'd1) ? dut.MO_S : (gcmd[12:10] == 3'd5) ? dut.MO_D : dut.MO_X;
+  wire        fpu_ready = (dut.bst == 5'd7)  ? (dut.cu_st ? (dut.mv_el >= st_need) : dut.conv_ok)
+                        : (dut.bst == 5'd20) ? (!dut.cu_v && dut.hold_ok)
+                        : (dut.bst == 5'd5)  ? dut.hold_ok : 1'b1;
   reg  [31:0] op_long [0:2];
   integer     t_rel;
   task cp_gen(input [15:0] c);
@@ -112,8 +123,11 @@ module tb_fpu_timing;
     reg done;
     begin
       bus(1'b0, 5'h0A, {c, 16'd0});
+      gcmd = c;
       done = 1'b0; it = 0;
       while (!done && it < 100000) begin
+        if (!poll && it > 0 && p == 16'h8900)
+          while (!fpu_ready) @(posedge clk);              // (the ideal read, 8.4)
         bus(1'b1, 5'h00, 32'd0);
         p = rd[31:16]; it = it + 1;
         if (p[14]) bus(1'b0, 5'h18, 32'h0000_1000);
@@ -206,12 +220,16 @@ module tb_fpu_timing;
       row(name, "X", 16'h4900 | om, (v == 2'd2) ? 32'h3FFE_0000 : 32'h4000_0000,
           (v == 2'd0) ? 32'hC000_0000 : (v == 2'd1) ? 32'hA000_0000 : 32'h8000_0000, 0);
       row(name, "L", 16'h4100 | om, (v == 2'd2) ? 32'd1 : 32'd3, 0, 0);
+      // packed: 3.0E0, 2.5E0, 5.0E-1
+      row(name, "P", 16'h4D00 | om, (v == 2'd2) ? 32'h4001_0005 : (v == 2'd1) ? 32'h0000_0002 : 32'h0000_0003,
+          (v == 2'd1) ? 32'h5000_0000 : 32'd0, 0);
       src_x = 80'h4000_C000000000000000; dst_x = 80'h4000_9000000000000000;
     end
   endtask
 
   initial begin
     if (!$value$plusargs("only=%s", onlyname)) onlyname = "";
+    poll = $test$plusargs("poll");
     if ($test$plusargs("matrix")) begin
       repeat (4) @(posedge clk); reset = 1'b0; repeat (40) @(posedge clk);
       op5("FABS", 7'h18, 0, 0);    op5("FNEG", 7'h1A, 0, 0);    op5("FADD", 7'h22, 0, 0);

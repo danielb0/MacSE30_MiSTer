@@ -48,6 +48,14 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec | dispatch TAGPAI
 pro_intm: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec | dispatch TAGPAIR cv_intm
 pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
          d=T1 a=T1 alu=passa osh=norm budget=2 | goto pro_go
+; FMOVE from an integer (7e-3): the value is exact, never tiny or huge, and
+; has no exceptional operand - no destination read, no T9, no OPMODE and STAG
+; dispatches; the exponent set in the table's word.  Table 8-3's tail (8).
+pro_imv: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec | dispatch TAGPAIR cv_imv
+imv_n:  d=T0 a=T1 alu=passa osh=norm | unless SNEG goto imv_c
+        alu=nop budget=2                                ; a negative source (pro_int2's)
+imv_c:  alu=nop budget=2 | call pp1                     ; t_move's NORM
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
 .table cv_reg TAGPAIR cu
   NORM NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=14 | goto pro_go
@@ -273,6 +281,20 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
   default   unimpl                               ; B/W/L are never UNN, INF or NAN
 .end
 
+.table cv_imv TAGPAIR hold                       ; FMOVE from an integer (pro_imv)
+  NORM NORM :: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp stk=clr budget=22 | goto imv_n
+  NORM UNN  :: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp stk=clr budget=22 | goto imv_n
+  NORM ZERO :: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp stk=clr budget=22 | goto imv_n
+  NORM INF  :: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp stk=clr budget=22 | goto imv_n
+  NORM NAN  :: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp stk=clr budget=22 | goto imv_n
+  ZERO NORM :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=20 | goto pro_go
+  ZERO UNN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=20 | goto pro_go
+  ZERO ZERO :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=20 | goto pro_go
+  ZERO INF  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=20 | goto pro_go
+  ZERO NAN  :: d=T0 b=FP[dst] alu=passb mode=mantb sign=b stk=clr budget=20 | goto pro_go
+  default   unimpl
+.end
+
 .table ops OPMODE
   $00  :: alu=nop | dispatch STAG t_move                ; FMOVE
   $18  :: alu=nop | dispatch STAG t_abs                 ; FABS
@@ -327,7 +349,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
 .entry X     $00 pro_xm
 .entry S     $00 pro_sm
 .entry D     $00 pro_dm
-.entry B,W,L $00 pro_intm
+.entry B,W,L $00 pro_imv
 .entry reg   $01 pro_reg
 .entry X     $01 pro_xm
 .entry S     $01 pro_sm
@@ -605,7 +627,7 @@ pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
 ; 2+, a zero 6, an infinity 6; FABS and FNEG 2 more (4+, 8), a zero 4+ (the
 ; zero's rounding 6: 4 more than FMOVE's 6).
 .table t_move STAG
-  NORM :: alu=nop budget=2 | goto mv_fin
+  NORM :: alu=nop budget=2 | goto mv_fn
   UNN  :: alu=nop budget=2 | goto mv_fin
   ZERO :: alu=nop budget=6 | goto mv_zero
   INF  :: alu=nop budget=6 | goto mv_copy
@@ -626,6 +648,8 @@ abs_go: d=T1 a=T1 alu=passa sign=zero | dispatch STAG t_move
 neg_go: d=T1 a=T1 alu=passa sign=nota | dispatch STAG t_move
 
 mv_fin: d=T0 a=T1 alu=passa | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+mv_fn:  d=T0 a=T1 alu=passa | call pp1                ; normalized: pp's shift skipped (7e-3)
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 mv_zero: d=T0 a=T1 b=0 alu=passb mode=exp            ; a signed zero: exponent 0
         d=FP[dst] a=T0 alu=passa fpsr=fpcc | goto done
@@ -670,6 +694,7 @@ tst_nw: a=T0 alu=passa fpsr=fpcc | goto done
   ZERO ZERO :: alu=nop budget=6 | goto cmp_zz
   ZERO *    :: alu=nop budget=6 | goto cmp_dsign        ; source zero: the destination's sign
   *    ZERO :: alu=nop budget=6 | goto cmt_dz           ; destination zero: - src
+  NORM NORM :: alu=nop budget=6 | goto cmp_fn
   default   :: alu=nop budget=6 | goto cmp_fin
 .end
 ; the like-signed cases' 2 more (8)
@@ -697,10 +722,9 @@ cmt_3:  alu=nop budget=28 | if SSNAN goto cmt_3s
 cmt_3s: alu=nop budget=2 | if DSNAN goto cmp_nan
         alu=nop budget=2 | goto cmp_nan
 
-cc_n:   a=0 b=K[one] alu=passb mode=mantb sign=one fpsr=fpcc | goto done
-cc_0:   a=0 b=K[one] alu=passb mode=mantb sign=zero fpsr=fpcc | goto done
-cc_z:   a=0 b=0 alu=passb sign=zero fpsr=fpcc | goto done
-cc_zn:  a=0 b=0 alu=passb sign=one fpsr=fpcc | goto done
+; (each ends the instruction itself: 7e-3, the typical path's word saved)
+cc_z:   a=0 b=0 alu=passb sign=zero fpsr=fpcc ctl=end | goto idle
+cc_zn:  a=0 b=0 alu=passb sign=one fpsr=fpcc ctl=end | goto idle
 
 cmp_dsign: alu=nop | if DNEG goto cc_n
         goto cc_0
@@ -721,9 +745,19 @@ cmp_fin: alu=nop | if SNEG goto cmp_sneg
 cmp_sneg: alu=nop | unless DNEG goto cc_0               ; s < 0 < d
 cmp_mag: d=T0 a=T0 alu=passa osh=norm
         d=T1 a=T1 alu=passa osh=norm
-        a=T0 b=T1 mode=exp alu=sub                      ; Ed - Es
+        goto cmp_e
+; Both normalized (t_cmp NORM NORM; 7e-3, plan 8.9.7: the 68882's tail is
+; shorter than this path was): the signs, then the exponents straight away -
+; no shift to make, the same budgets on every branch.
+cmp_fn: alu=nop | if SNEG goto cmp_fnn
+        alu=nop | if DNEG goto cc_n                     ; d < 0 < s
+cmp_e:  a=T0 b=T1 mode=exp alu=sub                      ; Ed - Es
         alu=nop budget=2 | if N goto cmp_m8             ; CMP: 8 if Es > Ed ...
-        alu=nop budget=2                                ; ... else 10 (a nop keeps the flags)
+        alu=nop budget=2 | if Z goto cmp_m              ; ... else 10 (a nop keeps the flags)
+        alu=nop | if N goto cmp_less
+        goto cmp_more
+cmp_fnn: alu=nop | unless DNEG goto cc_0                ; s < 0 < d
+        goto cmp_e
 cmp_m8: alu=nop | if Z goto cmp_m
         alu=nop | if N goto cmp_less
         goto cmp_more
@@ -731,9 +765,9 @@ cmp_m:  a=T0 b=T1 alu=sub                               ; Md - Ms: C is the borr
         alu=nop | if C goto cmp_less
         alu=nop | if Z goto cc_z
 cmp_more: alu=nop | if DNEG goto cc_n                   ; |d| > |s|
-        goto cc_0
+cc_0:   a=0 b=K[one] alu=passb mode=mantb sign=zero fpsr=fpcc ctl=end | goto idle
 cmp_less: alu=nop | if DNEG goto cc_0                   ; |d| < |s|
-        goto cc_n
+cc_n:   a=0 b=K[one] alu=passb mode=mantb sign=one fpsr=fpcc ctl=end | goto idle
 
 ; A NaN: FPCC NAN alone (8.6.14 item 22: N clear); SNAN for a signaling
 ; operand; the source is the exceptional operand.
@@ -757,7 +791,7 @@ cmp_nq: a=0 b=K[nan] alu=passb mode=mantb sign=zero fpsr=fpcc | goto done
 ; ============================================================================
 
 pp:     d=T0 a=T0 alu=passa osh=norm
-        d=T3 a=T0 b=RINC alu=add rnd=rprec | if TINY goto pp_tiny
+pp1:    d=T3 a=T0 b=RINC alu=add rnd=rprec | if TINY goto pp_tiny
         d=T5 a=T3 b=RMASK alu=and rnd=rprec fpsr=inex2r | if C goto pp_cy
         alu=nop | if HUGE goto pp_ovfl
         rtime=normal | ret
@@ -775,7 +809,7 @@ pp_ovcc: rtime=ovflc | goto pp_ov1
 ; clocks more (Table 8-14's MUL 48+, DIV 80+).  pp's words again, so the
 ; common path costs the same.
 pp_md:  d=T0 a=T0 alu=passa osh=norm
-        d=T3 a=T0 b=RINC alu=add rnd=rprec | if TINY goto pp_tmd
+pp_md1: d=T3 a=T0 b=RINC alu=add rnd=rprec | if TINY goto pp_tmd
         d=T5 a=T3 b=RMASK alu=and rnd=rprec fpsr=inex2r | if C goto pp_cy
         alu=nop | if HUGE goto pp_ovfl
         rtime=normal | ret
@@ -1075,6 +1109,7 @@ mloop:  d=T4 a=T4 b=BOOTH alu=addsub dir=booth osh=r3q lc=dec | unless LCZ goto 
   ZERO *    :: alu=nop budget=20 | goto div_dz          ; x / 0
   *    ZERO mz_s                                     ; 0 / x
   INF  *    mz_x                                     ; x / inf
+  NORM NORM :: a=T0 b=T1 alu=sub budget=78 | goto div_c ; (both normalized: the mantissas first)
   default   :: d=T0 a=T0 alu=passa osh=norm | goto div_fin
 .end
 
@@ -1090,6 +1125,17 @@ div_go: d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor lc=66  ; E0 - E1, the sign
         d=T5 b=T1>>2 alu=passb                          ; the divisor (N = 0: subtract first)
 dloop:  d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ goto dloop
         goto div_st
+; Both normalized (7e-3, plan 8.9.7: the 68882's tail is shorter than this
+; path was): the mantissas compared in the table's slot, then the exponent
+; with the bias, or the bias less one, in one step each way - the same
+; quotient, the same budget.
+div_c:  d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor lc=66 | if C goto div_cl  ; E0 - E1, the sign
+        d=T2 a=T2 b=K[bias] mode=exp alu=add
+        d=T4 b=T0>>2 alu=passb q=clear
+        d=T5 b=T1>>2 alu=passb | goto dloop
+div_cl: d=T2 a=T2 b=K[bm1] mode=exp alu=add lc=67       ; a < b: one more step, the exponent one lower
+        d=T4 b=T0>>2 alu=passb q=clear
+        d=T5 b=T1>>2 alu=passb | goto dloop2
 ; a < b: the quotient's top bit would be 0 - one more step, the exponent one lower.
 div_lo: d=T2 a=T2 b=K[exp_one] mode=exp alu=sub lc=67
         d=T5 b=T1>>2 alu=passb
@@ -1097,12 +1143,13 @@ dloop2: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ got
 ; The sticky bit: the true remainder is r, or r + D when the last partial
 ; remainder r is negative (the quotient bits are restoring's) - which is
 ; zero for an exact quotient that ends at r = -D, as x/x does.  T4 is 2r.
-div_st: d=T6 a=T4 b=T5<<1 alu=add | if DFLAG goto div_sn
+; (7e-3: the sticky from r + D on the add itself; the quotient is normalized
+; by construction - one more step when a < b - so pp_md's shift is skipped)
+div_st: d=T6 a=T4 b=T5<<1 alu=add stk=nz | if DFLAG goto div_sn
         a=T4 alu=passa stk=nz
-        d=T0 a=T2 b=Q alu=passb | call pp_md
+        d=T0 a=T2 b=Q alu=passb | call pp_md1
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
-div_sn: a=T6 alu=passa stk=nz
-        d=T0 a=T2 b=Q alu=passb | call pp_md
+div_sn: d=T0 a=T2 b=Q alu=passb | call pp_md1
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
 ; FSGLMUL: the inputs truncated to 24 bits (8.6.14 item 9); the multiplier's
@@ -1150,6 +1197,7 @@ sgmloop: d=T4 a=T4 b=BOOTH alu=addsub dir=booth osh=r3q lc=dec | unless LCZ goto
   ZERO *    :: alu=nop budget=20 | goto div_dz          ; x / 0
   *    ZERO mz_s                                     ; 0 / x
   INF  *    mz_x                                     ; x / inf
+  NORM NORM :: d=T0 a=T0 b=RMASK alu=and rnd=sgl budget=44 | goto sgd_n   ; (both normalized: no shift, sgl_tr inline)
   default   :: d=T0 a=T0 alu=passa osh=norm | goto sgd_fin
 .end
 ; A result that may over- or underflow extended's range (the exponent
@@ -1159,7 +1207,7 @@ sgmloop: d=T4 a=T4 b=BOOTH alu=addsub dir=booth osh=r3q lc=dec | unless LCZ goto
 ; or not - and give its flags exactly, in the manual's times (44 clocks, 62
 ; on overflow, 90 on underflow: RTIME's SGLX rows, 8.8.19).
 sgd_fin: d=T1 a=T1 alu=passa osh=norm budget=44 | call sgl_tr
-        d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor lc=26
+sgd_f1: d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor lc=26
         d=T2 a=T2 b=K[bias] mode=exp alu=add
         d=T6 a=T2 b=K[exp_one] mode=exp alu=sub         ; E - 1: TINY?
         d=T6 a=T2 b=K[exp_one] mode=exp alu=add | if TINY goto sgd_t   ; E + 1: HUGE?
@@ -1171,7 +1219,7 @@ sgdloop: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ go
 sgd_lo: d=T2 a=T2 b=K[exp_one] mode=exp alu=sub lc=27
         d=T5 b=T1>>2 alu=passb
 sgdloop2: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ goto sgdloop2
-sgd_st: d=T6 a=T4 b=T5<<1 alu=add | if DFLAG goto sgd_sn
+sgd_st: d=T6 a=T4 b=T5<<1 alu=add stk=nz | if DFLAG goto sgd_q   ; (7e-3: r + D's sticky on the add)
         a=T4 alu=passa stk=nz | goto sgd_q
 ; The quotient's exponent is E - (a < b): tiny if E is, or E is the minimum
 ; and a < b; the rounding can overflow it only from E - (a < b) >= the
@@ -1187,7 +1235,9 @@ sgd_h:  alu=nop | unless EN_OVFL goto sgd_c
         a=T2 alu=passa
         alu=nop | if HUGE goto div_go
         a=T0 b=T1 alu=sub | goto sgd_c
-sgd_sn: a=T6 alu=passa stk=nz
+; Both normalized (7e-3, plan 8.9.7): the source truncated here, the
+; destination in t_sgd's slot - sgl_tr's words without its call.
+sgd_n:  d=T1 a=T1 b=RMASK alu=and rnd=sgl | goto sgd_f1
 sgd_q:  d=T0 a=T2 b=Q<<40 alu=passb | call pp
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
@@ -1205,8 +1255,14 @@ sgd_q:  d=T0 a=T2 b=Q<<40 alu=passb | call pp
   NAN  nan_m
   ZERO :: alu=nop budget=6 | goto mv_zero
   INF  :: alu=nop budget=6 | goto sq_inf
+  NORM :: d=T2 a=T1 b=K[bias] mode=exp alu=sub | goto sq_n   ; (normalized: no shift)
   default :: d=T1 a=T1 alu=passa osh=norm | goto sq_fin
 .end
+; Normalized (7e-3, plan 8.9.7): u from t_sqrt's slot; the sign tested here,
+; the budget one word on, so a negative source leaves as before.
+sq_n:   a=T2 b=K[exp_one] mode=exp alu=and | if SNEG goto sq_iop   ; Z: u even
+        d=T2 a=T2 alu=passa mode=exp osh=r1 budget=76 | if Z goto sq_ev   ; floor(u/2)
+        d=T4 b=T1>>2 alu=passb | goto sq_w              ; u odd: 2x = m >> 2
 sq_inf: alu=nop | unless SNEG goto sq_ip
         alu=nop budget=14 | goto operr                  ; -inf: 20
 sq_ip:  d=T0 a=T1 alu=passa | goto mk_inf
@@ -1230,7 +1286,7 @@ sq_iop: alu=nop budget=20 | unless SDEN goto operr     ; IOP (Table 8-19)
 sq_g:   d=T0 a=T0 b=K[gbit] alu=or
         b=K[ulp] alu=passb stk=nz                       ; sticky
 sq_e:   d=T0 a=T0 b=T2 alu=passb mode=exp
-        d=T0 a=T0 b=K[bias] mode=exp alu=add | call pp
+        d=T0 a=T0 b=K[bias] mode=exp alu=add | call pp1  ; (the root is normalized: pp's shift skipped, 7e-3)
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
 ; ============================================================================
@@ -1712,14 +1768,18 @@ pro_cr: alu=nop fpsr=clrexc ctl=rp_prec stk=clr | dispatch OPMODE t_cr
 cr_doc: alu=nop ctl=norb | if RPEXT goto cr_d2
         alu=nop budget=8
 cr_d2:  alu=nop | if KABOVE goto cr_up
-        alu=nop | if KBELOW goto cr_dn
-cr_pp:  alu=nop | call pp
+        alu=nop | unless KBELOW goto cr_pp
+; below: to nearest (Table 8-3's pi) straight on, as up; toward zero or minus, an ulp off (7e-3)
+cr_dn:  fpsr=orlit exc=INEX2 | if RND_RN goto cr_pp
+        alu=nop | unless RND_RP goto cr_m1
+cr_pp:  alu=nop | call pp1                             ; the ROM's constant is normalized (7e-3)
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+; an ulp added or taken: pp whole
 cr_up:  fpsr=orlit exc=INEX2 | unless RND_RP goto cr_pp
-        d=T0 a=T0 b=K[ulp8] alu=add | goto cr_pp
-cr_dn:  fpsr=orlit exc=INEX2 | if RND_RZ goto cr_m1
-        alu=nop | unless RND_RM goto cr_pp
-cr_m1:  d=T0 a=T0 b=K[ulp8] alu=sub | goto cr_pp
+        d=T0 a=T0 b=K[ulp8] alu=add | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
+cr_m1:  d=T0 a=T0 b=K[ulp8] alu=sub | call pp
+        d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
 cr_u:   alu=nop | call cr_rnd
 cr_w:   d=FP[dst] a=T0 alu=passa fpsr=fpcc ctl=end | goto idle

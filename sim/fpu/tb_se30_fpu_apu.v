@@ -80,7 +80,7 @@ module tb_se30_fpu_apu;
     .start(start), .abort(1'b0), .entry_idx(entry_idx), .cmd(cmd),
     .cu_word(zero_src ? 86'd0 : u_word), .cu_tag(zero_src ? 3'd2 : u_tag),
     .cu_snan(zero_src ? 1'b0 : u_snan), .cu_den(zero_src ? 1'b0 : u_den),
-    .cu_neg(zero_src ? 1'b0 : u_neg), .operand(operand),
+    .cu_neg(zero_src ? 1'b0 : u_neg), .operand(operand), .cu_dt_v(1'b0), .cu_dt(6'd0),
     .busy(busy), .clocks(clocks), .err(err),
     .fpcr_we(fpcr_we), .fpcr_d(fpcr_d), .fpsr_we(fpsr_we), .fpsr_d(fpsr_d),
     .fpcr(fpcr), .fpsr(fpsr),

@@ -192,6 +192,10 @@ module se30_fpu #(
   reg  [31:0] dreg;                // Dn from a transfer-single-register
   reg         src_is_fp, zero_src;
   reg  [79:0] src_fp;
+  reg         cv_srcok;              // cv_src is FPm as the APU will find it (no conflict when read)
+  reg         cv_dstok;              // cv_dst is FPn as the APU will find it
+  reg         dt_v;                  // the start carries the CU's tags of FPn (7e-3)
+  reg  [5:0] dt_q;
   reg  [2:0]  fpb_addr;
   reg         fpb_we;
   reg  [79:0] fpb_d;
@@ -255,6 +259,7 @@ module se30_fpu #(
     .cu_snan(zero_src ? 1'b0 : u_snan), .cu_den(zero_src ? 1'b0 : u_den),
     .cu_neg(zero_src ? 1'b0 : u_neg),
     .operand(acmd[15:13] == 3'd3 ? {64'd0, dreg} : opnd),
+    .cu_dt_v(dt_v), .cu_dt(dt_q),
     .busy(apu_busy), .clocks(dbg_clocks), .err(dbg_err),
     .fpcr_we(fpcr_we), .fpcr_d(fpcr_d), .fpsr_we(fpsr_we), .fpsr_d(fpsr_d),
     .fpcr(fpcr), .fpsr(fpsr),
@@ -355,14 +360,10 @@ module se30_fpu #(
   //    cvt, {table, source tag x 5 + destination tag}; cvsel gives an entry
   //    index's table, {hold, number}.
   reg [7:0]  cvt   [0:511];
-  reg [7:0]  cvt_h [0:511];        // (a copy: the hold's read)
   reg [4:0]  cvsel [0:1023];
-  reg [4:0]  cvsel_h [0:1023];
   initial begin
     $readmemh(CVT_HEX, cvt);
-    $readmemh(CVT_HEX, cvt_h);
     $readmemh(CVSEL_HEX, cvsel);
-    $readmemh(CVSEL_HEX, cvsel_h);
   end
   reg [3:0]  cv_st;                // the slot instruction's conversion: 0 none, 1-8 its steps, 9 counting
   reg [8:0]  cv_el;                // FPU clocks since its operand came
@@ -371,11 +372,8 @@ module se30_fpu #(
   reg [4:0]  cvsel_q;
   reg [7:0]  cvt_q;
   reg        cu_v_q, cv_rest;
-  reg        hold_on, hold_end;    // the MPU held: through an integer's conversion, to FMOVECR's end
-  reg [8:0]  hold_t;
-  reg [4:0]  hsel_q;
-  reg [7:0]  hold_T;
-  reg [1:0]  hold_tv;              // the APU's tags (and so hold_T) valid
+  reg        hold_on, hold_end;    // the MPU held: a packed source's P_HOLD, or to FMOVECR's end
+  reg [8:0]  hold_t;               // FPU clocks since a packed source's APU start
   reg [7:0]  ho_el;                // clocks the slot has been ready to hand off
 
   // -- the command word (plan 8.6.7; the model's decode, vec.py) --------------
@@ -594,23 +592,31 @@ module se30_fpu #(
   endfunction
   // what each format's dialog leaves over, against Table 8-3's heads for
   // the typical operand (calibrated, 8.9.7): added to Table 8-13's time
-  localparam signed [9:0] K_REG = -10'sd8, K_S = -10'sd2, K_D = 10'sd2, K_X = 10'sd10, K_INT = -10'sd12;
+  localparam signed [9:0] K_REG = -10'sd8, K_S = -10'sd3, K_D = 10'sd1, K_X = 10'sd9, K_INT = -10'sd11;
   // a monadic operation's memory source: the 68881's in-memory monadic
   // figures are 2 below the dyadic ones, the 68882's heads are not; an
   // integer's hold for a monadic operation (cv_intm) 6 more
-  localparam signed [9:0] K_MONO = 10'sd2, K_INTM = 10'sd6;
-  localparam [8:0] HOLD_K = 9'd0;
+  localparam signed [9:0] K_MONO = 10'sd2, K_INTM = 10'sd2;
+  localparam [8:0] INT_PRE = 9'd6;  // an integer's CU time before the hand-off (its head: 21)
+  // a packed source's hold from the APU's start (Table 8-3: every P row's
+  // total is H + T + 69 - the integers' H + T + 19 - the MPU held while the
+  // APU converts, as 8.6.14 item 22 rules for the integers).  Calibrated:
+  // with it the typical operand's tail and total are the table's (the head
+  // is 9 against 13: the dialog before the wait for both units)
+  localparam [8:0] P_HOLD = 9'd54;
   localparam [3:0] D_REG = 4'd4;   // a register source's hand-off (Table 8-3: total = H + T + 4)
+  localparam [3:0] D_MEM = 4'd1;   // an S, D or X source's (total = H + T + 1)
   // the CU's own moves' times (Table 8-3: FMOVE to FPn 21/34/40/46, to
   // memory 38/44/50), counted from the operand's arrival - the CU busy
   localparam [7:0] M_RR = 8'd11, M_S = 8'd19, M_D = 8'd21, M_X = 8'd23,
-                   MO_S = 8'd20, MO_D = 8'd24, MO_X = 8'd22;
+                   MO_S = 8'd19, MO_D = 8'd21, MO_X = 8'd23;
   function [7:0] m_in;  input [2:0] f; m_in  = (f == 3'd1) ? M_S  : (f == 3'd5) ? M_D  : M_X;  endfunction
   function [7:0] m_out; input [2:0] f; m_out = (f == 3'd1) ? MO_S : (f == 3'd5) ? MO_D : MO_X; endfunction
   function signed [9:0] cvk;
     input [15:0] w;
-    input [3:0]  id;                 // cvsel's table: 3, 5, 7 the monadic S/D/X ones, 9 an integer's monadic
-    cvk = ((id == 4'd3 || id == 4'd5 || id == 4'd7) ? K_MONO : (id == 4'd9) ? K_INTM : 10'sd0) +
+    input [3:0]  id;                 // cvsel's table: 3, 5, 7 the monadic S/D/X ones, 9 an integer's
+                                     // monadic, 10 FMOVE's from an integer (cv_imv)
+    cvk = ((id == 4'd3 || id == 4'd5 || id == 4'd7) ? K_MONO : (id == 4'd9 || id == 4'd10) ? K_INTM : 10'sd0) +
           ((w[15:13] == 3'd0) ? K_REG
         : (w[15:13] != 3'd2) ? 10'sd0
         : (w[12:10] == 3'd1) ? K_S : (w[12:10] == 3'd5) ? K_D : (w[12:10] == 3'd2) ? K_X
@@ -620,17 +626,17 @@ module se30_fpu #(
   // restored frame's, an integer's, a packed one's)
   // an integer's time is not a conversion before the hand-off but a wait
   // after it, the MPU held (the APU converts: Table 8-3's H + 19 + T)
-  wire cv_rdy  = (cv_st == 4'd0) || (cv_st == 4'd9 && (cvsel_q[4] || cv_el >= {1'b0, cv_T}));
+  wire cv_rdy  = (cv_st == 4'd0) || (cv_st == 4'd9 && (cvsel_q[4] ? cv_el >= INT_PRE : cv_el >= {1'b0, cv_T}));
   wire [7:0] ho_need = (cv_st == 4'd9 && cvsel_q[4]) ? cv_T
-                     : (cu_cmd[15:13] == 3'd0) ? {4'd0, D_REG} : 8'd0;
-  // the MPU may go: no hold, or the integer's conversion spent since the
-  // APU started (its own tags: they are the dispatch's), or FMOVECR ended
-  wire hold_ok = !hold_on || (hold_end ? (apu_idle && !hv)
-                                       : (apu_idle || (hold_tv == 2'd3 && hold_t >= {1'b0, hold_T} + HOLD_K)));
+                     : (cu_cmd[15:13] == 3'd0) ? {4'd0, D_REG}
+                     : (cu_cmd[15:13] == 3'd2 && (cu_cmd[12:10] == 3'd1 || cu_cmd[12:10] == 3'd5 ||
+                                                  cu_cmd[12:10] == 3'd2)) ? {4'd0, D_MEM} : 8'd0;
+  // the MPU may go: no hold, or a packed source's hold spent (or its
+  // instruction ended), or FMOVECR ended
+  wire hold_ok = !hold_on || (hold_end ? (apu_idle && !hv) : (apu_idle || hold_t >= P_HOLD));
   wire [4:0] cv_tp = {2'd0, itag(cv_src)} * 5'd5 + {2'd0, itag(cv_dst)};
   wire [31:0] cu_iv = (cu_cmd[12:10] == 3'd0) ? opnd[31:0] :
                       (cu_cmd[12:10] == 3'd4) ? {16'd0, opnd[15:0]} : {24'd0, opnd[7:0]};
-  wire [4:0] ap_tp = {2'd0, ctx_q[11:9]} * 5'd5 + {2'd0, ctx_q[5:3]};   // the APU's stag, dtag
 
   // an access the FPU may not acknowledge yet
   wire opr_early = rw && (a[4:2] == 3'b100) &&
@@ -750,6 +756,7 @@ module se30_fpu #(
     input [2:0] r;
     input [15:0] w;                // the command word
     begin
+      dt_v     <= 1'b0;
       acmd     <= w;
       apu_idx  <= idx_fn(w);
       zero_src <= is_fmovecr(w);
@@ -761,6 +768,26 @@ module se30_fpu #(
   endtask
 
   reg [1:0] cu_step;
+
+  // the same, the source already in hand (7e-3): a memory source's FP value
+  // is not used, a register's the CU read for its conversion, FMOVECR's the
+  // constant ROM - the port B fetch's two clocks saved
+  task start_apu_f;
+    input fp_src;
+    input [15:0] w;
+    input [79:0] v;
+    begin
+      acmd     <= w;
+      apu_idx  <= idx_fn(w);
+      zero_src <= is_fmovecr(w);
+      src_is_fp <= fp_src;
+      src_fp   <= v;
+      cu_busy  <= 1'b1;
+      cu_step  <= 2'd2;
+      dt_v     <= 1'b0;
+      if (cu_pcv) begin fpiar <= cu_iar; cu_pcv <= 1'b0; end
+    end
+  endtask
 
   // the CU's frame fields (longwords 5 and 6 of the idle frame, 8.8.15):
   // the reset state, and the null restore's, so every frame saved is defined
@@ -941,7 +968,8 @@ module se30_fpu #(
       cu_v_q <= cu_v; cv_rest <= 1'b0;
       cvsel_q <= cvsel[idx_fn(cu_cmd)];
       cvt_q   <= cvt[{cvsel_q[3:0], cv_tp}];
-      if (cu_v && !cu_v_q && !cv_rest) begin cv_st <= 4'd1; cv_el <= 9'd0; end
+      if (cu_v && !cu_v_q && !cv_rest) begin cv_st <= 4'd1; cv_el <= 9'd0; cv_srcok <= 1'b0; cv_dstok <= 1'b0; end
+      if (cv_rest) begin cv_srcok <= 1'b0; cv_dstok <= 1'b0; end
       else if (!cu_v) cv_st <= 4'd0;
       else if (cv_st != 4'd0) begin
         if (ce && cv_el != 9'h1FF) cv_el <= cv_el + 9'd1;
@@ -957,10 +985,16 @@ module se30_fpu #(
                   else begin cv_src <= widen(cu_cmd[12:10], opnd); cv_st <= 4'd5; end
                 end
           4'd3: if (ce) cv_st <= 4'd4;                          // (the read as the peek's)
-          4'd4: if (ce) begin cv_src <= fpb_q; cv_st <= 4'd5; end
+          4'd4: if (ce) begin
+                  cv_src <= fpb_q; cv_st <= 4'd5;
+                  cv_srcok <= !(!apu_idle && a_writes(a_run, cu_cmd[12:10]));
+                end
           4'd5: if (!fpb_we && rst_cnt == 4'd0) begin fpb_addr <= cu_cmd[9:7]; cv_st <= 4'd6; end
           4'd6: if (ce) cv_st <= 4'd7;
-          4'd7: if (ce) begin cv_dst <= fpb_q; cv_st <= 4'd8; end
+          4'd7: if (ce) begin
+                  cv_dst <= fpb_q; cv_st <= 4'd8;
+                  cv_dstok <= !(!apu_idle && a_writes(a_run, cu_cmd[9:7]));
+                end
           4'd8: cv_st <= 4'd10;                                 // (cvt_q follows the tags)
           4'd10: begin                                          // Table 8-13's time and the format's rest
                   cv_T <= ($signed({2'b00, cvt_q}) + cvk(cu_cmd, cvsel_q[3:0]) < 0) ? 8'd0
@@ -970,12 +1004,7 @@ module se30_fpu #(
           default: ;
         endcase
       end
-      // the hold: an integer source's conversion time (its table, the APU's
-      // own tags) from the APU's start; FMOVECR to its end
-      hsel_q <= cvsel_h[idx_fn(acmd)];
-      hold_T <= cvt_h[{hsel_q[3:0], ap_tp}];
-      if (!hold_on) hold_tv <= 2'd0;
-      else if (apu_busy && hold_tv != 2'd3) hold_tv <= hold_tv + 2'd1;
+      // the hold: a packed source's time from the APU's start; FMOVECR to its end
       if (ce && hold_t != 9'h1FF) hold_t <= hold_t + 9'd1;
 
       // the hand-off (7e): the CU's instruction to the idle APU - not while
@@ -988,7 +1017,16 @@ module se30_fpu #(
           !(cs && (a[4:1] == 4'b0010 || a[4:1] == 4'b0011))) begin
         if (ce && ho_el != 8'hFF) ho_el <= ho_el + 8'd1;
         if (ho_el >= ho_need) begin
-          start_apu(cu_cmd[15:13] == 3'd0, cu_cmd[12:10], cu_cmd);
+          if (cu_cmd[15:13] != 3'd0 || cv_srcok)
+            start_apu_f(cu_cmd[15:13] == 3'd0, cu_cmd, cv_src);
+          else
+            start_apu(1'b1, cu_cmd[12:10], cu_cmd);
+          // FPn's tags: the CU has them, unless something could write FPn since
+          dt_v <= cv_dstok && cv_st == 4'd9;
+          dt_q <= {itag(cv_dst),
+                   (cv_dst[78:64] == 15'h7FFF) && (cv_dst[62:0] != 63'd0) && !cv_dst[62],
+                   (cv_dst[78:64] == 15'd0) && (cv_dst[63:0] != 64'd0) && !cv_dst[63],
+                   cv_dst[79]};
           cu_v <= 1'b0;
         end
       end else
@@ -1139,7 +1177,7 @@ module se30_fpu #(
                         if (c_fmovecr) begin
                           // the MPU held to its end (Table 8-3's T = 0, 8.6.14 item 22)
                           rdata[31:16] = 16'h8900 | pcbit;
-                          start_apu(1'b0, 3'd0, cmd); pc_apu <= 1'b1;
+                          start_apu_f(1'b0, cmd, 80'd0); pc_apu <= 1'b1;
                           hold_on <= 1'b1; hold_end <= 1'b1;
                           pc_next <= B_REL; bst <= c_pcb ? B_PCW : B_REL;
                         end else begin                            // <ea> to register
@@ -1364,6 +1402,9 @@ module se30_fpu #(
                       end else if (apu_idle && !cu_v && !pend && !hv) begin
                         start_apu(1'b0, 3'd0, cmd);
                         bst <= i_ca0 ? B_IDLE : B_REL;
+                        if (c_rx == 3'd3) begin                   // packed: held P_HOLD (7e-3)
+                          hold_on <= 1'b1; hold_end <= 1'b0; hold_t <= 9'd0;
+                        end
                       end else begin                              // the APU busy: into the CU (7e)
                         cu_v <= 1'b1; cu_cmd <= cmd;
                         bst <= i_ca0 ? B_IDLE : B_HOLD;
