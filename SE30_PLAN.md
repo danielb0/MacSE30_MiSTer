@@ -2123,7 +2123,10 @@ pass with it in.
   under System 7.5.5 (the algorithms changed at 3.1; System 7's QuickDraw
   may draw faster).
   - **Wanted: a same-version reference.** Speedometer 3.23's `Machine
-    Records` may hold an SE/30, IIx or IIcx (the same CPU, FPU and clock).
+    Records` holds none: Daniel checked 2026-10-02, and the nearest is an
+    LC III, a 25 MHz 68030 with other video. Low End Mac has only 3.06 (the
+    IIcx's in 8-bit colour at 640x480, not comparable). **Parked:**
+    Speedometer 3.23 on a real SE/30, IIx or IIcx in 1-bit would settle it.
   - If a gap remains, the lead is the kernel, not the video path. A
     68030's bus controller completes a write while execution goes on from
     the cache; our kernel waits for every beat. On a 5-7-clock video
