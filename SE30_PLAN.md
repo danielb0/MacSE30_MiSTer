@@ -2107,9 +2107,15 @@ pass with it in.
 
   `sim/gcrread` was not run: its quick mode runs past 30 minutes (the
   standing rule). The board's boot runs the same video PrimaryInit.
-- **Next: compile 28** (Daniel, 2026-10-02: "if you need to compile again
-  after this fix and before proceeding with SCSI, then do so"). Then
-  Speedometer's Graphics again on the board.
+- **Compile 28** (Daniel, 2026-10-02: "if you need to compile again after
+  this fix and before proceeding with SCSI, then do so"):
+  - **Tag f03121d1, 33 min.** Archived as
+    `output_files/MacSE30_f03121d1_vramfix.rbf`.
+  - **33,755 ALMs (81 %).**
+  - Met at every corner, worst **0.501 ns**; the capture meets its A/B
+    rule.
+  - The flow's summary has no negative slack.
+  - Next on the board: Speedometer's Graphics again.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
