@@ -2115,7 +2115,20 @@ pass with it in.
   - Met at every corner, worst **0.501 ns**; the capture meets its A/B
     rule.
   - The flow's summary has no negative slack.
-  - Next on the board: Speedometer's Graphics again.
+  - **On the board** (Daniel's screenshot `20261002_204135`): Speedometer
+    3.23 Performance Test.
+    - **Graphics 2.911 -> 3.137 (+7.8 %)**; CPU 5.179 and Math 7.331
+      unchanged. Against the real SE/30's 3.71: 0.78 -> 0.85.
+- **What is left is not yet shown to be real.** The reference is 3.06
+  under System 7.5.5 (the algorithms changed at 3.1; System 7's QuickDraw
+  may draw faster).
+  - **Wanted: a same-version reference.** Speedometer 3.23's `Machine
+    Records` may hold an SE/30, IIx or IIcx (the same CPU, FPU and clock).
+  - If a gap remains, the lead is the kernel, not the video path. A
+    68030's bus controller completes a write while execution goes on from
+    the cache; our kernel waits for every beat. On a 5-7-clock video
+    write the loop's instructions add instead of overlapping. That is
+    1.16.1's kernel-timing question, parked by Daniel.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
