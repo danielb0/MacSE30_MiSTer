@@ -2038,6 +2038,27 @@ pass with it in.
     The CPU is alive and the VBL runs.
   - TattleTech still reads **31 MHz**: its speed loop runs in registers,
     so the data cache does not change it.
+  - **Speedometer 3.23** (System 6.x, both caches on; Daniel's
+    screenshots, `C:\temp\Mac\Screenshots\20261002_19*`), against a real
+    SE/30. The real figures are Speedometer 3.06 under System 7.5.5 (Low
+    End Mac). Speedometer's algorithms changed at 3.1, so the comparison
+    is rough.
+
+    | Test (Mac Classic = 1.0) | Core | Real SE/30 | Core / real |
+    |---|---|---|---|
+    | CPU | 5.148 | 4.25 | 1.21 |
+    | Graphics | 2.911 | 3.71 | **0.78** |
+    | Math | 7.337 | 6.70 | 1.10 |
+    | Disk | not run | 2.44 | - |
+
+    - FPU Benchmarks (Mac II = 1.0): KWhetstones 1.120, Matrix 1.396,
+      FFT 1.364, average 1.293. Benchmark Mix average 5.944.
+    - No F-line exceptions: **the 68882's first real software ran clean**.
+    - CPU and Math above real is the kernel's timing (1.16.1), diluted by
+      memory traffic.
+    - **Graphics below real is an open question**: QuickDraw drawing into
+      the video RAM, which is uncached (CI). The suspect is our
+      video-RAM cycle against the Guide's.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
