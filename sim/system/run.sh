@@ -5,12 +5,13 @@
 #
 #   MODELSIM  the win32aloem bin directory
 #
-# Four runs (the bench's header): plain - sim/kernel_bus's program, which
+# Five runs (the bench's header): plain - sim/kernel_bus's program, which
 # gen_program.py writes there first; cacheon - the same with both caches
 # enabled first, in cacheon/; cachewa - with WA too, in cachewa/;
-# cachetest - gen_cache_program.py's, in cachetest/.  Logs run.log,
-# run_cacheon.log, run_cachewa.log, run_cachetest.log.
-# Exit status: 0 when all four say "==== PASS".
+# cachetest - gen_cache_program.py's, in cachetest/; vramtest -
+# gen_vram_program.py's video-RAM measurement, in vramtest/.  Logs run.log,
+# run_cacheon.log, run_cachewa.log, run_cachetest.log, run_vramtest.log.
+# Exit status: 0 when all five say "==== PASS".
 set -u
 cd "$(dirname "$0")"
 

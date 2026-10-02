@@ -20,7 +20,7 @@
 //        interrupt raised through GLUE's IPL - lands its results, and the
 //        one interrupt acknowledge is a 3-clock cycle terminated by AVEC.
 //
-//   THE INSTRUCTION CACHE (plan 1.16 step 1) - three runs, run.sh's:
+//   THE CACHES AND THE VIDEO RAM (plan 1.16) - five runs, run.sh's:
 //     plain    the program as above, the cache never enabled;
 //     cacheon  the same program with both caches on first (gen_program.py
 //              --cache 0x0101): every result and cycle as plain, and hits;
@@ -37,12 +37,18 @@
 //              fetch cycles the bench counts with the cache on (none after
 //              the first turn) and off (one a turn), and a loop over a
 //              cached operand whose data cycles it counts (the first only).
+//     vramtest  gen_vram_program.py's loops into the 8-bit video RAM
+//              (se30_video, wired as se30_machine wires it): a measurement,
+//              each window's clocks and every video cycle's length and the
+//              gap before it, against plan 2.12's 5/6/7-clock table
+//              (1.16.3: the two GLUE clocks it found).
 //   A hit runs no cycle, so the back-to-back check (3) does not count the
 //   clocks the wrapper answers a fetch from the cache.
 //
 //   Plusargs: +PROG=<dir> (the program.hex/stop_at.txt directory, default
 //   ../kernel_bus), +CACHEON (the program enables the cache: it must hit),
-//   +CACHETEST (the cache program's checks).
+//   +CACHETEST (the cache program's checks), +VRAMTEST (the video-RAM
+//   measurement); +define+VTRACE prints its clock-by-clock trace.
 //
 // CLOCKING
 //   clk is 2 x C16M (31.3344 MHz); phi1/phi2 mark C16M's edges.  GLUE runs
