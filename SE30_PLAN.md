@@ -1818,6 +1818,18 @@ speed, the Finder, applications.
   stays as it is, and the cache adds no pacing.
 - Compile 26 (2026-10-02, Daniel's go): the instruction cache alone, for the
   board before the data cache is added.
+  - **Tag 88f27b67, 32 min.** Archived by hand as
+    `output_files/MacSE30_88f27b67_icache.rbf`. `archive_build.ps1`
+    refused it, because step 2 was committed while the fitter ran. The map
+    report proves the netlist is step 1: the cache has only `idat`/`i_q`
+    and the 25-bit tags, with no data-cache structures.
+  - **33,104 ALMs (79 %).**
+  - `sta_corners.tcl`: our design meets timing at every corner, worst
+    slack **1.031 ns**, the capture judged by its A/B rule.
+  - The framework's HDMI scaler clock (`pll_hdmi`) misses setup by
+    **-0.118 ns at slow -40C** and **-0.060 ns at slow 100C**. That is the
+    framework path that missed in compile 25 (-0.016 ns at -40C), now also
+    missing at 100C.
 
 ### 1.16.2 Step 2: the data cache - the manual's rules and the design
 
