@@ -11970,6 +11970,50 @@ gate, the commit, and 7e-4.
   Logs in sim/fpu/out/gate3 (ignored). The full pairs, triples and detour
   pairs run overnight on the commit.
 
+### 8.9.8 7e-4: the cputest corpus (design, 2026-10-02)
+
+**What it is for** (8.4 item 7): WinUAE's `cputest` 6888x tests as a
+second check beside the model's vectors - **a regression against WinUAE's
+model, not silicon** (8.6.15); a mismatch is a question for the manual or
+hardware, not a verdict.
+
+**Where the data comes from.** Nothing on disk: the PMMU upstream's clones
+hold only the integer `68030_Basic`/`68030_ODD_IRQ` data, and WinUAE
+publishes no prebuilt sets (`cputest/readme.txt`: generate locally with
+`cputestgen` and `cputestgen.ini`). The Quadra core's `data040` corpus is
+a 68040's. So the corpus is ours to generate: WinUAE's source at a pinned
+tip, its `cputestgen` built with Visual Studio 2022 (installed on this
+box), an ini for a 68030 with a 68882 (`CPU=68030`, the FPU groups; the
+readme's FPU mode runs every FPCC x precision x rounding combination, 256
+per test), the generator's own limits recorded with the data ("Not all
+tests work correctly yet"; FSAVE/FRESTORE not implemented). The Quadra
+core's report on that generator (`rtl/ap68040/doc/CPUTEST_UPSTREAM_REPORT.md`)
+names two generator defects with memory-source operands (16-bit index
+scaling; `-(A7)` byte decrement) - expect them here too.
+
+**The harness - two ways:**
+- **A. Convert and drive the chip.** Decode each test (`decode_cputest_dat.py`,
+  extended for the FPU data), turn it into our vector form (instruction,
+  FPCR/FPSR, FP registers, the memory operand; expected FPn, FPSR, the
+  exception, a store's memory) and run it through `tb_se30_fpu` and the
+  Python model, as the model's vectors are run. Iverilog-fast; the whole
+  corpus. It tests the FPU, not the 030's side (the effective address, the
+  dialog, the frames), which `sim/cpfpu` covers.
+- **B. Run the tests as programs** on the kernel and the FPU under ModelSim
+  (`sim/cpfpu`), with a runtime doing what cputest's `main.c` does (load
+  the registers, run, capture the exception, restore memory). Tests the
+  whole path; ModelSim Starter's speed makes the whole corpus days, so a
+  sample per instruction and addressing mode.
+
+**For Daniel:**
+1. Clone WinUAE (github `tonioni/WinUAE`) and build its `cputestgen`
+   here - a download and a build on this machine.
+2. The harness: **recommended A for the whole corpus and B for a sample**
+   (A's breadth at iverilog speed; B for the 030's half).
+3. The groups: the FPU's own (basic arithmetic, the FMOVE formats including
+   packed, FMOVEM, the conditionals) at the ini's defaults, the 68030's
+   integer groups left to Section 1.
+
 ---
 
 ## Appendix - where the sources are
