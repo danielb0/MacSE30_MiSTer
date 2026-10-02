@@ -26,7 +26,7 @@ worker() {
   done
   "$MODELSIM/vlog.exe" -quiet +define+SIMULATION -work work +incdir+$RTL/fpu +incdir+$RTL/fpu/ucode \
     "$RTL/fpu/se30_fpu.v" "$RTL/fpu/se30_fpu_apu.v" "$RTL/fpu/se30_fpu_unpack.v" "$RTL/fpu/se30_fpu_cond.v" \
-    "$RTL/tg68k/tg68k.v" "$RTL/se30_glue.v" ../cpfpu/tb_cpfpu.v || exit 1
+    "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/se30_glue.v" ../cpfpu/tb_cpfpu.v || exit 1
   for ((i = k; i < NB; i += W)); do
     n=$(printf %02d $i)
     cp "$B/prog_$n.hex" program.hex; cp "$B/expect_$n.txt" expect.txt

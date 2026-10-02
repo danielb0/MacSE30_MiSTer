@@ -1,4 +1,6 @@
 work/
-run.log
+run*.log
 transcript
 *.wlf
+cacheon/
+cachetest/

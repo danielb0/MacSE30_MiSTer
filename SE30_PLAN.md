@@ -1673,6 +1673,148 @@ sequencing. Weeks in total, as 1.13 said - but most of the risk sits in
 
 ---
 
+## 1.16 The 68030's caches (1.15 item 9; opened 2026-10-02)
+
+**Why now.** The core runs the system and applications; it measures at
+about 10 MHz in TattleTech, and a DBRA loop takes 9 clocks where the
+68030's cache case is 6 (UM 11): with no caches every instruction word
+comes over the bus. Daniel, 2026-10-02: the caches today, the instruction
+cache first.
+
+**What the manual says** (MC68030 UM section 6, read in full):
+- Two 256-byte direct-mapped caches, instruction and data: 16 lines of
+  four long-word entries, **a valid bit per entry**, each entry replaced
+  on its own. Index A7-A4, entry A3-A2. **Logical addresses**: the
+  instruction cache's tag is A31-A8 and FC2; the data cache's A31-A8 and
+  FC2-FC0. CPU space (FC 7) is never cached.
+- An access is **cachable** when the cache is enabled in CACR, CDIS* is
+  negated, CIIN* is negated, CIOUT* is negated (the MMU's CI bit for the
+  page, from the ATC or a TTR) and the MMU validates it. **A hit ignores
+  the MMU** (and its CI): no external cycle.
+- **Filling**: on the SE/30, CBACK* is pulled up and goes nowhere (2.11.1),
+  so **no burst ever completes: single-entry mode**, one long word per
+  miss - "an entire long word is required"; from a 32-bit port one cycle,
+  from narrower ports the cycles to complete the long. Every cachable
+  place on the board (RAM, ROM) is a 32-bit port; I/O, the slots and the
+  video are CI by the ROM's tables (1.11, 2.11.1).
+- **The data cache is write-through.** A write hit updates the entry and
+  memory, even frozen. A write miss: with WA = 0 nothing in the cache
+  changes; with WA = 1 an aligned long-word write replaces the tag and
+  validates its entry only (the other three invalidated if the tag
+  changed); a byte, word or misaligned write that misses is not written,
+  the tag unchanged, the entry's valid bit cleared. CI ignores the cache
+  even for writes. A misaligned operand that spans two entries is two
+  independent hits or misses.
+- **Read-modify-write** (TAS, CAS): the read is forced to miss, its data
+  fills or updates the cache if cachable; the write is an ordinary write.
+  **Table-search accesses** (the walker) never touch the data cache.
+- **CACR** (MOVEC): EI (0), FI (1), CEI (2), CI (3), IBE (4); ED (8), FD
+  (9), CED (10), CD (11), DBE (12), WA (13). CI/CD clear a whole cache,
+  CEI/CED the entry CAAR bits 7-2 name, regardless of enable and freeze;
+  those four read 0. Freeze: a miss does not replace (write hits still
+  update). Disabling keeps the entries. **Reset** clears every valid bit
+  and every enable, freeze, burst and WA bit.
+- **CDIS*** disables both caches whatever CACR says: on the SE/30 it is
+  **VIA2 PB0** (4.x's table), which the ROM drives.
+
+**What is already there.** The kernel has CACR and CAAR (MOVEC, the
+read mask `$3313`, the clear bits self-clearing one at a time) and exports
+CACR, the clear request and its entry address, and the PMMU's cache
+inhibit for the current translation. `rtl/tg68k/TG68K_Cache_030.vhd`
+(upstream) is **not used**: it fills 16-byte lines (bursts the SE/30 never
+does) and leaves WA unimplemented; it is read for engineering only.
+
+**The design** (`rtl/tg68k/se30_cache030.v`, ours, in the wrapper):
+- The wrapper sees each kernel request before it becomes a bus cycle.
+  **Tags and valid bits in registers** (so a hit is known in the clock the
+  request is taken), **the data in block RAM** (64 long words a cache).
+  A hit acknowledges the kernel one C16M clock after the request with the
+  entry as a 32-bit port's long, and runs **no bus cycle**; a miss runs the
+  cycle as now, with no added clock, and a cachable read cycle answered
+  by a 32-bit port fills its entry from the long latched at S5.
+- The tag is the **logical address**: the kernel exports it beside the
+  physical one (a new port). FC from the kernel; cachability from CACR,
+  CDIS* and the PMMU's CI for the access.
+- The instruction cache serves the kernel's fetches (its aligned-long
+  prefetch, `busstate` 00); the data cache its data reads and writes (a
+  kernel beat is one long's bytes at most, so it falls in one entry).
+- **Step 1, today: the instruction cache**, with CACR's EI/FI/CEI/CI and
+  CDIS*. **Step 2: the data cache**, with WA, the RMC forced miss (the
+  kernel to flag TAS and CAS reads) and the walker excluded.
+
+**The tests.** A unit bench of the cache against a reference of UM
+section 6 (hits, misses, fills, freezes, clears, WA's cases, CI, CDIS,
+reset), every case named; `sim/kernel_bus` (16/32/8) and `sim/system`
+with the caches off and on (identical results, fewer bus cycles);
+`sim/busfault`, `sim/cpfpu` (all 13), `sim/machine`; a timing check that a
+cached DBRA loop takes the cache case's clocks. Then the board: TattleTech's
+speed, the Finder, applications.
+
+### 1.16.1 Step 1 as built: the instruction cache (2026-10-02)
+
+**RTL.**
+- `rtl/tg68k/se30_cache030.v`: tags {A31-A8, FC2} and the valid bits in
+  registers, 64 data longs in a RAM read every clock (`i_q` follows the
+  address by one clock). A fill with a new tag replaces the line and
+  leaves only its own entry valid. CI and CEI (at CAAR's index) clear,
+  enabled or not, and win over a fill in the same clock. Reset clears.
+  EI with CDIS* negated enables it; FI stops the fills.
+- The kernel: one new port, `addr_log_out`, the logical address of the
+  request (with the fetch's A1 as on `addr_out`).
+- `rtl/tg68k/tg68k.v`: in S0 a kernel fetch (`busstate` 00, not parked)
+  that hits sets `hit_ack` and runs no cycle (no ECS, no AS*). The kernel
+  is acknowledged at the next phi1 with the entry as a 32-bit port's long
+  (`dsack` 00): **one C16M clock a hit**. A fetch cycle records at S1
+  whether it may fill: not CI by the PMMU, not CPU space. It fills at S5
+  if the port answered 32 bits (`dsack_n` 00) and there was no bus error.
+- A fetch answered by an 8- or 16-bit port is not cached. The 68030 would
+  complete the long with more cycles and cache it, but the SE/30 runs no
+  code from such ports except the video card's declaration ROM at
+  PrimaryInit (once).
+- `rtl/se30_machine.v`: `cdis` = VIA2 PB0 low (CDIS* is active low on the
+  pin).
+
+**Tests (all PASS).**
+- `sim/cache030`: the unit bench, 27 checks in 10 rule groups (UM 6.1-6.3)
+  plus 200,000 random clocks against a reference model of the same rules.
+  Three mutants are caught: FC2 dropped from the tag, no invalidation on a
+  tag replacement, and FI ignored.
+- `sim/system` now makes three runs, 28 s in all:
+  - **plain** (the cache never enabled; 0 hits);
+  - **cacheon**: the same program with EI set first. Every slot and cycle
+    check passes, with 10 hits and 9 fewer fetch cycles;
+  - **cachetest**: `gen_cache_program.py`, the manual's rules through the
+    whole kernel-wrapper-GLUE path. Its slots check:
+    - stale code runs after a data write (no coherency, UM 6.1);
+    - CI clears;
+    - CACR reads CI as 0;
+    - a frozen cache still hits and does not fill;
+    - CEI clears only CAAR's entry, its line-mate stays;
+    - EI clear means no hits, and the entries survive it.
+  - In cachetest, a DBRA loop of 500 turns takes **3 fetch cycles with
+    the cache on, 1,001 off**.
+  - Two mutants of the wrapper are caught: fills off, and hits answered
+    with the bus latch.
+- `sim/machine`: PASS. The ROM does not enable the cache inside the bench's
+  window: CACR = $2000 at reset, and EI is set later, at $40802C88.
+- `sim/kernel_bus` at ports 16, 32 and 8, and `sim/busfault`: PASS, 21 s.
+  `sim/cpfpu`, all 12 programs (b1 to b5d, mmu, full): PASS, 84 s.
+
+**Timing against the manual - OPEN, Daniel's decision.**
+- **Cached:** UM Table 11-48 gives DBcc (cc false, count not expired) as
+  **6 clocks**. The cachetest loop measures **3.0 C16M clocks a turn**.
+- **Uncached:** the table gives 8 clocks with two 2-clock prefetches; on
+  the SE/30's 4-clock RAM cycle that is about 12 if neither prefetch
+  overlaps. We measure **9.1**.
+- Cause: the kernel runs DBRA in fewer internal clocks than the 68030 does.
+  The cache is not the cause; it only removed the bus time that hid this.
+- The options:
+  1. **Accept it.** The kernel is not cycle-exact anywhere, and the ROM
+     calibrates its timing constants (TimeDBRA and the rest) at boot.
+  2. **Pace the kernel to Table 11 per instruction.** This is the
+     cycle-exact kernel, a project of its own.
+  3. **A blanket wait per hit.** Not authentic, so not recommended.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records

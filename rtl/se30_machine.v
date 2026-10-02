@@ -159,12 +159,13 @@ module se30_machine #(
   wire        ecs, cpu_as_n, cpu_ds_n, cpu_rw_n, berr, halted;
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
+  wire        cpu_cdis;                // CDIS*: VIA2 PB0 low disables the caches (below, plan 1.16)
 
   tg68k cpu (
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .reset_out_n(reset_out_n), .halted(halted),
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(cpu_cdis), .reset_out_n(reset_out_n), .halted(halted),
     .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_exc(dbg_exc));
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;
@@ -263,6 +264,7 @@ module se30_machine #(
   wire  [7:0] via1_pb_pin = (via1_pb_oe & via1_pb_out) | (~via1_pb_oe & via1_pb_ext);
   wire  [7:0] via2_pa_pin = (via2_pa_oe & via2_pa_out) | (~via2_pa_oe & via2_pa_ext);
   wire  [7:0] via2_pb_pin = (via2_pb_oe & via2_pb_out) | (~via2_pb_oe & via2_pb_ext);
+  assign      cpu_cdis    = !via2_pb_pin[0];               // PB0 is CDIS* (plan 4.x's table, 1.16): an input reads its pull-up
   assign overlay   = via1_pa_pin[4];
   assign vid_page  = via1_pa_pin[6];
   assign vsyncen_n = via1_pb_pin[6];

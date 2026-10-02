@@ -140,6 +140,7 @@ entity TG68KdotC_Kernel is
 		berr						: in std_logic:='0';					-- only 68000 Stackpointer dummy
 		CPU						: in std_logic_vector(1 downto 0);  -- 00->68000  01->68010  10->68030 (with PMMU)
 		addr_out					: out std_logic_vector(31 downto 0);
+		addr_log_out				: out std_logic_vector(31 downto 0);  -- the access's logical address, beside addr_out's physical one: the 68030's caches are logically tagged (SE30_PLAN.md 1.16)
 		data_write				: out std_logic_vector(DATA_WIDTH-1 downto 0);
 		siz						: out std_logic_vector(1 downto 0);	-- SIZ1 SIZ0: bytes remaining, UM Table 7-2
 		nWr						: out std_logic;
@@ -12288,6 +12289,7 @@ addr_xlat <= pmmu_addr_log_int when pmmu_tc_en = '0' else pmmu_addr_phys_int;
 -- a long fetch walks the aligned long: the translated address with the
 -- long's next byte in A1A0 (same page, so the translation of addr serves)
 addr_out <= addr_xlat(31 downto 2) & fetch_a10 when fetch_bus = '1' else addr_xlat;
+addr_log_out <= pmmu_addr_log_int(31 downto 2) & fetch_a10 when fetch_bus = '1' else pmmu_addr_log_int;
 
 -- Format Error debug latch: captures key state when trap_format_error fires
 -- Once latched, holds until reset so hardware debug can read it

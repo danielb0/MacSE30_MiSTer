@@ -38,6 +38,11 @@ THE PROGRAM
 
 USAGE
     gen_program.py [--port 16|32|8] [--oracle ../../sim/kernel_bus/beats.txt]
+                   [--cache] [--out DIR]
+
+    --cache sets the 68030's CACR EI first (MOVEQ #1,D0; MOVEC D0,CACR),
+    for sim/system's cache-on run (plan 1.16); the program after it is
+    unchanged.  --out writes the files to DIR instead of here.
 """
 import argparse
 import os
@@ -88,8 +93,10 @@ class Program:
         self.accesses.append((label, case, addr, dirn, data))
 
 
-def build(bf5=True):
+def build(bf5=True, cache=False):
     p = Program()
+    if cache:
+        p.emit(0x7001, 0x4E7B, 0x0002)                             # MOVEQ #1,D0; MOVEC D0,CACR: EI
     p.emit(0x203C, 0x0102, 0x0304)                                 # MOVE.L #$01020304,D0
     slot = RESULT
     for size, case, wr, rd in ((1, "byte", 0x1080, 0x1210), (2, "word", 0x3080, 0x3210), (4, "long", 0x2080, 0x2210)):
@@ -320,9 +327,12 @@ def main():
     ap.add_argument("--no-bf5", action="store_true",
                     help="leave out the five-byte bit fields (the 16-bit kernel does them as one "
                          "operand cycle, 1+2+2 beats at odd offsets; the adopted contract is two, 1.14)")
+    ap.add_argument("--cache", action="store_true", help="enable the instruction cache first (CACR EI)")
+    ap.add_argument("--out", default=HERE, help="the directory to write the files to")
     args = ap.parse_args()
     oracle = load_oracle(args.oracle)
-    p, stop_at = build(bf5=not args.no_bf5)
+    p, stop_at = build(bf5=not args.no_bf5, cache=args.cache)
+    os.makedirs(args.out, exist_ok=True)
 
     mem = [0x4E71] * 65536                                          # NOPs
     mem[0], mem[1] = 0x0000, 0x0800                                 # SSP = $800
@@ -335,16 +345,16 @@ def main():
         mem[BASE // 2 + i] = 0xFFFF                                 # bit-field insert shows
     for a, v in p.data:                                             # PMOVE's sources
         mem[a // 2], mem[a // 2 + 1] = v >> 16, v & 0xFFFF
-    with open(os.path.join(HERE, "program.hex"), "w", newline="\n") as f:
+    with open(os.path.join(args.out, "program.hex"), "w", newline="\n") as f:
         for w in mem:
             f.write("%04x\n" % w)
-    with open(os.path.join(HERE, "expect.txt"), "w", newline="\n") as f:
+    with open(os.path.join(args.out, "expect.txt"), "w", newline="\n") as f:
         f.write("# expected beats for port %d; STOP at %08x; made by gen_program.py from %s\n" % (args.port, stop_at, os.path.basename(args.oracle)))
         for line in expected_beats(p, oracle, args.port, args.code8):
             f.write(line + "\n")
-    with open(os.path.join(HERE, "stop_at.txt"), "w", newline="\n") as f:
+    with open(os.path.join(args.out, "stop_at.txt"), "w", newline="\n") as f:
         f.write("%08x\n%d\n" % (stop_at, len(p.words)))            # and the program's words, handlers included
-    n = sum(1 for _ in open(os.path.join(HERE, "expect.txt"))) - 1
+    n = sum(1 for _ in open(os.path.join(args.out, "expect.txt"))) - 1
     print("program: %d words, STOP at $%X, %d accesses, %d expected beats at port %d" % (len(p.words), stop_at, len(p.accesses), n, args.port))
 
 

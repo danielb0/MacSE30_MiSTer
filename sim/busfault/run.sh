@@ -19,7 +19,7 @@ rm -rf work
 for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; do
   "$MODELSIM/vcom.exe" -quiet -93 -work work "$RTL/tg68k/$f" || exit 1
 done
-"$MODELSIM/vlog.exe" -quiet -work work "$RTL/tg68k/tg68k.v" "$RTL/se30_glue.v" tb_busfault.v || exit 1
+"$MODELSIM/vlog.exe" -quiet -work work "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/se30_glue.v" tb_busfault.v || exit 1
 "$MODELSIM/vsim.exe" -c -quiet -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_busfault > run.log 2>&1
 grep -E '^# (---- |==== |FAIL |pass |     \+)' run.log | sed 's/^# //'
 grep -q '^# ==== PASS' run.log

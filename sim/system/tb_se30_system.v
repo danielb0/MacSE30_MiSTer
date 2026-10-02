@@ -20,6 +20,22 @@
 //        interrupt raised through GLUE's IPL - lands its results, and the
 //        one interrupt acknowledge is a 3-clock cycle terminated by AVEC.
 //
+//   THE INSTRUCTION CACHE (plan 1.16 step 1) - three runs, run.sh's:
+//     plain    the program as above, the cache never enabled;
+//     cacheon  the same program with EI set first (gen_program.py
+//              --cache): every result and cycle as plain, and fetches hit;
+//     cachetest  gen_cache_program.py's program (its header): stale code
+//              after a data write, CI, CACR's read-back, FI, CEI, EI off -
+//              each a result slot - and a DBRA loop whose fetch cycles the
+//              bench counts with the cache on (none after the first turn)
+//              and off (one a turn).
+//   A hit runs no cycle, so the back-to-back check (3) does not count the
+//   clocks the wrapper answers a fetch from the cache.
+//
+//   Plusargs: +PROG=<dir> (the program.hex/stop_at.txt directory, default
+//   ../kernel_bus), +CACHEON (the program enables the cache: it must hit),
+//   +CACHETEST (the cache program's checks).
+//
 // CLOCKING
 //   clk is 2 x C16M (31.3344 MHz); phi1/phi2 mark C16M's edges.  GLUE runs
 //   on clk with c16_en = phi1.  RAM is a 32-bit model that acknowledges a
@@ -46,7 +62,7 @@ module tb_se30_system;
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .reset_out_n(reset_out_n), .halted(halted));
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .reset_out_n(reset_out_n), .halted(halted));
 
   // --------------------------------------------------------------- GLUE
   wire        ram_req, ram_we, ram_refresh, rom_req;
@@ -118,7 +134,7 @@ module tb_se30_system;
   // a cycle's length in C16M clocks: S0 is the clock before AS* asserts,
   // so it is the phi1 edges seen with AS* low, plus one
   integer as_clocks = 0, cyc_min = 1000, cyc_max = 0, cycles = 0, fetch_cycles = 0, data_cycles = 0;
-  integer idle_between = 0, gaps = 0, long_cycles = 0, cpu_space_cycles = 0;
+  integer idle_between = 0, gaps = 0, long_cycles = 0, cpu_space_cycles = 0, hits = 0;
   reg as_q = 1; reg [31:0] first_addr; reg [2:0] first_fc;
   always @(posedge clk) if (phi1) begin
     if (!cpu_as_n) as_clocks = as_clocks + 1;
@@ -136,7 +152,8 @@ module tb_se30_system;
       end
       as_clocks = 0;
     end
-    if (cpu_as_n && as_q && cpu.k_req) idle_between = idle_between + 1;
+    if (cpu_as_n && as_q && cpu.k_req && !cpu.hit_ack && !cpu.f_hit) idle_between = idle_between + 1;
+    if (cpu.hit_ack) hits = hits + 1;
     as_q = cpu_as_n;
   end
 
@@ -153,8 +170,21 @@ module tb_se30_system;
     dg2 = dg2 + 1; $display("t=%0t busstate=%b s=%0d as=%b clkena=%b hit=%b ipl_nr=%b", $time, cpu.k_busstate, cpu.s, cpu_as_n, cpu.k_clkena, cpu.kernel.fetch_hit, cpu.kernel.IPL_nr);
   end
 `endif
+  // ---------------------------------------------------- the loop markers
+  // the cache program's writes to $3088/$308C (cache on) and $3090/$3094
+  // (off) bracket a DBRA loop: the fetch cycles and clocks between them
+  integer mk_f [0:3], mk_t [0:3]; reg [3:0] mk_seen = 0; integer clocks = 0, mk;
+  always @(posedge clk) if (phi1) begin
+    clocks = clocks + 1;
+    mk = (cpu_addr == 32'h3088) ? 0 : (cpu_addr == 32'h308C) ? 1 : (cpu_addr == 32'h3090) ? 2 : (cpu_addr == 32'h3094) ? 3 : -1;
+    if (!cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && mk >= 0 && !mk_seen[mk]) begin
+      mk_seen[mk] = 1; mk_f[mk] = fetch_cycles; mk_t[mk] = clocks;
+    end
+  end
+
   // ------------------------------------------------------------ the run
   integer n, kk; reg [31:0] stop_at, v, want; integer fd, r;
+  reg [8*200-1:0] prog_dir; reg cachetest, cacheon; reg [31:0] slot_want [0:15];
   reg done = 0; integer tail = -1;
   always @(posedge clk) if (phi1 && reset_n && !done) begin
     if (!cpu_as_n && cpu_fc == 3'd6 && cpu_addr[31:2] == stop_at[31:2] && tail < 0) tail = 200;
@@ -163,9 +193,13 @@ module tb_se30_system;
   end
 
   initial begin
-    $readmemh("../kernel_bus/program.hex", img);
+    if (!$value$plusargs("PROG=%s", prog_dir)) prog_dir = "../kernel_bus";
+    cachetest = $test$plusargs("CACHETEST");
+    cacheon = $test$plusargs("CACHEON");
+    $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
-    fd = $fopen("../kernel_bus/stop_at.txt", "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
+    fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
+    if (cachetest) $readmemh({prog_dir, "/slots.txt"}, slot_want, 0, 8);
     repeat (20) @(posedge clk);
     reset_n = 1;
     n = 0;
@@ -174,7 +208,12 @@ module tb_se30_system;
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
     else pass = pass + 1;
     // 1. the result slots
-    for (kk = 0; kk < 17; kk = kk + 1) begin
+    if (cachetest) for (kk = 0; kk < 9; kk = kk + 1) begin
+      v = ram[(32'h3000 + 4*kk) >> 2];
+      if (v === slot_want[kk]) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL cache slot %0d: %08x, expected %08x", kk, v, slot_want[kk]); end
+    end
+    else for (kk = 0; kk < 17; kk = kk + 1) begin
       v = ram[(32'h3000 + 4*kk) >> 2];
       want = (kk < 4) ? 32'h00000004 : (kk < 8) ? 32'h00000304 : (kk < 12) ? 32'h01020304 :
              (kk == 12) ? 32'hAAAA5555 : (kk == 13) ? 32'h00000000 : (kk == 14) ? 32'hF0F0F0F0 :
@@ -185,7 +224,20 @@ module tb_se30_system;
     // 2. the cycle lengths
     $display("---- %0d bus cycles (%0d fetch, %0d data, %0d CPU space): RAM %0d to %0d C16M clocks, %0d over 4 (refresh stalls); %0d idle clocks with a request waiting",
              cycles, fetch_cycles, data_cycles, cpu_space_cycles, cyc_min, cyc_max, long_cycles, idle_between);
-    if (cpu_space_cycles == 1) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0d CPU-space cycles, expected the one interrupt acknowledge", cpu_space_cycles); end
+    $display("---- %0d fetches answered from the instruction cache", hits);
+    if (cpu_space_cycles == (cachetest ? 0 : 1)) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0d CPU-space cycles, expected %0d", cpu_space_cycles, cachetest ? 0 : 1); end
+    if (cacheon || cachetest) begin                 // the cache was on: it must have hit
+      if (hits > 0) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the cache was enabled and nothing hit"); end
+    end else begin
+      if (hits == 0) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0d hits with the cache never enabled", hits); end
+    end
+    if (cachetest) begin                                                // the DBRA loop's fetch cycles
+      $display("---- DBRA x500, cache on: %0d fetch cycles, %0d C16M clocks; off: %0d fetch cycles, %0d C16M clocks",
+               mk_f[1] - mk_f[0], mk_t[1] - mk_t[0], mk_f[3] - mk_f[2], mk_t[3] - mk_t[2]);
+      if (mk_seen == 4'b1111) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: loop markers seen %b", mk_seen); end
+      if (mk_f[1] - mk_f[0] <= 6) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the cached loop ran %0d fetch cycles, expected only its first turn's", mk_f[1] - mk_f[0]); end
+      if (mk_f[3] - mk_f[2] >= 500) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the uncached loop ran %0d fetch cycles, expected one a turn", mk_f[3] - mk_f[2]); end
+    end
     if (cyc_min == 4) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the shortest RAM cycle is %0d clocks, expected the Guide's 4", cyc_min); end
     if (cyc_max <= 8) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the longest RAM cycle is %0d clocks, more than a refresh stall", cyc_max); end
     if (long_cycles * 10 < cycles) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0d of %0d cycles longer than 4 - more than refresh explains", long_cycles, cycles); end
