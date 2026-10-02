@@ -1,13 +1,17 @@
-// tb_se30_gcrread.v - the GCR read gate: SE30_PLAN.md 5.12.9 item 6.
+// tb_se30_gcrread.v - the GCR read gate: SE30_PLAN.md 5.12.9 item 6, and
+// with two drives 5.14.
 //
 // WHAT THIS PROVES
-//   A disk image mounted in the slot is read back by the SE/30 ROM's own
-//   .Sony code, byte for byte, through every part of rung 2 as the machine
-//   will wire it:
+//   Disk images mounted in the two slots are read back by the SE/30 ROM's
+//   own .Sony code, byte for byte, through every part of rung 2 as the
+//   machine wires it - the internal drive on /ENBL1 and the external one on
+//   /ENBL2 (plan 5.14), each with its own loader and encoder, the four
+//   sharing the SDRAM's disk port:
 //
-//     HPS block device -> se30_flp_loader -> se30_flp_dkmux -> se30_sdram
-//     (on sim/sdram's chip model) -> se30_flp_encoder -> se30_fdhd (RD on
-//     SENSE) -> se30_swim -> se30_glue's device port -> the 68030's bus
+//     HPS block device (two slots) -> se30_flp_loader x2 -> se30_flp_dkmux
+//     -> se30_sdram (on sim/sdram's chip model) -> se30_flp_encoder x2 ->
+//     se30_fdhd x2 (RD, ANDed) -> se30_swim -> se30_glue's device port ->
+//     the 68030's bus
 //
 //   The processor is a bus model replaying the ROM's routines instruction
 //   by instruction (disassembled from the 97221136 ROM with
@@ -17,35 +21,47 @@
 //   (the decoded bytes) is a real bus cycle through GLUE, in the ROM's
 //   order; the rest of each instruction is time (below).  The ROM image
 //   is in SDRAM where the machine keeps it, so the ROM's table reads
-//   share the controller with the encoder's disk reads.
+//   share the controller with the encoders' disk reads.  The driver's
+//   per-drive variables ($12A and $13 of (a1,d1)) are kept per drive, and
+//   its drive enable is the ROM's ($4082E3D6): drive select 1 for the
+//   internal drive, for the external one CA2-CA0 high, SEL low, then drive
+//   select 2.
 //
 //     1. Open ($4082D79C): the SWIM probe ($4082E6A2) finds a SWIM - the
 //        ISM switch ($57 $17 $57 $57) and the three phase echoes - and
 //        each SWIM bus cycle is ONE chip access (GLUE's strobe is one
-//        C16M, two clk_sys); Open's drive reads
-//     2. a DiskCopy 4.2 800K image with tags loads; the disk reads in ($2)
-//     3. the recalibrate ($4082E29E): the ISM entry's GCR path
+//        C16M, two clk_sys); Open's reads find both drives, no disk in
+//     2. both slots mounted at once - a DiskCopy 4.2 800K image with tags
+//        in each, different data - both loaders on the port together; each
+//        drive reads its disk in ($2)
+//     3. each drive's recalibrate ($4082E29E): the ISM entry's GCR path
 //        ($4082E712), the mode $17 loop ($4082E2F2), the power-up
 //        ($4082E376: GCR mode, motor on, /READY within the ROM's polls),
 //        steps out to /TK0
-//     4. every cylinder in turn: the seek ($4082E17A: /STEP polled, the
-//        settle polls of /READY), then each side read the ROM's way -
-//        RdAddr ($40831BE8) and RdData ($40831CC2) until every sector of
-//        the side is in: the address field's cylinder, side and format
-//        ($22), the tags at $2FC and the 512 bytes in RAM as the ROM
-//        leaves them, no error code, inside two revolutions - all 1600
-//        sectors, every speed group
-//     5. a raw 400K image (single-sided): side 0 of a cylinder of every
-//        group reads with format $02; side 1 has no flux and RdAddr
-//        returns noNybErr ($BE)
-//     6. Daniel's Disk605.dsk if present: a smoke test, some cylinders
-//        read back against the file - nothing is fitted to it
+//     4. every cylinder, a drive at a time in turn: the drive selected
+//        (its enable and power-up check), the seek ($4082E17A: /STEP
+//        polled, the settle polls of /READY), then each side read the ROM's
+//        way - RdAddr ($40831BE8) and RdData ($40831CC2) until every sector
+//        of the side is in: the address field's cylinder, side and format
+//        ($22), the tags at $2FC and the 512 bytes in RAM as the ROM leaves
+//        them, each against ITS drive's image (byte 3 of every block names
+//        the drive), no error code, inside two revolutions - all 1600
+//        sectors of each, every speed group
+//     4b. drive 2 loads a raw 400K image while the ROM reads drive 1: drive
+//        1 byte for byte, the port passing between its encoder and drive
+//        2's loader
+//     5. raw 400K images (single-sided) in each drive: side 0 of a cylinder
+//        of every group reads with format $02; side 1 has no flux and
+//        RdAddr returns noNybErr ($BE)
+//     6. Daniel's Disk605.dsk if present, in drive 1: a smoke test, some
+//        cylinders read back against the file - nothing is fitted to it
 //     7. the disk port's handshake (no request torn, moved or raised over
 //        a stale acknowledge), the SDRAM model's datasheet checks, no
 //        byte taken twice by the ROM's data-register reads (a second
-//        before the shifter latched another), and every byte the ROM took
-//        one the chip saw validly read (GLUE takes a device's byte on the
-//        clock the device acts)
+//        before the shifter latched another), every byte the ROM took one
+//        the chip saw validly read (GLUE takes a device's byte on the
+//        clock the device acts); the drives never both enabled, a drive
+//        not enabled never pulling RD low
 //
 // THE MEMORY (Daniel, 2026-09-28: the split)
 //   -DBEHAV_MEM: a behavioural memory on clk_sys to the controller's two
@@ -100,7 +116,8 @@ module tb_se30_gcrread;
   reg reset_n = 0;
 
   localparam real CLK_TO_PIN = 4.0, OUT_TO_PIN = 4.0, DQ_TO_REG = 2.0;   // sim/sdram's defaults
-  localparam [23:0] BASE = 24'h800000;                 // the image in SDRAM (word address)
+  localparam [23:0] BASE  = 24'h800000;                // the internal drive's image in SDRAM (word address)
+  localparam [23:0] BASE2 = 24'h900000;                // the external drive's (plan 5.14)
   localparam integer MAXF = 1474560 + 84 + 512;
 
   // ------------------------------------------------------------ the 68030's bus
@@ -163,16 +180,17 @@ module tb_se30_gcrread;
 
   // ------------------------------------------------------------ the SWIM and the drive
   wire  [3:0] swim_ph, swim_ph_oe;
-  wire        enbl1_n, enbl2_n, fdhd_sense, fdhd_eject;
+  wire        enbl1_n, enbl2_n, fdhd_sense, fdhd_eject, fdhd2_sense, fdhd2_eject;
   wire [47:0] swim_dbg;
-  wire [15:0] fdhd_dbg;
+  wire [15:0] fdhd_dbg, fdhd2_dbg;
   wire  [3:0] swim_ph_pin = (swim_ph_oe & swim_ph) | ~swim_ph_oe;
-  wire        swim_sense  = fdhd_sense & 1'b1;           // the external drive is absent
+  wire        swim_sense  = fdhd_sense & fdhd2_sense;    // RD: each drive's while enabled, 1 otherwise (5.14)
 
-  wire  [6:0] cyl, trk_cyl;
-  wire        trk_valid, trk_side, trk_bit;
-  wire [16:0] trk_addr;
+  wire  [6:0] cyl, trk_cyl, cyl2, trk2_cyl;
+  wire        trk_valid, trk_side, trk_bit, trk2_valid, trk2_side, trk2_bit;
+  wire [16:0] trk_addr, trk2_addr;
   wire        disk_in, img_ds, img_800k, img_tags, readonly, loading;
+  wire        disk2_in, img2_ds, img2_800k, img2_tags, readonly2, loading2;
 
   se30_swim swim (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
@@ -188,18 +206,25 @@ module tb_se30_gcrread;
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .dbg(fdhd_dbg));
 
+  se30_fdhd fdhd2 (                                    // the external drive (plan 5.14)
+    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
+    .sense(fdhd2_sense), .disk_in(disk2_in), .eject(fdhd2_eject),
+    .cyl(cyl2), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+    .dbg(fdhd2_dbg));
+
   // ------------------------------------------------------------ the loader, the encoder, the port
-  reg         img_mounted = 0, img_readonly = 0;
+  reg         img_mounted = 0, img_mounted2 = 0, img_readonly = 0;
   reg  [63:0] img_size = 0;
-  wire [31:0] sd_lba;
-  wire        sd_rd;
-  reg         sd_ack = 0;
+  wire [31:0] sd_lba, sd_lba2;
+  wire        sd_rd, sd_rd2;
+  reg         sd_ack = 0, sd_ack2 = 0;
   reg   [7:0] sd_buff_addr = 0;
   reg  [15:0] sd_buff_dout = 0;
   reg         sd_buff_wr = 0;
-  wire        ld_req, ld_ack, en_req, en_ack;
-  wire [23:0] ld_addr, en_addr;
-  wire [15:0] ld_wdata, en_rdata;
+  wire        ld_req, ld_ack, en_req, en_ack, ld2_req, ld2_ack, en2_req, en2_ack;
+  wire [23:0] ld_addr, en_addr, ld2_addr, en2_addr;
+  wire [15:0] ld_wdata, en_rdata, ld2_wdata, en2_rdata;
   wire        dk_req, dk_we, dk_ack;
   wire [23:0] dk_addr;
   wire [15:0] dk_wdata, dk_rdata;
@@ -222,10 +247,30 @@ module tb_se30_gcrread;
     .mem_req(en_req), .mem_addr(en_addr), .mem_rdata(en_rdata), .mem_ack(en_ack),
     .dbg());
 
+  se30_flp_loader #(.BASE(BASE2)) loader2 (
+    .clk(clk), .reset_n(reset_n),
+    .img_mounted(img_mounted2), .img_size(img_size), .img_readonly(img_readonly),
+    .sd_lba(sd_lba2), .sd_rd(sd_rd2), .sd_ack(sd_ack2),
+    .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr),
+    .mem_req(ld2_req), .mem_addr(ld2_addr), .mem_wdata(ld2_wdata), .mem_ack(ld2_ack),
+    .eject(fdhd2_eject),
+    .disk_in(disk2_in), .img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags),
+    .readonly(readonly2), .loading(loading2), .dbg());
+
+  se30_flp_encoder #(.BASE(BASE2)) encoder2 (
+    .clk(clk), .reset_n(reset_n),
+    .disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k),
+    .cyl(cyl2), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid),
+    .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+    .mem_req(en2_req), .mem_addr(en2_addr), .mem_rdata(en2_rdata), .mem_ack(en2_ack),
+    .dbg());
+
   se30_flp_dkmux dkmux (
-    .clk(clk), .reset_n(reset_n), .loading(loading),
-    .ld_req(ld_req), .ld_addr(ld_addr), .ld_wdata(ld_wdata), .ld_ack(ld_ack),
-    .en_req(en_req), .en_addr(en_addr), .en_rdata(en_rdata), .en_ack(en_ack),
+    .clk(clk), .reset_n(reset_n),
+    .ld0_req(ld_req), .ld0_addr(ld_addr), .ld0_wdata(ld_wdata), .ld0_ack(ld_ack),
+    .en0_req(en_req), .en0_addr(en_addr), .en0_rdata(en_rdata), .en0_ack(en_ack),
+    .ld1_req(ld2_req), .ld1_addr(ld2_addr), .ld1_wdata(ld2_wdata), .ld1_ack(ld2_ack),
+    .en1_req(en2_req), .en1_addr(en2_addr), .en1_rdata(en2_rdata), .en1_ack(en2_ack),
     .dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack));
 
   // ------------------------------------------------------------ the SDRAM, as the machine drives it
@@ -335,24 +380,35 @@ module tb_se30_gcrread;
   end
 
   // ------------------------------------------------------------ the HPS (sim/flpload's model)
-  reg  [7:0] file [0:MAXF - 1];
-  integer    fsize = 0;
+  // two slots (plan 5.14): S0 the internal drive's image (file), S1 the
+  // external drive's (file2); one transfer at a time, the slots served in
+  // turn, the data bus shared - as hps_io does
+  reg  [7:0] file  [0:MAXF - 1];
+  reg  [7:0] file2 [0:MAXF - 1];
+  integer    fsize = 0, fsize2 = 0;
+  reg        hps_turn = 0;
+  function [7:0] fb(input integer which, input integer idx);
+    fb = which ? (idx < fsize2 ? file2[idx] : 8'hEE) : (idx < fsize ? file[idx] : 8'hEE);
+  endfunction
   always begin : hps
-    integer w, lba;
+    integer w, lba, which;
     repeat (40) @(posedge clk);
-    if (sd_rd) begin
-      lba = sd_lba;
+    which = -1;
+    if (sd_rd && (!sd_rd2 || !hps_turn)) which = 0;
+    else if (sd_rd2) which = 1;
+    if (which >= 0) begin
+      hps_turn = !which;
+      lba = which ? sd_lba2 : sd_lba;
       repeat (3) @(posedge clk);
-      #1 sd_ack = 1;
+      #1 if (which) sd_ack2 = 1; else sd_ack = 1;
       for (w = 0; w < 256; w = w + 1) begin
         @(posedge clk); #1
         sd_buff_addr = w;
-        sd_buff_dout = {(lba * 512 + 2 * w + 1 < fsize) ? file[lba * 512 + 2 * w + 1] : 8'hEE,
-                        (lba * 512 + 2 * w     < fsize) ? file[lba * 512 + 2 * w]     : 8'hEE};
+        sd_buff_dout = {fb(which, lba * 512 + 2 * w + 1), fb(which, lba * 512 + 2 * w)};
         sd_buff_wr = 1;
         @(posedge clk); #1 sd_buff_wr = 0;
       end
-      repeat (2) @(posedge clk); #1 sd_ack = 0;
+      repeat (2) @(posedge clk); #1 if (which) sd_ack2 = 0; else sd_ack = 0;
     end
   end
 
@@ -367,6 +423,27 @@ module tb_se30_gcrread;
     if (dreq_d && !dk_req && !dk_ack) torn <= torn + 1;
     if (dreq_d && dk_req && !dk_ack && dk_addr != daddr_d) moved <= moved + 1;
     if (dk_req && !dreq_d && dk_ack) early <= early + 1;
+  end
+  // the two drives (plan 5.14): never both enabled; a drive not enabled
+  // holds its RD high; the requesters' words on the shared port, and the
+  // owner passing between them while both loads, or a load and a read, run
+  integer both_en = 0, idle_rd = 0, ov_loads = 0, ov_ld_en = 0, sw_ld = 0, sw_ld_en = 0;
+  integer dk_by [0:3];
+  reg [1:0] last_owner = 0;
+  initial begin dk_by[0] = 0; dk_by[1] = 0; dk_by[2] = 0; dk_by[3] = 0; end
+  always @(posedge clk) begin
+    if (!enbl1_n && !enbl2_n) both_en = both_en + 1;
+    if ((enbl1_n && !fdhd_sense) || (enbl2_n && !fdhd2_sense)) idle_rd = idle_rd + 1;
+    if (loading && loading2) ov_loads = ov_loads + 1;
+    if (loading2 && disk_in && trk_valid !== 1'bx && en_req) ov_ld_en = ov_ld_en + 1;
+    if (dk_ack && !dack_d) begin
+      dk_by[dkmux.owner] = dk_by[dkmux.owner] + 1;
+      if (dkmux.owner != last_owner) begin
+        if ({dkmux.owner, last_owner} == 4'b0010 || {dkmux.owner, last_owner} == 4'b1000) sw_ld = sw_ld + 1;
+        if ({dkmux.owner, last_owner} == 4'b0110 || {dkmux.owner, last_owner} == 4'b1001) sw_ld_en = sw_ld_en + 1;
+      end
+      last_owner = dkmux.owner;
+    end
   end
   // the SWIM's accesses: clk edges on which the chip acts, per bus cycle
   // (one is the device port's contract: "one C16M clock"), and valid
@@ -548,9 +625,13 @@ module tb_se30_gcrread;
   task drv_cmd(input [3:0] n); begin cpu(6); drv_addr(n); drv_strobe; end endtask
 
   // ------------------------------------------------------------ the driver
-  reg        flag13;                                   // $13(a1,d1): the drive's $F read 1 at Open
+  // the driver's per-drive variables, (a1,d1): drv 0 the internal drive
+  // (d1 = $4A), 1 the external (plan 5.14)
+  integer    drv = 0;
+  reg        flag13_d [0:1];                           // $13(a1,d1): the drive's $F read 1 at Open
   reg        found_swim;                               // $134: the probe's verdict
-  integer    cur_trk;                                  // $12A(a1,d1): where the driver thinks the head is
+  integer    cur_trk_d [0:1];                          // $12A(a1,d1): where the driver thinks the head is
+  wire [6:0] cyl_drv = drv ? cyl2 : cyl;               // the selected drive's head
   integer    ready_polls, mode_loops;
 
   // $4082E2F2: the mode register to $17
@@ -602,9 +683,22 @@ module tb_se30_gcrread;
     end
   endtask
 
-  // $4082E3D6 (vector $B40, through $4082E3CC): drive 1 enabled
+  // $4082E3D6 (vector $B40, through $4082E3CC): the drive enabled - the
+  // internal one (d1 = $4A) by drive select 1 and the enable; the external
+  // one ($4082E408) first puts CA2, CA1, CA0 high and SEL low, then drive
+  // select 2 and the enable
   task drv_enable;
-    begin cpu(6 + 8 + T_VAR + T_BT + T_VAR + T_VAR + T_BN + 4 + T_BN); swim_rd(16'h1400); swim_rd(16'h1200); cpu(8); end
+    begin
+      cpu(6 + 8 + T_VAR + T_BT + T_VAR + T_VAR + T_BN + 4);
+      if (drv == 0) begin cpu(T_BN); swim_rd(16'h1400); swim_rd(16'h1200); end
+      else begin
+        cpu(T_BT);
+        swim_rd(16'h0A00); swim_rd(16'h0600); swim_rd(16'h0200);
+        rdb(ORA); wrb(ORA, rb & 8'hDF);                  // bclr #5,$1e00(a2): SEL low
+        swim_rd(16'h1600); swim_rd(16'h1200);
+      end
+      cpu(8);
+    end
   endtask
 
   // $4082E1FE: the settle - with $13 set, /READY ($B) polled every
@@ -615,7 +709,7 @@ module tb_se30_gcrread;
     begin
       polls = 0; ok = 0;
       cpu(6 + T_VAR + T_BN);
-      if (!flag13) begin if (d0 != 0) ms_wait(d0); ok = -1; end
+      if (!flag13_d[drv]) begin if (d0 != 0) ms_wait(d0); ok = -1; end
       else begin
         cpu(6 + 4 + T_R);
         if (d2 != 0) ms_wait(d2);
@@ -702,7 +796,7 @@ module tb_se30_gcrread;
             end
           end
         end
-        cur_trk = 0;
+        cur_trk_d[drv] = 0;
       end
       cpu(T_VAR + 6);
     end
@@ -714,7 +808,7 @@ module tb_se30_gcrread;
     integer d5, d2, p2, k2;
     begin
       seek_err = 0; cpu(6 + 6); e0ba; cpu(T_VAR + T_BN + T_R + T_R + T_R);
-      d5 = to - cur_trk;
+      d5 = to - cur_trk_d[drv];
       if (d5 != 0) begin
         cpu(T_BN + T_BT + T_R);
         drv_cmd(d5 > 0 ? 4'h0 : 4'h1);                  // $0 in, $1 out
@@ -733,7 +827,7 @@ module tb_se30_gcrread;
             cpu(8 + T_DB); d5 = d5 - 1;
           end
         end
-        cur_trk = to;
+        cur_trk_d[drv] = to;
         cpu(T_R + 6); e0ba; cpu(T_VAR + T_VAR + T_BN);
         cpu(T_VAR + T_R);
         settle(300, 5, seek_polls, seek_ok);
@@ -786,8 +880,8 @@ module tb_se30_gcrread;
         end
       end
       if (err == 0) begin                                // $40831C16: D5 AA 96 within $5BC/$5DC bytes
-        cpu(T_R + 4 + T_VAR + (flag13 ? T_BN + 4 : T_BT) + T_R);
-        d0w = flag13 ? 16'h05BC : 16'h05DC;
+        cpu(T_R + 4 + T_VAR + (flag13_d[drv] ? T_BN + 4 : T_BT) + T_R);
+        d0w = flag13_d[drv] ? 16'h05BC : 16'h05DC;
         found = 0; a0 = AMK; mk = 0; cpu(T_R + T_R);
         while (!found && err == 0) begin
           poll(b); via_poll;
@@ -954,45 +1048,51 @@ module tb_se30_gcrread;
     blockno = ds ? 2 * secs_before(c) + s * spt(c) + k : secs_before(c) + k;
   endfunction
   // the synthetic image (MacLC's self-identifying pattern): data bytes 0-2
-  // are the block's cylinder, side and sector
-  function [7:0] dbyte(input integer n, input integer c, input integer s, input integer k, input integer i);
+  // are the block's cylinder, side and sector, byte 3 the drive (5.14),
+  // the rest a pattern that differs between the drives' images
+  function [7:0] dbyte(input integer w, input integer n, input integer c, input integer s, input integer k, input integer i);
     case (i)
-      0: dbyte = c; 1: dbyte = s; 2: dbyte = k;
-      default: dbyte = (n * 7 + i * 13 + (i >> 5)) & 8'hFF;
+      0: dbyte = c; 1: dbyte = s; 2: dbyte = k; 3: dbyte = 8'hD0 + w;
+      default: dbyte = (n * 7 + i * 13 + (i >> 5) + w * 8'h5B) & 8'hFF;
     endcase
   endfunction
-  function [7:0] tbyte(input integer n, input integer j); tbyte = (n * 5 + j * 31 + 1) & 8'hFF; endfunction
+  function [7:0] tbyte(input integer w, input integer n, input integer j); tbyte = (n * 5 + j * 31 + 1 + w * 8'h3D) & 8'hFF; endfunction
 
-  integer img_kind;                                    // 0 synthetic DC42 800K tagged, 1 synthetic raw 400K, 2 a file
-  integer img_off;                                     // where the data starts in the file
-  integer img_tagoff;                                  // where the tags start (-1 none)
-  task build_dc42_800k;
+  integer img_kind [0:1];                              // 0 synthetic DC42 800K tagged, 1 synthetic raw 400K, 2 a file
+  integer img_off [0:1];                               // where the data starts in the file
+  integer img_tagoff [0:1];                            // where the tags start (-1 none)
+  task fput(input integer w, input integer idx, input [7:0] v);
+    begin if (w) file2[idx] = v; else file[idx] = v; end
+  endtask
+  task build_dc42_800k(input integer w);
     integer c, s, k, n, i;
     begin
-      for (i = 0; i < 84; i = i + 1) file[i] = 8'h00;
-      file[0] = 8'd7; for (i = 1; i < 8; i = i + 1) file[i] = "a" + i;
-      {file[64], file[65], file[66], file[67]} = 32'd819200;
-      {file[68], file[69], file[70], file[71]} = 32'd19200;
-      file[80] = 8'd1; file[81] = 8'h22; file[82] = 8'h01; file[83] = 8'h00;
+      for (i = 0; i < 84; i = i + 1) fput(w, i, 8'h00);
+      fput(w, 0, 8'd7); for (i = 1; i < 8; i = i + 1) fput(w, i, "a" + i + w);
+      fput(w, 64, 8'h00); fput(w, 65, 8'h0C); fput(w, 66, 8'h80); fput(w, 67, 8'h00);   // 819,200
+      fput(w, 68, 8'h00); fput(w, 69, 8'h00); fput(w, 70, 8'h4B); fput(w, 71, 8'h00);   // 19,200
+      fput(w, 80, 8'd1); fput(w, 81, 8'h22); fput(w, 82, 8'h01); fput(w, 83, 8'h00);
       for (c = 0; c < 80; c = c + 1)
         for (s = 0; s < 2; s = s + 1)
           for (k = 0; k < spt(c); k = k + 1) begin
             n = blockno(c, s, k, 1);
-            for (i = 0; i < 512; i = i + 1) file[84 + 512 * n + i] = dbyte(n, c, s, k, i);
-            for (i = 0; i < 12; i = i + 1)  file[84 + 819200 + 12 * n + i] = tbyte(n, i);
+            for (i = 0; i < 512; i = i + 1) fput(w, 84 + 512 * n + i, dbyte(w, n, c, s, k, i));
+            for (i = 0; i < 12; i = i + 1)  fput(w, 84 + 819200 + 12 * n + i, tbyte(w, n, i));
           end
-      fsize = 84 + 819200 + 19200; img_kind = 0; img_off = 84; img_tagoff = 84 + 819200;
+      if (w) fsize2 = 84 + 819200 + 19200; else fsize = 84 + 819200 + 19200;
+      img_kind[w] = 0; img_off[w] = 84; img_tagoff[w] = 84 + 819200;
     end
   endtask
-  task build_raw_400k;
+  task build_raw_400k(input integer w);
     integer c, k, n, i;
     begin
       for (c = 0; c < 80; c = c + 1)
         for (k = 0; k < spt(c); k = k + 1) begin
           n = blockno(c, 0, k, 0);
-          for (i = 0; i < 512; i = i + 1) file[512 * n + i] = dbyte(n, c, 0, k, i);
+          for (i = 0; i < 512; i = i + 1) fput(w, 512 * n + i, dbyte(w, n, c, 0, k, i));
         end
-      fsize = 409600; img_kind = 1; img_off = 0; img_tagoff = -1;
+      if (w) fsize2 = 409600; else fsize = 409600;
+      img_kind[w] = 1; img_off[w] = 0; img_tagoff[w] = -1;
     end
   endtask
 
@@ -1047,7 +1147,7 @@ module tb_se30_gcrread;
             n = blockno(c, s, k, ds); mism = 0;
             if (ram_byte(TAGS) != k) mism = mism + 1;
             for (i = 0; i < 12; i = i + 1) begin
-              v = (img_tagoff >= 0) ? file[img_tagoff + 12 * n + i] : 8'h00;
+              v = (img_tagoff[drv] >= 0) ? fb(drv, img_tagoff[drv] + 12 * n + i) : 8'h00;
               if (ram_byte(TAGS + 1 + i) !== v) mism = mism + 1;
             end
             got[k] = 1; side_secs = side_secs + 1;
@@ -1059,24 +1159,65 @@ module tb_se30_gcrread;
       // the data, as the ROM left it in the buffers
       for (k = 0; k < spt(c); k = k + 1) if (got[k]) begin
         n = blockno(c, s, k, ds); mism = 0;
-        for (i = 0; i < 512; i = i + 1) if (ram_byte(BUF + 512 * k + i) !== file[img_off + 512 * n + i]) mism = mism + 1;
+        for (i = 0; i < 512; i = i + 1) if (ram_byte(BUF + 512 * k + i) !== fb(drv, img_off[drv] + 512 * n + i)) mism = mism + 1;
         if (mism != 0) side_bad_data = side_bad_data + 1;
       end
     end
   endtask
 
   // ------------------------------------------------------------ mounting
-  task mount(input integer size);
+  // mount_start: the slot's mount pulse only (the load runs on); mount: and
+  // wait for it
+  task mount_start(input integer w, input integer size);
     begin
-      @(posedge clk); #1 img_size = size; img_readonly = 0; img_mounted = 1;
-      @(posedge clk); #1 img_mounted = 0; img_size = 64'hDEAD;
+      @(posedge clk); #1 img_size = size; img_readonly = 0;
+      if (w) img_mounted2 = 1; else img_mounted = 1;
+      @(posedge clk); #1 img_mounted = 0; img_mounted2 = 0; img_size = 64'hDEAD;
       repeat (4) @(posedge clk);
-      while (loading) @(posedge clk);
+    end
+  endtask
+  task mount(input integer w, input integer size);
+    begin
+      mount_start(w, size);
+      while (w ? loading2 : loading) @(posedge clk);
+    end
+  endtask
+
+  // ------------------------------------------------------------ the drive switch, a cylinder
+  // select: the driver's drive for the next request - its enable and the
+  // power-up check (the motor already on: no wait)
+  task select(input integer w);
+    begin drv = w; power_up; end
+  endtask
+  // read_cyl: the seek and both sides of cylinder c on the selected drive,
+  // tallied (secs_d per drive)
+  integer secs_d [0:1];
+  integer cyl_ok;
+  task read_cyl(input integer c, input integer ds, input [7:0] fmt);
+    integer s;
+    begin
+      seek(c);
+      cyl_ok = 1;
+      if (seek_err != 0 || !seek_ok || cyl_drv != c) begin
+        cyl_ok = 0; $display("     drive %0d cylinder %0d: seek error %0h, /READY %0d after %0d polls, head at %0d", drv + 1, c, seek_err, seek_ok, seek_polls, cyl_drv);
+      end
+      for (s = 0; s < 2; s = s + 1) begin
+        read_side(c, s, ds, fmt);
+        tot_secs = tot_secs + side_secs; tot_bad_hdr = tot_bad_hdr + side_bad_hdr;
+        tot_bad_data = tot_bad_data + side_bad_data; tot_errs = tot_errs + side_errs;
+        secs_d[drv] = secs_d[drv] + side_secs - side_bad_data;
+        grp_secs[c / 16] = grp_secs[c / 16] + side_secs - side_bad_data;
+        revs_x100 = side_time * 100 / (revcells(c) * 32 * 64);
+        if (revs_x100 > max_revs_x100) max_revs_x100 = revs_x100;
+        if (side_secs != spt(c) || side_bad_hdr != 0 || side_bad_data != 0 || side_errs != 0)
+          $display("     drive %0d cylinder %0d side %0d: %0d of %0d sectors, %0d bad headers, %0d bad data, %0d errors",
+                   drv + 1, c, s, side_secs, spt(c), side_bad_hdr, side_bad_data, side_errs);
+      end
     end
   endtask
 
   // ------------------------------------------------------------ the run
-  integer i, c, s, k, n, fd, r, quick, ok, e, list_n;
+  integer i, c, s, k, n, fd, r, quick, ok, e, list_n, w;
   integer cyls [0:79];
   reg [7:0] romimg [0:262143];
   reg [8*200-1:0] rompath;
@@ -1102,36 +1243,48 @@ module tb_se30_gcrread;
     while (!sd_ready) @(posedge clk);
     progress("SDRAM ready");
 
-    // ---- 1. the start-up's VIA1 set-up, then Open
-    $display("---- 1. Open: the SWIM probe and the drive reads");
+    // ---- 1. the start-up's VIA1 set-up, then Open: the probe, both drives
+    $display("---- 1. Open: the SWIM probe and both drives' reads");
     wrb(ORA, 8'h01); wrb(DDRA, 8'h3F);                   // $4080009A: ORA $01, DDRA $3F (PA5 an output)
     swim_probe;
     check(found_swim, "Open's probe finds a SWIM: the ISM switch and three phase echoes ($134 set)", found_swim, 1);
     check(swim_double == 0, "every SWIM bus cycle is one chip access (the strobe's one C16M)", swim_double, 0);
-    cpu(T_R); drv_enable;
-    drv_read(4'hD); check(sns == 0, "Open: drive 1 is there ($D)", sns, 0);
-    drv_read(4'h9); check(sns == 1, "Open: double-sided ($9)", sns, 1);
-    drv_read(4'hF); flag13 = sns;
-    drv_read(4'h5); check(sns == 1, "Open: a SuperDrive ($5)", sns, 1);
+    for (w = 0; w < 2; w = w + 1) begin
+      drv = w; cpu(T_R); drv_enable;
+      drv_read(4'hD); $sformat(line, "Open: drive %0d is there ($D)", w + 1); check(sns == 0, line, sns, 0);
+      drv_read(4'h9); $sformat(line, "Open: drive %0d double-sided ($9)", w + 1); check(sns == 1, line, sns, 1);
+      drv_read(4'hF); flag13_d[w] = sns;
+      drv_read(4'h5); $sformat(line, "Open: drive %0d a SuperDrive ($5)", w + 1); check(sns == 1, line, sns, 1);
+      drv_read(4'h2); $sformat(line, "drive %0d: no disk yet ($2 reads 1)", w + 1); check(sns == 1, line, sns, 1);
+    end
 
-    // ---- 2. the 800K DiskCopy image, tagged
-    $display("---- 2. a DiskCopy 4.2 800K image with tags loads");
-    build_dc42_800k;
-    mount(fsize);
-    progress("800K loaded");
-    check(disk_in && img_ds && img_tags && img_800k, "the disk is in: double-sided, 800K, tags", {disk_in, img_ds, img_tags, img_800k}, 15);
-    drv_read(4'h2); check(sns == 0, "the VBL task's $2 (/CSTIN) reads the disk in", sns, 0);
+    // ---- 2. both images load at once
+    $display("---- 2. both drives' images load at once: an 800K DiskCopy 4.2 with tags in each");
+    build_dc42_800k(0); build_dc42_800k(1);
+    mount_start(0, fsize); mount_start(1, fsize2);
+    while (loading || loading2) @(posedge clk);
+    progress("both 800K images loaded");
+    check(disk_in && img_ds && img_tags && img_800k, "drive 1's disk is in: double-sided, 800K, tags", {disk_in, img_ds, img_tags, img_800k}, 15);
+    check(disk2_in && img2_ds && img2_tags && img2_800k, "drive 2's disk is in: double-sided, 800K, tags", {disk2_in, img2_ds, img2_tags, img2_800k}, 15);
+    check(ov_loads > 0 && sw_ld > 0, "the two loads ran at once, the port passing between the loaders", sw_ld, 1);
+    for (w = 0; w < 2; w = w + 1) begin
+      drv = w; cpu(T_R); drv_enable;
+      drv_read(4'h2); $sformat(line, "drive %0d: the VBL task's $2 (/CSTIN) reads the disk in", w + 1); check(sns == 0, line, sns, 0);
+    end
 
-    // ---- 3. the recalibrate, with the ISM entry and the power-up
-    $display("---- 3. the recalibrate: the ISM entry, the mode loop, the power-up");
-    recal;
-    progress("recalibrated");
-    check(ism_ok == 1, "the ISM entry's GCR path: the mode $17 loop exits", ism_ok, 1);
-    check(pu_ok == 1, "the power-up: /READY within the ROM's polls", pu_polls, 1000);
-    check(recal_err == 0 && cyl == 0, "the recalibrate ends on /TK0 at cylinder 0", recal_err, 0);
+    // ---- 3. the recalibrate of each drive, with the ISM entry and the power-up
+    $display("---- 3. each drive's recalibrate: the ISM entry, the mode loop, the power-up");
+    for (w = 0; w < 2; w = w + 1) begin
+      drv = w;
+      recal;
+      $sformat(line, "drive %0d recalibrated", w + 1); progress(line);
+      $sformat(line, "drive %0d: the ISM entry's GCR path: the mode $17 loop exits", w + 1); check(ism_ok == 1, line, ism_ok, 1);
+      $sformat(line, "drive %0d: the power-up: /READY within the ROM's polls", w + 1); check(pu_ok == 1, line, pu_polls, 1000);
+      $sformat(line, "drive %0d: the recalibrate ends on /TK0 at cylinder 0", w + 1); check(recal_err == 0 && cyl_drv == 0, line, recal_err, 0);
+    end
 
-    // ---- 4. every cylinder, both sides
-    $display("---- 4. the ROM reads every sector (%0s)", $test$plusargs("groups") ? "+groups: a cylinder of each group" :
+    // ---- 4. every cylinder of both drives, interleaved
+    $display("---- 4. the ROM reads every sector of both drives, a cylinder of each in turn (%0s)", $test$plusargs("groups") ? "+groups: a cylinder of each group" :
              quick ? "+quick: both edges of each group" : "all 80 cylinders");
     if ($test$plusargs("groups")) begin
       cyls[0] = 0; cyls[1] = 16; cyls[2] = 32; cyls[3] = 48; cyls[4] = 64; list_n = 5;
@@ -1141,34 +1294,26 @@ module tb_se30_gcrread;
     end else begin
       for (i = 0; i < 80; i = i + 1) cyls[i] = i; list_n = 80;
     end
-    ok = 1;
+    ok = 1; secs_d[0] = 0; secs_d[1] = 0;
     for (i = 0; i < list_n; i = i + 1) begin
       c = cyls[i];
-      seek(c);
-      if (seek_err != 0 || !seek_ok || cyl != c) begin
-        ok = 0; $display("     cylinder %0d: seek error %0h, /READY %0d after %0d polls, head at %0d", c, seek_err, seek_ok, seek_polls, cyl);
-      end
-      for (s = 0; s < 2; s = s + 1) begin
-        read_side(c, s, 1, 8'h22);
-        tot_secs = tot_secs + side_secs; tot_bad_hdr = tot_bad_hdr + side_bad_hdr;
-        tot_bad_data = tot_bad_data + side_bad_data; tot_errs = tot_errs + side_errs;
-        grp_secs[c / 16] = grp_secs[c / 16] + side_secs - side_bad_data;
-        revs_x100 = side_time * 100 / (revcells(c) * 32 * 64);
-        if (revs_x100 > max_revs_x100) max_revs_x100 = revs_x100;
-        if (side_secs != spt(c) || side_bad_hdr != 0 || side_bad_data != 0 || side_errs != 0)
-          $display("     cylinder %0d side %0d: %0d of %0d sectors, %0d bad headers, %0d bad data, %0d errors",
-                   c, s, side_secs, spt(c), side_bad_hdr, side_bad_data, side_errs);
+      for (w = 0; w < 2; w = w + 1) begin
+        select(w);
+        read_cyl(c, 1, 8'h22);
+        if (!cyl_ok) ok = 0;
       end
       $sformat(line, "cylinder %0d: %0d sectors so far, %0d bad, %0d errors, %0d bytes taken unread, %0d twice", c, tot_secs, tot_bad_data, tot_errs, unseen, twice);
       progress(line);
       if ($test$plusargs("stop0")) begin progress("stop0"); $finish; end
     end
-    check(ok, "every seek: /STEP handshakes, /READY within the ROM's polls, the head where asked", ok, 1);
+    check(ok, "every seek, both drives: /STEP handshakes, /READY within the ROM's polls, the head where asked", ok, 1);
     n = 0; for (i = 0; i < list_n; i = i + 1) n = n + 2 * spt(cyls[i]);
-    check(tot_secs == n && tot_bad_data == 0, "every sector read back byte for byte (tags at $2FC, data in RAM)", tot_secs - tot_bad_data, n);
+    check(secs_d[0] == n, "drive 1: every sector read back byte for byte (tags at $2FC, data in RAM)", secs_d[0], n);
+    check(secs_d[1] == n, "drive 2: every sector read back byte for byte - its own image, not drive 1's", secs_d[1], n);
+    check(tot_secs == 2 * n && tot_bad_data == 0, "both drives: no sector read wrong", tot_secs - tot_bad_data, 2 * n);
     for (e = 0; e < 5; e = e + 1) begin
-      n = 0; for (i = 0; i < list_n; i = i + 1) if (cyls[i] / 16 == e) n = n + 2 * spt(cyls[i]);
-      $sformat(line, "speed group %0d (%0d sectors a side): every sector", e + 1, 12 - e);
+      n = 0; for (i = 0; i < list_n; i = i + 1) if (cyls[i] / 16 == e) n = n + 4 * spt(cyls[i]);
+      $sformat(line, "speed group %0d (%0d sectors a side): every sector of both drives", e + 1, 12 - e);
       check(grp_secs[e] == n, line, grp_secs[e], n);
     end
     check(tot_bad_hdr == 0, "every address field: cylinder, side and format $22 as laid", tot_bad_hdr, 0);
@@ -1177,37 +1322,56 @@ module tb_se30_gcrread;
     check(max_revs_x100 <= 200, "each side read inside two revolutions (x100)", max_revs_x100, 200);
     check(step_polls_max <= 81, "/STEP read 1 within the seek's 81 polls", step_polls_max, 81);
 
+    // ---- 4b. a load while the other drive reads
+    $display("---- 4b. drive 2 loads a raw 400K image while the ROM reads drive 1");
+    build_raw_400k(1);
+    mount_start(1, fsize2);
+    tot_secs = 0; tot_bad_data = 0; tot_errs = 0; tot_bad_hdr = 0; n = 0; ok = 1; secs_d[0] = 0; sw_ld_en = 0;
+    for (i = 0; i < 3 && (loading2 || i == 0); i = i + 1) begin
+      c = (i == 0) ? 8 : (i == 1) ? 24 : 40;
+      select(0); read_cyl(c, 1, 8'h22); if (!cyl_ok) ok = 0;
+      n = n + 2 * spt(c);
+    end
+    while (loading2) @(posedge clk);
+    check(ok && secs_d[0] == n && tot_bad_data == 0 && tot_errs == 0 && tot_bad_hdr == 0,
+          "drive 1 reads byte for byte while drive 2's image loads", secs_d[0], n);
+    check(sw_ld_en > 0, "the port passed between drive 1's encoder and drive 2's loader", sw_ld_en, 1);
+    check(disk2_in && !img2_ds && !img2_800k, "drive 2's 400K disk is in, single-sided", {disk2_in, img2_ds, img2_800k}, 4);
+
     if ($test$plusargs("no56")) $display("---- 5, 6. (+no56: skipped)");
     else begin : parts56
-    // ---- 5. a raw 400K image: single-sided
-    $display("---- 5. a raw 400K image: side 0 reads, side 1 has no flux");
-    build_raw_400k;
-    mount(fsize);
-    check(disk_in && !img_ds && !img_800k, "the 400K disk is in, single-sided", {disk_in, img_ds, img_800k}, 4);
-    tot_secs = 0; tot_bad_data = 0; tot_errs = 0; tot_bad_hdr = 0; n = 0; ok = 0;
-    for (i = 0; i < 6; i = i + 1) begin
-      c = (i == 5) ? 79 : 16 * i;
-      seek(c);
-      read_side(c, 0, 0, 8'h02);
-      n = n + spt(c); tot_secs = tot_secs + side_secs; tot_bad_data = tot_bad_data + side_bad_data;
-      tot_errs = tot_errs + side_errs; tot_bad_hdr = tot_bad_hdr + side_bad_hdr;
-      rd_addr(1); if (err == 8'hBE) ok = ok + 1;
+    // ---- 5. raw 400K images: single-sided, on each drive
+    $display("---- 5. raw 400K images: side 0 reads, side 1 has no flux - drive 2's, then drive 1's");
+    build_raw_400k(0);
+    mount(0, fsize);
+    check(disk_in && !img_ds && !img_800k, "drive 1's 400K disk is in, single-sided", {disk_in, img_ds, img_800k}, 4);
+    for (w = 1; w >= 0; w = w - 1) begin
+      tot_secs = 0; tot_bad_data = 0; tot_errs = 0; tot_bad_hdr = 0; n = 0; ok = 0;
+      for (i = 0; i < 6; i = i + 1) begin
+        c = (i == 5) ? 79 : 16 * i;
+        select(w); seek(c);
+        read_side(c, 0, 0, 8'h02);
+        n = n + spt(c); tot_secs = tot_secs + side_secs; tot_bad_data = tot_bad_data + side_bad_data;
+        tot_errs = tot_errs + side_errs; tot_bad_hdr = tot_bad_hdr + side_bad_hdr;
+        rd_addr(1); if (err == 8'hBE) ok = ok + 1;
+      end
+      $sformat(line, "drive %0d's 400K: side 0 of a cylinder in every group, format $02, byte for byte", w + 1);
+      check(tot_secs == n && tot_bad_data == 0 && tot_bad_hdr == 0 && tot_errs == 0, line, tot_secs - tot_bad_data, n);
+      $sformat(line, "drive %0d's 400K: side 1 has no flux - RdAddr returns noNybErr ($BE)", w + 1);
+      check(ok == 6, line, ok, 6);
     end
-    check(tot_secs == n && tot_bad_data == 0 && tot_bad_hdr == 0 && tot_errs == 0,
-          "400K: side 0 of a cylinder in every group, format $02, byte for byte", tot_secs - tot_bad_data, n);
-    check(ok == 6, "400K: side 1 has no flux - RdAddr returns noNybErr ($BE)", ok, 6);
 
-    // ---- 6. Daniel's Disk605.dsk (a smoke test)
+    // ---- 6. Daniel's Disk605.dsk (a smoke test), in drive 1
     fd = $fopen("C:/temp/Mac/SE30/Disk605.dsk", "rb");
     if (fd != 0) begin
-      $display("---- 6. Disk605.dsk: cylinders 0, 1, 40 and 79 against the file");
+      $display("---- 6. Disk605.dsk in drive 1: cylinders 0, 1, 40 and 79 against the file");
       fsize = $fread(file, fd, 0, MAXF); $fclose(fd);
-      img_kind = 2; img_off = 0; img_tagoff = -1;
-      mount(fsize);
+      img_kind[0] = 2; img_off[0] = 0; img_tagoff[0] = -1;
+      mount(0, fsize);
       tot_secs = 0; tot_bad_data = 0; tot_errs = 0; tot_bad_hdr = 0; n = 0;
       for (i = 0; i < 4; i = i + 1) begin
         c = (i == 0) ? 0 : (i == 1) ? 1 : (i == 2) ? 40 : 79;
-        seek(c);
+        select(0); seek(c);
         for (s = 0; s < (img_ds ? 2 : 1); s = s + 1) begin
           read_side(c, s, img_ds, img_ds ? 8'h22 : 8'h02);
           n = n + spt(c); tot_secs = tot_secs + side_secs; tot_bad_data = tot_bad_data + side_bad_data;
@@ -1230,6 +1394,9 @@ module tb_se30_gcrread;
     $display("     %0d valid reads re-armed a pending clear (the drive addressing's latch accesses: the chip's documented behaviour)", reread);
     check(unseen == 0, "every byte the ROM took was a valid read at the chip (its clear follows)", unseen, 0);
     check(swim_double == 0, "every SWIM bus cycle one chip access, the whole run", swim_double, 0);
+    check(both_en == 0, "the two drives never enabled at once", both_en, 0);
+    check(idle_rd == 0, "a drive not enabled never pulls RD low", idle_rd, 0);
+    $display("     the port's words: drive 1's loader %0d, encoder %0d; drive 2's loader %0d, encoder %0d", dk_by[0], dk_by[1], dk_by[2], dk_by[3]);
     check(hung == 0 && bus_timeouts == 0, "no poll or bus cycle hung", hung + bus_timeouts, 0);
     $display("     %0d SWIM cycles, %0d disk-port words, %0t ns simulated", swim_cycles, dk_words, $time);
 

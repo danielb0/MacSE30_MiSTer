@@ -35,13 +35,15 @@
 //
 // THE SWIM (plan 5.3, 5.8, 5.12) - the register sets, the IWM's read path
 //   and the internal FDHD.  The drives' SEL is VIA1 PA5 (HDSEL), not the
-//   SWIM's HEDSEL; SENSE is the internal drive's line, and the absent
-//   external drive's reads 1.  The RESET instruction resets the SWIM as
-//   it does the VIAs; the drive is not on RESET* and sees only power-up.
-//   The disk itself is outside: the drive's disk interface (disk_in,
-//   eject, the cylinder and the track buffers' read port) goes to the
-//   loader and the encoder in MacSE30.sv, beside hps_io and the SDRAM
-//   (plan 5.12.12 item 7).
+//   SWIM's HEDSEL.  Two FDHDs (plan 5.14): the internal one on /ENBL1 and
+//   the external one (the DB-19, J6) on /ENBL2, on the same PH, SEL and WR
+//   lines; each drives RD only while enabled and reads 1 otherwise, so the
+//   SWIM's RD (SENSE) is the AND of the two.  The RESET instruction resets
+//   the SWIM as it does the VIAs; the drives are not on RESET* and see only
+//   power-up.  The disks themselves are outside: each drive's disk
+//   interface (disk_in, eject, the cylinder and the track buffers' read
+//   port) goes to its loader and encoder in MacSE30.sv, beside hps_io and
+//   the SDRAM (plan 5.12.12 item 7, 5.14).
 //
 // THE ADB (plan 6.2-6.4, 6.6) - the transceiver is a PIC1654S running
 //   Apple's program (boot2.rom, adb_pm_*), clocked by GLUE's C3M and reset
@@ -123,6 +125,16 @@ module se30_machine #(
   output        trk_side,
   input         trk_bit,               // its bit, a clock after trk_addr
 
+  // the external drive's disk: the same interface (plan 5.14)
+  input         disk2_in,
+  output        disk2_eject,
+  output  [6:0] disk2_cyl,
+  input   [6:0] trk2_cyl,
+  input         trk2_valid,
+  output [16:0] trk2_addr,
+  output        trk2_side,
+  input         trk2_bit,
+
   // for the probe deck and the benches
   output [31:0] dbg_addr,
   output  [2:0] dbg_fc,
@@ -136,6 +148,7 @@ module se30_machine #(
   output [63:0] dbg_regs,              // {D6, D7}: the test manager's failure code and flags (plan 3.8 item 23)
   output [56:0] dbg_exc,               // {an exception taken, its vector, the opcode, its PC}: PEXC and PTRP (plan 5.12.12 item 8)
   output [63:0] dbg_swim,              // {the SWIM's 48, the drive's 16} (plan 5.8)
+  output [15:0] dbg_fdhd2,             // the external drive's 16, as dbg_swim's low word (plan 5.14)
   output        dbg_swim_vread,        // the SWIM's valid data reads (PFLP counts them)
   output [63:0] dbg_adb,               // PADB: the transceiver's PIC, the line, the devices (plan 6.6)
   output [31:0] dbg_rtc                // PRTC: the clock chip (plan 6.6)
@@ -333,11 +346,11 @@ module se30_machine #(
 
   // ------------------------------------------------------------ SWIM
   wire  [3:0] swim_ph, swim_ph_oe;
-  wire        enbl1_n, enbl2_n, fdhd_sense;
+  wire        enbl1_n, enbl2_n, fdhd_sense, fdhd2_sense;
   wire [47:0] swim_dbg;
   wire [15:0] fdhd_dbg;
   wire  [3:0] swim_ph_pin = (swim_ph_oe & swim_ph) | ~swim_ph_oe;   // a line the ISM makes an input reads its pull-up
-  wire        swim_sense  = fdhd_sense & 1'b1;                      // the external drive is absent: its line reads 1
+  wire        swim_sense  = fdhd_sense & fdhd2_sense;               // RD: each drive's, 1 while not enabled (5.14)
   assign dbg_swim = {swim_dbg, fdhd_dbg};
 
   se30_swim swim (
@@ -354,6 +367,13 @@ module se30_machine #(
     .sense(fdhd_sense), .disk_in(disk_in), .eject(disk_eject),
     .cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .dbg(fdhd_dbg));
+
+  se30_fdhd fdhd_ext (
+    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
+    .sense(fdhd2_sense), .disk_in(disk2_in), .eject(disk2_eject),
+    .cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+    .dbg(dbg_fdhd2));
 
   // ------------------------------------------------------------ video
   // slot $E: GLUE's slot select at $FExxxxxx (plan 2.10 item 2: A23-A17

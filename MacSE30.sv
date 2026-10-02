@@ -67,7 +67,8 @@ assign VIDEO_ARY = (!ar) ? 12'd171 : 12'd0;
 localparam CONF_STR = {
 	"MACSE30;;",
 	"-;",
-	"S0,DSKIMG,Mount Floppy;",
+	"S0,DSKIMG,Mount Internal Floppy;",
+	"S1,DSKIMG,Mount External Floppy;",
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"-;",
@@ -87,22 +88,29 @@ wire  [26:0] ioctl_addr;
 wire  [15:0] ioctl_dout;
 wire         ioctl_wait;
 
-// the internal drive's image: one S slot, 512-byte blocks read only (plan
-// 5.12.5; writing is rung 3's)
-wire         img_mounted, img_readonly;
+// the drives' images: S0 the internal drive's, S1 the external drive's
+// (plan 5.14), 512-byte blocks read only (plan 5.12.5; writing is rung
+// 3's).  The data bus is shared; each loader takes sd_buff_wr only under
+// its own sd_ack.
+wire   [1:0] img_mounted;
+wire         img_readonly;
 wire  [63:0] img_size;
-wire  [31:0] sd_lba[1];
-wire   [5:0] sd_blk_cnt[1];
-wire  [15:0] sd_buff_din[1];
-wire         sd_rd, sd_ack, sd_buff_wr;
+wire  [31:0] sd_lba[2];
+wire   [5:0] sd_blk_cnt[2];
+wire  [15:0] sd_buff_din[2];
+wire   [1:0] sd_rd, sd_ack;
+wire         sd_buff_wr;
 wire  [12:0] sd_buff_addr;
 wire  [15:0] sd_buff_dout;
-wire  [31:0] flp_sd_lba;
+wire  [31:0] flp_sd_lba, flp2_sd_lba;
 assign sd_lba[0]      = flp_sd_lba;
+assign sd_lba[1]      = flp2_sd_lba;
 assign sd_blk_cnt[0]  = 6'd0;
+assign sd_blk_cnt[1]  = 6'd0;
 assign sd_buff_din[0] = 16'd0;
+assign sd_buff_din[1] = 16'd0;
 
-hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(1)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -254,12 +262,21 @@ wire        dk_req, dk_we, dk_ack;
 wire [23:0] dk_addr;
 wire [15:0] dk_wdata, dk_rdata;
 wire [15:0] ld_dbg, en_dbg;
+// the external drive's (plan 5.14): its image at word $900000
+wire        disk2_in, img2_ds, img2_800k, img2_tags, flp2_readonly, flp2_loading, disk2_eject;
+wire  [6:0] disk2_cyl, trk2_cyl;
+wire        trk2_valid, trk2_side, trk2_bit;
+wire [16:0] trk2_addr;
+wire        ld2_req, ld2_ack, en2_req, en2_ack;
+wire [23:0] ld2_addr, en2_addr;
+wire [15:0] ld2_wdata, en2_rdata;
+wire [15:0] ld2_dbg, en2_dbg, dbg_fdhd2;
 
 se30_flp_loader flp_loader
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
-	.img_mounted(img_mounted), .img_size(img_size), .img_readonly(img_readonly),
-	.sd_lba(flp_sd_lba), .sd_rd(sd_rd), .sd_ack(sd_ack),
+	.img_mounted(img_mounted[0]), .img_size(img_size), .img_readonly(img_readonly),
+	.sd_lba(flp_sd_lba), .sd_rd(sd_rd[0]), .sd_ack(sd_ack[0]),
 	.sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr),
 	.mem_req(ld_req), .mem_addr(ld_addr), .mem_wdata(ld_wdata), .mem_ack(ld_ack),
 	.eject(disk_eject),
@@ -277,11 +294,35 @@ se30_flp_encoder flp_encoder
 	.dbg(en_dbg)
 );
 
+se30_flp_loader #(.BASE(24'h900000)) flp2_loader
+(
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.img_mounted(img_mounted[1]), .img_size(img_size), .img_readonly(img_readonly),
+	.sd_lba(flp2_sd_lba), .sd_rd(sd_rd[1]), .sd_ack(sd_ack[1]),
+	.sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr),
+	.mem_req(ld2_req), .mem_addr(ld2_addr), .mem_wdata(ld2_wdata), .mem_ack(ld2_ack),
+	.eject(disk2_eject),
+	.disk_in(disk2_in), .img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags),
+	.readonly(flp2_readonly), .loading(flp2_loading), .dbg(ld2_dbg)
+);
+
+se30_flp_encoder #(.BASE(24'h900000)) flp2_encoder
+(
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k),
+	.cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid),
+	.trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+	.mem_req(en2_req), .mem_addr(en2_addr), .mem_rdata(en2_rdata), .mem_ack(en2_ack),
+	.dbg(en2_dbg)
+);
+
 se30_flp_dkmux flp_dkmux
 (
-	.clk(clk_sys), .reset_n(flp_reset_n), .loading(flp_loading),
-	.ld_req(ld_req), .ld_addr(ld_addr), .ld_wdata(ld_wdata), .ld_ack(ld_ack),
-	.en_req(en_req), .en_addr(en_addr), .en_rdata(en_rdata), .en_ack(en_ack),
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.ld0_req(ld_req), .ld0_addr(ld_addr), .ld0_wdata(ld_wdata), .ld0_ack(ld_ack),
+	.en0_req(en_req), .en0_addr(en_addr), .en0_rdata(en_rdata), .en0_ack(en_ack),
+	.ld1_req(ld2_req), .ld1_addr(ld2_addr), .ld1_wdata(ld2_wdata), .ld1_ack(ld2_ack),
+	.en1_req(en2_req), .en1_addr(en2_addr), .en1_rdata(en2_rdata), .en1_ack(en2_ack),
 	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack)
 );
 
@@ -359,11 +400,13 @@ se30_machine machine
 	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
 	.disk_in(disk_in), .disk_eject(disk_eject), .disk_cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
 	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
-	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_swim(dbg_swim), .dbg_swim_vread(dbg_swim_vread),
+	.disk2_in(disk2_in), .disk2_eject(disk2_eject), .disk2_cyl(disk2_cyl), .trk2_cyl(trk2_cyl), .trk2_valid(trk2_valid),
+	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
+	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
 	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc)
 );
 
-assign LED_DISK = {1'b0, dbg_swim[15]};               // the internal drive's motor (se30_fdhd's dbg[15])
+assign LED_DISK = {1'b0, dbg_swim[15] | dbg_fdhd2[15]};   // either drive's motor (se30_fdhd's dbg[15])
 
 ///////////////////////   VIDEO   ////////////////////////////////
 // The pixel clock is C16M: one pixel every other clk_sys.  The syncs are
@@ -391,11 +434,13 @@ always @(posedge clk_sys) if (mem_req && mem_ack && !mem_we) mem_last_rdata <= m
 // PFLP (plan 5.12.8): the loader's and the encoder's states, the words the
 // disk port has moved, and the bytes the ROM has taken from the SWIM's
 // data register (its valid reads)
-reg  [15:0] flp_words = 0, flp_bytes = 0;
-reg         dk_ack_q = 0;
+reg  [15:0] flp_words = 0, flp_bytes = 0, flp2_words = 0;
+reg         dk_ack_q = 0, dk2_ack_q = 0;
 always @(posedge clk_sys) begin
 	dk_ack_q <= dk_ack;
+	dk2_ack_q <= ld2_ack | en2_ack;
 	if (dk_ack && !dk_ack_q) flp_words <= flp_words + 1'd1;
+	if ((ld2_ack | en2_ack) && !dk2_ack_q) flp2_words <= flp2_words + 1'd1;   // PFL2: the external drive's (5.14)
 	if (dbg_swim_vread) flp_bytes <= flp_bytes + 1'd1;
 end
 
@@ -460,6 +505,7 @@ dbg_probes probes
 	.rom_loaded(rom_loaded), .via_state(dbg_via), .cpu_regs(dbg_regs), .swim_state(dbg_swim),
 	.adb_state(dbg_adb), .rtc_state(dbg_rtc),
 	.flp_state({ld_dbg, en_dbg, flp_words, flp_bytes}),
+	.flp2_state({ld2_dbg, en2_dbg, dbg_fdhd2, flp2_words}),
 	.exc_state(dbg_exc)
 );
 `else

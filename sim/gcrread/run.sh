@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Run tb_se30_gcrread under Icarus Verilog: the GCR read gate (plan 5.12.9
-# item 6, 5.12.12 item 6).  See the header of tb_se30_gcrread.v for what it
-# proves.  IVERILOG: the iverilog bin directory.
+# item 6, 5.12.12 item 6), with both drives (5.14).  See the header of
+# tb_se30_gcrread.v for what it proves.  IVERILOG: the iverilog bin
+# directory.
 #
 #   ./run.sh          the gate: two runs, one after the other (never in
 #                     parallel - each slows the other several times over)
-#                     1. every cylinder, the 400K and Disk605.dsk parts, on
-#                        the behavioural clk_sys memory (-DBEHAV_MEM) - about
-#                        three hours; run.log
+#                     1. every cylinder of both drives, the 400K and
+#                        Disk605.dsk parts, on the behavioural clk_sys memory
+#                        (-DBEHAV_MEM) - about six hours; run.log
 #                     2. the real controller on sim/sdram's chip model: Open,
-#                        the load, the recalibrate and a cylinder of each
-#                        speed group (+groups +no56) - about two hours;
-#                        run_sdram.log
+#                        both loads, the recalibrates and a cylinder of each
+#                        speed group on both drives (+groups +no56) - about
+#                        four hours; run_sdram.log
 #   ./run.sh quick    run 1 with +quick (both edges of each group) only
 #
 # Progress, and every check as it is made, go to prog.txt (flushed; Icarus

@@ -3,6 +3,13 @@
 Written 2026-09-21, in `MacPlus_MiSTer` on a parking branch. Transferred to
 this repo the same day and revised here; work proceeds on `dev`.
 
+**Working rule (Daniel, 2026-10-02): every test gets an estimate first.**
+Before any test or bench run, state its expected wall time, the basis for
+it and the confidence. **Anything estimated over 30 minutes - a parallel
+batch included, if it ends later than that - waits for Daniel's go-ahead**,
+with the shorter options offered, and is not started meanwhile. A run that
+noticeably overruns its estimate is reported and re-estimated.
+
 **Revision 2026-09-21b.** Section 1 has been revised after reading the
 upstream audit documents named in 1.2 and surveying the emulator and CPU-core
 field. 1.5, 1.6 and 1.8 gained addenda; **1.7 was rewritten**; 1.9 was
@@ -3141,7 +3148,9 @@ per 7.8 us (8192 rows in 64 ms). MacLC's controller uses 12 row bits
 | `$000000-$3FFFFF` | 8 MB | RAM - the stock SE/30's maximum (1.5, `se30-32bit-dirty-rom-8mb`). GLUE's `ram_addr` is a 25-bit longword address over 128 MB (2.13); the controller takes what the installed size needs and the rest is 3.7's open item |
 | `$400000-$41FFFF` | 256 KB | ROM, `boot0.rom`, written by the HPS download at core start. GLUE's `rom_addr` is a 16-bit longword address (the image repeats through `$4xxxxxxx`, 2.2) |
 | `$420000-$7FFFFF` | | free |
-| `$800000-` | 16 MB up | reserved for disk images (the SWIM and SCSI sections) |
+| `$800000-$8FFFFF` | 2 MB | the internal floppy's image (5.12.5) |
+| `$900000-$9FFFFF` | 2 MB | the external floppy's image (5.14) |
+| `$A00000-` | 12 MB up | reserved for the SCSI section's images |
 
 The 8 KB declaration ROM is **not** in SDRAM: the video reads it per slot
 access at its own pace and it fits in seven M10Ks, so it is a BRAM in the
@@ -6618,6 +6627,97 @@ The probes say where it stops.
    instruction's, as stacked); `sim/machine` 17 PASS.
 9. **5.13 - the ISM's MFM read** (720K, 1.44 MB), from the ISM ASIC spec,
    written when GCR is on the board.
+
+## 5.14 The external drive (Daniel, 2026-10-02)
+
+**Daniel: a second floppy drive before the next compile** - testing with
+one is very hard. **Decided with him: a second FDHD (SuperDrive) on the
+external port**, the SWIM's `/ENBL2`.
+
+**The evidence** (the *Guide*, 2e, ch. 9 "FDHD drive interface", pp.
+343-350): the SE FDHD, SE/30, IIcx, IIci and Portable "are equipped with
+an internal FDHD drive and an external disk drive connector to which you
+can connect a second FDHD drive"; **Table 9-6: the SE/30 has 1 internal
+and 1 external floppy drive** (its note: "on all Macintosh models that
+support an external FDHD drive, you can connect an external 800KB drive
+instead" - an equally authentic later option, not built now); "the SWIM
+supports two drives, each with its own enable signal ... on machines with
+only one internal drive, the enable signal for the internal drive is
+/ENBL1 and the enable signal for the external drive is /ENBL2"; **Table
+9-10**, the SE/30's external DB-19: PH0-PH3 (11-14), /WRREQ (15), SEL
+(16), **/ENBL2 (17)**, RD (18), WR (19), pin 10 tied straight to +5 V -
+5.3's J6. The external drive takes the same PH, SEL and WR lines as the
+internal one; each drive answers only while its own enable is low.
+
+**The design.**
+- **The drive**: a second `se30_fdhd`, unchanged, on `enbl2_n` with the
+  same PH pins and VIA1 PA5 for SEL. **RD**: each drive drives its line
+  only while enabled (the model's `sense` is 1 otherwise, 5.5's "a line
+  nothing drives reads 1"), so the SWIM's RD is the AND of the two - which
+  replaces 5.5's constant 1 for the absent drive. The ROM's Open now finds
+  a drive at `/ENBL2` ($D reads 0) and installs it as drive 2.
+- **The image**: a second HPS slot, `S1` ("Mount External Floppy"),
+  `VDNUM` 2; per slot `img_mounted`, `sd_lba`, `sd_rd`, `sd_ack`; the data
+  bus shared (each loader takes `sd_buff_wr` only under its own `sd_ack`,
+  as it does now). A second `se30_flp_loader` and a second
+  `se30_flp_encoder` with their own track buffers - not shared, so a drive
+  switch never rebuilds a track - at **word `$900000`** in SDRAM; the
+  internal drive's stays at `$800000`. 2 MB each (a 1.44 MB DC42 with tags
+  is under 1.5 MB); SCSI's images start at `$A00000` (3.3's map).
+- **The disk port**: `se30_flp_dkmux` takes four requesters - the two
+  loaders (writes), the two encoders (reads). With one drive the owner
+  could follow `loading` (the loader and encoder never wanted the port at
+  once); with two, drive 1's encoder can stream while drive 2's image
+  loads. So the owner is chosen **round robin among the requesters, and
+  changes only while the port is quiet** - the owner's request down and
+  the controller's acknowledge down, the rule the mux keeps now. Every
+  requester holds its request, address and data until acknowledged and
+  raises the next only after the acknowledge falls (5.12.5), so a quiet
+  clock comes between any two words and no requester can hold the port.
+- **What stays one**: the SWIM (it already makes `/ENBL2`) and the SDRAM's
+  disk port. The probe deck keeps `PSWM` and `PFLP` for the internal drive
+  and gains **`PFL2`** for the external one: its loader and encoder as
+  PFLP's, the drive's 16 bits as PSWM's low word, and the disk-port words
+  its loader and encoder have moved (counters and status: a peek resets the
+  machine, so these are what can be read during a read). The disk LED shows
+  either drive's motor.
+
+**The benches** (Daniel's standing rule: thorough, run to completion):
+- `sim/flpmux` (new): the four-requester mux against a controller model -
+  random request patterns, every requester's handshake (no request moved
+  or dropped before its acknowledge, no acknowledge to a requester that
+  does not own the port, each word's data and direction routed to and
+  from its own requester), and fairness (no requester starved).
+- `sim/gcrread`: both images mounted at once - both loaders through the
+  mux together - Open finds both drives; the ROM's routines read drive 2
+  (its own image) and drive 1 interleaved, every byte against its file.
+- `sim/fdhd`, `sim/swim`, `sim/flpload`, `sim/flpenc`, `sim/sdram`: rerun
+  (the units are unchanged; the loader and encoder take `BASE`).
+- `sim/machine`: the machine with two drives, rerun.
+
+**Daniel (2026-10-02): the board instead of the long gcrread runs.** The
+drives are at an intermediate stage - read-only, GCR only (no 1.44 MB):
+their job for now is to mount and read a disk, and the risk is low. The
+board reads both disks in minutes, where the bit-level `sim/gcrread` costs
+about 11 minutes a simulated second - with two drives, hours even at
+`+quick`. The new part, the four-way mux, passed `sim/flpmux` (three
+mutants caught); the unit benches and `sim/machine` passed; and a
+`gcrread` run to cylinder 0 (stopped there, 2026-10-02) showed Open finding
+both drives, both 800K images loading at once with the port passing
+between the loaders, and both drives recalibrating. So: **the commit and
+compile on those**; on the board Daniel mounts two 800K images, reads both
+in the Finder, copies files between them and checks their contents; the
+probe deck shows the external drive (`PFL2`). **The full two-drive
+`gcrread` gate is deferred** to a later night as a regression, after its
+real per-cylinder rate is measured - the one-drive figures in its run.sh
+do not carry over, so it needs Daniel's go-ahead under the estimate rule.
+
+**The work.**
+1. `se30_flp_dkmux.v` to four requesters; `sim/flpmux`.
+2. `se30_machine.v`: the external drive and its disk interface; RD.
+3. `MacSE30.sv`: `S1`, `VDNUM` 2, the second loader and encoder, the mux.
+4. `sim/gcrread` for two drives; the full gate; the other benches.
+5. 3.3's SDRAM map; then the compile (Daniel's go-ahead).
 
 # Section 6 - The ADB and the RTC
 

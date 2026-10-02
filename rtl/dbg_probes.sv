@@ -74,6 +74,10 @@
 //         [5:0]}, the disk port's words moved[15:0] and the bytes the ROM
 //         has taken from the SWIM[15:0] (valid data reads): is the image
 //         in, is the head's track built, is the ROM reading it
+// and, since plan 5.14 (the external drive):
+//   PFL2  64 bits, registered here on clk: the external drive's loader
+//         and encoder as PFLP's, the drive's 16 bits as PSWM's low word,
+//         and the disk-port words its loader and encoder have moved[15:0]
 // and, since plan 5.12.12 item 8 (the first boot's stop at "Welcome to
 // Macintosh"), the CPU's exceptions, one pulse each from the kernel:
 //   PEXC  160 bits: counts of {every exception[15:0], A-line traps[15:0],
@@ -115,6 +119,7 @@ module dbg_probes (
 	input  wire [63:0] adb_state,         // PADB: se30_machine's dbg_adb (plan 6.6)
 	input  wire [31:0] rtc_state,         // PRTC: se30_machine's dbg_rtc (plan 6.6)
 	input  wire [63:0] flp_state,         // PFLP: the floppy's (plan 5.12.12 item 7)
+	input  wire [63:0] flp2_state,        // PFL2: the external drive's (plan 5.14)
 	input  wire [56:0] exc_state          // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
 );
 
@@ -254,6 +259,15 @@ module dbg_probes (
 		.instance_id ("PFLP"), .probe_width (64), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the external drive (the header's PFL2)
+	reg [63:0] pfl2_r = 0;
+	always @(posedge clk) pfl2_r <= flp2_state;
+
+	altsource_probe #(
+		.instance_id ("PFL2"), .probe_width (64), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pfl2 (.probe(pfl2_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	altsource_probe #(
 		.instance_id ("PACT"), .probe_width (32), .source_width (1),

@@ -130,6 +130,8 @@ module tb_se30_machine;
     .adb_pm_we(1'b0), .adb_pm_waddr(9'd0), .adb_pm_wdata(12'd0),
     .disk_in(1'b0), .disk_eject(), .disk_cyl(), .trk_cyl(7'h7F), .trk_valid(1'b0),   // no disk (sim/gcrread reads one)
     .trk_addr(), .trk_side(), .trk_bit(1'b0),
+    .disk2_in(1'b0), .disk2_eject(), .disk2_cyl(), .trk2_cyl(7'h7F), .trk2_valid(1'b0),   // the external drive: no disk
+    .trk2_addr(), .trk2_side(), .trk2_bit(1'b0),
     .dbg_via(), .dbg_regs(), .dbg_exc(), .dbg_swim(), .dbg_swim_vread(), .dbg_adb(), .dbg_rtc());
 
   // -------------------------------------------------- the ROM's vector
