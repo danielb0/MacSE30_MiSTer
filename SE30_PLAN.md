@@ -1816,6 +1816,171 @@ speed, the Finder, applications.
   3. **A blanket wait per hit.** Not authentic, so not recommended.
 - Daniel chose option 1, "yes, accept it": the kernel's instruction timing
   stays as it is, and the cache adds no pacing.
+- Compile 26 (2026-10-02, Daniel's go): the instruction cache alone, for the
+  board before the data cache is added.
+
+### 1.16.2 Step 2: the data cache - the manual's rules and the design
+
+**The rules** (UM 6.1.2, 6.1.2.1, 6.1.2.2, 6.1.3.1, 6.3.1.1-6; re-read
+for this step):
+- **Tag and size.** 16 lines of four long-word entries, a valid bit each.
+  The tag is A31-A8 with **FC2-FC0**, so user data (FC 1) and supervisor
+  data (FC 5) are different entries.
+- **Read hit.** No bus cycle. A cachable read that misses runs its cycle;
+  with BERR negated and a 32-bit termination it fills the entry. The tag
+  is replaced and the other three entries invalidated if the tag differed.
+  The fill does not happen if FD is set: "the indexed entry is not
+  replaced".
+- **Write-through.**
+  - **A write hit** updates the entry's written bytes, whatever the size,
+    **even frozen**. The cache is written before memory, so it keeps the
+    new value even if the external cycle ends in a bus error. A write the
+    MMU finds invalid invalidates its entry and takes the bus error.
+  - **A write miss, WA = 0:** no change.
+  - **A write miss, WA = 1,** depends on the write:
+    - an aligned long-word write replaces the tag and validates only its
+      entry (the other three are invalidated if the tag changed);
+    - a byte, word or misaligned write is not written, the tag is unaltered,
+      and the entry's valid bit is cleared.
+  - "If the data cache is disabled or frozen, the WA bit is ignored".
+    Frozen is therefore no-write-allocate, and disabled means nothing
+    changes.
+- **Uncachable.**
+  - CI from the MMU (CIOUT*) makes the cache ignore the access, writes
+    included.
+  - CIIN* is pulled up on the SE/30 (2.11.1). The video's 8- and 16-bit
+    ports are CI in the ROM's tables, so no narrow-port fill arises there.
+  - CPU space (FC 7) is never cached.
+  - **Table searches** (the walker) never touch the data cache.
+- **Read-modify-write** (TAS, CAS, CAS2):
+  - the read is **forced to miss**; its data updates a matching entry or,
+    unfrozen, creates one;
+  - the write is an ordinary write (a hit updates; a miss follows WA).
+- **CACR.**
+  - CD (bit 11) clears every entry; CED (bit 10) clears the entry CAAR names,
+    whatever ED and FD say.
+  - ED off keeps the entries: they are valid and used again when ED is
+    set again.
+  - Reset clears ED, FD, DBE, WA and the valid bits.
+
+**The design.**
+- **Where it goes.** `se30_cache030.v` gains a second, data, half beside
+  the instruction half: tags {A31-A8, FC2-FC0} and valid bits in
+  registers, 64 longs in RAM with byte writes.
+- **Read hits.** A kernel data read (`busstate` 10, not parked, not the
+  walker, not RMC) that hits is answered like a fetch hit: no cycle, the
+  kernel acknowledged a C16M clock later with the long as a 32-bit port's.
+  A kernel beat is one long's bytes at most (1.14), so each beat is one
+  entry, and a misaligned operand is two beats, two entries.
+- **Read fills.** A cachable read cycle fills at S5, as the instruction
+  half does. The same goes for an RMC read, which never hits.
+- **Writes.**
+  - A kernel write updates the cache **at S1**, as the cycle starts, with
+    the bytes its beat puts on a 32-bit port's lanes: `A1-A0` up to the
+    long's end, as many as SIZ says remain.
+  - "Aligned long" is SIZ = long with A1-A0 = 0.
+  - A write the PMMU faults (the wrapper's `k_force`) invalidates a
+    matching entry.
+- **RMC.** The kernel exports `rmc_out`, its existing `pmmu_rmw` (locked
+  TAS/CAS/CAS2 data cycles, never fetches).
+- **Not built.** Narrow-port fills: the 68030 would run the extra cycles
+  to complete a long. No cachable narrow port exists on the SE/30
+  (2.11.1), so a narrow-port read is simply not cached.
+- **One difference from the chip, recorded.** A hit on the real 68030
+  needs no translation, so a hit on a page whose descriptor has since been
+  made invalid does not fault. Here the kernel's PMMU translates (or
+  faults) before the wrapper sees the request. Only software that
+  invalidates a page without flushing the caches could tell, and the Mac
+  OS flushes.
+
+**The tests.**
+- The unit bench gains the data half's rules against its reference:
+  - read hit and fill;
+  - FC2-0 in the tag;
+  - write hit with every lane pattern, frozen too;
+  - WA 0 and 1 with aligned, misaligned and short writes, Figure 6-4's
+    five examples among them;
+  - the RMC forced miss and its update or create;
+  - CI, CD, CED and ED off.
+- `sim/system`'s cachetest gains data slots. The bench changes RAM behind
+  the cache when the program asks:
+  - a stale read;
+  - TAS reading memory, not the cache;
+  - a byte write merged into a cached long;
+  - the manual's aliasing case through MOVES to user data space, with
+    WA 0 (the stale supervisor copy survives) and WA 1 (it is replaced);
+  - a DBRA loop over a cached operand.
+- Then the regression batch, as for step 1.
+
+**What the ROM does with the data cache** (the 97221136 image, every
+`MOVEC ...,CACR`):
+- **$4083F74A:** `MOVE.W #$2909,D0; MOVEC D0,CACR`, then `MOVEC CACR,D0;
+  BCLR #8,D0; BEQ; MOVEC D0,CACR`. This sets WA, CD, ED, CI and EI, then
+  takes ED away again if it stuck: the 68020/68030 test (a 68020 has no
+  ED). It **leaves the data cache off, with WA set and the instruction
+  cache on**.
+- **$4083F7E4: the HWPriv cache selectors.** 0 SwapInstructionCache, 1
+  FlushInstructionCache (CI), 2 **SwapDataCache** ($4083F826: ED with
+  `ORI #$0900`, so CD flushes as it enables), 3 FlushDataCache (CD).
+  **The data cache is on only when software asks**, through HWPriv 2.
+- **Elsewhere:**
+  - $40803060 and $40803070: the test manager's commands $32 and $33,
+    which set EI and clear it;
+  - $40803B4E: `ORI #$0808`, flushing both caches;
+  - $408065FA: CI;
+  - $4083F862: $2000 after RESET.
+
+### 1.16.3 Step 2 as built: the data cache (2026-10-02)
+
+**RTL.**
+- `se30_cache030.v` has a data half, to 1.16.2's rules. Tags {A31-A8,
+  FC2-FC0} and the valid bits are in registers; the data is four byte RAMs
+  of 64 entries.
+  - **Reads:** a fill updates a matching valid entry, frozen or not, and
+    otherwise, unfrozen, fills the entry and replaces the tag.
+  - **Writes:** a write hit writes its bytes, even frozen. With WA set and
+    FD clear, a write miss either allocates (an aligned long) or clears the
+    entry's valid bit (any other write). CD, CED and reset clear.
+- The kernel has one new port, `rmc_out` (its `pmmu_rmw`).
+- `tg68k.v`:
+  - **Read hits.** A data read (`busstate` 10) that hits, and is not RMC
+    or CPU space, is answered like a fetch hit (`hit_d` selects `d_q`).
+    A cachable data read cycle fills at S5.
+  - **Writes.** A cachable write updates the cache at S1, with
+    `d_wbe` = the beat's bytes on a 32-bit port: A1-A0 up to the long's
+    end, as many as SIZ says.
+  - **Faults.** A write the PMMU faults clears its matching entry. These
+    are k_force's terms, spelled out because k_force is declared later.
+
+**Tests (all PASS).**
+- `sim/cache030`: 60 checks in 8 s. The data half adds D1-D14 (the five
+  examples of Figure 6-4 among them) and 200,000 random clocks against a
+  reference. Four mutants are caught:
+  - partial write misses not clearing their valid bit;
+  - FD not stopping write-allocation;
+  - the tag keeping only FC2;
+  - write hits writing all four bytes.
+- `sim/system` now makes four runs, 48 s in all:
+  - **cacheon** (CACR $0101) and **cachewa** ($2101) run the kernel_bus
+    program, every size at every offset, through both caches. Every slot
+    and cycle check passes, with data cycles 244 -> 160/163.
+  - **cachetest** adds slots 9-14:
+    - a stale read;
+    - TAS reading memory ($A2222222);
+    - a byte write hit merged ($A222225A, memory $3333335A);
+    - the MOVES alias with WA clear (stale $AAAAAAAA) and with WA set
+      ($CCCCCCCC);
+    - ADD.L over a cached operand: 2 data cycles for 500 turns.
+  - Three wrapper mutants are caught:
+    - the RMC read not forced to miss (slot 10 = $91111111);
+    - write lanes ignored;
+    - data fills off.
+- The regression, all PASS:
+  - `sim/kernel_bus` at ports 16, 32 and 8, and `sim/busfault`: 24 s;
+  - `sim/cpfpu`, all 12 programs: 94 s;
+  - `sim/machine`: 80 s, with a fresh run.log. The ROM leaves ED off, so
+    this bench never has the data cache on.
+- Not yet on the board: compile 26 has the instruction cache only.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 

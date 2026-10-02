@@ -85,7 +85,7 @@ module tg68k (
   // ------------------------------------------------------------- kernel
   wire        k_clkena, k_beat_valid;
   wire [31:0] k_din, k_dout, k_addr, k_addr_log, k_cacr, k_cache_op_addr;
-  wire        k_ci;
+  wire        k_ci, k_rmc;
   wire  [1:0] k_dsack, k_busstate, k_siz;
   wire        k_nwr, k_nreset_out, k_clr_berr, k_cp_berr_ack;
   wire  [2:0] k_fc;
@@ -107,7 +107,7 @@ module tg68k (
     .clk(clk), .nReset(reset_n), .clkena_in(k_clkena), .beat_valid(k_beat_valid),
     .data_in(k_din), .dsack(k_dsack), .IPL(ipl_n), .IPL_autovector(1'b1), .berr(k_berr), .CPU(2'b10),
     .addr_out(k_addr), .addr_log_out(k_addr_log), .data_write(k_dout), .siz(k_siz), .nWr(k_nwr),
-    .CACR_out(k_cacr), .cache_op_addr(k_cache_op_addr), .pmmu_cache_inhibit(k_ci),
+    .CACR_out(k_cacr), .cache_op_addr(k_cache_op_addr), .pmmu_cache_inhibit(k_ci), .rmc_out(k_rmc),
     .busstate(k_busstate), .FC(k_fc), .nResetOut(k_nreset_out), .clr_berr(k_clr_berr), .cp_berr_ack(k_cp_berr_ack),
     .pmmu_walker_req(w_req), .pmmu_walker_we(w_we), .pmmu_walker_addr(w_addr), .pmmu_walker_wdat(w_wdat),
     .pmmu_walker_ack(w_ack), .pmmu_walker_data(w_data), .pmmu_walker_berr(w_berr),
@@ -165,24 +165,48 @@ module tg68k (
   reg         ack_pending, ack_berr;
   reg         berr_hold;
 
-  // ------------------------------------------------- the instruction cache
-  // a kernel fetch (busstate 00) that hits: answered from the cache, no
-  // cycle; a cachable one that misses: its long fills the entry at S5
+  // ------------------------------------------------------------ the caches
+  // (plan 1.16) a kernel fetch (busstate 00) that hits the instruction
+  // cache, or a data read (10) that hits the data cache and is not the read
+  // of a read-modify-write (forced to miss, UM 6.1.2.2): answered from the
+  // cache, no cycle.  A cachable cycle that misses - not CI by the PMMU, not
+  // CPU space, not the walker's - fills its entry at S5 from a 32-bit
+  // termination.  A cachable data write updates the data cache as its
+  // cycle starts (S1), with the bytes its beat puts on a 32-bit port's
+  // lanes; a write the PMMU faults (k_force) clears a matching entry.
   wire        k_fetch  = !wsel && (k_busstate == 2'b00) && !park;
-  wire        i_hit;
-  wire [31:0] i_q;
+  wire        k_dread  = !wsel && (k_busstate == 2'b10) && !park;
+  wire        k_dwrite = !wsel && (k_busstate == 2'b11) && !park;
+  wire        i_hit, d_hit;
+  wire [31:0] i_q, d_q;
   wire        f_hit    = k_fetch && i_hit;
+  wire        r_hit    = k_dread && !k_rmc && d_hit && (k_fc != 3'd7);
+  wire        any_hit  = f_hit || r_hit;
   reg         hit_ack;                 // a hit taken: the kernel is acknowledged at the next phi1
+  reg         hit_d;                   // ... from the data cache
   reg         cyc_fill;                // this cycle's long fills the instruction cache
+  reg         cyc_dfill;               // ... the data cache
   reg  [31:2] cyc_la;
   reg   [2:0] cyc_fc;
-  wire        i_fill   = phi2 && (s == 3'd5) && cyc_fill && !berr && (dsack_n == 2'b00);
+  wire        fill_ok  = phi2 && (s == 3'd5) && !berr && (dsack_n == 2'b00);
+  wire        i_fill   = fill_ok && cyc_fill;
+  wire        d_fill   = fill_ok && cyc_dfill;
+  // the write's bytes: from A1-A0, as many as SIZ says remain, to the long's end
+  wire  [2:0] w_size   = (k_siz == 2'b00) ? 3'd4 : {1'b0, k_siz};
+  wire  [2:0] w_nb     = (w_size > 3'd4 - k_addr[1:0]) ? 3'd4 - k_addr[1:0] : w_size;
+  wire  [3:0] w_mask   = (w_nb == 3'd1) ? 4'b1000 : (w_nb == 3'd2) ? 4'b1100 : (w_nb == 3'd3) ? 4'b1110 : 4'b1111;
+  wire  [3:0] d_wbe    = w_mask >> k_addr[1:0];
+  wire        s1_take  = phi2 && (s == 3'd0) && !any_hit && !ack_pending && !hit_ack && eff_req;
+  wire        d_wr     = s1_take && k_dwrite && !k_ci && (k_fc != 3'd7);
+  wire        d_inv    = phi1 && k_pmmu_fault && !walk && (s == 3'd0) && !ack_pending && !k_nwr && (k_fc != 3'd7);   // k_force's terms (declared below)
   se30_cache030 cache (
     .clk(clk), .reset_n(reset_n),
     .cacr(k_cacr[13:0]), .caar(k_cache_op_addr[7:2]), .cdis(cdis),
     .la(k_addr_log[31:2]), .fc(k_fc), .i_hit(i_hit), .i_q(i_q),
-    .i_fill(i_fill), .fill_la(cyc_la), .fill_fc(cyc_fc), .fill_data(cpu_din));
-
+    .i_fill(i_fill), .fill_la(cyc_la), .fill_fc(cyc_fc), .fill_data(cpu_din),
+    .d_hit(d_hit), .d_q(d_q), .d_fill(d_fill),
+    .d_wr(d_wr), .d_wbe(d_wbe), .d_wdata(k_dout), .d_wlong(k_siz == 2'b00 && k_addr[1:0] == 2'b00),
+    .d_inv(d_inv));
 
   // ECS (UM 5.6.2, 7.1.1): "the earliest indication that the processor is
   // initiating a bus cycle" - the address, FC, SIZ and R/W are on the bus
@@ -196,7 +220,7 @@ module tg68k (
   // back-to-back fetches came back with the first one's data).  The
   // kernel's new request appears at that phi1 and is taken at the following
   // phi2, so this is exactly one clk wide, and nothing during reset.
-  assign ecs      = reset_n && (s == 3'd0) && eff_req && !ack_pending && !hit_ack && !f_hit;
+  assign ecs      = reset_n && (s == 3'd0) && eff_req && !ack_pending && !hit_ack && !any_hit;
   assign cpu_addr = eff_addr;
   assign cpu_as_n = as_n_r;
   assign cpu_ds_n = ds_n_r;
@@ -224,7 +248,7 @@ module tg68k (
       s <= 0; as_n_r <= 1; ds_n_r <= 1; din_r <= 0; dsack_r <= 2'b11;
       ack_pending <= 0; ack_berr <= 0; walk <= 0; walk_done <= 0; walk_buf <= 0;
       w_ack <= 0; w_data <= 0; berr_hold <= 0;
-      hit_ack <= 0; cyc_fill <= 0; cyc_la <= 0; cyc_fc <= 0;
+      hit_ack <= 0; hit_d <= 0; cyc_fill <= 0; cyc_dfill <= 0; cyc_la <= 0; cyc_fc <= 0;
     end else begin
       w_ack <= 0;
       if (phi1) begin
@@ -241,12 +265,13 @@ module tg68k (
       end
       if (phi2) begin
         case (s)
-          3'd0: if (f_hit && !ack_pending && !hit_ack) begin               // a hit: no cycle
-                  hit_ack <= 1; dsack_r <= 2'b00;
+          3'd0: if (any_hit && !ack_pending && !hit_ack) begin             // a hit: no cycle
+                  hit_ack <= 1; hit_d <= !f_hit; dsack_r <= 2'b00;
                 end else if (eff_req && !hit_ack) begin                      // S1
                   if (w_req && !walk) begin walk <= 1; walk_done <= 0; walk_buf <= 0; end
                   as_n_r <= 0; ds_n_r <= !eff_rw ? 1'b1 : 1'b0; s <= 3'd2;
-                  cyc_fill <= k_fetch && !k_ci && (k_fc != 3'd7);
+                  cyc_fill  <= k_fetch && !k_ci && (k_fc != 3'd7);
+                  cyc_dfill <= k_dread && !k_ci && (k_fc != 3'd7);
                   cyc_la <= k_addr_log[31:2]; cyc_fc <= k_fc;
                 end
           3'd3: begin                                                      // S3 and the wait states
@@ -280,7 +305,7 @@ module tg68k (
   wire k_force     = k_pmmu_fault && !walk && (s == 3'd0) && !ack_pending;
   assign k_clkena     = phi1 && (k_cycle_ack || k_internal || k_force);
   assign k_beat_valid = k_cycle_ack || k_internal;
-  assign k_din   = hit_ack ? i_q : din_r;
+  assign k_din   = !hit_ack ? din_r : hit_d ? d_q : i_q;
   assign k_dsack = dsack_r;
   assign w_berr  = ack_berr && walk;
   always @* k_berr = berr_hold && !(k_make_berr || k_trap_berr);

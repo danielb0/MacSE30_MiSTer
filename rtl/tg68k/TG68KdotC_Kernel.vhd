@@ -178,6 +178,7 @@ entity TG68KdotC_Kernel is
 		pmmu_addr_log			: out std_logic_vector(31 downto 0);
 		pmmu_addr_phys			: out std_logic_vector(31 downto 0);
 		pmmu_cache_inhibit		: out std_logic;
+		rmc_out					: out std_logic;  -- a locked TAS/CAS/CAS2 data cycle (pmmu_rmw): the 68030 data cache forces its read to miss (SE30_PLAN.md 1.16.2)
 -- Cache operation address (68030)
 		cache_op_addr			: out std_logic_vector(31 downto 0);
 -- PMMU walker memory interface (68030) - connects to real memory via cpu_wrapper
@@ -1361,6 +1362,7 @@ BEGIN
 
   -- Cache inhibit from PMMU
   pmmu_cache_inhibit <= pmmu_ch_inhibit;
+  rmc_out <= pmmu_rmw;
   
   -- CACR (Cache Control Register) bit definitions for MC68030:
   -- Bit 0 (IE): Instruction Cache Enable (sticky)

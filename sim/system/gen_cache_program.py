@@ -26,6 +26,25 @@ RTS, each at the start of a cache line of its own)
     slot 7  a fifth routine called, overwritten, EI cleared, called: a
             disabled cache does not hit (UM 6.3.1.11) - 2
     slot 8  EI set again, called: the entries survived disabling - 1
+    The data cache (1.16.2), with the data cache on and WA clear unless said:
+    slot 9   X written (a miss: memory only), read (a fill); the bench
+             changes X behind the cache; read again: the stale $11111111
+    slot 10  TAS X: its read is forced to miss (UM 6.1.2.2), so it sees
+             memory's $22 and writes $A2; its read updated the entry and
+             its write hit it - $A2222222 (a TAS served from the cache
+             would give $91111111, a read that did not update $A2111111)
+    slot 11  the bench changes X to $33333333; a byte write of $5A to X+3
+             hits; X read from the cache: $A222225A (memory $3333335A)
+    slot 12  Y read in supervisor mode (a fill, $AAAAAAAA); MOVES writes
+             $BBBBBBBB to Y in user data space (FC 1: another tag, a miss,
+             WA clear: no allocation); the supervisor read hits, stale -
+             the manual's alias (6.1.2.1)
+    slot 13  CD, WA set: the supervisor read fills $BBBBBBBB; MOVES writes
+             $CCCCCCCC as user data, an aligned long that allocates over
+             the line; the supervisor read misses: $CCCCCCCC
+    slot 14  ADD.L (Z),D2 in a DBRA loop of 500 turns (Z = 3): 1,500, the
+             bench counting the data cycles between marker writes to
+             $30A0 and $30A4 (only the first turn's read)
     Then a DBRA loop of 500 turns with the cache on, between marker writes
     to $3088 and $308C, and the same loop with it off, between $3090 and
     $3094: the bench counts the fetch cycles in each.  Then STOP.
@@ -42,6 +61,8 @@ OUT = os.path.join(HERE, "cachetest")
 ORG = 0x1000
 RESULT = 0x3000
 ROUTINES = 0x1800            # 16 lines of 16 bytes, one per index
+DX, DY, DZ = 0x2800, 0x2810, 0x2820   # the data tests' longs: lines 0, 1, 2
+POKE2, POKE3 = 0x3098, 0x309C         # a write here: the bench sets X to $22222222 / $33333333
 
 
 class Code:
@@ -116,6 +137,45 @@ def build():
     c.cacr(1); c.bsr("r5")
     spans["r5"] = [(s, c.pc)]
     c.store(2, 8); want.append(1)
+    # ---- the data cache (1.16.2): X, Y, Z in lines 0, 1, 2
+    def cacr_l(v):
+        c.emit(0x203C, v >> 16, v & 0xFFFF, 0x4E7B, 0x0002)         # MOVE.L #v,D0; MOVEC D0,CACR
+    def rd(a):
+        c.emit(0x2439, a >> 16, a & 0xFFFF)                        # MOVE.L (a).L,D2
+    cacr_l(0x0101)                                                 # ED EI, WA clear
+    # slot 9: a read fills; memory changed behind it; the read hits, stale
+    c.emit(0x23FC, 0x1111, 0x1111, DX >> 16, DX & 0xFFFF)         # MOVE.L #$11111111,(X).L: a miss, no allocation
+    rd(DX)                                                         # a miss: fills
+    c.marker(POKE2)                                                # the bench: memory X = $22222222
+    rd(DX); c.store(2, 9); want.append(0x11111111)
+    # slot 10: TAS reads memory (forced miss), its read updates the entry,
+    # its write hits
+    c.emit(0x4AF9, DX >> 16, DX & 0xFFFF)                          # TAS (X).L: $22 -> $A2
+    rd(DX); c.store(2, 10); want.append(0xA2222222)
+    # slot 11: a byte write hit merges into the entry
+    c.marker(POKE3)                                                # the bench: memory X = $33333333
+    c.emit(0x13FC, 0x005A, DX >> 16, (DX + 3) & 0xFFFF)           # MOVE.B #$5A,(X+3).L
+    rd(DX); c.store(2, 11); want.append(0xA222225A)
+    # slots 12, 13: the manual's alias (6.1.2.1) through user data space
+    c.emit(0x7001, 0x4E7B, 0x0001)                                 # MOVEQ #1,D0; MOVEC D0,DFC
+    c.emit(0x41F9, DY >> 16, DY & 0xFFFF)                          # LEA Y,A0
+    c.emit(0x2410)                                                 # MOVE.L (A0),D2: supervisor fill ($AAAAAAAA)
+    c.emit(0x223C, 0xBBBB, 0xBBBB, 0x0E90, 0x1800)                 # MOVE.L #$BBBBBBBB,D1; MOVES.L D1,(A0)
+    c.emit(0x2410); c.store(2, 12); want.append(0xAAAAAAAA)        # WA clear: the supervisor copy is stale
+    cacr_l(0x2901)                                                 # CD, then ED EI WA
+    c.emit(0x2410)                                                 # supervisor fill ($BBBBBBBB)
+    c.emit(0x223C, 0xCCCC, 0xCCCC, 0x0E90, 0x1800)                 # MOVES.L: the user long allocates over it
+    c.emit(0x2410); c.store(2, 13); want.append(0xCCCCCCCC)        # WA set: the supervisor read misses
+    # slot 14: a loop over a cached operand: its reads stay off the bus
+    cacr_l(0x0101)
+    c.emit(0x41F9, DZ >> 16, DZ & 0xFFFF, 0x7400, 0x323C, 499)    # LEA Z,A0; MOVEQ #0,D2; MOVE.W #499,D1
+    c.marker(0x30A0)
+    if c.pc & 2:
+        c.emit(0x4E71)
+    c.emit(0xD490, 0x51C9, 0xFFFC)                                 # loop: ADD.L (A0),D2; DBRA D1,loop
+    c.marker(0x30A4)
+    c.store(2, 14); want.append(3 * 500)
+
     # the loops: cached, then not
     for on, m0, m1 in ((1, 0x3088, 0x308C), (0, 0x3090, 0x3094)):
         c.cacr(on)
@@ -161,6 +221,8 @@ def main():
     assert ORG + 2 * len(c.words) <= ROUTINES
     for a in addr.values():
         mem[a // 2], mem[a // 2 + 1] = 0x7401, 0x4E75               # MOVEQ #1,D2; RTS
+    mem[DY // 2], mem[DY // 2 + 1] = 0xAAAA, 0xAAAA
+    mem[DZ // 2], mem[DZ // 2 + 1] = 0x0000, 0x0003
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "program.hex"), "w", newline="\n") as f:
         for w in mem:

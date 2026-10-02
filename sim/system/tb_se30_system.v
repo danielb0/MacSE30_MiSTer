@@ -22,13 +22,21 @@
 //
 //   THE INSTRUCTION CACHE (plan 1.16 step 1) - three runs, run.sh's:
 //     plain    the program as above, the cache never enabled;
-//     cacheon  the same program with EI set first (gen_program.py
-//              --cache): every result and cycle as plain, and fetches hit;
+//     cacheon  the same program with both caches on first (gen_program.py
+//              --cache 0x0101): every result and cycle as plain, and hits;
+//              its operands - every size at every offset, written then read
+//              back - go through the data cache's fills and write hits;
+//     cachewa  the same with WA set too (--cache 0x2101): the writes
+//              allocate;
 //     cachetest  gen_cache_program.py's program (its header): stale code
-//              after a data write, CI, CACR's read-back, FI, CEI, EI off -
-//              each a result slot - and a DBRA loop whose fetch cycles the
-//              bench counts with the cache on (none after the first turn)
-//              and off (one a turn).
+//              after a data write, CI, CACR's read-back, FI, CEI, EI off;
+//              the data cache's stale read, TAS's forced miss, a byte
+//              write hit, the alias through MOVES with WA clear and set -
+//              each a result slot; the bench changes RAM behind the cache
+//              when the program writes $3098 or $309C.  A DBRA loop whose
+//              fetch cycles the bench counts with the cache on (none after
+//              the first turn) and off (one a turn), and a loop over a
+//              cached operand whose data cycles it counts (the first only).
 //   A hit runs no cycle, so the back-to-back check (3) does not count the
 //   clocks the wrapper answers a fetch from the cache.
 //
@@ -170,21 +178,28 @@ module tb_se30_system;
     dg2 = dg2 + 1; $display("t=%0t busstate=%b s=%0d as=%b clkena=%b hit=%b ipl_nr=%b", $time, cpu.k_busstate, cpu.s, cpu_as_n, cpu.k_clkena, cpu.kernel.fetch_hit, cpu.kernel.IPL_nr);
   end
 `endif
+  reg cachetest = 0, cacheon = 0;         // the run (plusargs, read at the start)
+
   // ---------------------------------------------------- the loop markers
   // the cache program's writes to $3088/$308C (cache on) and $3090/$3094
   // (off) bracket a DBRA loop: the fetch cycles and clocks between them
-  integer mk_f [0:3], mk_t [0:3]; reg [3:0] mk_seen = 0; integer clocks = 0, mk;
+  // ($30A0/$30A4: the data loop, its data cycles); and its writes to
+  // $3098/$309C ask the bench to change X ($2800) behind the cache
+  integer mk_f [0:5], mk_t [0:5], mk_d [0:5]; reg [5:0] mk_seen = 0; integer clocks = 0, mk;
   always @(posedge clk) if (phi1) begin
     clocks = clocks + 1;
-    mk = (cpu_addr == 32'h3088) ? 0 : (cpu_addr == 32'h308C) ? 1 : (cpu_addr == 32'h3090) ? 2 : (cpu_addr == 32'h3094) ? 3 : -1;
+    mk = (cpu_addr == 32'h3088) ? 0 : (cpu_addr == 32'h308C) ? 1 : (cpu_addr == 32'h3090) ? 2 : (cpu_addr == 32'h3094) ? 3 :
+         (cpu_addr == 32'h30A0) ? 4 : (cpu_addr == 32'h30A4) ? 5 : -1;
     if (!cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && mk >= 0 && !mk_seen[mk]) begin
-      mk_seen[mk] = 1; mk_f[mk] = fetch_cycles; mk_t[mk] = clocks;
+      mk_seen[mk] = 1; mk_f[mk] = fetch_cycles; mk_t[mk] = clocks; mk_d[mk] = data_cycles;
     end
+    if (cachetest && !cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr == 32'h3098) ram[32'h2800 >> 2] = 32'h22222222;
+    if (cachetest && !cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr == 32'h309C) ram[32'h2800 >> 2] = 32'h33333333;
   end
 
   // ------------------------------------------------------------ the run
   integer n, kk; reg [31:0] stop_at, v, want; integer fd, r;
-  reg [8*200-1:0] prog_dir; reg cachetest, cacheon; reg [31:0] slot_want [0:15];
+  reg [8*200-1:0] prog_dir; reg [31:0] slot_want [0:15];
   reg done = 0; integer tail = -1;
   always @(posedge clk) if (phi1 && reset_n && !done) begin
     if (!cpu_as_n && cpu_fc == 3'd6 && cpu_addr[31:2] == stop_at[31:2] && tail < 0) tail = 200;
@@ -199,7 +214,7 @@ module tb_se30_system;
     $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
     fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
-    if (cachetest) $readmemh({prog_dir, "/slots.txt"}, slot_want, 0, 8);
+    if (cachetest) $readmemh({prog_dir, "/slots.txt"}, slot_want, 0, 14);
     repeat (20) @(posedge clk);
     reset_n = 1;
     n = 0;
@@ -208,7 +223,7 @@ module tb_se30_system;
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
     else pass = pass + 1;
     // 1. the result slots
-    if (cachetest) for (kk = 0; kk < 9; kk = kk + 1) begin
+    if (cachetest) for (kk = 0; kk < 15; kk = kk + 1) begin
       v = ram[(32'h3000 + 4*kk) >> 2];
       if (v === slot_want[kk]) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL cache slot %0d: %08x, expected %08x", kk, v, slot_want[kk]); end
@@ -224,7 +239,7 @@ module tb_se30_system;
     // 2. the cycle lengths
     $display("---- %0d bus cycles (%0d fetch, %0d data, %0d CPU space): RAM %0d to %0d C16M clocks, %0d over 4 (refresh stalls); %0d idle clocks with a request waiting",
              cycles, fetch_cycles, data_cycles, cpu_space_cycles, cyc_min, cyc_max, long_cycles, idle_between);
-    $display("---- %0d fetches answered from the instruction cache", hits);
+    $display("---- %0d fetches and reads answered from the caches", hits);
     if (cpu_space_cycles == (cachetest ? 0 : 1)) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0d CPU-space cycles, expected %0d", cpu_space_cycles, cachetest ? 0 : 1); end
     if (cacheon || cachetest) begin                 // the cache was on: it must have hit
       if (hits > 0) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the cache was enabled and nothing hit"); end
@@ -234,7 +249,9 @@ module tb_se30_system;
     if (cachetest) begin                                                // the DBRA loop's fetch cycles
       $display("---- DBRA x500, cache on: %0d fetch cycles, %0d C16M clocks; off: %0d fetch cycles, %0d C16M clocks",
                mk_f[1] - mk_f[0], mk_t[1] - mk_t[0], mk_f[3] - mk_f[2], mk_t[3] - mk_t[2]);
-      if (mk_seen == 4'b1111) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: loop markers seen %b", mk_seen); end
+      $display("---- ADD.L (Z),D2 + DBRA x500, data cache on: %0d data cycles, %0d C16M clocks", mk_d[5] - mk_d[4], mk_t[5] - mk_t[4]);
+      if (mk_seen == 6'b111111) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: loop markers seen %b", mk_seen); end
+      if (mk_d[5] - mk_d[4] <= 3) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the cached operand loop ran %0d data cycles, expected only its first read", mk_d[5] - mk_d[4]); end
       if (mk_f[1] - mk_f[0] <= 6) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the cached loop ran %0d fetch cycles, expected only its first turn's", mk_f[1] - mk_f[0]); end
       if (mk_f[3] - mk_f[2] >= 500) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the uncached loop ran %0d fetch cycles, expected one a turn", mk_f[3] - mk_f[2]); end
     end

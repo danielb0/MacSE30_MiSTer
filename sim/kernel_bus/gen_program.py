@@ -38,10 +38,10 @@ THE PROGRAM
 
 USAGE
     gen_program.py [--port 16|32|8] [--oracle ../../sim/kernel_bus/beats.txt]
-                   [--cache] [--out DIR]
+                   [--cache CACR] [--out DIR]
 
-    --cache sets the 68030's CACR EI first (MOVEQ #1,D0; MOVEC D0,CACR),
-    for sim/system's cache-on run (plan 1.16); the program after it is
+    --cache loads the 68030's CACR first (MOVE.L #CACR,D0; MOVEC D0,CACR),
+    for sim/system's cache-on runs (plan 1.16); the program after it is
     unchanged.  --out writes the files to DIR instead of here.
 """
 import argparse
@@ -93,10 +93,10 @@ class Program:
         self.accesses.append((label, case, addr, dirn, data))
 
 
-def build(bf5=True, cache=False):
+def build(bf5=True, cache=None):
     p = Program()
-    if cache:
-        p.emit(0x7001, 0x4E7B, 0x0002)                             # MOVEQ #1,D0; MOVEC D0,CACR: EI
+    if cache is not None:
+        p.emit(0x203C, cache >> 16, cache & 0xFFFF, 0x4E7B, 0x0002)  # MOVE.L #cache,D0; MOVEC D0,CACR
     p.emit(0x203C, 0x0102, 0x0304)                                 # MOVE.L #$01020304,D0
     slot = RESULT
     for size, case, wr, rd in ((1, "byte", 0x1080, 0x1210), (2, "word", 0x3080, 0x3210), (4, "long", 0x2080, 0x2210)):
@@ -327,7 +327,7 @@ def main():
     ap.add_argument("--no-bf5", action="store_true",
                     help="leave out the five-byte bit fields (the 16-bit kernel does them as one "
                          "operand cycle, 1+2+2 beats at odd offsets; the adopted contract is two, 1.14)")
-    ap.add_argument("--cache", action="store_true", help="enable the instruction cache first (CACR EI)")
+    ap.add_argument("--cache", type=lambda v: int(v, 0), default=None, help="load CACR with this first")
     ap.add_argument("--out", default=HERE, help="the directory to write the files to")
     args = ap.parse_args()
     oracle = load_oracle(args.oracle)
