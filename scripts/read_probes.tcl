@@ -328,6 +328,8 @@ if {$op ne ""} {
 
 set prev_pact -1
 set prev_pifa -1
+set prev_ih -1
+set prev_dh -1
 for {set n 0} {$n < $samples} {incr n} {
 	# ---- which bitstream --------------------------------------------------
 	if {[have PBLD]} {
@@ -505,6 +507,26 @@ for {set n 0} {$n < $samples} {incr n} {
 		puts [format "  PFL2  %016llX   external loader: disk in=%d loading=%d %s%s%s%s state=%d LBA low=%d" $pfl2 			[expr {($ld >> 15) & 1}] [expr {($ld >> 14) & 1}] 			[expr {(($ld >> 13) & 1) ? "double-sided " : "single-sided "}] [expr {(($ld >> 12) & 1) ? "800K-file " : ""}] 			[expr {(($ld >> 11) & 1) ? "tags " : ""}] [expr {(($ld >> 10) & 1) ? "DC42 " : ""}] 			[expr {($ld >> 7) & 7}] [expr {$ld & 0x7F}]]
 		puts [format "        encoder: track valid=%d side=%d state=%d slot=%d cylinder low=%d  port words=%d" 			[expr {($en >> 15) & 1}] [expr {($en >> 14) & 1}] [expr {($en >> 10) & 0xF}] [expr {($en >> 6) & 0xF}] 			[expr {$en & 0x3F}] [expr {$pfl2 & 0xFFFF}]]
 		puts [format "        external drive: motor=%d dir=%d eject latch=%d %s track=%d disk=%d /READY=%d%s%s%s" 			[expr {($d >> 15) & 1}] [expr {($d >> 14) & 1}] [expr {($d >> 13) & 1}] 			[expr {(($d >> 12) & 1) ? "MFM" : "GCR"}] [expr {$d & 0x7F}] 			[expr {($d >> 11) & 1}] [expr {($d >> 10) & 1}] 			[expr {(($d >> 9) & 1) ? " stepping" : ""}] [expr {(($d >> 8) & 1) ? " settling" : ""}] 			[expr {(($d >> 7) & 1) ? " spinning up" : ""}]]
+	}
+	if {[have PCCH]} {
+		# plan 1.16.3: the 68030's caches -- {CDIS*, 0, CACR[13:0]}, then the
+		# instruction and data hits (24 bits each, wrapping)
+		set pcch [rd PCCH]
+		set cacr [expr {($pcch >> 48) & 0x3FFF}]
+		set cdis [expr {($pcch >> 63) & 1}]
+		set ih [expr {($pcch >> 24) & 0xFFFFFF}]
+		set dh [expr {$pcch & 0xFFFFFF}]
+		set ihd ""; set dhd ""
+		if {$prev_ih >= 0} {
+			set ihd [format "  (+%u since the last sample)" [expr {($ih - $prev_ih) & 0xFFFFFF}]]
+			set dhd [format "  (+%u)" [expr {($dh - $prev_dh) & 0xFFFFFF}]]
+		}
+		set prev_ih $ih; set prev_dh $dh
+		puts [format "  PCCH  %016llX   CACR=%04X  instruction cache %s%s  data cache %s%s%s  CDIS*=%s" $pcch $cacr \
+			[expr {($cacr & 1) ? "ON" : "off"}] [expr {($cacr & 2) ? " frozen" : ""}] \
+			[expr {($cacr & 0x100) ? "ON" : "off"}] [expr {($cacr & 0x200) ? " frozen" : ""}] \
+			[expr {($cacr & 0x2000) ? " WA" : ""}] [expr {$cdis ? "asserted (both off)" : "negated"}]]
+		puts [format "        hits: instruction %u%s  data %u%s" $ih $ihd $dh $dhd]
 	}
 	if {[have PEXC]} {
 		# plan 5.12.12 item 8: the CPU's exceptions -- see rtl/dbg_probes.sv

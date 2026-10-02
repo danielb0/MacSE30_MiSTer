@@ -78,8 +78,10 @@ module tg68k (
   output        halted,                // double bus fault
   output [31:0] dbg_d6,                // D6 and D7, for the probe deck: the ROM's test manager
   output [31:0] dbg_d7,                //   keeps a failed test's code there (plan 3.8 item 23)
-  output [56:0] dbg_exc                // {an exception taken (one clk), its vector number, the opcode, its PC}:
+  output [56:0] dbg_exc,               // {an exception taken (one clk), its vector number, the opcode, its PC}:
                                        //   the probe deck's PEXC and PTRP (plan 5.12.12 item 8)
+  output [63:0] dbg_cache              // {CDIS*, 1'b0, CACR[13:0], instruction hits[23:0], data hits[23:0]}:
+                                       //   the probe deck's PCCH (plan 1.16.3); the counts wrap
 );
 
   // ------------------------------------------------------------- kernel
@@ -306,6 +308,15 @@ module tg68k (
   assign k_clkena     = phi1 && (k_cycle_ack || k_internal || k_force);
   assign k_beat_valid = k_cycle_ack || k_internal;
   assign k_din   = !hit_ack ? din_r : hit_d ? d_q : i_q;
+
+  // the probe deck's PCCH: one count per hit, at the phi1 that acknowledges it
+  reg [23:0] n_ihit, n_dhit;
+  always @(posedge clk or negedge reset_n)
+    if (!reset_n) begin n_ihit <= 0; n_dhit <= 0; end
+    else if (phi1 && hit_ack) begin
+      if (hit_d) n_dhit <= n_dhit + 1'd1; else n_ihit <= n_ihit + 1'd1;
+    end
+  assign dbg_cache = {cdis, 1'b0, k_cacr[13:0], n_ihit, n_dhit};
   assign k_dsack = dsack_r;
   assign w_berr  = ack_berr && walk;
   always @* k_berr = berr_hold && !(k_make_berr || k_trap_berr);

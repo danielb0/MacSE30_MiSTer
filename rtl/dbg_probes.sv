@@ -78,6 +78,10 @@
 //   PFL2  64 bits, registered here on clk: the external drive's loader
 //         and encoder as PFLP's, the drive's 16 bits as PSWM's low word,
 //         and the disk-port words its loader and encoder have moved[15:0]
+// and, since plan 1.16.3 (the 68030's caches):
+//   PCCH  64 bits, registered here on clk: {CDIS*, 0, CACR[13:0]} and the
+//         hits the instruction cache [47:24] and the data cache [23:0] have
+//         answered (each wraps at 2^24): is a cache on, is it hitting
 // and, since plan 5.12.12 item 8 (the first boot's stop at "Welcome to
 // Macintosh"), the CPU's exceptions, one pulse each from the kernel:
 //   PEXC  160 bits: counts of {every exception[15:0], A-line traps[15:0],
@@ -120,7 +124,8 @@ module dbg_probes (
 	input  wire [31:0] rtc_state,         // PRTC: se30_machine's dbg_rtc (plan 6.6)
 	input  wire [63:0] flp_state,         // PFLP: the floppy's (plan 5.12.12 item 7)
 	input  wire [63:0] flp2_state,        // PFL2: the external drive's (plan 5.14)
-	input  wire [56:0] exc_state          // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
+	input  wire [56:0] exc_state,         // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
+	input  wire [63:0] cache_state        // PCCH: the 68030's caches (plan 1.16.3)
 );
 
 	reg        as_q = 1;
@@ -259,6 +264,15 @@ module dbg_probes (
 		.instance_id ("PFLP"), .probe_width (64), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the caches (the header's PCCH)
+	reg [63:0] pcch_r = 0;
+	always @(posedge clk) pcch_r <= cache_state;
+
+	altsource_probe #(
+		.instance_id ("PCCH"), .probe_width (64), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pcch (.probe(pcch_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the external drive (the header's PFL2)
 	reg [63:0] pfl2_r = 0;

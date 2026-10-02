@@ -1830,6 +1830,13 @@ speed, the Finder, applications.
     **-0.118 ns at slow -40C** and **-0.060 ns at slow 100C**. That is the
     framework path that missed in compile 25 (-0.016 ns at -40C), now also
     missing at 100C.
+  - **On the board: it runs, and TattleTech reads 31 MHz** (compile 25,
+    no cache: about 10 MHz). A real SE/30 is 15.67 MHz with a cached DBRA
+    turn of 6 clocks, and 15.67 x 6 / clocks matches both readings:
+    9.1 clocks -> 10.3 MHz, 3.0 -> 31.3 MHz. The cache works; what
+    TattleTech sees is the kernel's own timing.
+  - **Daniel, 2026-10-02: "leave it for now"**, so option 1 stands.
+    Software that times itself with fixed loops runs up to about 2x fast.
 
 ### 1.16.2 Step 2: the data cache - the manual's rules and the design
 
@@ -1993,6 +2000,17 @@ for this step):
   - `sim/machine`: 80 s, with a fresh run.log. The ROM leaves ED off, so
     this bench never has the data cache on.
 - Not yet on the board: compile 26 has the instruction cache only.
+
+**The probe deck's PCCH.** The ROM leaves ED off, and nothing on the board
+could show whether software turns the data cache on, so PCCH was added
+for compile 27 (Daniel's go, 2026-10-02). It reads:
+- {CDIS*, 0, CACR[13:0]};
+- the hits the instruction cache has answered [47:24];
+- the hits the data cache has answered [23:0].
+
+Each count is 24 bits and wraps; `read_probes.tcl` prints the CACR bits
+and each count's change since the last sample. sim/machine and sim/system
+pass with it in.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
