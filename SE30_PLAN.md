@@ -6712,6 +6712,15 @@ probe deck shows the external drive (`PFL2`). **The full two-drive
 real per-cylinder rate is measured - the one-drive figures in its run.sh
 do not carry over, so it needs Daniel's go-ahead under the estimate rule.
 
+**Compile 25 (2026-10-02, tag `d1873538`,
+`output_files/MacSE30_d1873538_d1873538_drive2.rbf`), approved by Daniel**:
+7e-4's fixes and the external drive, 30.5 minutes. `sta_corners.tcl`: the
+design's worst slack over every corner 0.675 ns, the SDRAM capture met by
+at least one of A and B at every corner - met; the flow's one failure is
+the framework's HDMI clock, -0.016 ns at the slow -40C corner (as compiles
+18 and 20). For the board: two 800K images, both read in the Finder, files
+copied between them, `PFL2` on the probe deck.
+
 **The work.**
 1. `se30_flp_dkmux.v` to four requesters; `sim/flpmux`.
 2. `se30_machine.v`: the external drive and its disk interface; RD.
