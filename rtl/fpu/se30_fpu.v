@@ -1421,8 +1421,10 @@ module se30_fpu #(
                     bst <= B_MPRIM;
                   end
                   B_CRW: begin
-                    if (cr_mask[2]) begin fpcr_we <= 1'b1; fpcr_d <= din; end
-                    else if (cr_mask[1]) begin fpsr_we <= 1'b1; fpsr_d <= din; end
+                    // the bits that read zero stay zero (UM 4-70; 7e-4: cputest's
+                    // FMOVE to FPCR/FPSR read its reserved bits back)
+                    if (cr_mask[2]) begin fpcr_we <= 1'b1; fpcr_d <= din & 32'h0000_FFF0; end
+                    else if (cr_mask[1]) begin fpsr_we <= 1'b1; fpsr_d <= din & 32'h0FFF_FFF8; end
                     else fpiar <= din;
                     cr_mask <= cr_mask[2] ? {1'b0, cr_mask[1:0]} : cr_mask[1] ? {2'b00, cr_mask[0]} : 3'd0;
                     if ((cr_mask[2] ? cr_mask[1:0] : cr_mask[1] ? cr_mask[0] : 1'b0) == 0) bst <= B_DONE;

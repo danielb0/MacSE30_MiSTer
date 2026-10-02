@@ -161,6 +161,7 @@ def build():
         ('b20', BIAS + 20),                           # FETOX: |x| >= 2^21 overflows (transcend.etox)
         ('b24', BIAS + 24),                           # FTWOTOX, FTENTOX: 2^25
         ('b7', BIAS + 7),                             # FTANH: 2|x| above 2^7
+        ('b40', BIAS + 40),                           # FCOSH: t = e^|x| above 2^41, 1/t below t's last bit
         ('bm1', BIAS - 1),                            # expm1/log1p's scale s = -exponent - 1
         ('bm2', BIAS - 2),                            # |x| below 1/4: the scaled paths
         ('bm34', BIAS - 34),                          # s >= 34: past the ROM's tables

@@ -473,12 +473,18 @@ x_sinh: d=T2 a=T2 alu=passa sign=zero budget=510 | call etoxm1
 .end
 x_cosh: d=T2 a=T2 alu=passa sign=zero budget=510 | call etox
         d=T3 a=T11 alu=passa ctl=checkpoint
-        d=T12 a=T3 alu=passa budget=66                  ; 576
+        a=T3 b=K[b40] mode=exp alu=rsub budget=66       ; 576
+        alu=nop | if N goto ch_big
+        d=T12 a=T3 alu=passa
         d=T11 b=K[one] alu=passb mode=mantb sign=b | call idiv   ; 1/t
         d=T4 a=T11 alu=passa ctl=checkpoint             ; (parked)
         d=T11 a=T4 alu=passa
         d=T12 a=T3 alu=passa | call iadd
         d=T11 a=T11 b=K[exp_one] mode=exp alu=sub sign=zero | goto tr_fin
+; t above 2^41: 1/t lies more than 67 bits below t, which i_add chops whole
+; (transcend.i_add) - and iadd's 18-bit exponent difference would wrap past
+; |x| ~ 45,400 (7e-4: cputest's FCOSH of -163841 came out +0, UNFL)
+ch_big: d=T11 a=T3 b=K[exp_one] mode=exp alu=sub sign=zero | goto tr_fin
 
 ; tanh = sign z/(z + 2), z = e^(2|x|) - 1; 2|x| above 2^7: 1 - 2^-67;
 ; bounded below 1 (transcend.bounded)

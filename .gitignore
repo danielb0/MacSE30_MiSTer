@@ -50,3 +50,4 @@ scripts/local.env
 # load local copies
 *.rom
 *.ROM
+sim/cpfpu_cpt*/

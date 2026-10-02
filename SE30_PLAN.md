@@ -8667,7 +8667,7 @@ as undocumented, and some read as measured:
 | 7 | "68881 and 68882 have identical undefined fields": a table for offsets `$01-$0A`, and **`$4000 00000000 00000000`** for "most undefined fields" (`$10-$2F`); **offsets `$40-$7F` take the F-line on a 6888x** ("6888x and ROM constant 0x40 - 0x7f: f-line" - corrected 2026-09-29, this row first listed them with `$10-$2F`); a comment that PREC and RND affect them "very strangely", with per-offset adjustments | looks measured; mask dependence unknown; MAME stops with an error on any undefined offset |
 | 1, 2 | FATANH(±1) = ±inf and FLOGNP1(-1) = -inf, both with DZ - the mathematical answers, **against the manual as printed** | its transcendentals are Andreas Grabher's (Previous) port of Motorola's 68040 FPSP, not a 68882 measurement; the manual stands until hardware says otherwise. Motorola's own FPSP source is Motorola's statement for a different chip and worth reading for these two |
 | 8 | reset and null restore: FPn = `$7FFF FFFFFFFF FFFFFFFF` | agrees with the default (MAME too) |
-| 9 | FSGLMUL/FSGLDIV mask the inputs to `$FFFFFF0000000000` - 24 bits with the integer bit | supports the likely reading |
+| 9 | FSGLMUL/FSGLDIV mask the inputs to `$FFFFFF0000000000` - 24 bits with the integer bit (**corrected 2026-10-02, 7e-4: only FSGLMUL masks; `floatx80_sgldiv` truncates neither operand**) | supports the likely reading for FSGLMUL |
 | 10 | version `$1F` for both 68881 and 68882 | agrees; MAME writes a 68881 idle frame (`$1F18`, 28 bytes) whatever the chip, which is wrong for a 68882 |
 | 17 | a 16 × 32 truth table for the 6888x that differs from the equations, and from its own 68040 table, for combinations such as Z with NAN (e.g. OR true) | reads as tabulated from hardware; unsourced |
 
@@ -12014,6 +12014,115 @@ scaling; `-(A7)` byte decrement) - expect them here too.
 3. The groups: the FPU's own (basic arithmetic, the FMOVE formats including
    packed, FMOVEM, the conditionals) at the ini's defaults, the 68030's
    integer groups left to Section 1.
+
+**Daniel's choices (2026-10-02): all three recommendations** - WinUAE
+cloned and its generator built here; harness A for the whole corpus and B
+for a sample; the FPU's own groups at the ini's defaults.
+
+**7e-4 as built (2026-10-02).**
+- **The generator.** WinUAE `12ad6ac` (2026-09-30) cloned shallow at
+  `C:/Git/MiSTer-devel/WinUAE`. Visual Studio 2022 here has no C++ toolset,
+  so `cputestgen` is built with g++ under WSL Ubuntu (`tools/cputest/
+  build.sh`): the Windows project's sources, the `od-unix` port's headers,
+  `od-win32`'s `machdep/m68k.h` (the tester's flag layout), `wprintf` and
+  `_wmkdir` mapped, `gencpu` with `CPU_TESTER` for the test cores
+  (`cpudefs.cpp` is in the tree). `tools/cputest/se30dump.py` patches the
+  build copy (never the clone) so each stored round is also written as one
+  text line - the instruction, the state before and after, every data read
+  and write in order, the exception - which is what harness A reads.
+  `generate.sh` runs each FPU preset (FBASIC, FCPX, FINT, FPACK, FILLG) in
+  its own `cputestgen` run, `cpu=68030 fpu=68882`, gzip off, the ini's
+  defaults otherwise (`gen_ini.py`). **A group generated after others comes
+  out wrong** - empty, or with their settings - so each runs alone. Its
+  `.dat` files differ between runs only in the header's timestamp.
+- **The corpus** (`C:\temp\Mac\SE30\cputest`, 100 MB of `.dat`, 3.6 GB of
+  records in WSL): FBASIC 1,353,296 rounds, FCPX 852,828, FINT 1,877,120,
+  FPACK 81,756, FILLG 153,324 - 4,318,324.
+- **Harness A** (`convert.py`): each round on the bench's registers (FP1
+  source, FP2 destination, FP5 FSINCOS's cosine), the operand as the round
+  read it, WinUAE's results as the expectation, xop not compared (WinUAE
+  records none); identical vectors once: **924,464 distinct vectors**
+  (general, conditionals) and **24,128 FMOVEM / FMOVE-control records**
+  (`M` form, `check_m.py`). Left out, counted: what the 030 itself F-lines
+  (an effective address the instruction may not use: 722,314 rounds),
+  FSINCOS with one register for both (160), and FMOVE of two control
+  registers from an immediate (1,536 - the generator writes one longword
+  and the 030 takes the next instruction's words as the second).
+- **FMOVEM's order** (`check_m.py`): where the list's mode field and the
+  effective address disagree (a predecrement list with a control address,
+  ...), the FPU transfers in the mode's order and the 030 addresses in the
+  EA's, so the registers land reversed - which WinUAE does and the model,
+  seeing only the FPU, cannot; the checker applies the protocol. All 24,128
+  agree.
+
+**What the corpus found in our design (fixed):**
+1. **FCOSH of |x| above about 45,400** (microcode): `iadd`'s 18-bit
+   exponent difference of e^|x| and its reciprocal wrapped, the result came
+   out +0 with UNFL (208 vectors, the microcode against the model).
+   Above t = 2^41 the reciprocal is now not formed (`ch_big`: the model's
+   `i_add` chops it whole there; constant `b40`); the budget moved onto
+   the test, the clocks unchanged. Swept: 12,108 vectors against the model.
+2. **FMOVE to FPCR and FPSR kept the bits that read zero** (RTL, harness B):
+   `5D401D00` read back as written, not `0D401D00`; FPCR's upper word and
+   FPSR's bits 2-0 likewise. Now masked as the model does (UM 4-70).
+
+**WinUAE against our model** (`check.py`, `triage.py`, `accuracy.py`):
+739,925 of 924,464 agree; every one of the 184,539 others has a named
+cause:
+
+| cause | vectors | the manual | standing |
+|---|---|---|---|
+| FPCR PREC = 11 | 60,295 | "undefined, reserved" (8.6.2) | WinUAE rounds as double (a `default:` in its code, no claim); ours extended. **Open: 7e-4 item A** |
+| a NaN converted from S or D: the integer bit | 17,616 | extended NaN: integer bit "don't care" | WinUAE clears it (Previous's 68K softfloat, deliberately); ours sets it. **Open: 7e-4 item B** |
+| transcendentals, last bits to large | 78,530 | 4.3.2: ~64 units typical; 4,096 the bound; 4-102 the 2pi reduction | ours by design (8.7.3): 67-bit algorithms, every result here within 94 units of extended inside the documented range; WinUAE runs Motorola's 68040 FPSP and is more accurate than the 68882. Trig beyond ~10^20 (288 here, signs too) is the documented loss |
+| overflow in FETOX/FTWOTOX/FTENTOX/FSINH/FCOSH: INEX2 | 7,986 | 6.1.4/6.1.7 | WinUAE's FPSP path sets OVFL alone; its FMUL/FADD overflows set INEX2 as ours do everywhere. Ours consistent |
+| FSGLDIV operand truncation | 8,508 | 4-98: beyond 24 bits "the accuracy ... is not guaranteed" | switch `sgl_truncate_bits` (8.6.14 item 9): **WinUAE truncates neither operand for FSGLDIV, only FSGLMUL's** (8.6.15's row 9 said both - corrected); ours both. Either within the manual |
+| FSGLDIV overflow | 848 | 6.1.4's note: the mantissa rounded to single | WinUAE gives the extended maximum; ours the single-mantissa one. Ours per the manual |
+| FINT/FINTRZ in S or D PREC | 3,848 | switch `fint_prec` | WinUAE does not round to PREC at all - a third reading beside 'twice' and 'once' |
+| FREM/FMOD in S or D PREC | 2,260 | FREM's note 2: "processed by the normal instruction termination procedure to round it" | ours rounds; WinUAE does not. Ours per the manual |
+| FATANH(+/-1), FLOGNP1(-1) | 1,328, 656 | 8.6.14 items 1, 2 | as known |
+| FMOVECR | 480, 240 | switches `fmovecr_documented`, `fmovecr_undefined` | as decided; WinUAE's undefined offsets also set INEX2 in S/D PREC |
+| FLOGN/FLOG10 of 1: INEX2 | 1,136 | 4.3.2: INEX2 "may be set even if an exact result is produced" | WinUAE sets it on the exact zero; ours not. **Open, minor: 7e-4 item C** |
+| FSINCOS: only the cosine differs | 220 | | the transcendental row |
+| FREM/FMOD: UNFL on an exact zero | 148 | 6.1.5 | WinUAE sets it; ours not. Ours per the manual |
+| FMOVE.B/W/L out of range: INEX2 | 112 | 4-66: OPERR, INEX2 "refer to 6.1.7" | ours sets INEX2 for a source with a fraction; WinUAE OPERR alone. **Open, minor: 7e-4 item D** |
+| FSCALE with \|scale\| >= 2^14 | 40 | 4-102: "an overflow or underflow always results" | ours per the manual; WinUAE scales |
+
+**Open for Daniel** (from the table, and one the corpus found in our own
+spec): 7e-4 items A-D above, and **8.6.14 item 20 against 8.6.8**: the
+spec's 8.6.8 quotes Table 4-17's note - an empty control-register list
+"on the current chip ... moves FPIAR" - and the model does so (as WinUAE);
+item 20's default (the F-line) is what the RTL does. Harness B leaves those
+rounds out until it is settled. **Recommended: FPIAR** (the documented
+behaviour, the standing rule for it).
+
+**Our three against each other, on the corpus's inputs** (`remodel.py`:
+the same inputs, the model's expectations): the microcode simulator, all
+924,464 (after the FCOSH fix; before it the 208 above); **the RTL bench, all
+924,464 - results and clocks, 0 fail** (`sim/fpu` with `+vec=`, eight
+shards). The clocks against the restated 68881 per-case figures
+(`vec.py`): 80,348 vectors over by less than 20 clocks - atypical operands
+whose path is longer than the typical-case calibration (8.9.7), as before.
+
+**Harness B** (`harness_b.py`, `sim/cpfpu/run_cputest.sh`): rounds where
+the model and WinUAE agree, up to 4 per instruction and addressing mode,
+run on the 68030 kernel and the 68882 (ModelSim) - each round's operand
+bytes stored at its address's alias in the bench's 128 KB, its base
+register moved (or its absolute address rewritten) to a free slot, FP0-FP7,
+FPCR/FPSR/FPIAR and D0-A7 loaded, the instruction and an FNOP run, all of it
+stored and compared. **9,392 rounds of 40 instructions in 79 batches:
+405,813 checks, 1,453,299 coprocessor cycles, all pass** on the fixed
+design. Every addressing mode but PC-relative: Dn 768, An 8, (An), (An)+,
+-(An), (d16,An), (d8,An,Xn), (xxx).W, (xxx).L about 1,080 each, #imm
+1,040. Left out: branches (FBcc, FDBcc), trapping FTRAPcc, traced rounds,
+PC-relative, an empty control list. Its first run found item 2 above and
+nothing else (and item 1, on the microcode before its fix).
+
+**Verified on this build:** `tools/fpu_ucode/run.sh` 57 and every vector,
+clocks as before; `sim/fpu` directed 143, every vector plain and +detour,
+2,000 pairs, triples and detour pairs, the APU bench; the timing matrix
+unchanged (8.9.7's reading); `sim/cpfpu` all 13; `sim/machine`. Logs:
+`sim/fpu/out/gate4`, `out/cpt_rtl`, `C:\temp\Mac\SE30\cputest`.
 
 ---
 
