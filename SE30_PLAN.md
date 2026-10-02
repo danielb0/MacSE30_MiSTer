@@ -11967,8 +11967,9 @@ gate, the commit, and 7e-4.
   vector plain and under `+detour` (19,836 each, results and clocks), the
   first 2,000 pairs, triples and detour pairs; the 7a APU bench, every
   vector; `sim/cpfpu` all 13 (ModelSim: no use-before-declare); `sim/machine`.
-  Logs in sim/fpu/out/gate3 (ignored). The full pairs, triples and detour
-  pairs run overnight on the commit.
+  Logs in sim/fpu/out/gate3 (ignored). **The full runs on `aedbea2`
+  (the night of 2026-10-02, worktrees): all pairs, all triples, all
+  detour pairs - 19,836 each, 0 fail** (logs in sim/fpu/out/night_1002).
 
 ### 8.9.8 7e-4: the cputest corpus (design, 2026-10-02)
 
