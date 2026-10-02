@@ -1800,7 +1800,7 @@ speed, the Finder, applications.
 - `sim/kernel_bus` at ports 16, 32 and 8, and `sim/busfault`: PASS, 21 s.
   `sim/cpfpu`, all 12 programs (b1 to b5d, mmu, full): PASS, 84 s.
 
-**Timing against the manual - OPEN, Daniel's decision.**
+**Timing against the manual - DECIDED: accepted (Daniel, 2026-10-02, option 1).**
 - **Cached:** UM Table 11-48 gives DBcc (cc false, count not expired) as
   **6 clocks**. The cachetest loop measures **3.0 C16M clocks a turn**.
 - **Uncached:** the table gives 8 clocks with two 2-clock prefetches; on
@@ -1814,6 +1814,8 @@ speed, the Finder, applications.
   2. **Pace the kernel to Table 11 per instruction.** This is the
      cycle-exact kernel, a project of its own.
   3. **A blanket wait per hit.** Not authentic, so not recommended.
+- Daniel chose option 1, "yes, accept it": the kernel's instruction timing
+  stays as it is, and the cache adds no pacing.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
