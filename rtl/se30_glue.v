@@ -287,8 +287,12 @@ module se30_glue (
   // the ROM the same byte twice (sim/gcrread, plan 5.12.12 item 6).
   // Memory data is registered with the port's acknowledge.
   assign cpu_din  = d_fpu ? fpu_rdata : (active && d_dev) ? {done ? dev_q : rbyte, 24'h000000} : din_r;
+  // the slot's DSACK0* is the card's own, on the processor's bus as UE6
+  // drives it on the board (plan 2.12), not relayed through `done` - that
+  // cost every video access a clock; `done` then holds it until AS* rises
+  wire slot_ack = d_slot && !slot_dsack0_n;
   assign dsack_n  = d_fpu ? fpu_dsack_n :
-                    (!cpu_as_n && done && !berr_r) ? (d_mem ? 2'b00 : 2'b10) : 2'b11;
+                    (!cpu_as_n && (done || (active && slot_ack)) && !berr_r) ? (d_mem ? 2'b00 : 2'b10) : 2'b11;
   assign fpu_sel  = !cpu_as_n && d_fpu;
 
   // selects follow the cycle, as chip selects follow AS*; the slot's drops
@@ -301,7 +305,12 @@ module se30_glue (
   assign asc_sel   = active && d_asc;
   assign swim_sel  = active && d_swim;
   assign exp_sel   = active && d_exp;
-  assign slot_sel  = active && d_slot && !done;
+  // NUBUS* with AS*, at the falling edge starting S1, as plan 2.12 drove it
+  // into the video PALs to read their 5/6/7-clock access; registered on
+  // `active` it came a clock late, and an AS* landing on UE7's taking
+  // state waited a full alternation - 7 clocks for every such byte
+  // (plan 1.16.3, Speedometer's graphics; sim/system vramtest)
+  assign slot_sel  = !cpu_as_n && d_slot && !done;
   assign dev_addr  = cpu_addr[12:0];
   assign dev_rw    = cpu_rw_n;
   assign dev_wdata = cpu_dout[31:24];

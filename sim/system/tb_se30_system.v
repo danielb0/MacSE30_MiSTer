@@ -82,6 +82,9 @@ module tb_se30_system;
   reg         ram_ack = 0, rom_ack = 0;
   wire        via1_sel, via2_sel, scc_sel, scsi_sel, scsi_dack, asc_sel, swim_sel, exp_sel;
   wire        dev_strobe, dev_rw, e_clk, c3m_en, slot_sel, slot_irq_or_n;
+  wire        vid_sel = slot_sel && (cpu_addr[31:24] == 8'hFE);   // the video card (below)
+  wire  [7:0] vid_dout;
+  wire        vid_dsack0_n;
   wire [12:0] dev_addr;
   wire  [7:0] dev_wdata;
   reg         hsync_n = 1;
@@ -105,10 +108,21 @@ module tb_se30_system;
     .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
     .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(8'h00), .scsi_drq(1'b0),
     .e_clk(e_clk), .c3m_en(c3m_en),
-    .slot_sel(slot_sel), .slot_dsack0_n(1'b1), .slot_rdata(8'h00),
+    .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
     .via1_irq_n(via1_irq_n), .via2_irq_n(1'b1), .scc_irq_n(1'b1), .nmi_n(1'b1),
     .slot_irq_n(6'b111111), .slot_irq_or_n(slot_irq_or_n),
     .overlay(1'b0), .ramsiz(2'b01), .hsync_n(hsync_n));
+
+  // the video card, wired as se30_machine wires it (slot $E at $FExxxxxx),
+  // for the vramtest run; the other programs never reach it
+  wire        vid_out, vid_hs, vid_vs, vid_hb, vid_vb, vid_irq6_n;
+  se30_video video (
+    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .declrom_we(1'b0), .declrom_waddr(13'd0), .declrom_wdata(8'h00),
+    .sel(vid_sel), .as_n(cpu_as_n), .ds_n(cpu_ds_n), .rw(cpu_rw_n), .addr(cpu_addr[16:0]),
+    .din(dev_wdata), .dout(vid_dout), .dsack0_n(vid_dsack0_n),
+    .page(1'b1), .vsyncen_n(1'b1),
+    .vidout(vid_out), .hsync_n(vid_hs), .vsync_n(vid_vs), .hblank(vid_hb), .vblank(vid_vb), .irq6_n(vid_irq6_n));
 
   // HSYNC* as the video PALs make it (only the UI6 timeout cares)
   integer px = 0;
@@ -197,6 +211,58 @@ module tb_se30_system;
     if (cachetest && !cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr == 32'h309C) ram[32'h2800 >> 2] = 32'h33333333;
   end
 
+  // ------------------------------------------------- the video-RAM meter
+  // vramtest: windows between writes to $30B0+8w and $30B4+8w; in each,
+  // the clocks, the VRAM cycles, their lengths (S0-S5, C16M clocks) and
+  // the gaps before them (clocks from the last cycle's AS* negation)
+  reg vramtest = 0;
+  integer vw = -1, vw_t0 [0:2], vw_t [0:2], vw_n [0:2], vw_len [0:2], vw_gap [0:2];
+  integer vw_h [0:2][0:31], vw_g [0:2][0:15];
+  integer vas = 0, vlast_end = 0, vk, vj; reg vas_q = 1; reg vcyc = 0;
+  initial for (vk = 0; vk < 3; vk = vk + 1) begin
+    vw_t[vk] = 0; vw_n[vk] = 0; vw_len[vk] = 0; vw_gap[vk] = 0;
+    for (vj = 0; vj < 32; vj = vj + 1) vw_h[vk][vj] = 0;
+    for (vj = 0; vj < 16; vj = vj + 1) vw_g[vk][vj] = 0;
+  end
+  always @(posedge clk) if (phi1 && vramtest) begin
+    if (!cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr[31:4] == 28'h00030B && cpu_addr[1:0] == 0) begin
+      vk = (cpu_addr[3:0] == 4'h0) ? 0 : (cpu_addr[3:0] == 4'h8) ? 1 : -1;
+      if (cpu_addr == 32'h30B0) begin vw = 0; vw_t0[0] = clocks; end
+      if (cpu_addr == 32'h30B4 && vw == 0) begin vw_t[0] = clocks - vw_t0[0]; vw = -1; end
+      if (cpu_addr == 32'h30B8) begin vw = 1; vw_t0[1] = clocks; end
+      if (cpu_addr == 32'h30BC && vw == 1) begin vw_t[1] = clocks - vw_t0[1]; vw = -1; end
+    end
+    if (!cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr == 32'h30C0) begin vw = 2; vw_t0[2] = clocks; end
+    if (!cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr == 32'h30C4 && vw == 2) begin vw_t[2] = clocks - vw_t0[2]; vw = -1; end
+    if (!cpu_as_n && vas_q) begin                                   // a cycle starts
+      vcyc = (cpu_addr[31:24] == 8'hFE); vas = 0;
+      if (vcyc && vw >= 0) begin
+        vj = clocks - vlast_end; vw_gap[vw] = vw_gap[vw] + vj;
+        vw_g[vw][(vj > 15) ? 15 : vj] = vw_g[vw][(vj > 15) ? 15 : vj] + 1;
+      end
+    end
+    if (!cpu_as_n) vas = vas + 1;
+    if (cpu_as_n && !vas_q) begin                                   // a cycle ends
+      if (vcyc && vw >= 0) begin
+        vw_n[vw] = vw_n[vw] + 1; vw_len[vw] = vw_len[vw] + vas + 1;
+        vw_h[vw][(vas + 1 > 31) ? 31 : vas + 1] = vw_h[vw][(vas + 1 > 31) ? 31 : vas + 1] + 1;
+      end
+      if (vcyc) vlast_end = clocks;
+    end
+    vas_q = cpu_as_n;
+  end
+
+`ifdef VTRACE
+  // +define+VTRACE: 60 clocks of window 1's steady state - AS*, the slot
+  // select, UE7's state and both DSACKs, clock by clock (how 1.16.3's two
+  // GLUE clocks were found)
+  integer vt = 0;
+  always @(posedge clk) if (vramtest && vw == 1 && clocks > vw_t0[1] + 1200 && vt < 60) begin
+    vt = vt + 1;
+    if (phi1) $display("VT clk=%0d as=%b ds=%b rw=%b fc=%0d addr=%08x bs=%b sel=%b st=%0d vdsack0=%b s=%0d dsack=%b",
+             clocks, cpu_as_n, cpu_ds_n, cpu_rw_n, cpu_fc, cpu_addr, cpu.k_busstate, vid_sel, video.st, vid_dsack0_n, cpu.s, dsack_n);
+  end
+`endif
   // ------------------------------------------------------------ the run
   integer n, kk; reg [31:0] stop_at, v, want; integer fd, r;
   reg [8*200-1:0] prog_dir; reg [31:0] slot_want [0:31];
@@ -211,6 +277,7 @@ module tb_se30_system;
     if (!$value$plusargs("PROG=%s", prog_dir)) prog_dir = "../kernel_bus";
     cachetest = $test$plusargs("CACHETEST");
     cacheon = $test$plusargs("CACHEON");
+    vramtest = $test$plusargs("VRAMTEST");
     $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
     fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
@@ -222,6 +289,21 @@ module tb_se30_system;
     if (halted) begin fails = fails + 1; $display("FAIL: the CPU halted (double bus fault) after %0d clocks", n); end
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
     else pass = pass + 1;
+    if (vramtest) begin                                                 // a measurement: report and stop
+      for (kk = 0; kk < 3; kk = kk + 1) begin
+        $display("---- window %0d (%s): %0d C16M clocks, %0d VRAM cycles = %0.2f clocks a turn; cycle length avg %0.2f, gap avg %0.2f",
+                 kk, kk == 0 ? "MOVE.L D0,(A0)+" : kk == 1 ? "MOVE.B D0,(A0)+" : "MOVE.L (A0)+,D2",
+                 vw_t[kk], vw_n[kk], vw_t[kk] / 1000.0,
+                 vw_len[kk] / (vw_n[kk] ? vw_n[kk] * 1.0 : 1.0), vw_gap[kk] / (vw_n[kk] ? vw_n[kk] * 1.0 : 1.0));
+        $write("---- lengths:"); for (vj = 0; vj < 32; vj = vj + 1) if (vw_h[kk][vj]) $write(" %0d:%0d", vj, vw_h[kk][vj]); $display("");
+        $write("---- gaps:   "); for (vj = 0; vj < 16; vj = vj + 1) if (vw_g[kk][vj]) $write(" %0d:%0d", vj, vw_g[kk][vj]); $display("");
+        if (vw_n[kk] == (kk == 1 ? 1000 : 4000)) pass = pass + 1;
+        else begin fails = fails + 1; $display("FAIL: window %0d ran %0d VRAM cycles", kk, vw_n[kk]); end
+      end
+      if (fails == 0) $display("==== PASS: %0d checks - the video-RAM measurement ran", pass);
+      else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
+      $finish;
+    end
     // 1. the result slots
     if (cachetest) for (kk = 0; kk < 17; kk = kk + 1) begin
       v = ram[(32'h3000 + 4*kk) >> 2];

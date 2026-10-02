@@ -2060,6 +2060,57 @@ pass with it in.
       the video RAM, which is uncached (CI). The suspect is our
       video-RAM cycle against the Guide's.
 
+**The graphics finding: two GLUE clocks the board does not have**
+(2026-10-02, Daniel: "look into the graphics first").
+
+- **The measurement.** `sim/system` gained a `vramtest` run:
+  `gen_vram_program.py`, with `se30_video` wired as `se30_machine` wires
+  it. Three loops of 1,000 turns into the 8-bit video RAM:
+  - `MOVE.L D0,(A0)+`;
+  - `MOVE.B D0,(A0)+`;
+  - `MOVE.L (A0)+,D2`.
+
+  The bench times each window and every video cycle in it (its length
+  S0-S5 and the gap before it). Every isolated byte took **7** clocks,
+  where 2.12's table (the PALs, run) gives 5 or 6.
+- **The trace** (`+define+VTRACE`) found two clocks of ours:
+  1. **`NUBUS*` came a clock after AS\***. GLUE's `slot_sel` was
+     `active && d_slot && !done`, and `active` registers AS\*. Plan 2.12
+     drove the PALs with `NUBUS*` "at the falling edge starting S1", with
+     AS\*. An AS\* landing on UE7's taking state (IDLE_A) missed it and
+     waited a whole alternation.
+     **Now `!cpu_as_n && d_slot && !done`**, as the other chip selects.
+  2. **DSACK0\* was relayed through `done`**, so the processor saw UE7's
+     ACK a clock late. On the board UE6 drives DSACK0\* onto the
+     processor's bus itself.
+     **Now passed through (`active && slot_ack`)**, with `done` holding it
+     until AS\* rises.
+
+  A tight loop locks to UE7's alternation, so which clock decides the
+  cost depends on the loop: removing the first alone left this loop's
+  numbers unchanged.
+- **After both** (cycle lengths, C16M clocks):
+
+  | Loop | Before | After |
+  |---|---|---|
+  | `MOVE.B` (isolated bytes) | 7 a byte, 11.30 a turn | **5** a byte, **9.28** a turn (-18 %) |
+  | `MOVE.L` write / read (four bytes back to back) | 32.95 a turn | **30.92** a turn (-6 %): 5 + 7 + 7 + 7, 24-28 across the row transfer |
+
+  2.12's table holds exactly.
+- **Benches, all PASS:**
+  - `sim/glue` (98);
+  - `sim/system`, all five runs;
+  - `sim/busfault`;
+  - `sim/machine` (fresh log, 20:01);
+  - `sim/video` (44);
+  - `sim/cpfpu full`.
+
+  `sim/gcrread` was not run: its quick mode runs past 30 minutes (the
+  standing rule). The board's boot runs the same video PrimaryInit.
+- **Next: compile 28** (Daniel, 2026-10-02: "if you need to compile again
+  after this fix and before proceeding with SCSI, then do so"). Then
+  Speedometer's Graphics again on the board.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
