@@ -45,6 +45,11 @@ RTS, each at the start of a cache line of its own)
     slot 14  ADD.L (Z),D2 in a DBRA loop of 500 turns (Z = 3): 1,500, the
              bench counting the data cycles between marker writes to
              $30A0 and $30A4 (only the first turn's read)
+    slot 15  the ROM's 68020/68030 test at $4083F74A, word for word ($2909
+             to CACR, read back, ED cleared and written back if it was set):
+             CACR read after it, $2001 on a 68030 (a MOVEC read-after-write
+             check; the board's $2101 is the ROM's SwapDataCache after it)
+    slot 16  its D1: 3, the 68030's mark
     Then a DBRA loop of 500 turns with the cache on, between marker writes
     to $3088 and $308C, and the same loop with it off, between $3090 and
     $3094: the bench counts the fetch cycles in each.  Then STOP.
@@ -185,6 +190,17 @@ def build():
             c.emit(0x4E71)                                         # NOP: the DBRA on a long
         c.emit(0x51C9, 0xFFFE)                                     # loop: DBRA D1,loop
         c.marker(m1)
+    # slots 15, 16: the ROM's 68020/68030 test at $4083F74A, word for word:
+    # $2909 written, CACR read back, ED cleared and written back if it was
+    # set (a 68030), D1 = 3 then.  The 68030 leaves CACR = $2001 (CI and CD
+    # read 0, ED cleared) and D1 = 3.
+    c.emit(0x7200)                                                 # MOVEQ #0,D1
+    c.emit(0x303C, 0x2909, 0x4E7B, 0x0002)                         # MOVE.W #$2909,D0; MOVEC D0,CACR
+    c.emit(0x4E7A, 0x0002, 0x0880, 0x0008, 0x6706)                 # MOVEC CACR,D0; BCLR #8,D0; BEQ.S +6
+    c.emit(0x4E7B, 0x0002, 0x7203)                                 # MOVEC D0,CACR; MOVEQ #3,D1
+    c.emit(0x4E7A, 0x3002)                                         # MOVEC CACR,D3
+    c.store(3, 15); want.append(0x2001)
+    c.store(1, 16); want.append(3)
     stop_at = c.pc
     c.emit(0x4E72, 0x2700)                                         # STOP #$2700
 

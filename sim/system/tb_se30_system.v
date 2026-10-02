@@ -199,7 +199,7 @@ module tb_se30_system;
 
   // ------------------------------------------------------------ the run
   integer n, kk; reg [31:0] stop_at, v, want; integer fd, r;
-  reg [8*200-1:0] prog_dir; reg [31:0] slot_want [0:15];
+  reg [8*200-1:0] prog_dir; reg [31:0] slot_want [0:31];
   reg done = 0; integer tail = -1;
   always @(posedge clk) if (phi1 && reset_n && !done) begin
     if (!cpu_as_n && cpu_fc == 3'd6 && cpu_addr[31:2] == stop_at[31:2] && tail < 0) tail = 200;
@@ -214,7 +214,7 @@ module tb_se30_system;
     $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
     fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
-    if (cachetest) $readmemh({prog_dir, "/slots.txt"}, slot_want, 0, 14);
+    if (cachetest) $readmemh({prog_dir, "/slots.txt"}, slot_want, 0, 16);
     repeat (20) @(posedge clk);
     reset_n = 1;
     n = 0;
@@ -223,7 +223,7 @@ module tb_se30_system;
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
     else pass = pass + 1;
     // 1. the result slots
-    if (cachetest) for (kk = 0; kk < 15; kk = kk + 1) begin
+    if (cachetest) for (kk = 0; kk < 17; kk = kk + 1) begin
       v = ram[(32'h3000 + 4*kk) >> 2];
       if (v === slot_want[kk]) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL cache slot %0d: %08x, expected %08x", kk, v, slot_want[kk]); end

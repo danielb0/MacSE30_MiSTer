@@ -1936,12 +1936,22 @@ for this step):
 - **$4083F74A:** `MOVE.W #$2909,D0; MOVEC D0,CACR`, then `MOVEC CACR,D0;
   BCLR #8,D0; BEQ; MOVEC D0,CACR`. This sets WA, CD, ED, CI and EI, then
   takes ED away again if it stuck: the 68020/68030 test (a 68020 has no
-  ED). It **leaves the data cache off, with WA set and the instruction
-  cache on**.
-- **$4083F7E4: the HWPriv cache selectors.** 0 SwapInstructionCache, 1
-  FlushInstructionCache (CI), 2 **SwapDataCache** ($4083F826: ED with
-  `ORI #$0900`, so CD flushes as it enables), 3 FlushDataCache (CD).
-  **The data cache is on only when software asks**, through HWPriv 2.
+  ED). Run word for word in `sim/system` (cachetest slots 15-16), it
+  leaves CACR = $2001 and D1 = 3, as on a 68030.
+- **$4083F7B4: the ROM then turns the data cache ON.** It runs
+  `LEA ...,A0; MOVE.L A0,$660; MOVEQ #2,D0; MOVEA.L D0,A0; _HWPriv`, which
+  is HWPriv selector 2, SwapDataCache, with A0 nonzero ("enable").
+  **A stock SE/30 boots with both caches on and WA set: CACR = $2101.**
+  - The first reading of this section said the data cache stayed off.
+    That was wrong; the board corrected it (compile 27's PCCH read $2101
+    at the boot-disk search, before any system was loaded).
+- **$4083F7E4: the HWPriv cache selectors.**
+  - 0 SwapInstructionCache;
+  - 1 FlushInstructionCache (CI);
+  - 2 SwapDataCache, at $4083F828: `MOVEC CACR,D0; BFEXTU` (the old
+    state, returned in A0); `BCLR #8`; if A0 is nonzero, `ORI.W #$0900`,
+    so CD flushes as it enables;
+  - 3 FlushDataCache (CD).
 - **Elsewhere:**
   - $40803060 and $40803070: the test manager's commands $32 and $33,
     which set EI and clear it;
@@ -1997,9 +2007,9 @@ for this step):
 - The regression, all PASS:
   - `sim/kernel_bus` at ports 16, 32 and 8, and `sim/busfault`: 24 s;
   - `sim/cpfpu`, all 12 programs: 94 s;
-  - `sim/machine`: 80 s, with a fresh run.log. The ROM leaves ED off, so
-    this bench never has the data cache on.
-- Not yet on the board: compile 26 has the instruction cache only.
+  - `sim/machine`: 80 s, with a fresh run.log.
+- `sim/machine` stops in the RAM tests, before $4083F7B4, so it never
+  has the data cache on.
 
 **The probe deck's PCCH.** The ROM leaves ED off, and nothing on the board
 could show whether software turns the data cache on, so PCCH was added
@@ -2021,6 +2031,13 @@ pass with it in.
   -0.370 ns setup at slow 100C is covered by A's 1.622 ns margin.
 - **The flow's summary has no negative slack anywhere.** This time the
   framework's HDMI clock passes too.
+- **On the board** (2026-10-02):
+  - PCCH reads **CACR = $2101 at the boot-disk search** (the ROM's
+    SwapDataCache, above). The instruction cache answers about 4.1
+    million fetches a second and the data cache 0.8-1.25 million reads.
+    The CPU is alive and the VBL runs.
+  - TattleTech still reads **31 MHz**: its speed loop runs in registers,
+    so the data cache does not change it.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
