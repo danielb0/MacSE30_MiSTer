@@ -11,6 +11,12 @@
 #   run.sh                 every bench in suite.txt
 #   run.sh tb_x [time]     one bench
 #
+#   SUITE     the bench list (default suite.txt; pmmu_suite.txt holds
+#             upstream's PMMU benches, SE30_PLAN.md 1.17.3)
+#   RESULTS   the log directory (default results)
+#   WORK      the ModelSim library (default work) - two runs at once need
+#             their own RESULTS and WORK
+#
 #   RTL       the kernel directory (default ../../rtl/tg68k; point it at the
 #             upstream clone's rtl/tg68k for the baseline)
 #   TESTS     upstream's tests/tg68k_030 (default: the clone)
@@ -24,20 +30,23 @@ cd "$(dirname "$0")"
 MODELSIM=${MODELSIM:-/c/intelFPGA_lite/17.0/modelsim_ase/win32aloem}
 RTL=${RTL:-../../rtl/tg68k}
 TESTS=${TESTS:-/c/Git/MiSTer-devel/Minimig-AGA_MiSTer_030_mmu2/tests/tg68k_030}
-mkdir -p results
+SUITE=${SUITE:-suite.txt}
+RESULTS=${RESULTS:-results}
+WORK=${WORK:-work}
+mkdir -p "$RESULTS"
 
 compile_kernel() {
-  rm -rf work
-  "$MODELSIM/vlib.exe" work >/dev/null || exit 1
+  rm -rf "$WORK"
+  "$MODELSIM/vlib.exe" "$WORK" >/dev/null || exit 1
   for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; do
-    "$MODELSIM/vcom.exe" -quiet -93 -work work "$RTL/$f" || exit 1
+    "$MODELSIM/vcom.exe" -quiet -93 -work "$WORK" "$RTL/$f" || exit 1
   done
 }
 
 run_one() {
-  local tb=$1 t=$2 log=results/$1.log
-  "$MODELSIM/vcom.exe" -quiet -93 -work work "$TESTS/$tb.vhd" > "$log" 2>&1 || { echo "$tb: COMPILE FAILED"; return 1; }
-  "$MODELSIM/vsim.exe" -c -quiet -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run $t; quit -f" work.$tb >> "$log" 2>&1
+  local tb=$1 t=$2 log=$RESULTS/$1.log
+  "$MODELSIM/vcom.exe" -quiet -93 -work "$WORK" "$TESTS/$tb.vhd" > "$log" 2>&1 || { echo "$tb: COMPILE FAILED"; return 1; }
+  "$MODELSIM/vsim.exe" -c -quiet -lib "$WORK" -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run $t; quit -f" $tb >> "$log" 2>&1
   local bad
   # severity error/failure reports, or a FAIL line that is not a "0 failed" summary
   bad=$(grep -E '\*\* (Error|Failure)|FAIL' "$log" | grep -v -E '0 FAILED|FAILED: 0|failed=0|0 failed' | grep -c .)
@@ -52,6 +61,6 @@ else
   while read -r tb t; do
     case "$tb" in ''|\#*) continue;; esac
     run_one "$tb" "$t" || status=1
-  done < suite.txt
+  done < "$SUITE"
 fi
 exit $status

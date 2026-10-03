@@ -2325,12 +2325,38 @@ steps need no translation at all on the 68030.
   clock. Least timing risk; the RAM fill would be 9, the SCSI loop about
   190. Partial.
 
+**Option A built** (Daniel, 2026-10-03: "build option A and compile when
+ready"). `TG68K_PMMU_030.vhd`, process `fast_xlat`: the registered
+search's own entry choice (the last valid entry whose FC and aligned base
+match, a write needing M, WP or a fault entry - BUG #410's rule), then a
+clean-access test (no fault entry, no write to WP, no user access to a
+supervisor page) and a quiet-MMU test (no fault latched or pending, walker
+idle, no translation pending, no flush, no PLOAD, no context change, TC on,
+MMUDIS off, no TTR, not CPU space). On a fast hit: `busy` low in the same
+clock (one term in the busy process), `addr_phys` = the entry's base OR the
+page offset (taken only when the base has no offset bits, so it equals the
+registered add), CI and WP from the entry. The registered path is
+untouched and lands the same result a clock later.
+- **timetest windows 12-21 now equal 2-11** (RAM fill 8.16, VRAM fill
+  30.94, VRAM byte 9.27, SCSI blind read 173.8): the lost clock is gone.
+- **Benches**: upstream's PMMU benches (`sim/kernel_upstream/
+  pmmu_suite.txt`, 63 from their Makefile; `run.sh` gained `SUITE`,
+  `RESULTS`, `WORK` so two RTLs run side by side) - **identical verdicts
+  before and after** (58 pass, the same 5 fail on both); `kernel_upstream`
+  verdicts unchanged; `sim/system` all eight; `kernel_bus` 16/32/8 and
+  `busfault`; `cpfpu` all 12 (b5a-d: page faults inside dialogs, `mmu`);
+  `sim/machine` 17 checks. `sim/machine`'s start-up flake (vlog exits 1 in
+  2 s with no message) recurred three times, alone too; a rerun passes -
+  not the RTL.
+- Compile 32 next, for its timing (the fast path puts the 22-entry compare
+  in front of the bus start in one fast clock).
+
 ### 1.17.4 Next
 
 1. ~~**The CLR/Scc/MOVE-from-SR read** (1.17.2): design and fix - a kernel
    correctness item before any pacing.~~ DONE 2026-10-03.
-2. **The PMMU's lost clock** (1.17.3): Daniel's choice of A/B/C; A built
-   and benched in simulation first, then a compile to judge its timing.
+2. **The PMMU's lost clock** (1.17.3): option A built and benched; compile
+   32 judges its timing.
 3. **Re-measure** windows 12-21 after it, then Speedometer on the board:
    with the PMMU's clock gone and the CPU still 2x fast internally,
    Graphics and Disk may come out above the real machine.

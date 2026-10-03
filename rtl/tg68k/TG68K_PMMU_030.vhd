@@ -273,6 +273,11 @@ architecture rtl of TG68K_PMMU_030 is
   signal atc_mru_update_idx : integer range 0 to ATC_ENTRIES-1 := 0;  -- Index to update
   signal atc_mbit_inval_req : std_logic := '0';  -- Request ATC invalidation for M-bit miss (per WinUAE)
   signal atc_mbit_inval_idx : integer range 0 to ATC_ENTRIES-1 := 0;  -- Index to invalidate
+  -- SE30_PLAN.md 1.17.3 option A: the same-clock ATC hit (fast_xlat below)
+  signal fast_hit  : std_logic;
+  signal fast_phys : std_logic_vector(31 downto 0);
+  signal fast_ci   : std_logic;
+  signal fast_wp   : std_logic;
   signal translated_match_dbg : std_logic;
   signal walk_req  : std_logic;
   signal walker_completed : std_logic := '0';
@@ -1642,6 +1647,56 @@ begin
     -- No need to re-check here
   end process;
   
+  -- SE30_PLAN.md 1.17.3 option A: the same-clock ATC hit.  On the MC68030
+  -- "the address translation time is completely overlapped with on-chip
+  -- cache accesses and has no effect on instruction timing" (UM 11.2.6) when
+  -- the ATC holds the translation.  The registered path below takes a clock to
+  -- refresh addr_phys_reg, and busy held every new address for it - a whole
+  -- C16M clock lost on each kernel step under translation.  This finds the
+  -- same entry the registered search finds (the last valid entry whose FC and
+  -- aligned base match, a write needing M or WP or a fault entry - BUG #410's
+  -- rule) and, when the access through it is clean - no fault entry, no write
+  -- to a write-protected page, no user access to a supervisor page - and
+  -- nothing else is in flight (no fault, walk, flush, PLOAD or context change),
+  -- answers in the same clock: busy low, the entry's base with the page offset
+  -- merged in (taken only when the base has no bits in the offset, so the
+  -- merge equals the registered path's add).  Everything else - misses, faults,
+  -- walks - stays on the registered path, which still runs and lands the same
+  -- result a clock later.
+  fast_xlat: process(req, fc, rw, addr_log, tc_en, mmudis, ttr0_match_comb, ttr1_match_comb,
+                     atc_valid, atc_flush_req, atc_fc, atc_log_base, atc_phys_base, atc_shift,
+                     atc_attr, atc_buserr, fault_reg, walker_fault, walker_fault_ack_pending,
+                     translation_pending, wstate, pload_active, xlat_cfg_seq_seen, xlat_cfg_seq)
+    variable h   : std_logic;
+    variable hi  : integer range 0 to ATC_ENTRIES-1;
+    variable om  : std_logic_vector(31 downto 0);
+  begin
+    h := '0'; hi := 0;
+    for i in 0 to ATC_ENTRIES-1 loop
+      if atc_valid(i) = '1' and atc_fc(i) = fc and
+         align_addr(addr_log, atc_shift(i)) = atc_log_base(i) and
+         (rw = '1' or atc_attr(i)(1) = '1' or atc_attr(i)(0) = '1' or atc_buserr(i) = '1') then
+        h := '1'; hi := i;
+      end if;
+    end loop;
+    om := not std_logic_vector(shift_left(unsigned'(x"FFFFFFFF"), atc_shift(hi)));
+    if req = '1' and fc /= "111" and ttr0_match_comb = '0' and ttr1_match_comb = '0' and
+       tc_en = '1' and mmudis = '0' and atc_flush_req = '0' and fault_reg = '0' and
+       walker_fault = '0' and walker_fault_ack_pending = '0' and translation_pending = '0' and
+       wstate = W_IDLE and pload_active = '0' and xlat_cfg_seq_seen = xlat_cfg_seq and
+       h = '1' and atc_buserr(hi) = '0' and
+       not (rw = '0' and atc_attr(hi)(0) = '1') and
+       not (fc(2) = '0' and atc_attr(hi)(3) = '0') and
+       (atc_phys_base(hi) and om) = x"00000000" then
+      fast_hit <= '1';
+    else
+      fast_hit <= '0';
+    end if;
+    fast_phys <= atc_phys_base(hi) or (addr_log and om);
+    fast_ci   <= atc_attr(hi)(2);
+    fast_wp   <= atc_attr(hi)(0);
+  end process;
+
   -- Output the current translation result.
   -- BUG #129 FIX: Add combinational bypass for identity translation when table
   -- translation is disabled so cache-facing outputs stay in sync with the logical
@@ -1657,6 +1712,7 @@ begin
                    else addr_log when (ttr0_match_comb = '1' or ttr1_match_comb = '1')
                    else addr_log when tc_en = '0'
                    else addr_log when mmudis = '1'  -- MC68030 UM 9.2.3
+                   else fast_phys when fast_hit = '1'  -- 1.17.3: the same-clock ATC hit
                    else addr_phys_reg;
   -- BUG #126 V2 FIX: Combinational bypass for cache_inhibit when MMU disabled
   -- Without this, cache_inhibit_reg retains stale value (pmmu_req='0' when MMU off)
@@ -1674,6 +1730,7 @@ begin
                    else ttr1_ci_comb when ttr1_match_comb = '1'
                    else '0' when tc_en = '0'
                    else '0' when mmudis = '1'  -- MC68030 UM 9.2.3
+                   else fast_ci when fast_hit = '1'
                    else cache_inhibit_reg;
   write_protect <= '0' when fc = "111"  -- CPU space never write-protected
                    else (ttr0_wp_comb or ttr1_wp_comb) when (ttr0_match_comb = '1' and ttr1_match_comb = '1')
@@ -1681,6 +1738,7 @@ begin
                    else ttr1_wp_comb when ttr1_match_comb = '1'
                    else '0' when tc_en = '0'
                    else '0' when mmudis = '1'  -- MC68030 UM 9.2.3
+                   else fast_wp when fast_hit = '1'
                    else write_protect_reg;
   -- A latched fault describes one bus transfer. Once the CPU starts exception
   -- stacking, the logical address/FC/RW tuple changes and the old fault must
@@ -4840,7 +4898,7 @@ begin
     end if;
   end process;
   -- Walker busy indication - not busy if MMU disabled or TTR hit
-  process(wstate, addr_log, fc, rw, rmw, is_insn, TT0, TT1, tc_en, translation_pending, walker_fault, walker_completed, walker_fault_ack_pending, translated_addr, translated_fc, translated_rw, translated_cfg_seq, xlat_cfg_seq, req, fault_reg, fault_current_req_match, pload_active, pflush_active, ptest_update_mmusr, ptest_active, ptest_walk_pending, ptest_desc_return_pending, mmusr_update_req, tc_config_check_pending, tc_config_valid)
+  process(wstate, addr_log, fc, rw, rmw, is_insn, TT0, TT1, tc_en, translation_pending, walker_fault, walker_completed, walker_fault_ack_pending, translated_addr, translated_fc, translated_rw, translated_cfg_seq, xlat_cfg_seq, req, fault_reg, fault_current_req_match, pload_active, pflush_active, ptest_update_mmusr, ptest_active, ptest_walk_pending, ptest_desc_return_pending, mmusr_update_req, tc_config_check_pending, tc_config_valid, fast_hit)
     variable tmatch0, tmatch1 : std_logic;
     variable dummy_ci, dummy_wp : std_logic;
   begin
@@ -4893,7 +4951,7 @@ begin
       -- completes, busy='1' persists (addr mismatch) and fault_reg clears (new
       -- translation for new addr) -> permanent deadlock, berr never dispatched.
       if (pload_active = '0' and
-          (tmatch0 = '1' or tmatch1 = '1' or
+          (tmatch0 = '1' or tmatch1 = '1' or fast_hit = '1' or   -- 1.17.3: a clean ATC hit, this clock
           (fault_reg = '1' and translated_cfg_seq = xlat_cfg_seq and fault_current_req_match = '1') or
           (translation_pending = '0' and wstate = W_IDLE and walker_fault = '0' and walker_fault_ack_pending = '0' and
            (req = '0' or (translated_addr = addr_log and translated_fc = fc and translated_rw = rw and translated_cfg_seq = xlat_cfg_seq))))) then

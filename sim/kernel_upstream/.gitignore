@@ -5,3 +5,5 @@ transcript
 baseline.txt
 ours.txt
 results_baseline/
+work_*/
+results_*/
