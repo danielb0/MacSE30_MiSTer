@@ -13460,6 +13460,37 @@ deeper FIFOs, RR0 latched during a read) are left out.
   first Disk figure (the whole SCSI path: blind transfers through GLUE, our
   53C80, the target on the SD image). No real-SE/30 4.02 figures are in
   hand to compare; the 3.x figures of 1.16.3 are another scale.
+- **A crash at the desktop (2026-10-03, compile 30), idle, after the
+  Speedometer run, while Daniel took a MiSTer screenshot.** Garbage on the
+  screen in repeating patterns, coloured (our video is R = G = B, so the
+  colour is outside the Mac - most likely a MiSTer filter; asked).
+  - Probes: PBLD `24a1c9a2`; illegal, address and bus-error counts
+    saturated, the last eight vectors 4 (illegal); 22,679 F-lines on
+    `$FEA1` at `$01784EFA`; the last 16 traps `_DTInstall` (A08F);
+    caches off (CDIS\* asserted), both VIAs' IER `$52`, RAMSIZ 11, SCC:
+    /INT on, an External/Status IP on channel A, RR0B Sync/Hunt 0 - all
+    read as damage, not cause.
+  - **The peek** (`read_probes.tcl peeks`, new: several regions in one
+    session; 524,800 longwords in 33 min - the estimate of 15 was wrong):
+    RAM is overwritten throughout by one exception frame, `2404 002C001C
+    0010` (SR `$2404`: supervisor, **interrupt mask 4**; format 0, vector
+    4, illegal), and low memory by a 28-byte record; the crashed code and
+    the F-line site hold frames too. **An illegal-instruction exception
+    whose own vector was already garbage recursed, and the stack swept the
+    whole 24-bit space**, video RAM included (the screen's pattern). The
+    first event happened at **interrupt level 4, the SCC's**, which with
+    the `_DTInstall` run points at LocalTalk's External/Status path; the
+    evidence itself is overwritten.
+  - LC records with the same fingerprint (`MacLC_MiSTer` memory):
+    `restart-after-speedometer-hang` (a heap header overwritten after a
+    Speedometer 4.02 run, SCSI pseudo-DMA suspected; open there),
+    `quark-hang-80mb-image-forensics` (F-line = fetching non-code; the
+    fit-dependent SDRAM capture), `tg68-comb-loop-plan` (a kernel loop; ours
+    is the carry item of 3.8, 4-8 nodes at `exec`, in every compile).
+  - **Next:** an A/B with AppleTalk inactive (Chooser) against active,
+    idle; and, if it recurs, a first-fault probe (freeze the trap ring,
+    the SCC's recent accesses and the faulting PC/SR at the first illegal,
+    address or bus-error exception).
 - **Next:** SCSI's board gates (9.6 item 5) - System 6 and 7 from SCSI
   (7 done), ID 1, `hfs_check` and `hfs_fork_diff` after a Finder copy, a
   soak, Speedometer's disk test.

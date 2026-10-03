@@ -46,7 +46,7 @@ set samples 1
 set delay   1.0
 set op      ""
 set opargs  {}
-if {$argc >= 1 && [lsearch -exact {peek poke mode raw dqmtest dqmread dqmforce} [lindex $argv 0]] >= 0} {
+if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce} [lindex $argv 0]] >= 0} {
 	set op     [lindex $argv 0]
 	set opargs [lrange $argv 1 end]
 } else {
@@ -200,6 +200,21 @@ if {$op ne ""} {
 				set a [expr {($a0 + $i * $step) & 0x7FFFFF}]
 				lassign [pk_peek $a] d st
 				puts [format "  %06X: %08X%s" $a $d [note $st]]
+			}
+		}
+		peeks {
+			# several regions in ONE session: `peeks A1 N1 A2 N2 ...` (longword
+			# addresses, hex; counts decimal).  The machine is released only at
+			# the end, so every region is the same moment's (a second `peek`
+			# would read a machine already restarting - plan 9.8)
+			foreach {ah cnt} $opargs {
+				set a0 [expr 0x$ah]
+				puts [format "  region %06X x %d" $a0 $cnt]
+				for {set i 0} {$i < $cnt} {incr i} {
+					set a [expr {($a0 + $i) & 0x7FFFFF}]
+					lassign [pk_peek $a] d st
+					puts [format "  %06X: %08X%s" $a $d [note $st]]
+				}
 			}
 		}
 		poke {
