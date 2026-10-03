@@ -13138,6 +13138,18 @@ chip model is ~390 ALMs.
       region in one `quartus_stp` session.
     - **Next: the SCC section** (Z85C30, from Zilog's SCC manual and Guide
       2e), before the board gates of 9.6 item 5. Daniel's call.
+    - **Corrected by the software audit (10.4):** the wait is not for an
+      interrupt that never comes. The code is `'ltlk' 0` ("SCC LocalTalk B
+      v58.5") from the System file, loaded at `$EA340`. All 1024 dumped
+      bytes match it.
+      - Its carrier sense reads the line as busy: RR0 bit 4 (Sync/Hunt) is
+        0 with no SCC. It then defers (`$EA9F0`) and never counts a retry,
+        so `$63E` is never cleared.
+      - A real 8530 on an empty port never sees a clock edge, so the DPLL
+        keeps the receiver hunting: Sync/Hunt reads 1 and the line is free.
+        The enquiries go out unanswered; after 32 retries per enquiry the
+        address is taken and the boot goes on.
+      - The part is the NMOS 8530, not the Z85C30.
   - **First host-checked gate (2026-10-03): SCSI reads and writes are
     byte-exact.**
     - Daniel booted System 6.0.8 from floppy with the image as SCSI-0. The
