@@ -375,8 +375,12 @@ module tb_se30_gcrread;
   // a heartbeat every 50 ms of simulated time, with the wall clock's pace
   // readable from the file's own timestamps
   initial begin : beat
+    reg [8*96-1:0] hb;
     #1;
-    forever begin #50000000; progress("."); end
+    forever begin
+      #50000000;
+      $sformat(hb, ". SWIM gaps: access %0d, valid reads %0d", hit_gap, vr_gap); progress(hb);
+    end
   end
 
   // ------------------------------------------------------------ the HPS (sim/flpload's model)
@@ -509,7 +513,28 @@ module tb_se30_gcrread;
   endtask
 
   // ------------------------------------------------------------ the ROM's time
-  localparam integer T_R = 2, T_ROT = 4, T_BT = 6, T_BN = 4, T_DB = 6, T_DBX = 10, T_IDX = 2, T_VAR = 4;
+  // the 68030's costs (UM Section 11): a register op, a rotate, a branch
+  // taken and not, DBcc looping and expiring, the index of an indexed read,
+  // a d16(An) variable access the bench does not run as a cycle.  +kpace
+  // puts OUR kernel's measured costs in their place (sim/system timetest,
+  // plan 1.17.5) - the ROM's loops at the pace the core really runs them
+`ifndef KP_R
+  // our kernel's costs, sim/system timetest 2026-10-03 (plan 1.17.5): DBcc
+  // 3, a register op or rotate 1, a branch taken 3, not taken 2, the index
+  // 2, DBcc expiring 4, a d16(An) variable read 5 (a 4-clock cycle and a step)
+  `define KP_R 1
+  `define KP_ROT 1
+  `define KP_BT 3
+  `define KP_BN 2
+  `define KP_DB 3
+  `define KP_DBX 4
+  `define KP_IDX 2
+  `define KP_VAR 5
+`endif
+  integer T_R = 2, T_ROT = 4, T_BT = 6, T_BN = 4, T_DB = 6, T_DBX = 10, T_IDX = 2, T_VAR = 4;
+  initial if ($test$plusargs("kpace")) begin
+    T_R = `KP_R; T_ROT = `KP_ROT; T_BT = `KP_BT; T_BN = `KP_BN; T_DB = `KP_DB; T_DBX = `KP_DBX; T_IDX = `KP_IDX; T_VAR = `KP_VAR;
+  end
   localparam [31:0] SW   = 32'h50F16000;               // the SWIM ($1E0)
   localparam [31:0] ORA  = 32'h50F01E00;               // VIA1 register 15 (a5 in the read loops)
   localparam [31:0] DDRA = 32'h50F00600;
@@ -530,6 +555,21 @@ module tb_se30_gcrread;
   // addressing also read the data register - L6 and L7 clear - and re-arm
   // its clear; that is the chip's documented behaviour, not a double take)
   integer    vreads = 0, unseen = 0, latches = 0, last_latch = -1, twice = 0;
+  // the shortest gap between two accesses of the SWIM, and between two
+  // valid data reads, in C16M clocks (plan 1.17.5: the chip clears a byte
+  // 14 clocks after a valid read, so a second read 15 or more later is safe)
+  integer    c16n = 0, hit_last = -1, hit_gap = 9999, vr_last = -1, vr_gap = 9999;
+  always @(posedge clk) if (phi1) begin
+    c16n = c16n + 1;
+    if (swim.hit) begin
+      if (hit_last >= 0 && c16n - hit_last < hit_gap) hit_gap = c16n - hit_last;
+      hit_last = c16n;
+    end
+    if (swim.vread) begin
+      if (vr_last >= 0 && c16n - vr_last < vr_gap) vr_gap = c16n - vr_last;
+      vr_last = c16n;
+    end
+  end
   always @(posedge clk) begin
     if (swim.vread) vreads = vreads + 1;
     if (swim.lat0 || swim.lat1) latches = latches + 1;
@@ -1304,7 +1344,11 @@ module tb_se30_gcrread;
       end
       $sformat(line, "cylinder %0d: %0d sectors so far, %0d bad, %0d errors, %0d bytes taken unread, %0d twice", c, tot_secs, tot_bad_data, tot_errs, unseen, twice);
       progress(line);
-      if ($test$plusargs("stop0")) begin progress("stop0"); $finish; end
+      if ($test$plusargs("stop0")) begin
+        $display("---- the shortest SWIM access gap %0d C16M, the shortest between valid data reads %0d (15 or more cannot re-read a byte)", hit_gap, vr_gap);
+        if (fails == 0) $display("==== PASS: %0d checks (stop0)", checks); else $display("==== FAIL: %0d failures, %0d checks (stop0)", fails, checks);
+        progress("stop0"); $finish;
+      end
     end
     check(ok, "every seek, both drives: /STEP handshakes, /READY within the ROM's polls, the head where asked", ok, 1);
     n = 0; for (i = 0; i < list_n; i = i + 1) n = n + 2 * spt(cyls[i]);
@@ -1400,6 +1444,7 @@ module tb_se30_gcrread;
     check(hung == 0 && bus_timeouts == 0, "no poll or bus cycle hung", hung + bus_timeouts, 0);
     $display("     %0d SWIM cycles, %0d disk-port words, %0t ns simulated", swim_cycles, dk_words, $time);
 
+    $display("---- the shortest SWIM access gap %0d C16M, the shortest between valid data reads %0d (15 or more cannot re-read a byte)", hit_gap, vr_gap);
     if (fails == 0) $display("==== PASS: %0d checks", checks);
     else            $display("==== FAIL: %0d of %0d checks", fails, checks);
     progress("done");

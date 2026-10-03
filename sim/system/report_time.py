@@ -63,6 +63,10 @@ T = {
     "SUBQ #,Rn":        (2, 0, 2, 2, 0, 1, 0),
     # 11.6.11 single operand (p. 11-44)
     "TST Dn":           (0, 0, 2, 2, 0, 1, 0),
+    "TST Mem":          (0, 0, 2, 2, 0, 1, 0),     # + fetch EA (p. 11-44)
+    "EOR Dn,Dn":        (2, 0, 2, 2, 0, 1, 0),     # p. 11-41 (head as ADD Rn,Dn; the OCR shows only the tail)
+    "ROd #,Dy":         (4, 0, 6, 6, 0, 1, 0),     # p. 11-45 (read from the page image)
+    "fea (d8,An,Xn)":   (4, 2, 6, 6, 1, 0, 0),     # brief format (p. 11-25)
     # 11.6.12 shift/rotate (p. 11-45)
     "LSd #,Dy":         (4, 0, 4, 4, 0, 1, 0),
     "ROXd Dn":          (10, 0, 12, 12, 0, 1, 0),
@@ -118,13 +122,14 @@ def main():
         win[int(k)] = (int(turns), name)
     m = {}
     for line in open(log):
-        g = re.search(r"---- tw (\d+) clocks (\d+) fetch (\d+) (\d+) data (\d+) (\d+) hits (\d+)", line)
+        g = re.search(r"---- tw (\d+) clocks (\d+) fetch (\d+) (\d+) data (\d+) (\d+) hits (\d+)(?: swimgap (\d+))?", line)
         if g:
-            k, clk, nf, lf, nd, ld, h = map(int, g.groups())
+            k, clk, nf, lf, nd, ld, h = map(int, g.groups()[:7])
+            sg = int(g.group(8)) if g.group(8) else -1
             # each window holds the start marker's write, 4 clocks (and the
             # end marker's read too before plan 1.17.2's fix, when CLR read
             # its destination: two data cycles in a window with none of its own)
-            m[k] = dict(clk=clk, nf=nf, lf=lf, nd=nd, ld=ld, h=h)
+            m[k] = dict(clk=clk, nf=nf, lf=lf, nd=nd, ld=ld, h=h, sg=sg)
     # the marker cycles: two per window before the fix, one after - read off
     # window 0, which has no data cycle of its own
     mk = m[0]["nd"] if 0 in m else 1
@@ -160,7 +165,7 @@ def main():
     lo = internal + (m[1]["lf"] + m[1]["ld"]) / win[1][0]
     rows.append((1, per(1), lo, hi, "no-cache: %d internal + the bus; NCC formula %d" % (internal, hi)))
     def cached_rows(b):
-        """windows b..b+9: 2-11's loops (b = 2), or the same under the PMMU (b = 12)"""
+        """windows b..b+15: 2-17's loops (b = 2), or the same under the PMMU (b = 18)"""
         # DBRA alone, cached
         rows.append((b, per(b), cache_case([part("DBcc loop")]), None, "Eq. 11-2"))
         # register-only
@@ -187,9 +192,29 @@ def main():
                                                    + [part("DBcc loop")]), None, "Eq. 11-2, port W 14, RAM W 2"))
         rows.append((b + 9, per(b + 9), cache_case([part("fea (An)+", read_w=RAM), part("MOVE SRC,(An)", write_w=SC)] * 8
                                                    + [part("DBcc loop")]), None, "Eq. 11-2, RAM W 2, port W 14"))
+        # the .Sony's handshake poll (plan 1.17.5): the SWIM a 4-clock cycle
+        SW = 4 - 2
+        rows.append((b + 10, per(b + 10), cache_case([part("fea (An)", read_w=SW), part("TST Mem"), part("DBcc loop")]), None,
+                     "Eq. 11-2, SWIM W 2"))
+        vv = m[b + 11]["ld"] / m[b + 11]["nd"]  # the VIA cycle as the bench ran it (GLUE's E-clock sync)
+        rows.append((b + 11, per(b + 11), cache_case([part("fea (An)", read_w=vv - 2), part("TST Mem"), part("DBcc loop")]), None,
+                     "Eq. 11-2, VIA cycle %.2f measured" % vv))
+        # the GCR address field (ROM $40831C48): read, bpl, lookup, ... five reads a turn
+        rd = [part("fea (An)", read_w=SW), part("MOVE EA,Dn"), part("Bcc.B not taken")]
+        lk = [part("fea (d8,An,Xn)", read_w=RAM), part("MOVE EA,Dn")]
+        seq = (rd + lk + [part("MOVE Rn,Dn"), part("ROd #,Dy")] + rd + lk + [part("EOR Dn,Dn")]
+               + rd + lk + [part("EOR Dn,Dn"), part("ROd #,Dy")] + [part("DBcc loop")])
+        rows.append((b + 12, per(b + 12), cache_case(seq), None,
+                     "Eq. 11-2; shortest SWIM strobe gap on the core %d clocks (the chip clears the byte 14 after a read: 15 or more is safe)"
+                     % m[b + 12]["sg"]))
+        rows.append((b + 13, per(b + 13), cache_case([part("SUBQ #,Rn"), part("Bcc taken")]), None, "Eq. 11-2"))
+        rows.append((b + 14, per(b + 14), cache_case([part("TST Dn"), part("Bcc.B not taken"), part("MOVE Rn,Dn"), part("DBcc loop")]), None,
+                     "Eq. 11-2 (MOVEQ as MOVE Rn,Dn)"))
+        rows.append((b + 15, per(b + 15), cache_case([part("fea (d8,An,Xn)", read_w=RAM), part("MOVE EA,Dn"), part("DBcc loop")]), None,
+                     "Eq. 11-2, W 2"))
     cached_rows(2)
-    if 12 in win:
-        cached_rows(12)                       # an ATC hit costs a 68030 nothing (UM 11.2.6)
+    if 18 in win:
+        cached_rows(18)                       # an ATC hit costs a 68030 nothing (UM 11.2.6)
 
     print("%-3s %-88s %9s %15s %11s  %s" % ("w", "loop", "core/turn", "68030/turn", "core/68030", "basis"))
     for k, core, lo, hi, basis in rows:

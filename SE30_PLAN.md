@@ -2419,9 +2419,182 @@ untouched and lands the same result a clock later.
    with the PMMU's clock gone and the CPU still 2x fast internally,
    Graphics and Disk may come out above the real machine.
 4. **The design section for a paced kernel** (Daniel's step 2): instruction
-   timing to Table 11 and the write-pending overlap together.
+   timing to Table 11 and the write-pending overlap together. **2026-10-03:
+   now the fix for the floppy regression - 1.17.5 has the evidence and the
+   design, for Daniel's approval; the tables are in FEA            41 rows
+FIEA           75 rows
+CEA            38 rows
+CIEA           74 rows
+JEA            34 rows
+MOVE           42 rows
+SPECIAL_MOVE   22 rows
+ARITH          39 rows
+IMMED          17 rows
+BCD            13 rows
+SINGLE         16 rows
+SHIFT          16 rows
+BIT            16 rows
+BITFIELD       24 rows
+BRANCH          7 rows
+CONTROL        28 rows
+EXCEPTION      19 rows
+SAVE_RESTORE    8 rows.**
 5. **The disk on its own track** (step 3): the target's latency and the
    driver's polled phases.
+
+### 1.17.5 The floppy regression: the pace of the kernel against the SWIM (2026-10-03)
+
+**The question.** Compile 32 will not mount floppies (1.17.3); compile 31
+did. Daniel asked whether to revert to compile 31 and start the timing
+work again. Answer, with the evidence below: no - the CLR fix has no
+mechanism in the floppy path, and the PMMU fix is correct by the manual
+and has only uncovered the kernel's internal speed, which the ROM's
+floppy driver cannot tolerate. The fix is the paced kernel (1.17.4 item
+4), and this section turns that item from authenticity into correctness.
+
+**1. The CLR fix is innocent.** A disassembly of the whole ROM (capstone,
+M68K_030; `scripts/se30_declrom.py` has the same loader) lists every
+`CLR`, `Scc` and `MOVE from SR/CCR` with a memory destination whose
+offset has a device register's shape (a multiple of `$200` up to `$1E00`,
+the SWIM's and the VIAs' spacing): three in 256 KB - `clr.b $1600(a2)` at
+`$40803456` and `clr.b $1800(a1)` at `$40806D98`, both in the start-up
+code with A2/A1 = a VIA base (`vACR`, `vPCR`: a read of either has no
+side effect, so the lost read changes nothing), and `clr.l $0(a3)` at
+`$4082A208` (not a device). Inside .Sony (`$4082D72C`, header: Open
+`$70`, Prime `$44A`, Control `$1C6`, Status `$34C`, Close `$18`) every
+`CLR`/`Scc` targets the driver's own variables (`$100`-`$135` off A1, the
+per-drive bytes `$2`-`$19` off `(A1,D1.W)`) or the stack. The IWM base
+(`$1E0`, set to `$50F16000` at `$408006A0`) is loaded into A0/A3/A4 at
+eleven sites; no write-only instruction uses any of them. System 7.5.5's
+RAM-resident patches were not scanned (not in hand), but the ROM's own
+driver is what mounts a disk, and it has nothing for the fix to change.
+
+**2. Two places where the driver's pace matters, by the chip's rules.**
+- **The read data register's 14-FCLK clear** (5.12.12 item 2, the IWM
+  production spec): in asynchronous mode the latched byte is cleared 14
+  FCLK after a valid data read (`/DEV` low with D7 = 1). A second read of
+  the register inside that window returns the same byte again - a byte
+  taken twice, which the GCR address field's checksum (`$40831C6A`) or
+  the data's catches as an error, and the driver retries until it gives
+  up. In C16M clocks the rule is: a strobe 15 or more after a valid read
+  is safe, 14 re-reads (`se30_swim.v`: `clr_cnt` loaded at the valid
+  read, the latch cleared when it reaches 1). The ROM's GCR path reads
+  the data register with a table lookup and one or two register
+  operations between reads - the address field `$40831C48`-`$40831C69`
+  (`move.b (a4),d5 / bpl / move.b (a3,d5.w),d1 / move.b d1,d4 / ror.w #6,d1
+  / move.b (a4),d5 / bpl / move.b (a3,d5.w),d2 / eor.b d2,d4 / move.b
+  (a4),d5 ...`) and the data loop's `$40831D08`/`$40831D6A` shapes (a
+  lookup, `rol.b #2`, `move.b`, `and.b`, the next read). Every other
+  pair has a VIA1 read (16 clocks) or a RAM write between them.
+  5.12.12 item 2 recorded that the bench's poller once re-read within 14
+  FCLK "faster than the ROM ever does" - on a 68030.
+- **The MFM read loop's 31-poll budget** (`$4082EAB6`, the ISM data read
+  for a 1.44 MB disk): after each byte, `tst.b (a3)` on the handshake, a
+  VIA1 PA7 poll, then `moveq #$1E,d1; tst.b (a3); dbmi d1,*` - at most 31
+  handshake polls before `noNybErr`-class failure ($2EAD2). A byte comes
+  every 16 us = 251 C16M clocks at 500 kbit/s (GCR's 489.6 kbit/s is the
+  same 251).
+
+**3. Measured** (`sim/system` timetest, five windows added - 12-17 and
+their PMMU-on copies - the ROM's loops verbatim; the bench's device port
+now answers the SWIM's data register with `$FF` so the ROM's `bpl`
+polls fall through, reads everything else as 0 so `dbmi` polls loop, and
+reports the shortest SWIM strobe-to-strobe gap in each window; the
+markers moved to `$3000+8w` for 64 windows):
+
+| loop | 68030 (UM 11) | core, compile 32 | core, fast path off (compile 31) |
+|---|---|---|---|
+| SWIM handshake poll `tst.b (a3); dbmi` | 13 | **8.01** | 12.02 |
+| VIA1 ORA poll `tst.b (a5); dbmi` | 25.0 (VIA cycle 16) | 20.0 | 20.0 (VIA 13) |
+| GCR address field, 5 reads + lookups | 87 | **50.3** | 66.2 |
+| ... its shortest data-register gap | ~21 | **15** (14 re-reads) | **20** |
+| `subq; bne` taken | 8 | 4.02 | 6.02 |
+| `tst; beq` not taken; `moveq`; `dbra` | 14 | 7.04 | 10.04 |
+| `move.b (a3,d5.w),d1; dbra` | 16 | 10.18 | 14.10 |
+
+(The compile-32 column is the same with the PMMU off and on, as the manual has it - windows 2-17 equal 18-33 to 0.01; the compile-31 column is the PMMU-on set with the fast path forced off, a scratch mutant of `TG68K_PMMU_030.vhd`, `fast_hit` held low.)
+
+- **GCR**: the kernel's shortest gap between two data-register reads is
+  **15 clocks - the safe minimum with no margin at all**. Compile 31's
+  lost clock on every step put it at **20**. A 68030 has about 21.
+- **MFM**: 31 polls at 8.01 = 248 clocks, plus the loop's head (the
+  `dbra`, the first `tst.b`, the VIA poll, ~30) = about 278 against the
+  251-clock byte - an 11 % margin where a 68030 has 80 % (31 x 13 + 50 =
+  453) and compile 31 had about 50 %.
+
+**4. What this says about the board.** The two figures that moved between
+compile 31 and 32 are exactly the two the driver's chip rules care about,
+and both now sit at or inside the chip's limits: the GCR data-register
+gap at the clear's edge (15, where 14 doubles a byte), the MFM poll
+budget at 288 against 251 (a 68030: 453). Everything else in the floppy
+path - the drive's step and settle polls, the power-up's /READY polls -
+is Time-Manager or VBL timed (`sim/gcrread`'s `ms_wait`), not CPU-paced,
+and did not move. The replay bench, `sim/gcrread` with the new `+kpace`
+(the ROM's loops replayed at the kernel's measured costs instead of the
+68030's: DBcc 3, a register op or rotate 1, a branch taken 3, not taken
+2, the index 2), run to the first cylinder of both drives (`+quick
++stop0`), is the end-to-end check of the GCR side. **Run 2026-10-03: the
+loads and both recalibrates passed at the kernel's pace, and the run was
+stopped at its 40-minute limit inside the first cylinder's reads (3.25 s
+simulated - the reads run at about 50 ms of disk time a minute); a run
+to the first cylinder needs about 90 minutes, which is Daniel's call (the
+30-minute rule). The bench's heartbeat now prints the shortest SWIM
+gaps, so a rerun shows within minutes whether the replay reproduces the
+kernel's 15 and what the chip makes of it.**
+
+**5. The fix: the paced kernel (1.17.4 item 4, now a correctness item).**
+Not a revert. Compile 31 masked the same two edges with a clock the
+manual says does not exist (UM 11.2.6), and the kernel's 2x internal
+speed remains behind everything else - the chime, Speedometer's CPU
+1.81x, and every other piece of software that was tuned to a 68030's
+pace. The design, for Daniel's approval before building:
+
+- **Where.** The wrapper (`tg68k.v`), not the kernel: a budget counter
+  beside the kernel's beat enable. The kernel marks each instruction's
+  start (`setopcode`); the wrapper holds the kernel's internal beats at
+  the next instruction boundary until the current instruction has been on
+  the clock for its budget. Bus cycles are never delayed - the 68030
+  issues them as early as it can, and the kernel's cycle timing is
+  already the Guide's - only the step into the next instruction is.
+- **The budget: UM Section 11's model, Equation 11-2.** For each
+  instruction: its table's I-cache-case clocks, plus its effective
+  address part's (fea, fiea, cea, ciea or jea by the instruction's
+  footnote), less the overlap `min(head, tail of the previous
+  instruction)`; wait states beyond the tables' two-clock cycles are
+  added as the manual's 11.5 rules add them (each operand cycle's length
+  less 2, so the SE/30's one wait state and the SWIM's and VIA's longer
+  cycles count as they do on the real machine). Branches and DBcc take
+  their taken / not-taken / expired rows from the outcome. The tables are
+  transcribed from the manual's page images into
+  `tools/time030/um11.py` (18 tables, 529 rows, 2026-10-03): the single
+  source for the wrapper's decoder and for `report_time.py`.
+- **The decoder.** The opcode word, the EA mode and size, and the
+  kernel's branch outcome select the row - an opcode-class decode of a
+  few hundred terms, with the tables' clock counts as constants, not a
+  65,536-entry ROM. Rare rows (bit field, BCD, CAS, the full-format EA
+  modes) may share a class figure. Estimate: 300-500 ALMs and no M10K,
+  against the ~1,000 left (10.4).
+- **What it does not do.** The write-pending overlap (UM 11.2.5.2 - the
+  68030 runs the next instruction's head under a write's cycle; the
+  kernel waits for the acknowledge) is not pacing but speed, the 1.09-1.16
+  of the video-RAM loops; it needs a one-entry write buffer in the wrapper
+  and is a separate item. The I-cache case is modelled; a fetch that
+  misses costs its real cycle, as the manual's no-cache case charges it.
+- **The gate.** `sim/system` timetest: every cached window within 10 % of
+  the manual's figure, the SWIM poll at 13, the GCR gap at 20 or more;
+  `sim/gcrread` `+kpace` at the paced costs; `sim/kernel_upstream`, the
+  cputest corpus and `sim/cpfpu` unchanged (pacing changes no result);
+  then the board: floppies mount, the chime 1.0-1.3 s, Speedometer CPU
+  near 1.0.
+- **Until it lands**, a bitstream with only the ATC fast path off would
+  behave as compile 31 - a stopgap, if Daniel wants one, not the fix.
+
+**Added this session**: `sim/system` timetest windows 12-17 (the SWIM
+and VIA polls, the GCR address field with the strobe-gap meter, a taken
+branch, a not-taken branch, an indexed read) and their PMMU-on copies
+18-33; the bench's device port answers the SWIM's data register with
+`$FF`; the markers at `$3000+8w` (64 windows); `report_time.py` rows for
+each; `sim/gcrread` `+kpace` and its gap meter; `tools/time030/um11.py`.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 

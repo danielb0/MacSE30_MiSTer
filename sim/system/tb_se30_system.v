@@ -113,6 +113,9 @@ module tb_se30_system;
   wire  [7:0] dev_wdata;
   reg         hsync_n = 1;
   reg         timetest = 0;              // +TIMETEST (read at the start): DRQ held high
+  // the device port reads 0, except the SWIM's data register ($1800, rs $C),
+  // which reads $FF: a byte always there, for timetest's GCR window (plan 1.17.5)
+  wire  [7:0] dev_rdata = (swim_sel && dev_addr[12:9] == 4'hC) ? 8'hFF : 8'h00;
   // VIA1's interrupt, as the program asks: raised by its write to $3080,
   // dropped by the handler's write to $3084
   reg         via1_irq_n = 1;
@@ -131,7 +134,7 @@ module tb_se30_system;
     .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(rom_rdata), .rom_ack(rom_ack),
     .via1_sel(via1_sel), .via2_sel(via2_sel), .scc_sel(scc_sel), .scsi_sel(scsi_sel), .scsi_dack(scsi_dack),
     .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
-    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(8'h00), .scsi_drq(timetest),
+    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(timetest),
     .e_clk(e_clk), .c3m_en(c3m_en),
     .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
     .via1_irq_n(via1_irq_n), .via2_irq_n(1'b1), .scc_irq_n(1'b1), .nmi_n(1'b1),
@@ -278,17 +281,18 @@ module tb_se30_system;
   end
 
   // ---------------------------------------------------- the timing meter
-  // timetest: window w runs from a write to $3100+8w to one to $3104+8w;
+  // timetest: window w runs from a write to $3000+8w to one to $3004+8w (w < 64);
   // in it, the C16M clocks, the fetch and data cycles and their lengths
   // (S0-S5, as above), and the fetches and reads the caches answered
-  integer tw = -1, tw_t0 [0:31], tw_t [0:31], tw_nf [0:31], tw_lf [0:31], tw_nd [0:31], tw_ld [0:31], tw_h [0:31];
+  integer tw = -1, tw_t0 [0:63], tw_t [0:63], tw_nf [0:63], tw_lf [0:63], tw_nd [0:63], tw_ld [0:63], tw_h [0:63];
+  integer tw_sg [0:63], sw_last = -1;     // the shortest gap between two SWIM strobes, in C16M clocks (9999: fewer than two)
   integer tas = 0, tk; reg tas_q = 1; reg [2:0] tfc;
-  initial for (tk = 0; tk < 32; tk = tk + 1) begin
-    tw_t[tk] = 0; tw_nf[tk] = 0; tw_lf[tk] = 0; tw_nd[tk] = 0; tw_ld[tk] = 0; tw_h[tk] = 0;
+  initial for (tk = 0; tk < 64; tk = tk + 1) begin
+    tw_t[tk] = 0; tw_nf[tk] = 0; tw_lf[tk] = 0; tw_nd[tk] = 0; tw_ld[tk] = 0; tw_h[tk] = 0; tw_sg[tk] = 9999;
   end
   always @(posedge clk) if (phi1 && timetest) begin
-    if (!cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr[31:8] == 24'h000031 && cpu_addr[1:0] == 0) begin
-      tk = cpu_addr[7:3];
+    if (!cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr[31:9] == 23'h000018 && cpu_addr[1:0] == 0) begin
+      tk = cpu_addr[8:3];
       if (!cpu_addr[2] && tw != tk) begin tw = tk; tw_t0[tk] = clocks; end
       if (cpu_addr[2] && tw == tk) begin tw_t[tk] = clocks - tw_t0[tk]; tw = -1; end
     end
@@ -299,6 +303,10 @@ module tb_se30_system;
       else             begin tw_nd[tw] = tw_nd[tw] + 1; tw_ld[tw] = tw_ld[tw] + tas + 1; end
     end
     if (tw >= 0 && cpu.hit_ack) tw_h[tw] = tw_h[tw] + 1;
+    if (dev_strobe && swim_sel) begin                                  // one C16M wide: one sample here
+      if (tw >= 0 && sw_last >= 0 && clocks - sw_last < tw_sg[tw]) tw_sg[tw] = clocks - sw_last;
+      sw_last = clocks;
+    end
     tas_q = cpu_as_n;
   end
 
@@ -387,7 +395,7 @@ module tb_se30_system;
     if (timetest) begin                                                 // a measurement: report and stop
       fd = $fopen({prog_dir, "/count.txt"}, "r"); r = $fscanf(fd, "%d", kk); $fclose(fd);   // the windows
       for (vk = 0; vk < kk; vk = vk + 1) begin
-        $display("---- tw %0d clocks %0d fetch %0d %0d data %0d %0d hits %0d", vk, tw_t[vk], tw_nf[vk], tw_lf[vk], tw_nd[vk], tw_ld[vk], tw_h[vk]);
+        $display("---- tw %0d clocks %0d fetch %0d %0d data %0d %0d hits %0d swimgap %0d", vk, tw_t[vk], tw_nf[vk], tw_lf[vk], tw_nd[vk], tw_ld[vk], tw_h[vk], tw_sg[vk]);
         if (tw_t[vk] > 0) pass = pass + 1;
         else begin fails = fails + 1; $display("FAIL: window %0d never closed", vk); end
       end
