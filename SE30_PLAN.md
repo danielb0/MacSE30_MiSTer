@@ -13199,6 +13199,13 @@ tested by seam benches and then the board.
 4. The board: System 7.5.5 boots from SCSI with AppleTalk active; then
    SCSI's own board gates (9.6 item 5).
 
+## 10.3 Decisions
+
+- **An empty port reads idle (1)** on RxD: Daniel, 2026-10-03, "Use idle
+  (1) for an empty port". The SN75175 receivers are indeterminate with
+  open inputs (TI: no fail-safe), so the documents leave the choice to
+  us (`se30_scc_wiring.md` OPEN 5).
+
 ---
 
 ## Appendix - where the sources are
