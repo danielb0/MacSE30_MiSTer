@@ -2384,6 +2384,30 @@ untouched and lands the same result a clock later.
     - **Disk did not move** (0.39, within compile 31's two runs): the SCSI
       loop was already at the 68030's pace (1.17.1), so the gap is the
       target's sector latency or the driver's polled phases - step 3.
+  - **REGRESSION, OPEN: compile 32 will not mount floppies** (Daniel,
+    2026-10-03: "hung temporarily while trying to mount a floppy. This
+    version will not mount floppies"). Compile 31 did. Two suspects, the
+    build's two changes:
+    1. **1.17.2's CLR fix.** The SWIM has no R/W pin - in the IWM set every
+       access, read or write, moves a state line by its address, and a
+       write with L6/L7 set writes the mode or data register
+       (`rtl/se30_swim.v` header, "THE BUS"). A `CLR` of a SWIM address
+       was two accesses (the 68000-style read, then the write) and is now
+       one. If the ROM's .Sony (`$2D72C`) uses `CLR`/`Scc` on SWIM
+       addresses, it now moves the lines once, not twice, or writes where
+       it read - the first thing to check: scan .Sony for `CLR`/`ST`/
+       `SF` with a SWIM base register, and compare what the real 68030's
+       single write does to the IWM (the model's write path) against what
+       the old read+write did.
+    2. **1.17.3's PMMU fix.** Under translation the CPU now runs up to 1.5x
+       faster than before; .Sony's software timeouts (TimeDBRA-calibrated
+       at boot with the PMMU off) now run at the calibrated pace rather
+       than slower - so less likely, but a timing-sensitive loop could
+       now expire early.
+    To split them: a bitstream with only one of the two changes (or the
+    `gcrread` bench, which reads through the ROM's .Sony, under each).
+    The probe deck was not read (Daniel stopped the read; the hang
+    cleared by itself).
 
 ### 1.17.4 Next
 
