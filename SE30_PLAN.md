@@ -13263,6 +13263,126 @@ Options (the colour card, the 128 MB clean ROM) are decided when the base
 machine's real numbers are in. Each section's measured cost replaces its
 estimate here.
 
+## 10.5 The design (2026-10-03)
+
+The documents are the three extractions in `C:\temp\Mac\SE30\Docs\scc\`:
+- `spec_z8530.md`, the chip, cited to the 1986 manual (TM86) and UM0109;
+- `se30_scc_wiring.md`, the board, from Apple's sheet 7 (UG12 "8530");
+- `audit_se30_scc_software.md`, the ROM and `'ltlk' 0`.
+
+Their open items are settled below, by document where one speaks and by
+the software's use where none does. Engineering choices are marked as
+such.
+
+### 10.5.1 The board (sheet 7)
+
+| 8530 | SE/30 |
+|---|---|
+| D7-D0 | D31-D24, `DSACK0*` (8-bit port) |
+| A/B, D/C | **A1** (1 = channel A), **A2** (1 = data): B control +0, A control +2, B data +4, A data +6, repeating every 8 bytes through `$50004000-$50005FFF`. SCCRd = SCCWr = `$50F04000` (ROM `$40800780`) |
+| /CE, /RD, /WR | GLUE `SCCENN`, `SCCRDN`, `SCCWRN` |
+| /INT | GLUE `SCCIRQN`, **level 4**, autovector `$1C` (*Guide* Table 3-5; its ch. 10 "level 2" is the 68000 machines') |
+| /INTACK, IEI | tied high (PU): **no acknowledge ever**, so no IUS is ever set |
+| IEO, /SYNCA, /SYNCB | not connected |
+| PCLK, /RTxCB | GLUE `C3M`, 3.672 MHz |
+| /RTxCA | `SYNC3M`: C3M while VIA1 PA3 `vSync` = 0; GPiA inverted (a 75175 enabled by vSync) while 1 |
+| /CTS and /TRxC (each channel, tied) | HSKi, uninverted |
+| /DCD | GPi, inverted |
+| RxD | RxD+/- through a 75175 |
+| TxD | a 26LS30 enabled only while /RTS is low |
+| /DTR | HSKo, inverted |
+| /W//REQA, /W//REQB | wired together to VIA1 PA7 `vSCCWrReq` (nothing else: Wait has no bus effect) |
+| reset | **no pin**: only the WR9 commands (the ROM uses channel resets) |
+
+**The plan's own errors, corrected here:** SYNC is VIA1 PA3's output and
+GLUE's input, not a GLUE output (2.3's pin list); SCCWREQ\* has no
+pull-up on sheets 4, 7 or 8 (4.5 and 4.7 say "pulled up"): with both channels
+disabled (the reset state, open-drain Wait) the core reads 1, as the
+wired-AND of two floating outputs (engineering).
+
+**The empty port** (10.3): RxD = 1. The 75175's output with open inputs is
+indeterminate (TI), so the handshake inputs are also a choice: **/CTS and
+/DCD held high** (HSKi high, GPi low), steady, so they make no
+transitions and no Ext/Status interrupts.
+
+### 10.5.2 The modules
+
+- **`rtl/se30_scc.v`**, the chip:
+  - the bus side: the pointer (one for both channels), WR2 and WR9
+    (shared), the resets;
+  - the interrupt system: six IPs in priority Rx A > Tx A > Ext A > Rx B >
+    Tx B > Ext B, MIE, RR2A/RR2B/RR3A, /INT;
+  - two channel instances;
+  - the board's input mux (RTxCA from vSync), the wired W/REQ.
+- **`rtl/se30_scc_chan.v`**, one channel: its registers; RR0, RR1, RR10;
+  the BRG, the DPLL, the transmitter, the receiver, the Ext/Status latches,
+  W/REQ and DTR/REQ.
+- **Clocks.** Everything runs on `clk` with enables. PCLK is `c16_en &&
+  c3m_en` (15 in every 64 C16M clocks). The serial clocks (RTxC, TRxC,
+  the BRG output, the DPLL outputs) are levels inside the channel, and
+  each consumer acts on the edge the manual names (TM86 Fig 6-1).
+  - RTxC = C3M has a rising edge at each PCLK tick and a falling edge two
+    C16M clocks later (engineering: the averaged clock's other half).
+  - External clocks (TRxC from HSKi, RTxCA from GPi) are sampled at PCLK.
+    The NMOS limit for an external clock is PCLK/4, so nothing is lost.
+- **Bus cycle.** GLUE's strobe (`dev_strobe`, with `scc_sel`) is the
+  coincidence of /CE with /RD or /WR. On it the chip:
+  - latches A2, A1, R/W and the data;
+  - does the access's side effects once: a FIFO pop, the pointer's return
+    to 0, a command;
+  - registers the read byte, which GLUE takes two clocks later.
+
+  The 4-PCLK recovery (6 in TM86 ch. 8, O-1) and the reset stretch are not
+  modelled: GLUE's 2.2 us hold-off (about 8 PCLKs) always covers them.
+
+### 10.5.3 The open items, settled
+
+| Spec item | Settled as | Basis |
+|---|---|---|
+| O-2 RR0 CTS/DCD/Sync polarity | **bit = NOT pin** (1 when the pin is low) | UM p.176: "A High on the /SYNC pin holds the Sync/Hunt bit in the reset condition", and the CTS and DCD bits are said to work the same way |
+| O-3, O-23 TBE around the CRC | TBE = 0 from the CRC's load until the flag after it is loaded, **then 1**, with TxIP | **use**: `'ltlk' 0` polls TBE after EOM with no timeout (`$EADFA`) and worked on real 8530s; UM p.50 agrees; TM86 4.2.2's "not set" is read as "not set early" |
+| O-9 DPLL 010 (Reset Missing Clock) | clears the RR10 latches and puts the DPLL **in search, still enabled** | **use**: LocalTalk sends `WR14=$41` before and after every frame and never re-issues Enter Search, yet it receives |
+| O-4 reset values | TM86 Fig 3-8 (RR0 D7, RR10 D6 = 0) | TM86 governs the NMOS part |
+| O-5 sync-character inhibit in async | **strips** characters equal to WR6 | the NMOS Q&A (UM p.380) |
+| O-6 WR11 after hardware reset | Rx clock = /RTxC | TM86 Fig 3-8 and UM |
+| O-10 IP update | every second PCLK, **frozen while the pointer is 2 or 3** | TM86 3.2.3 |
+| O-12 RR2B | encodes the IPs whatever MIE is (IPs set with MIE = 0) | TM86 4.2 |
+| O-13 overrun | a 3-byte FIFO plus the shift register; a character finished while both are full replaces the shift register's and is flagged | UM-QA "the fifth character ... causes an overrun"; the slot is engineering |
+| O-14 Error Reset on a locked, unread character | pops it ("the data is lost") | TM86 7.1.1; **use**: the LAP flushes the FIFO with reads and Error Resets |
+| O-15 Reset EOM with the transmitter disabled | literal: the latch stays 1 and the Ext/Status interrupt fires | TM86 7.1.1 |
+| O-16 the CRCs | CRC-CCITT x^16+x^12+x^5+1 and CRC-16 x^16+x^15+x^2+1, LSB first, inverted on transmit in SDLC, residue `$1D0F` | the CCITT and IBM standards (outside the manuals); the residue is TM86's |
+| O-17 async start bit | a falling edge, confirmed low at mid-cell (count 8 of 16, 16 of 32, 32 of 64) or abandoned as a false start; data sampled mid-cell; x1 per UM p.84 | engineering, around UM-QA's "samples on count 8" |
+| O-22 abort on underrun | eight 1s, then a flag | as Send Abort (TM86 5.3.2) |
+| O-24 one-byte frames | not replicated | a user's observation, not a specification |
+| O-25 NV/VIS at power-on | 0 | engineering |
+| O-27 All Sent | async: 1 whenever the transmitter is completely empty; sync/SDLC: always 1 | TM86 7.2.2 |
+| O-18 latencies | the Rx 3-bit delay is built (it is why the last two CRC bits never reach the FIFO); the buffer-to-shift transfer at the character boundary | TM86 2.2.2, UM-QA |
+
+The 85C30/ESCC-only features (WR7', the status FIFO, software INTACK, the
+deeper FIFOs, RR0 latched during a read) are left out.
+
+### 10.5.4 The tests
+
+1. **`sim/scc`, the chip** (Icarus):
+   - every register's read and write, the images (RR4-7, 9, 11, 14), the
+     reset tables, the pointer;
+   - the interrupt system: priority, RR2B's status, MIE, the IP freeze,
+     the first-character Tx rule, the Ext/Status latches (the double reset);
+   - the transmitter bit-exact on TxD, in async and SDLC, with each
+     encoding, CRC and zero insertion, idle, abort and underrun;
+   - the receiver from the transmitter through local loopback (async, and
+     SDLC with address search, CRC check and EOF);
+   - the DPLL from an FM0 stream fed to RxD;
+   - **the ROM's init and `'ltlk' 0`'s enquiry replayed register by
+     register** (10.5.1's empty port): every poll ends, at the real bit
+     rate.
+2. **The seam with GLUE:** the window, A1/A2, the 2.2 us hold-off, a word
+   access hitting one register twice, the read capture.
+3. **`sim/system`:** a program running the ROM's SCC init and an enquiry
+   on the real CPU (a few seconds).
+4. **The board:** System 7.5.5 boots from SCSI with AppleTalk active.
+   Then SCSI's gates (9.6 item 5).
+
 ---
 
 ## Appendix - where the sources are
