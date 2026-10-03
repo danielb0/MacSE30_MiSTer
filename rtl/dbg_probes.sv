@@ -83,6 +83,10 @@
 //         [1:0], target REQ, bus REQ, ACK, SEL, RST, ATN, MSG, C/D, I/O,
 //         chip BSY, DRQ, IRQ, 00}, then the disks' io_rd[1:0], io_wr[1:0],
 //         sd_ack[1:0] and a count of sectors moved [9:0]
+// and, since plan 11.3 (the ASC):
+//   PASC  32 bits, registered here on clk: se30_asc's dbg {mode[1:0], $804
+//         [3:0], FIFO A's count [10:0], FIFO B's count [10:0], interrupts
+//         raised [3:0] (wrapping)}
 // and, since plan 10.5 (the SCC):
 //   PSCC  32 bits, registered here on clk: se30_scc's dbg {accesses[11:0]
 //         (wrapping), the register pointer, /INT, MIE, the six visible IPs
@@ -136,7 +140,8 @@ module dbg_probes (
 	input  wire [56:0] exc_state,         // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
 	input  wire [63:0] cache_state,       // PCCH: the 68030's caches (plan 1.16.3)
 	input  wire [31:0] scsi_state,        // PSCS: the SCSI bus and the disks' slots (plan 9.8)
-	input  wire [31:0] scc_state          // PSCC: the SCC (plan 10.5)
+	input  wire [31:0] scc_state,         // PSCC: the SCC (plan 10.5)
+	input  wire [31:0] asc_state          // PASC: the ASC (plan 11.3)
 );
 
 	reg        as_q = 1;
@@ -284,6 +289,15 @@ module dbg_probes (
 		.instance_id ("PSCS"), .probe_width (32), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pscs (.probe(pscs_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the ASC (the header's PASC)
+	reg [31:0] pasc_r = 0;
+	always @(posedge clk) pasc_r <= asc_state;
+
+	altsource_probe #(
+		.instance_id ("PASC"), .probe_width (32), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pasc (.probe(pasc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the SCC (the header's PSCC)
 	reg [31:0] pscc_r = 0;

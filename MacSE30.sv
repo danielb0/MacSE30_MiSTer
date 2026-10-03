@@ -45,9 +45,11 @@ assign HDMI_BLACKOUT = 0;
 assign HDMI_BOB_DEINT = 0;
 
 // silent until the ASC section
+// the ASC (plan 11.3): signed PCM, left FIFO A / voices 0+1, right B / 2+3
+wire [15:0] asc_audio_l, asc_audio_r;
 assign AUDIO_S = 1;
-assign AUDIO_L = 0;
-assign AUDIO_R = 0;
+assign AUDIO_L = asc_audio_l;
+assign AUDIO_R = asc_audio_r;
 assign AUDIO_MIX = 0;
 
 // LED_DISK: the internal drive's motor, under THE MACHINE
@@ -403,6 +405,7 @@ wire [56:0] dbg_exc;
 wire [63:0] dbg_cache;
 wire [15:0] dbg_scsi;
 wire [31:0] dbg_scc;
+wire [31:0] dbg_asc;
 // PSCS's sector count: the SCSI slots' sd_ack rising edges (plan 9.8)
 reg   [9:0] scsi_sectors = 0;
 reg   [1:0] scsi_ack_q = 0;
@@ -428,7 +431,8 @@ se30_machine machine
 	.disk2_in(disk2_in), .disk2_eject(disk2_eject), .disk2_cyl(disk2_cyl), .trk2_cyl(trk2_cyl), .trk2_valid(trk2_valid),
 	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
 	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
-	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc),
+	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc), .dbg_asc(dbg_asc),
+	.audio_l(asc_audio_l), .audio_r(asc_audio_r),
 	.scsi_img_mounted(img_mounted[3:2]), .scsi_img_blocks(img_size[40:9]),
 	.scsi_io_lba(scsi_io_lba), .scsi_io_rd(scsi_io_rd), .scsi_io_wr(scsi_io_wr), .scsi_io_ack(sd_ack[3:2]),
 	.scsi_sd_buff_addr(sd_buff_addr[7:0]), .scsi_sd_buff_dout(sd_buff_dout), .scsi_sd_buff_din(scsi_sd_buff_din),
@@ -539,7 +543,8 @@ dbg_probes probes
 	.exc_state(dbg_exc),
 	.cache_state(dbg_cache),
 	.scsi_state({dbg_scsi, scsi_io_rd, scsi_io_wr, sd_ack[3:2], scsi_sectors}),
-	.scc_state(dbg_scc)
+	.scc_state(dbg_scc),
+	.asc_state(dbg_asc)
 );
 `else
 assign pk_hold = 1'b0;

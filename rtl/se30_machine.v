@@ -174,7 +174,10 @@ module se30_machine #(
   output [63:0] dbg_adb,               // PADB: the transceiver's PIC, the line, the devices (plan 6.6)
   output [31:0] dbg_rtc,               // PRTC: the clock chip (plan 6.6)
   output [15:0] dbg_scsi,              // PSCS: the SCSI bus (se30_scsi.v's dbg, plan 9.8)
-  output [31:0] dbg_scc                // PSCC: the SCC (se30_scc.v's dbg, plan 10.5)
+  output [31:0] dbg_scc,               // PSCC: the SCC (se30_scc.v's dbg, plan 10.5)
+  output [31:0] dbg_asc,               // PASC: the ASC (se30_asc.v's dbg, plan 11.3)
+  output [15:0] audio_l,               // the ASC's channels, signed PCM after its volume (plan 11.3)
+  output [15:0] audio_r
 );
 
   // ---------------------------------------------------------- the bus
@@ -318,7 +321,7 @@ module se30_machine #(
     .pb_in(via2_pb_pin), .pb_out(via2_pb_out), .pb_oe(via2_pb_oe),
     .ca1(slot_irq_or_n),                                 // SLOTIRQ*: GLUE's OR of the slot lines
     .ca2_in(scsi_drq), .ca2_out(), .ca2_oe(),            // SCSIDRQ (plan 9.2)
-    .cb1_in(asc_irq_n), .cb1_out(), .cb1_oe(),           // SNDINT*: the ASC stub's (plan 7.3)
+    .cb1_in(asc_irq_n), .cb1_out(), .cb1_oe(),           // SNDINT*: the ASC's (plan 11.3)
     .cb2_in(scsi_irq), .cb2_out(), .cb2_oe(),            // SCSIIRQ (plan 9.2)
     .dbg_ifr(via2_ifr), .dbg_ier(via2_ier));
 
@@ -364,12 +367,13 @@ module se30_machine #(
     .d_out(rtc_d_out), .d_oe(rtc_d_oe), .one_hz(rtc_1hz), .dbg(dbg_rtc));
 
   // ------------------------------------------------------------- ASC
-  // a stub until its section (plan Section 7): version $00, registers read
-  // back, the FIFOs always empty, SNDINT* in FIFO mode only; no sound
-  se30_asc_stub asc (
+  // the Apple Sound Chip (plan Section 11): the 2 KB buffer as two FIFOs
+  // or four wavetables, $804's latched events, SNDINT* to VIA2 CB1 while
+  // one is set, playback at C16M/704; RESET* as the VIAs
+  se30_asc asc (
     .clk(clk), .c16_en(phi1), .reset_n(via_reset_n),
     .sel(asc_sel), .strobe(dev_strobe), .rw(dev_rw), .addr(dev_addr[11:0]), .wdata(dev_wdata),
-    .rdata(asc_rdata), .irq_n(asc_irq_n));
+    .rdata(asc_rdata), .irq_n(asc_irq_n), .audio_l(audio_l), .audio_r(audio_r), .dbg(dbg_asc));
 
   // ------------------------------------------------------------ SWIM
   wire  [3:0] swim_ph, swim_ph_oe;

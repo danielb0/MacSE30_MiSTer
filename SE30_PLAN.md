@@ -13639,6 +13639,37 @@ tagged HW (ASCTester), G, HO, S7, SW (the ROM's and System 7.5.5's use,
 2. The machine bench; then the board: the 7.5.5 boot with the volume up,
    the alert beep, the chime, and sound out of the MiSTer.
 
+## 11.5 As built (2026-10-03)
+
+- **`rtl/se30_asc.v`** as 11.3, replacing `se30_asc_stub.v` and its bench
+  (both removed). In the machine: GLUE's `asc_sel`, `RESET*`, VIA2 CB1;
+  its two channels to the MiSTer's `AUDIO_L/R` (signed, `AUDIO_S = 1`) -
+  the core's first sound. Probe **PASC** (mode, `$804`, both counts,
+  interrupts raised); `read_probes.tcl` decodes it.
+- **`sim/asc`: 746 checks** (Icarus, 2 min 16 s):
+  - registers; idle (`$804` `$00`, no interrupt over 300 ticks);
+  - ASCTester's fill-and-drain in stereo: full after 1,039 frames (1 KB
+    plus the drain; the IIci 1,105-1,119 with slower writes), half empty
+    0 while full, full 0 while half empty, no "empty" bit; one CB1 edge
+    for full, one for half empty, no repeats; read clears, write ORs;
+  - **System 7.5.5's path replayed** (`sdev 'asc '` +$A28, `lpch 28`):
+    11,127 frames over 0.465 s by its handler - read `$804` once, refill
+    on bit 2, 512 frames blind as byte pairs `$3FF`/`$400`, then frames
+    while bit 3 is 0: **21 refills, 45.1 a second; FIFO B never below 510
+    mid-sound; every frame out in order, left and right; after the sound,
+    FIFO mode and CB1 still on, no interrupt in 4,000 ticks** (where the
+    stub stormed);
+  - wavetable: the four voices stepped and summed, the stereo pairs,
+    saturation; `$18000` is 3 samples a tick, 130.4 Hz;
+  - mono FIFO (A on both), the volume, the mode change, address-direct
+    writes outside FIFO mode, the tick (44,937 ns = C16M/704) and 44.1 kHz.
+  - A mutant that re-flags half empty on every sample below the midpoint
+    fails 3 checks.
+- `sim/kernel_bus` PORT=8 (the odd word write): 520 checks PASS.
+- `sim/machine`: PASS (81 s).
+- **Next: compile 31** (Daniel's go-ahead, 2026-10-03: "You can also compile
+  when ready"), then the board.
+
 ---
 
 ## Appendix - where the sources are

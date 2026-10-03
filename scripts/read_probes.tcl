@@ -538,6 +538,11 @@ for {set n 0} {$n < $samples} {incr n} {
 			[expr {($pscs >> 15) & 1}] [expr {($pscs >> 14) & 1}] [expr {($pscs >> 13) & 1}] [expr {($pscs >> 12) & 1}] \
 			[expr {($pscs >> 11) & 1}] [expr {($pscs >> 10) & 1}] [expr {$pscs & 0x3FF}]]
 	}
+	if {[have PASC]} {
+		# plan 11.3: the ASC -- see rtl/dbg_probes.sv for the layout
+		set p [rd PASC]
+		puts [format "  PASC  %08X   mode=%d (0 off, 1 FIFO, 2 wavetable)  \$804=%X  FIFO A=%d  FIFO B=%d  interrupts raised (low 4 bits)=%d" $p 			[expr {($p >> 30) & 3}] [expr {($p >> 26) & 0xF}] [expr {($p >> 15) & 0x7FF}] [expr {($p >> 4) & 0x7FF}] [expr {$p & 0xF}]]
+	}
 	if {[have PSCC]} {
 		# plan 10.5: the SCC -- see rtl/dbg_probes.sv for the layout
 		set p [rd PSCC]
