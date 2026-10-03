@@ -13074,6 +13074,22 @@ chip model is ~390 ALMs.
     discarding 92 bytes) survives**.
   - All six `sim/system` runs PASS in 197 s.
 - **Compile 29** (Daniel's go-ahead, 2026-10-03): stage 1 for the board.
+  - **Tag 903df2c5, 37 min.** Archived as
+    `output_files/MacSE30_903df2c5_scsi1.rbf`.
+  - **34,959 ALMs (83 %), 327 RAM blocks**: stage 1 added 1,204 ALMs, under
+    9.5's estimate of 1,800.
+  - **NOT met at every corner.** `se30_sdram`'s
+    `state.S_DL~DUPLICATE -> dq_out[8]` on `clk_mem` (`general[1]`, 10.63
+    ns) fails setup by **-0.109 ns at slow 100C only**. That is our
+    controller, not SCSI logic, placed worse in a fuller chip.
+  - **`sta_corners.tcl` missed it.** Its verdict line covers only the
+    capture chain and the SDRAM pins. The design's own worst setup per
+    corner includes the capture (-0.370 at slow 100C) and so hid the
+    -0.109. The flow summary, with the capture cut, shows it.
+  - **Daniel, 2026-10-03: "A, I'll flash it now"**: flashed for the
+    functional SCSI test. The fix goes into the next compile:
+    - the script to report the design excluding only the capture;
+    - the `dq_out` path shortened.
 - **Next:** the board gates of 9.6 item 5.
 
 ---

@@ -62,10 +62,16 @@ foreach oc [get_available_operating_conditions] {
     set oh [lindex [report_timing -hold  -npaths 1 -to $sd_out -detail summary] 1]
     set ds [lindex [report_timing -setup -npaths 1 -detail summary] 1]
     set dh [lindex [report_timing -hold  -npaths 1 -detail summary] 1]
-    puts [format "%-22s best capture margin %7.3f | dq_m -> consumers %7.3f %7.3f | SDRAM outputs setup %7.3f hold %7.3f | design setup %7.3f hold %7.3f" $oc $best $cs $ch $os $oh $ds $dh]
-    foreach v [list $cs $ch $os $oh] { if {$v < $worst} { set worst $v } }
+    # every register-to-register path: the capture starts at the SDRAM_DQ
+    # pins, so this is the design without it - the column that must not
+    # be hidden behind the capture's own numbers (plan 9.8, compile 29:
+    # an se30_sdram dq_out path at -0.109 sat behind the capture's -0.370)
+    set rs [lindex [report_timing -setup -npaths 1 -from [all_registers] -to [all_registers] -detail summary] 1]
+    set rh [lindex [report_timing -hold  -npaths 1 -from [all_registers] -to [all_registers] -detail summary] 1]
+    puts [format "%-22s best capture margin %7.3f | dq_m -> consumers %7.3f %7.3f | SDRAM outputs setup %7.3f hold %7.3f | design setup %7.3f hold %7.3f | reg-to-reg setup %7.3f hold %7.3f" $oc $best $cs $ch $os $oh $ds $dh $rs $rh]
+    foreach v [list $cs $ch $os $oh $rs $rh] { if {$v < $worst} { set worst $v } }
 }
-puts [format "worst slack over every corner, the capture excepted: %.3f ns  %s" $worst [expr {$worst < 0 ? "*** TIMING NOT MET ***" : "(met at every corner)"}]]
+puts [format "worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): %.3f ns  %s" $worst [expr {$worst < 0 ? "*** TIMING NOT MET ***" : "(met at every corner)"}]]
 puts [format "the capture: %s" [expr {$cap_ok_everywhere ? "at every corner at least one of A and B is met on setup and hold" : "*** A CORNER WHERE NEITHER CAPTURE IS MET ***"}]]
 puts "the design's own worst slack per corner above includes the framework's paths, whose verdict is the flow's summary"
 delete_timing_netlist
