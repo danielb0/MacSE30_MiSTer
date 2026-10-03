@@ -212,6 +212,23 @@ module tb_se30_ncr53c80;
     check(got[0] == 8'hC0 && got[1] == 8'hC1 && got[3] == 8'hC3, "8. each byte on the bus under ACK");
     wait_drq(20, ok); check(ok && o_ack, "8. after the last byte: DRQ for more, ACK still held");
     reg_wr(2, 8'h00); ticks(1); check(!o_ack && !drq, "8. resetting DMA MODE releases ACK and DRQ (10.5.3)");
+    // 8b. the target already requesting as each DACK write lands (the ROM
+    // waits for REQ before Start DMA Send): ACK and REQ's fall come while
+    // DACK is still active, and DRQ must follow DACK going false (T2)
+    reg_wr(2, 8'h02); t_req = 1; reg_wr(5, 8'h00);
+    for (i = 0; i < 4; i = i + 1) begin
+      wait_drq(40, ok); check(ok, "8b. DRQ for each byte, REQ already true");
+      @(negedge clk); dack = 1; wdata = 8'hD0 + i; @(negedge clk); wr = 1; @(negedge clk); wr = 0;
+      wait_ack(1, 10, ok); check(ok, "8b. ACK while DACK is still active");
+      got[i] = b_db; t_req = 0; ticks(2);
+      check(!drq, "8b. no DRQ while DACK is active");
+      @(negedge clk); dack = 0; ticks(2);
+      check(drq, "8b. DRQ once DACK goes false (T2)");
+      check(!o_ack, "8b. ACK released as DACK went false");
+      t_req = 1;
+    end
+    check(got[0] == 8'hD0 && got[3] == 8'hD3, "8b. the bytes under ACK");
+    t_req = 0; reg_wr(2, 8'h00); ticks(2);
     reg_wr(1, 8'h00);
 
     // 9. loss of BSY

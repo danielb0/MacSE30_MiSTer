@@ -12987,6 +12987,47 @@ chip model is ~390 ALMs.
     NCR's chip works.
   - `sim/glue` 98 PASS.
 
+**Step 2, the drives and the seam (2026-10-03).**
+- **`rtl/scsi.v`:** the MacPlus core's `master` `e5e54c7`, **byte-exact**
+  (sha256 `5ac14cad35ae40a2b56d98da297b73452f633f6e915f7e90c889dff3072136e9`,
+  CRLF/LF as in the blob; `core.autocrlf` false). Never edited here.
+- **`rtl/se30_scsi.v`:** the chip, the bus, and two `scsi` targets (IDs 0
+  and 1, `CDROM` 0).
+  - The bus is composed as the MacPlus core composes it: the target
+    holding BSY drives the phase lines, REQ and its data; the data bus is
+    the chip's drive OR the target's in an I/O phase; `din` is the bus.
+  - The disks' `io_ack` is framed by BSY, and `sd_buff_wr` by the slot's
+    ack (the MacPlus core's corruption fix).
+- **The seam's one adaptation: REQ's deskew.** A SCSI target sets its data
+  and waits a deskew delay before REQ; the 53C80 latches on REQ.
+  - `scsi.v`'s REQ is combinational (`!ack && ...`) and rises the clock
+    ACK falls, while its byte arrives two to three clocks later through a
+    registered strobe and buffer read.
+  - So the bus REQ rises only once the target's has held for `DESKEW` = 4
+    clocks (128 ns), and falls at once. Measured: 0 or 1 clock gives
+    nearly every byte stale, 2 half of them, and 3 is the minimum that
+    passes.
+- **A chip bug the seam found, fixed in `se30_ncr53c80.v`:** in a send
+  with the target already requesting (the ROM waits for REQ before Start
+  DMA Send), ACK and REQ's fall come while DACK is still active, and DRQ
+  for the next byte was never raised.
+  - SP-1051's T2, "DACK false to DRQ true": DRQ now waits for DACK to go
+    false (`drq_due`).
+  - `sim/ncr53c80` gained case 8b, which fails on the old chip.
+  - **106 checks PASS.**
+- **`sim/scsi_seam`: 58 checks PASS in 6 s.** It replays the ROM's
+  SCSIReset, SCSIGet, SCSISelect, SCSICmd, SCSIRead/RBlind,
+  SCSIWrite/WBlind and SCSIComplete sequences, with a model `hps_io` at
+  10 us and 100 us a sector:
+  - TEST UNIT READY;
+  - READ(6) polled and blind (per-block ops, as the driver's TIBs), byte-
+    exact;
+  - WRITE(6) polled and blind, the image byte-exact after the flush, and
+    read back;
+  - ID 1's own image;
+  - an absent ID timing out;
+  - one byte too many ending on PHASE MATCH (the ROM's error 5).
+
 ---
 
 ## Appendix - where the sources are

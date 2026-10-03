@@ -113,6 +113,7 @@ module se30_ncr53c80 #(
   reg        byte_full;                // send: a byte is in the ODR, not yet taken by the target
   reg        consumed;                 // send: the target has taken the byte under ACK (REQ fell)
   reg        dack_cycled;              // receive: the CPU has read since this REQ
+  reg        drq_due;                  // a byte is wanted (send) or ready (receive), DRQ waits for DACK false
 
   // ------------------------------------------------------------ bus views
   wire       phase_match = ({b_msg, b_cd, b_io} == tcr[2:0]);     // 6.7 bit 3, continuous
@@ -171,7 +172,7 @@ module se30_ncr53c80 #(
       icr_tm <= 0; icr_ack <= 0; icr_bsy <= 0; icr_sel <= 0; icr_atn <= 0; icr_data <= 0;
       mr <= 8'h00; tcr <= 4'h0; ser <= 8'h00; busy_err <= 0; aip <= 0; la <= 0;
       dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; byte_full <= 0; consumed <= 0; dack_cycled <= 0;
-      drq <= 0;
+      drq <= 0; drq_due <= 0;
     end
   endtask
 
@@ -204,7 +205,7 @@ module se30_ncr53c80 #(
           3'd2: begin
                   mr <= wdata;
                   if (!wdata[1]) begin                             // 10.5.3: DMA MODE reset halts DMA
-                    dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; drq <= 0;
+                    dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; drq <= 0; drq_due <= 0;
                     byte_full <= 0; consumed <= 0; dack_cycled <= 0;
                   end
                   if (!wdata[0]) begin aip <= 0; la <= 0; end      // AIP "until the ARBITRATE bit is reset"
@@ -213,11 +214,11 @@ module se30_ncr53c80 #(
           3'd4: ser <= wdata;
           3'd5: if (mr_dma) begin                                  // 6.8.1 Start DMA Send
                   dma_send <= 1; dma_irecv <= 0; dma_ack <= 0;
-                  byte_full <= 0; consumed <= 0; drq <= 1;
+                  byte_full <= 0; consumed <= 0; drq_due <= 1;
                 end
           3'd6: ;                                                  // 6.8.2 Start DMA Target Receive: target role, not built
           3'd7: if (mr_dma && !mr_target) begin                    // 6.8.3 Start DMA Initiator Receive
-                  dma_irecv <= 1; dma_send <= 0; dma_ack <= 0; drq <= 0; dack_cycled <= 0;
+                  dma_irecv <= 1; dma_send <= 0; dma_ack <= 0; drq <= 0; drq_due <= 0; dack_cycled <= 0;
                 end
         endcase
 
@@ -242,8 +243,7 @@ module se30_ncr53c80 #(
           if (dma_irecv) begin
             // 11.6: REQ with phase match latches the byte, raises DRQ and ACK
             if (b_req && phase_match && !dma_ack) begin
-              idr <= b_db; dma_ack <= 1; dack_cycled <= 0;
-              if (!dack) drq <= 1;
+              idr <= b_db; dma_ack <= 1; dack_cycled <= 0; drq_due <= 1;
             end
             if (dack && dma_ack) dack_cycled <= 1;
             // T8/T10: ACK false once DACK has cycled and DACK and REQ are both false
@@ -255,12 +255,14 @@ module se30_ncr53c80 #(
             if (b_req && phase_match && byte_full && !dma_ack) dma_ack <= 1;
             // REQ false: the target has the byte; DRQ asks for the next
             if (dma_ack && req_fall && byte_full && !consumed) begin
-              byte_full <= 0; consumed <= 1;
-              if (!dack) drq <= 1;
+              byte_full <= 0; consumed <= 1; drq_due <= 1;
             end
             // "requires DACK to cycle before ACK goes inactive" (10.5.2)
             if (dma_ack && consumed && dack_fall) begin dma_ack <= 0; consumed <= 0; end
           end
+          // DRQ rises with its cause, or when DACK goes false if DACK is
+          // still active then (11.4/11.6 T2, "DACK false to DRQ true")
+          if (drq_due && !dack) begin drq <= 1; drq_due <= 0; end
           // 8.5: a mismatch as REQ goes from false to true interrupts
           if (req_rise && !phase_match) irq <= 1;
         end
@@ -272,7 +274,7 @@ module se30_ncr53c80 #(
         if (mr_moncbsy && !b_bsy && nobsy_n == SETTLE - 1) begin
           irq <= 1;
           icr_tm <= 0; icr_ack <= 0; icr_bsy <= 0; icr_sel <= 0; icr_atn <= 0; icr_data <= 0;
-          mr[1] <= 0; dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; drq <= 0;
+          mr[1] <= 0; dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; drq <= 0; drq_due <= 0;
           byte_full <= 0; consumed <= 0; dack_cycled <= 0;
         end
 
