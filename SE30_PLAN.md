@@ -13715,8 +13715,17 @@ tagged HW (ASCTester), G, HO, S7, SW (the ROM's and System 7.5.5's use,
   the volume back up: the beep that crashed compile 30 plays, and a game's
   sampled sound runs through the FIFOs, the interrupts and the output -
   the core's first sound.
-- **Still to hear:** the startup chime (the wavetable mode) on a restart;
-  the alert sounds from the Sound control panel.
+- **The startup chime plays** (Daniel, 2026-10-03: "the same chime as on
+  the LC, but for some reason it seems shorter") - the wavetable mode works
+  on the board. Its length is the CPU's, not the ASC's: the ROM fades the
+  four tables over 30,000 passes of a loop (`$40805F28`-`$40805F5C`: two
+  reads and four writes of the ASC's RAM, then `subq.w #1,d4 / bpl` 35
+  times; a voice starts every 300 passes), run before the ROM turns the
+  caches on. A faster pass is a shorter chime - the kernel's instruction
+  timing (1.16.1; Speedometer CPU 1.19 x the real SE/30). **OPEN:** this
+  loop's clocks on a real 68030 (UM tables, uncached ROM fetches, the ASC's
+  4/5-clock cycles) against the core's, measured.
+- **Still to hear:** the alert sounds from the Sound control panel.
 
 ---
 
