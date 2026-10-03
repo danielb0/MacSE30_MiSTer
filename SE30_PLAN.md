@@ -13060,10 +13060,21 @@ chip model is ~390 ALMs.
 - **Quartus analysis and elaboration: 0 errors**, 129 s. From our files
   only `mr_block` is unused (block mode, not built); the rest are
   `scsi.v`'s own unused CD wiring in disk mode.
-- **Next:**
-  - 9.6 item 3, the blind-write bus-error frame in `sim/system`;
-  - then a compile, on Daniel's go-ahead;
-  - then the board gates of 9.6 item 5.
+- **9.6 item 3, the handshake bus errors (`sim/system` `berrtest`):** a
+  blind read at `$50006060` and a blind write at `$50006000`, with GLUE's
+  DRQ tied low. Each waits for DRQ and UI6 bus-errors it.
+  - A handler records the frame's format word and SSW.
+  - **Both are the long frame, format `$B`, vector offset `$008`.** The
+    read's SSW is `0145` (RW read), the write's `0105` (RW write).
+  - The read is the UM's explicit rule (8.2.2, "data read faults only
+    generate the long bus fault frame").
+  - For the write, the UM allows either frame (8.1.2: short at an
+    instruction boundary, long during an instruction). Our kernel builds
+    the long one, which **the ROM's handler at `$40826B26` (always
+    discarding 92 bytes) survives**.
+  - All six `sim/system` runs PASS in 197 s.
+- **Compile 29** (Daniel's go-ahead, 2026-10-03): stage 1 for the board.
+- **Next:** the board gates of 9.6 item 5.
 
 ---
 

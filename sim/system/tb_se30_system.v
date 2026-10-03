@@ -20,7 +20,7 @@
 //        interrupt raised through GLUE's IPL - lands its results, and the
 //        one interrupt acknowledge is a 3-clock cycle terminated by AVEC.
 //
-//   THE CACHES AND THE VIDEO RAM (plan 1.16) - five runs, run.sh's:
+//   THE CACHES, THE VIDEO RAM, THE SCSI HANDSHAKE - six runs, run.sh's:
 //     plain    the program as above, the cache never enabled;
 //     cacheon  the same program with both caches on first (gen_program.py
 //              --cache 0x0101): every result and cycle as plain, and hits;
@@ -42,13 +42,20 @@
 //              each window's clocks and every video cycle's length and the
 //              gap before it, against plan 2.12's 5/6/7-clock table
 //              (1.16.3: the two GLUE clocks it found).
+//     berrtest  gen_berr_program.py's blind read and write at $50006060 /
+//              $50006000 with GLUE's DRQ tied low: each waits for DRQ and
+//              UI6 bus-errors it; a handler records the frame's format
+//              word and SSW (plan 9.6 item 3: the read must be the long
+//              frame, UM 8.2.2; the write's is recorded, the ROM's handler
+//              assuming the long one).
 //   A hit runs no cycle, so the back-to-back check (3) does not count the
 //   clocks the wrapper answers a fetch from the cache.
 //
 //   Plusargs: +PROG=<dir> (the program.hex/stop_at.txt directory, default
 //   ../kernel_bus), +CACHEON (the program enables the cache: it must hit),
 //   +CACHETEST (the cache program's checks), +VRAMTEST (the video-RAM
-//   measurement); +define+VTRACE prints its clock-by-clock trace.
+//   measurement), +BERRTEST (the handshake bus errors); +define+VTRACE
+//   prints the video trace.
 //
 // CLOCKING
 //   clk is 2 x C16M (31.3344 MHz); phi1/phi2 mark C16M's edges.  GLUE runs
@@ -198,7 +205,7 @@ module tb_se30_system;
     dg2 = dg2 + 1; $display("t=%0t busstate=%b s=%0d as=%b clkena=%b hit=%b ipl_nr=%b", $time, cpu.k_busstate, cpu.s, cpu_as_n, cpu.k_clkena, cpu.kernel.fetch_hit, cpu.kernel.IPL_nr);
   end
 `endif
-  reg cachetest = 0, cacheon = 0;         // the run (plusargs, read at the start)
+  reg cachetest = 0, cacheon = 0, berrtest = 0;   // the run (plusargs, read at the start)
 
   // ---------------------------------------------------- the loop markers
   // the cache program's writes to $3088/$308C (cache on) and $3090/$3094
@@ -284,6 +291,7 @@ module tb_se30_system;
     cachetest = $test$plusargs("CACHETEST");
     cacheon = $test$plusargs("CACHEON");
     vramtest = $test$plusargs("VRAMTEST");
+    berrtest = $test$plusargs("BERRTEST");
     $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
     fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
@@ -295,6 +303,18 @@ module tb_se30_system;
     if (halted) begin fails = fails + 1; $display("FAIL: the CPU halted (double bus fault) after %0d clocks", n); end
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
     else pass = pass + 1;
+    if (berrtest) begin                                                 // the SCSI handshake bus error (plan 9.6 item 3)
+      v = ram[32'h3000 >> 2]; want = ram[32'h3004 >> 2];
+      $display("---- blind read  timeout: frame word %04x (format $%0h, vector offset $%03x), SSW %04x", v[31:16], v[31:28], v[27:16], v[15:0]);
+      $display("---- blind write timeout: frame word %04x (format $%0h, vector offset $%03x), SSW %04x", want[31:16], want[31:28], want[27:16], want[15:0]);
+      if (v[31:28] == 4'hB && v[27:16] == 12'h008) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: a data read fault builds the long frame, format $B, vector 2 (UM 8.2.2)"); end
+      if ((want[31:28] == 4'hA || want[31:28] == 4'hB) && want[27:16] == 12'h008) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: the write's fault is not a bus-error frame"); end
+      if (fails == 0) $display("==== PASS: %0d checks - both handshake timeouts bus-error, the frames recorded", pass);
+      else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
+      $finish;
+    end
     if (vramtest) begin                                                 // a measurement: report and stop
       for (kk = 0; kk < 3; kk = kk + 1) begin
         $display("---- window %0d (%s): %0d C16M clocks, %0d VRAM cycles = %0.2f clocks a turn; cycle length avg %0.2f, gap avg %0.2f",
