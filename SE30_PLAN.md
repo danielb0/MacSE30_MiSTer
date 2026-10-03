@@ -12956,6 +12956,37 @@ chip model is ~390 ALMs.
 - **Persistent PRAM** would spare the 20 s wait without an internal disk
   (a convenience, Daniel's call; plan 6 keeps PRAM volatile).
 
+## 9.8 As built
+
+**Step 1, the chip (2026-10-03, Daniel: "go ahead").**
+- **`rtl/se30_ncr53c80.v`**, to 9.5 item 1. Its header lists what is
+  built, what is not, and four readings where SP-1051 is silent:
+  - Start DMA Send raises DRQ at once.
+  - A bus reset holds the chip cleared while RST is on the bus, ICR bit 7
+    still writable.
+  - Resetting DMA MODE releases a DMA-held ACK.
+  - The selection interrupt is taken as written.
+
+  REQ is taken as a level for DRQ and ACK ("REQ true", T7/T9), because a
+  Mac's target is usually already requesting when Start DMA is written.
+  Only the phase-mismatch interrupt is on the edge, as 8.5 words it.
+- **`sim/ncr53c80`: 85 checks PASS in under a second**, sections 6-9 and
+  11.4/11.6 by name. Five mutants are caught, each a deviation the LC
+  audit found:
+  - DACK not clearing DRQ (6 checks fail);
+  - the Input Data Register read live (1);
+  - REQ recognised against a mismatched phase (1);
+  - send-ACK released without DACK cycling (4);
+  - a bus reset not interrupting (2).
+- **GLUE: `SCSIDACK*` at `$50006000` now asserts only from the strobe,**
+  which GLUE gives once DRQ is seen. Before, it asserted from AS*.
+  - SP-1051 4.1: DACK "resets DRQ" (T1 "DRQ false from DACK true"). A DACK
+    raised while GLUE waits for DRQ would clear the DRQ it waits for, and
+    every blind transfer would bus-error.
+  - GLUE's internals are undocumented; this is the reading under which
+    NCR's chip works.
+  - `sim/glue` 98 PASS.
+
 ---
 
 ## Appendix - where the sources are

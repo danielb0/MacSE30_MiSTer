@@ -301,7 +301,12 @@ module se30_glue (
   assign via2_sel  = !cpu_as_n && d_via2;
   assign scc_sel   = active && d_scc && (dcnt != 0);
   assign scsi_sel  = active && d_scsi;
-  assign scsi_dack = active && (d_dma || d_hs);
+  // SCSIDACK*: at $50006000 only once DRQ has been seen (the strobe sets
+  // dcnt) - the 53C80's DRQ "is cleared by DACK" (SP-1051 4.1, T1), so a
+  // DACK raised while GLUE waits for DRQ would kill the DRQ it waits for
+  // (plan 9.5; GLUE's internals are not documented, this is the reading
+  // under which NCR's chip works)
+  assign scsi_dack = active && (d_dma || (d_hs && dcnt != 0));
   assign asc_sel   = active && d_asc;
   assign swim_sel  = active && d_swim;
   assign exp_sel   = active && d_exp;
