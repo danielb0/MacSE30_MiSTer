@@ -13725,7 +13725,23 @@ tagged HW (ASCTester), G, HO, S7, SW (the ROM's and System 7.5.5's use,
   timing (1.16.1; Speedometer CPU 1.19 x the real SE/30). **OPEN:** this
   loop's clocks on a real 68030 (UM tables, uncached ROM fetches, the ASC's
   4/5-clock cycles) against the core's, measured.
+- **QuarkXPress runs "quite stably"** (Daniel, 2026-10-03, compile 31,
+  System 7.5.5 from SCSI) - the program whose F-line crash on the LC core
+  was its fit-dependent SDRAM capture (`MacLC_MiSTer` memory,
+  `quark-hang-80mb-image-forensics`).
 - **Still to hear:** the alert sounds from the Sound control panel.
+- **Open after compile 31**, for Daniel to order:
+  1. the chime loop's clocks, real 68030 against the core (above);
+  2. SCSI's board gates (9.6 item 5): a Finder copy checked on the PC
+     (`hfs_check`, `hfs_fork_diff`), ID 1, a soak;
+  3. the SDRAM `dq_out` path (compile 29's -0.109 ns, met since by
+     placement only): drop the raw experiment port, or choose the word a
+     clock earlier - Daniel's choice;
+  4. the Graphics gap (0.70 of the real SE/30 in Speedometer 4.02, at 1
+     bit): the video-RAM cycle (1.16.3);
+  5. the floppy: writing and formatting (GCR), 1.4 MB MFM (budget 10.4);
+  6. the CD-ROM and CD audio (Section 9 stage 2); the modem port to the
+     MiSTer UART (10.3).
 
 ---
 
