@@ -13166,6 +13166,41 @@ chip model is ~390 ALMs.
 
 ---
 
+# Section 10 - the SCC (opened 2026-10-03)
+
+Daniel, 2026-10-03: **"Yes. We need the SCC to proceed."** System 7.5.5
+from SCSI stops in LocalTalk's transmit wait for want of the SCC's
+interrupt (9.8). The SCC is built the way the other chips were: our own
+8530, written to Zilog's manual, its use read from the ROM and the System,
+tested by seam benches and then the board.
+
+## 10.1 Sources, and their standing
+
+| Source | What it gives | Standing |
+|---|---|---|
+| **Zilog 00-2057-03, *Z8030 Z-BUS SCC / Z8530 SCC Serial Communications Controller Technical Manual*, Sept 1986** (`C:\temp\Mac\SE30\Docs\scc\`, bitsavers mirror, 13,081,094 B, downloaded with Daniel's OK; text extract beside it) | the chip | **primary for the chip**: the SE/30's part is the NMOS 8530 (*Guide* "SCC (8530)"; IIcx BOM "IC,8530,SERIAL COMM CNTRLR") |
+| Zilog UM0109 (UM010904), *SCC/ESCC User Manual* (zilog.com, 19,480,742 B, same folder) | clarifications, errata, NMOS/CMOS differences | **secondary**; its 85C30/ESCC-only features are excluded |
+| *Guide* 2e, the serial I/O chapter and the SE/30 chapters | the SCC as a system: addresses, clocks, ports, LocalTalk | **primary for the system** |
+| `se30.pdf` and `se30schems` (Apple sheets, BOMARC redraws); the IIcx schematic as proxy | the wiring | **primary for the wiring** |
+| The ROM (97221136), and the System 7.5.5 image's AppleTalk | what the software does with the chip | **evidence of use** |
+| MacLC `docs/SCC_gaps.md`, IIvi `rtl/scc.v`, IIgs `rtl/scc8530.v` | engineering leads | **leads only** |
+
+## 10.2 The work
+
+1. Extraction (running 2026-10-03), into `C:\temp\Mac\SE30\Docs\scc\`:
+   the chip specification (`spec_z8530.md`), the SE/30 wiring
+   (`se30_scc_wiring.md`) and the software audit
+   (`audit_se30_scc_software.md`: the ROM, and LocalTalk's SCC
+   programming including the hung wait at `$EA934`).
+2. The design and its budget (34,959 ALMs at compile 29; the CD-ROM is
+   still to come), for Daniel.
+3. Our 8530 and its unit bench, then the seam with GLUE (the window, the
+   2.2 us recovery and `C3M`, already built: 2.11.4), then the machine.
+4. The board: System 7.5.5 boots from SCSI with AppleTalk active; then
+   SCSI's own board gates (9.6 item 5).
+
+---
+
 ## Appendix - where the sources are
 
 The IIvi core is now cloned durably at `C:/Git/MiSTer-devel/MacIIvi_MiSTer`
