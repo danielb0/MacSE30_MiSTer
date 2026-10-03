@@ -135,6 +135,18 @@ module se30_machine #(
   output        trk2_side,
   input         trk2_bit,
 
+  // the SCSI disks' images: hps_io slots, one per disk (plan 9.5)
+  input   [1:0] scsi_img_mounted,
+  input  [31:0] scsi_img_blocks,       // img_size in 512-byte blocks
+  output [63:0] scsi_io_lba,           // {disk 1, disk 0}
+  output  [1:0] scsi_io_rd,
+  output  [1:0] scsi_io_wr,
+  input   [1:0] scsi_io_ack,
+  input   [7:0] scsi_sd_buff_addr,
+  input  [15:0] scsi_sd_buff_dout,
+  output [31:0] scsi_sd_buff_din,      // {disk 1, disk 0}
+  input         scsi_sd_buff_wr,
+
   // for the probe deck and the benches
   output [31:0] dbg_addr,
   output  [2:0] dbg_fc,
@@ -152,7 +164,8 @@ module se30_machine #(
   output [15:0] dbg_fdhd2,             // the external drive's 16, as dbg_swim's low word (plan 5.14)
   output        dbg_swim_vread,        // the SWIM's valid data reads (PFLP counts them)
   output [63:0] dbg_adb,               // PADB: the transceiver's PIC, the line, the devices (plan 6.6)
-  output [31:0] dbg_rtc                // PRTC: the clock chip (plan 6.6)
+  output [31:0] dbg_rtc,               // PRTC: the clock chip (plan 6.6)
+  output [15:0] dbg_scsi               // PSCS: the SCSI bus (se30_scsi.v's dbg, plan 9.8)
 );
 
   // ---------------------------------------------------------- the bus
@@ -181,6 +194,7 @@ module se30_machine #(
   wire [31:0] ram_wdata;
   wire [15:0] rom_addr;
   wire        via1_sel, via2_sel, scc_sel, scsi_sel, scsi_dack, asc_sel, swim_sel, exp_sel;
+  wire        scsi_drq, scsi_irq;          // the 53C80's DRQ and IRQ (below, plan 9.2)
   wire        dev_strobe, dev_rw, e_clk, c3m_en, slot_sel, slot_irq_or_n;
   wire [12:0] dev_addr;
   wire  [7:0] dev_wdata;
@@ -206,7 +220,7 @@ module se30_machine #(
     .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(mem_rdata), .rom_ack(rom_ack),
     .via1_sel(via1_sel), .via2_sel(via2_sel), .scc_sel(scc_sel), .scsi_sel(scsi_sel), .scsi_dack(scsi_dack),
     .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
-    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(1'b0),
+    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(scsi_drq),
     .e_clk(e_clk), .c3m_en(c3m_en),
     .fpu_sel(fpu_sel), .fpu_dsack_n(fpu_dsack_n), .fpu_rdata(fpu_rdata),
     .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
@@ -252,7 +266,7 @@ module se30_machine #(
   wire        via_reset_n = reset_n && reset_out_n;
   wire        adb_int_n, adb_sclk, adb_dio, via1_cb2_out, via1_cb2_oe;   // VIA1 and the ADB transceiver
   wire        rtc_d_out, rtc_d_oe, rtc_1hz, rtc_d;                       // VIA1 and the clock chip
-  wire  [7:0] via1_rdata, via2_rdata, swim_rdata, asc_rdata;
+  wire  [7:0] via1_rdata, via2_rdata, swim_rdata, asc_rdata, scsi_rdata;
   wire        asc_irq_n;
   wire  [7:0] via1_pa_out, via1_pa_oe, via1_pb_out, via1_pb_oe;
   wire  [7:0] via2_pa_out, via2_pa_oe, via2_pb_out, via2_pb_oe;
@@ -271,7 +285,7 @@ module se30_machine #(
   assign vsyncen_n = via1_pb_pin[6];
   assign ramsiz    = via2_pa_pin[7:6];
   assign dev_rdata = via1_sel ? via1_rdata : via2_sel ? via2_rdata : swim_sel ? swim_rdata :
-                     asc_sel ? asc_rdata : 8'h00;
+                     asc_sel ? asc_rdata : (scsi_sel || scsi_dack) ? scsi_rdata : 8'h00;
   assign dbg_via   = {overlay, ramsiz, vsyncen_n, via1_ier, via1_ifr, via2_ier, via2_ifr};
 
   se30_via via1 (
@@ -293,9 +307,9 @@ module se30_machine #(
     .pa_in(via2_pa_pin), .pa_out(via2_pa_out), .pa_oe(via2_pa_oe),
     .pb_in(via2_pb_pin), .pb_out(via2_pb_out), .pb_oe(via2_pb_oe),
     .ca1(slot_irq_or_n),                                 // SLOTIRQ*: GLUE's OR of the slot lines
-    .ca2_in(1'b0), .ca2_out(), .ca2_oe(),                // SCSIDRQ: none until the SCSI section
+    .ca2_in(scsi_drq), .ca2_out(), .ca2_oe(),            // SCSIDRQ (plan 9.2)
     .cb1_in(asc_irq_n), .cb1_out(), .cb1_oe(),           // SNDINT*: the ASC stub's (plan 7.3)
-    .cb2_in(1'b0), .cb2_out(), .cb2_oe(),                // SCSIIRQ
+    .cb2_in(scsi_irq), .cb2_out(), .cb2_oe(),            // SCSIIRQ (plan 9.2)
     .dbg_ifr(via2_ifr), .dbg_ier(via2_ier));
 
   // ------------------------------------------------------------- ADB
@@ -391,5 +405,19 @@ module se30_machine #(
     .page(vid_page), .vsyncen_n(vsyncen_n),
     .vidout(vidout), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
     .irq6_n(irq6_n));
+
+  // ------------------------------------------------------------ SCSI
+  // the 53C80 on GLUE's SCSI* ($50010000) and SCSIDACK* ($50012000, and
+  // $50006000 once DRQ is up); one access per byte cycle: GLUE's strobe,
+  // one clk of it; A6-A4 select the register (plan 9.2, 9.5)
+  wire scsi_stb = dev_strobe && phi1 && (scsi_sel || scsi_dack);
+  se30_scsi scsi (
+    .clk(clk), .reset_n(via_reset_n), .sys_reset_n(reset_n),
+    .cs(scsi_sel), .dack(scsi_dack), .rd(scsi_stb && dev_rw), .wr(scsi_stb && !dev_rw),
+    .rs(dev_addr[6:4]), .wdata(dev_wdata), .rdata(scsi_rdata), .drq(scsi_drq), .irq(scsi_irq),
+    .img_mounted(scsi_img_mounted), .img_blocks(scsi_img_blocks),
+    .io_lba(scsi_io_lba), .io_rd(scsi_io_rd), .io_wr(scsi_io_wr), .io_ack(scsi_io_ack),
+    .sd_buff_addr(scsi_sd_buff_addr), .sd_buff_dout(scsi_sd_buff_dout), .sd_buff_din(scsi_sd_buff_din),
+    .sd_buff_wr(scsi_sd_buff_wr), .dbg(dbg_scsi));
 
 endmodule

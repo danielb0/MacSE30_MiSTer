@@ -28,7 +28,8 @@ module se30_scsi #(
   parameter integer DESKEW = 4          // clocks the target's REQ must hold before the bus sees it
 ) (
   input             clk,
-  input             reset_n,           // RESET*: the chip's /RESET and the targets' system reset
+  input             reset_n,           // RESET*: the 53C80's /RESET (the CPU's RESET instruction included)
+  input             sys_reset_n,       // the core's reset: the drives' (they never see RESET*; a SCSI RST resets them)
 
   // the CPU side, from GLUE
   input             cs,                // SCSI* ($50010000)
@@ -43,13 +44,13 @@ module se30_scsi #(
   // the images: hps_io slots, one per disk
   input       [1:0] img_mounted,
   input      [31:0] img_blocks,        // hps_io's img_size in 512-byte blocks
-  output     [31:0] io_lba [2],
+  output     [63:0] io_lba,            // {disk 1, disk 0}
   output      [1:0] io_rd,
   output      [1:0] io_wr,
   input       [1:0] io_ack,
   input       [7:0] sd_buff_addr,
   input      [15:0] sd_buff_dout,
-  output     [15:0] sd_buff_din [2],
+  output     [31:0] sd_buff_din,       // {disk 1, disk 0}
   input             sd_buff_wr,
 
   output     [15:0] dbg                // {target BSY[1:0], REQ raw, REQ bus, ACK, SEL, RST, ATN, MSG, C/D, I/O, chip BSY, DRQ, IRQ, 2'b0}
@@ -60,7 +61,7 @@ module se30_scsi #(
   wire       c_db_en, c_bsy, c_sel, c_rst, c_atn, c_ack;
 
   wire [1:0] t_bsy, t_msg, t_cd, t_io, t_req;
-  wire [7:0] t_dout [2];
+  wire [7:0] t_dout [0:1];
 
   // the target holding the bus
   wire       t0 = t_bsy[0];
@@ -94,18 +95,18 @@ module se30_scsi #(
     wire       holdoff_nc;
     wire signed [15:0] snd_l_nc, snd_r_nc;
     scsi #(.ID(i[2:0]), .CDROM(0)) target (
-      .clk(clk), .rst(c_rst), .sys_rst(!reset_n),
+      .clk(clk), .rst(c_rst), .sys_rst(!sys_reset_n),
       .bus_busy(|t_bsy), .cd_enable(1'b0),
       .sel(c_sel), .atn(c_atn), .ack(c_ack),
       .bsy(t_bsy[i]), .msg(t_msg[i]), .cd(t_cd[i]), .io(t_io[i]), .req(t_req[i]),
       .din(b_db), .dout(t_dout[i]),
       .img_mounted(img_mounted[i]), .img_blocks(img_blocks),
-      .io_lba(io_lba[i]), .io_rd(io_rd[i]), .io_wr(io_wr[i]),
+      .io_lba(io_lba[32*i +: 32]), .io_rd(io_rd[i]), .io_wr(io_wr[i]),
       // as the MacPlus core frames its disks: the ack blanked once the
       // target has left the bus; the buffer writes framed by this slot's ack
       .io_ack(io_ack[i] & t_bsy[i]),
       .sd_buff_addr(sd_buff_addr), .sd_buff_addr_hi(5'd0),
-      .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[i]),
+      .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[16*i +: 16]),
       .sd_buff_wr(sd_buff_wr & io_ack[i]),
       .data_holdoff(holdoff_nc),
       .cd_snd_l(snd_l_nc), .cd_snd_r(snd_r_nc));

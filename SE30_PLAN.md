@@ -13028,6 +13028,43 @@ chip model is ~390 ALMs.
   - an absent ID timing out;
   - one byte too many ending on PHASE MATCH (the ROM's error 5).
 
+**Step 3, the machine and the top (2026-10-03).**
+- **`se30_machine.v`:**
+  - `se30_scsi` on GLUE's `scsi_sel`/`scsi_dack`, with one strobe per
+    access (`dev_strobe && phi1`), `rs` = `dev_addr[6:4]` (A6-A4) and
+    `dev_wdata`;
+  - its read into `dev_rdata`;
+  - DRQ into GLUE's handshake and VIA2 CA2, IRQ into VIA2 CB2;
+  - the chip's reset is `RESET*` (`via_reset_n`, which includes the CPU's
+    RESET instruction); the drives' is the core's reset only.
+  - The image ports are packed vectors (`{disk 1, disk 0}`), because
+    plain Verilog has no array ports.
+- **`MacSE30.sv`:**
+  - `SC2,IMGVHD,Mount SCSI-0` and `SC3,IMGVHD,Mount SCSI-1`, the MacPlus
+    core's form;
+  - `hps_io` `VDNUM` 4: slots 2 and 3 with `sd_wr`, `img_size[40:9]` as
+    blocks.
+- **Probe deck PSCS:** the bus (`se30_scsi`'s `dbg`), the disks'
+  `io_rd`/`io_wr`/`sd_ack` and a 10-bit count of sectors moved;
+  `read_probes.tcl` decodes it with the bus phase by name.
+- **ModelSim and `scsi.v`:** ModelSim's `vlog` rejects `scsi.v`'s forward
+  references (vlog-2730, `data_cnt` before its declaration) in Verilog and
+  SystemVerilog mode alike; Quartus and Icarus accept them.
+  `sim/machine`, which mounts no disk, compiles `sim/machine/scsi_idle.v`,
+  an idle stand-in. The real target is benched in `sim/scsi_seam` and
+  elaborated by Quartus.
+- **Benches:**
+  - `sim/ncr53c80` 106 and `sim/scsi_seam` 58 PASS;
+  - `sim/glue` 98 PASS;
+  - `sim/machine` PASS (fresh log 10:42).
+- **Quartus analysis and elaboration: 0 errors**, 129 s. From our files
+  only `mr_block` is unused (block mode, not built); the rest are
+  `scsi.v`'s own unused CD wiring in disk mode.
+- **Next:**
+  - 9.6 item 3, the blind-write bus-error frame in `sim/system`;
+  - then a compile, on Daniel's go-ahead;
+  - then the board gates of 9.6 item 5.
+
 ---
 
 ## Appendix - where the sources are

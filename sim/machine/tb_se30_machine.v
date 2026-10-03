@@ -132,7 +132,9 @@ module tb_se30_machine;
     .trk_addr(), .trk_side(), .trk_bit(1'b0),
     .disk2_in(1'b0), .disk2_eject(), .disk2_cyl(), .trk2_cyl(7'h7F), .trk2_valid(1'b0),   // the external drive: no disk
     .trk2_addr(), .trk2_side(), .trk2_bit(1'b0),
-    .dbg_via(), .dbg_regs(), .dbg_exc(), .dbg_swim(), .dbg_swim_vread(), .dbg_adb(), .dbg_rtc());
+    .scsi_img_mounted(2'b00), .scsi_img_blocks(32'd0), .scsi_io_lba(), .scsi_io_rd(), .scsi_io_wr(),   // SCSI: no disks
+    .scsi_io_ack(2'b00), .scsi_sd_buff_addr(8'd0), .scsi_sd_buff_dout(16'd0), .scsi_sd_buff_din(), .scsi_sd_buff_wr(1'b0),
+    .dbg_via(), .dbg_regs(), .dbg_exc(), .dbg_swim(), .dbg_swim_vread(), .dbg_adb(), .dbg_rtc(), .dbg_scsi());
 
   // -------------------------------------------------- the ROM's vector
   reg [15:0] romw [0:131071];

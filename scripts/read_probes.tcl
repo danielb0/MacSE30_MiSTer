@@ -508,6 +508,21 @@ for {set n 0} {$n < $samples} {incr n} {
 		puts [format "        encoder: track valid=%d side=%d state=%d slot=%d cylinder low=%d  port words=%d" 			[expr {($en >> 15) & 1}] [expr {($en >> 14) & 1}] [expr {($en >> 10) & 0xF}] [expr {($en >> 6) & 0xF}] 			[expr {$en & 0x3F}] [expr {$pfl2 & 0xFFFF}]]
 		puts [format "        external drive: motor=%d dir=%d eject latch=%d %s track=%d disk=%d /READY=%d%s%s%s" 			[expr {($d >> 15) & 1}] [expr {($d >> 14) & 1}] [expr {($d >> 13) & 1}] 			[expr {(($d >> 12) & 1) ? "MFM" : "GCR"}] [expr {$d & 0x7F}] 			[expr {($d >> 11) & 1}] [expr {($d >> 10) & 1}] 			[expr {(($d >> 9) & 1) ? " stepping" : ""}] [expr {(($d >> 8) & 1) ? " settling" : ""}] 			[expr {(($d >> 7) & 1) ? " spinning up" : ""}]]
 	}
+	if {[have PSCS]} {
+		# plan 9.8: the SCSI bus and the disks' hps_io slots -- see
+		# rtl/dbg_probes.sv for the layout
+		set pscs [rd PSCS]
+		set d [expr {($pscs >> 16) & 0xFFFF}]
+		set ph [expr {(($d >> 7) & 1) * 4 + (($d >> 6) & 1) * 2 + (($d >> 5) & 1)}]
+		set phn [lindex {"data out" "data in" "command" "status" "?" "?" "message out" "message in"} $ph]
+		puts [format "  PSCS  %08X   targets BSY=%d%d  REQ target=%d bus=%d  ACK=%d SEL=%d RST=%d ATN=%d  phase %s  chip BSY=%d DRQ=%d IRQ=%d" $pscs \
+			[expr {($d >> 15) & 1}] [expr {($d >> 14) & 1}] [expr {($d >> 13) & 1}] [expr {($d >> 12) & 1}] \
+			[expr {($d >> 11) & 1}] [expr {($d >> 10) & 1}] [expr {($d >> 9) & 1}] [expr {($d >> 8) & 1}] $phn \
+			[expr {($d >> 4) & 1}] [expr {($d >> 3) & 1}] [expr {($d >> 2) & 1}]]
+		puts [format "        disks: rd=%d%d wr=%d%d ack=%d%d  sectors moved (low 10 bits)=%d" \
+			[expr {($pscs >> 15) & 1}] [expr {($pscs >> 14) & 1}] [expr {($pscs >> 13) & 1}] [expr {($pscs >> 12) & 1}] \
+			[expr {($pscs >> 11) & 1}] [expr {($pscs >> 10) & 1}] [expr {$pscs & 0x3FF}]]
+	}
 	if {[have PCCH]} {
 		# plan 1.16.3: the 68030's caches -- {CDIS*, 0, CACR[13:0]}, then the
 		# instruction and data hits (24 bits each, wrapping)

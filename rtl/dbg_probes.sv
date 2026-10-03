@@ -78,6 +78,11 @@
 //   PFL2  64 bits, registered here on clk: the external drive's loader
 //         and encoder as PFLP's, the drive's 16 bits as PSWM's low word,
 //         and the disk-port words its loader and encoder have moved[15:0]
+// and, since plan 9.8 (SCSI):
+//   PSCS  32 bits, registered here on clk: se30_scsi's dbg {target BSY
+//         [1:0], target REQ, bus REQ, ACK, SEL, RST, ATN, MSG, C/D, I/O,
+//         chip BSY, DRQ, IRQ, 00}, then the disks' io_rd[1:0], io_wr[1:0],
+//         sd_ack[1:0] and a count of sectors moved [9:0]
 // and, since plan 1.16.3 (the 68030's caches):
 //   PCCH  64 bits, registered here on clk: {CDIS*, 0, CACR[13:0]} and the
 //         hits the instruction cache [47:24] and the data cache [23:0] have
@@ -125,7 +130,8 @@ module dbg_probes (
 	input  wire [63:0] flp_state,         // PFLP: the floppy's (plan 5.12.12 item 7)
 	input  wire [63:0] flp2_state,        // PFL2: the external drive's (plan 5.14)
 	input  wire [56:0] exc_state,         // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
-	input  wire [63:0] cache_state        // PCCH: the 68030's caches (plan 1.16.3)
+	input  wire [63:0] cache_state,       // PCCH: the 68030's caches (plan 1.16.3)
+	input  wire [31:0] scsi_state         // PSCS: the SCSI bus and the disks' slots (plan 9.8)
 );
 
 	reg        as_q = 1;
@@ -264,6 +270,15 @@ module dbg_probes (
 		.instance_id ("PFLP"), .probe_width (64), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// SCSI (the header's PSCS)
+	reg [31:0] pscs_r = 0;
+	always @(posedge clk) pscs_r <= scsi_state;
+
+	altsource_probe #(
+		.instance_id ("PSCS"), .probe_width (32), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pscs (.probe(pscs_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the caches (the header's PCCH)
 	reg [63:0] pcch_r = 0;

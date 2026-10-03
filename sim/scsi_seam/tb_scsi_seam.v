@@ -61,17 +61,17 @@ module tb_scsi_seam;
 
   reg  [1:0] img_mounted = 0;
   reg [31:0] img_blocks = 0;
-  wire [31:0] io_lba [2];
+  wire [63:0] io_lba;
   wire [1:0] io_rd, io_wr;
   reg  [1:0] io_ack = 0;
   reg  [7:0] sd_buff_addr = 0;
   reg [15:0] sd_buff_dout = 0;
-  wire [15:0] sd_buff_din [2];
+  wire [31:0] sd_buff_din;
   reg        sd_buff_wr = 0;
   wire [15:0] dbg;
 
   se30_scsi dut (
-    .clk(clk), .reset_n(reset_n),
+    .clk(clk), .reset_n(reset_n), .sys_reset_n(reset_n),
     .cs(cs), .dack(dack), .rd(rd), .wr(wr), .rs(rs), .wdata(wdata), .rdata(rdata), .drq(drq), .irq(irq),
     .img_mounted(img_mounted), .img_blocks(img_blocks),
     .io_lba(io_lba), .io_rd(io_rd), .io_wr(io_wr), .io_ack(io_ack),
@@ -101,7 +101,7 @@ module tb_scsi_seam;
     @(negedge clk);
     if (io_rd[0] || io_rd[1] || io_wr[0] || io_wr[1]) begin
       s = io_rd[0] || io_wr[0] ? 0 : 1;
-      blk = io_lba[s];
+      blk = io_lba[32*s +: 32];
       if (io_rd[s]) begin
         ticks(latency);
         io_ack[s] = 1;
@@ -117,8 +117,8 @@ module tb_scsi_seam;
         io_ack[s] = 1;
         for (w = 0; w < 256; w = w + 1) begin
           @(negedge clk); sd_buff_addr = w; ticks(2);
-          if (s == 0) begin img0[blk*512 + 2*w] = sd_buff_din[0][7:0]; img0[blk*512 + 2*w + 1] = sd_buff_din[0][15:8]; end
-          else        begin img1[blk*512 + 2*w] = sd_buff_din[1][7:0]; img1[blk*512 + 2*w + 1] = sd_buff_din[1][15:8]; end
+          if (s == 0) begin img0[blk*512 + 2*w] = sd_buff_din[7:0]; img0[blk*512 + 2*w + 1] = sd_buff_din[15:8]; end
+          else        begin img1[blk*512 + 2*w] = sd_buff_din[23:16]; img1[blk*512 + 2*w + 1] = sd_buff_din[31:24]; end
         end
         @(negedge clk); io_ack[s] = 0;
       end

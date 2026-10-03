@@ -2,6 +2,9 @@ set_global_assignment -name QIP_FILE rtl/tg68k/tg68k.qip
 set_global_assignment -name QIP_FILE rtl/pll.qip
 set_global_assignment -name VERILOG_FILE rtl/se30_glue.v
 set_global_assignment -name VERILOG_FILE rtl/se30_video.v
+set_global_assignment -name VERILOG_FILE rtl/se30_ncr53c80.v
+set_global_assignment -name VERILOG_FILE rtl/se30_scsi.v
+set_global_assignment -name VERILOG_FILE rtl/scsi.v
 set_global_assignment -name VERILOG_FILE rtl/se30_via.v
 set_global_assignment -name VERILOG_FILE rtl/se30_swim.v
 set_global_assignment -name VERILOG_FILE rtl/se30_fdhd.v

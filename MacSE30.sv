@@ -70,6 +70,9 @@ localparam CONF_STR = {
 	"S0,DSKIMG,Mount Internal Floppy;",
 	"S1,DSKIMG,Mount External Floppy;",
 	"-;",
+	"SC2,IMGVHD,Mount SCSI-0;",
+	"SC3,IMGVHD,Mount SCSI-1;",
+	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"-;",
 	"R[0],Reset;",
@@ -88,29 +91,41 @@ wire  [26:0] ioctl_addr;
 wire  [15:0] ioctl_dout;
 wire         ioctl_wait;
 
-// the drives' images: S0 the internal drive's, S1 the external drive's
-// (plan 5.14), 512-byte blocks read only (plan 5.12.5; writing is rung
-// 3's).  The data bus is shared; each loader takes sd_buff_wr only under
-// its own sd_ack.
-wire   [1:0] img_mounted;
+// the images: S0 the internal drive's, S1 the external drive's (plan
+// 5.14), 512-byte blocks read only (plan 5.12.5; writing is rung 3's);
+// SC2 and SC3 the SCSI disks at IDs 0 and 1, read and written (plan 9.5).
+// The data bus is shared; each client takes sd_buff_wr only under its own
+// sd_ack.
+wire   [3:0] img_mounted;
 wire         img_readonly;
 wire  [63:0] img_size;
-wire  [31:0] sd_lba[2];
-wire   [5:0] sd_blk_cnt[2];
-wire  [15:0] sd_buff_din[2];
-wire   [1:0] sd_rd, sd_ack;
+wire  [31:0] sd_lba[4];
+wire   [5:0] sd_blk_cnt[4];
+wire  [15:0] sd_buff_din[4];
+wire   [3:0] sd_rd, sd_wr, sd_ack;
 wire         sd_buff_wr;
 wire  [12:0] sd_buff_addr;
 wire  [15:0] sd_buff_dout;
 wire  [31:0] flp_sd_lba, flp2_sd_lba;
+wire  [63:0] scsi_io_lba;
+wire  [31:0] scsi_sd_buff_din;
+wire   [1:0] scsi_io_rd, scsi_io_wr;
 assign sd_lba[0]      = flp_sd_lba;
 assign sd_lba[1]      = flp2_sd_lba;
+assign sd_lba[2]      = scsi_io_lba[31:0];
+assign sd_lba[3]      = scsi_io_lba[63:32];
 assign sd_blk_cnt[0]  = 6'd0;
 assign sd_blk_cnt[1]  = 6'd0;
+assign sd_blk_cnt[2]  = 6'd0;
+assign sd_blk_cnt[3]  = 6'd0;
 assign sd_buff_din[0] = 16'd0;
 assign sd_buff_din[1] = 16'd0;
+assign sd_buff_din[2] = scsi_sd_buff_din[15:0];
+assign sd_buff_din[3] = scsi_sd_buff_din[31:16];
+assign sd_rd[3:2]     = scsi_io_rd;
+assign sd_wr          = {scsi_io_wr, 2'b00};
 
-hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(4)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -130,7 +145,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(2)) hps_io
 	.sd_lba(sd_lba),
 	.sd_blk_cnt(sd_blk_cnt),
 	.sd_rd(sd_rd),
-	.sd_wr(1'b0),
+	.sd_wr(sd_wr),
 	.sd_ack(sd_ack),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
@@ -386,6 +401,14 @@ wire [31:0] dbg_rtc;
 wire        dbg_swim_vread;
 wire [56:0] dbg_exc;
 wire [63:0] dbg_cache;
+wire [15:0] dbg_scsi;
+// PSCS's sector count: the SCSI slots' sd_ack rising edges (plan 9.8)
+reg   [9:0] scsi_sectors = 0;
+reg   [1:0] scsi_ack_q = 0;
+always @(posedge clk_sys) begin
+	scsi_ack_q <= sd_ack[3:2];
+	if ((sd_ack[2] && !scsi_ack_q[0]) || (sd_ack[3] && !scsi_ack_q[1])) scsi_sectors <= scsi_sectors + 1'd1;
+end
 
 se30_machine machine
 (
@@ -404,7 +427,11 @@ se30_machine machine
 	.disk2_in(disk2_in), .disk2_eject(disk2_eject), .disk2_cyl(disk2_cyl), .trk2_cyl(trk2_cyl), .trk2_valid(trk2_valid),
 	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
 	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
-	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc)
+	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi),
+	.scsi_img_mounted(img_mounted[3:2]), .scsi_img_blocks(img_size[40:9]),
+	.scsi_io_lba(scsi_io_lba), .scsi_io_rd(scsi_io_rd), .scsi_io_wr(scsi_io_wr), .scsi_io_ack(sd_ack[3:2]),
+	.scsi_sd_buff_addr(sd_buff_addr[7:0]), .scsi_sd_buff_dout(sd_buff_dout), .scsi_sd_buff_din(scsi_sd_buff_din),
+	.scsi_sd_buff_wr(sd_buff_wr)
 );
 
 assign LED_DISK = {1'b0, dbg_swim[15] | dbg_fdhd2[15]};   // either drive's motor (se30_fdhd's dbg[15])
@@ -508,7 +535,8 @@ dbg_probes probes
 	.flp_state({ld_dbg, en_dbg, flp_words, flp_bytes}),
 	.flp2_state({ld2_dbg, en2_dbg, dbg_fdhd2, flp2_words}),
 	.exc_state(dbg_exc),
-	.cache_state(dbg_cache)
+	.cache_state(dbg_cache),
+	.scsi_state({dbg_scsi, scsi_io_rd, scsi_io_wr, sd_ack[3:2], scsi_sectors})
 );
 `else
 assign pk_hold = 1'b0;
