@@ -2143,6 +2143,122 @@ pass with it in.
     write the loop's instructions add instead of overlapping. That is
     1.16.1's kernel-timing question, parked by Daniel.
 
+## 1.17 Timing against the 68030 (opened 2026-10-03)
+
+**Why now.** Daniel, 2026-10-03, with the base machine working: "this
+would be a good time to concentrate on timing. The graphics and disk are
+too slow, and the CPU timing seems to impact authenticity, as with the
+startup chime." This reopens 1.16.1's option 1 ("accept it"). He agreed to
+measure first (step 1), then a design section, then the disk on its own
+track.
+
+**A hardware reference was looked for and not found.** The ROM's boot
+calibration (`TimeDBRA` at `$0D00`, `TimeSCCDB` at `$0D02`) on a real
+SE/30 would give a hardware-measured uncached figure. Daniel knows no one
+with an SE/30. Searched (2026-10-03): no published SE/30 value. QEMU's
+`mac_via.c` hard-codes `TimeDBRA $2A00` / `TimeSCCDB $079D` (x3 for its
+host) for the Quadra 800 it emulates, a 68040 - not applicable. MAME
+computes nothing it records. The only hardware-measured references in hand
+are Speedometer 4.02's built-in SE/30 record (10.6) and the *Guide*'s
+~1.4 MB/s blind SCSI rate (2.11.3).
+
+### 1.17.1 Step 1: the timetest bench (built 2026-10-03)
+
+`sim/system`, run `timetest` (`gen_time_program.py`, `report_time.py`):
+twelve windows, each a loop timed between marker writes, through the
+kernel, the wrapper, GLUE and `se30_video`. Loops copied from the ROM keep
+its alignment mod 4. The 68030 figures are the manual's model, not a
+measurement: UM 11.3's Equation 11-2 (cache case: CC less min(head, tail)
+overlap) with 11.5's wait-state rules for the cached windows, and 11.5's
+no-cache formula (an upper bound by the manual's own words) beside a lower
+estimate (the tables' internal clocks plus the bus the core ran) for the
+uncached ones. Wait states: RAM 4 clocks (W = 2 on the tables' 2-clock
+base - the *Guide*'s "one wait state" is on the 68030's 3-clock
+asynchronous cycle), ASC 5 read / 4 write, the SCSI DACK port 4 a byte,
+the video RAM as measured (the PALs' 5/6/7, 2.12). Run time 3.5 min.
+
+| w | loop | core clocks/turn | 68030 clocks/turn | core / 68030 |
+|---|---|---|---|---|
+| 0 | DBRA alone, cache off (TimeDBRA's shape) | 9.04 | 12.0 | **0.75** |
+| 1 | the chime pass, ROM `$40805F28`, cache off | 446.7 | 534-697 | **0.64-0.84** |
+| 2 | DBRA alone, I-cache on | 3.01 | 6.00 | **0.50** |
+| 3 | ADD.L / LSL.L #2 / MOVE.L / SUB.L / DBRA (registers only) | 7.03 | 16.00 | **0.44** |
+| 4 | RAM fill `MOVE.L D0,(A0)+` | 8.15 | 8.00 | 1.02 |
+| 5 | RAM read `MOVE.L (A0)+,D2` | 8.16 | 13.00 | **0.63** |
+| 6 | RAM copy `MOVE.L (A0)+,(A1)+` | 12.22 | 13.00 | 0.94 |
+| 7 | VRAM fill `MOVE.L D0,(A0)+` (byte cycles 6.72) | 30.92 | 27.90 | **1.11** |
+| 8 | VRAM byte `MOVE.B D0,(A0)+` (5.29) | 9.31 | 8.00 | **1.16** |
+| 9 | RAM->VRAM `MOVE.L (A1)+,(A0)+` (6.77) | 35.10 | 32.07 | **1.09** |
+| 10 | SCSI blind read, ROM `$40826B7A` (8 x `MOVE.L (A0),(A2)+`) | 173.4 | 165.0 | 1.05 |
+| 11 | SCSI blind write, ROM `$40826BC2` | 173.4 | 168.0 | 1.03 |
+
+**What it shows.**
+- **The kernel is too fast wherever the 68030 works internally**: about
+  2x on register and cached-branch code (0.44-0.50), 1.3x uncached.
+  Speedometer's CPU 1.19 is this, diluted by memory traffic.
+- **The startup chime: 0.86 s on the core, 1.02-1.33 s by the manual.**
+  Its pitch is the ASC's (the phase increments, at the ASC's own sample
+  clock); the CPU sets the envelope - the pass fades the four tables and
+  starts a voice every 300 passes - so a fast pass is a short chime at
+  the right pitch, as Daniel heard.
+- **The kernel is too slow where a slow port saturates the bus**: video
+  RAM 9-16 %, SCSI 3-5 %. The 68030's write-pending buffer (UM 11.2.5.2)
+  lets the next instructions run under a write; the core waits for every
+  byte cycle and then runs them.
+- The bus cycles themselves are right: 4 clocks to RAM and the DACK port,
+  the PALs' 5/6/7 to the video RAM.
+- **The SCSI loop is not the Disk gap.** With a target that never stalls,
+  the ROM's blind loops run 2.89 MB/s on the core against 3.0 for the
+  68030 - twice the *Guide*'s ~1.4 MB/s, which is the real disk's pace.
+  Speedometer's 0.84 must come from elsewhere: the target's sector
+  latency, the driver's polled phases, or the File Manager's CPU time.
+- **Nor do these loops explain Graphics 0.70.** The video-RAM loops are
+  10-16 % slow and everything around them is fast, so QuickDraw should net
+  out near 1.0. Something QuickDraw does that these loops do not is
+  slower: candidates below.
+
+### 1.17.2 Found on the way: CLR, Scc and MOVE from SR read before writing
+
+The markers (`CLR.L` to an absolute address) showed a read before each
+write. A probe of every memory mode (`sim/system/clrtest`, 27 cases:
+`CLR.B/W/L` in (An), (An)+, -(An), d16(An), d8(An,Xn), abs.W, abs.L;
+`ST` three modes; `MOVE SR,(An)` and abs.L; `MOVE CCR,(An)`): **every one
+reads its destination, then writes it** - the 68000's behaviour. The
+68030's tables say otherwise: `CLR Mem 4(0/1/1)` (p. 11-44), `Scc Mem
+5(0/1/1)`, `MOVE SR,Mem 5(0/1/1)` and `MOVE CCR,Mem 5(0/1/1)` (p. 11-39)
+- no operand read.
+
+- **Timing**: a `CLR.L` to video RAM pays four extra byte reads (~26
+  clocks) - a candidate for the Graphics gap, since QuickDraw erases.
+- **Side effects**: a read of an I/O register is not neutral - the VIA's
+  T1C-L/T2C-L and port reads clear interrupt flags, the SCC's data
+  register pops its FIFO, the ASC's `$804` clears its events. The ROM has
+  about 1,500 `CLR`-to-memory words, 300 `Scc` and 80 `MOVE SR` (a raw
+  word scan, so approximate). A 68000 Mac's software tolerates the read;
+  an SE/30's need not.
+- **The fix is the kernel's** (ours): on the 68030 these instructions take
+  the write-only path. Not yet designed.
+- **The regression is in place**: `sim/system` run `clrtest`
+  (`gen_clr_program.py`, `+CLRTEST`) counts the data cycles into the
+  destinations - 27 writes and no read expected. Today: **27 writes, 27
+  reads, FAIL**. It joins `run.sh` with the fix.
+
+### 1.17.3 Next
+
+1. **The CLR/Scc/MOVE-from-SR read** (1.17.2): design and fix - a kernel
+   correctness item before any pacing.
+2. **The Graphics gap's cause**, by the same method: QuickDraw's own
+   inner loops from the ROM (`CopyBits`' blit, the rect fill and erase,
+   text drawing) as timetest windows; and the costs these loops leave out
+   - the PMMU's table walks under System 7.5.5 (ATC size and misses), the
+   VBL and other interrupt overheads.
+3. **The design section for a paced kernel** (Daniel's step 2): instruction
+   timing to Table 11 and the write-pending overlap together - pacing
+   alone would push Graphics further down.
+4. **The disk on its own track** (step 3): with the CPU loop shown to be at
+   the 68030's pace, measure the target's latency and the driver's polled
+   phases.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records

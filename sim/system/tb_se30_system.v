@@ -42,6 +42,15 @@
 //              each window's clocks and every video cycle's length and the
 //              gap before it, against plan 2.12's 5/6/7-clock table
 //              (1.16.3: the two GLUE clocks it found).
+//     timetest  gen_time_program.py's windows (plan 1.17): loops from the
+//              real software - the ROM's chime pass and SCSI blind loops
+//              verbatim, DBRA, RAM and video-RAM moves - each timed between
+//              marker writes, with its bus cycles counted, for
+//              report_time.py to set against the MC68030 UM's Section 11.
+//              GLUE's DRQ is held high: a target that never stalls.
+//     clrtest   gen_clr_program.py's CLR, Scc and MOVE from SR/CCR to every
+//              memory mode (plan 1.17.2): each a write and no read, as the
+//              MC68030 UM's tables list them (a 68000 reads first).
 //     berrtest  gen_berr_program.py's blind read and write at $50006060 /
 //              $50006000 with GLUE's DRQ tied low: each waits for DRQ and
 //              UI6 bus-errors it; a handler records the frame's format
@@ -54,7 +63,9 @@
 //   Plusargs: +PROG=<dir> (the program.hex/stop_at.txt directory, default
 //   ../kernel_bus), +CACHEON (the program enables the cache: it must hit),
 //   +CACHETEST (the cache program's checks), +VRAMTEST (the video-RAM
-//   measurement), +BERRTEST (the handshake bus errors); +define+VTRACE
+//   measurement), +TIMETEST (the timing windows), +CLRTEST (the write-only
+//   instructions), +BERRTEST (the handshake
+//   bus errors); +define+VTRACE
 //   prints the video trace.
 //
 // CLOCKING
@@ -101,6 +112,7 @@ module tb_se30_system;
   wire [12:0] dev_addr;
   wire  [7:0] dev_wdata;
   reg         hsync_n = 1;
+  reg         timetest = 0;              // +TIMETEST (read at the start): DRQ held high
   // VIA1's interrupt, as the program asks: raised by its write to $3080,
   // dropped by the handler's write to $3084
   reg         via1_irq_n = 1;
@@ -119,7 +131,7 @@ module tb_se30_system;
     .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(rom_rdata), .rom_ack(rom_ack),
     .via1_sel(via1_sel), .via2_sel(via2_sel), .scc_sel(scc_sel), .scsi_sel(scsi_sel), .scsi_dack(scsi_dack),
     .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
-    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(8'h00), .scsi_drq(1'b0),
+    .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(8'h00), .scsi_drq(timetest),
     .e_clk(e_clk), .c3m_en(c3m_en),
     .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
     .via1_irq_n(via1_irq_n), .via2_irq_n(1'b1), .scc_irq_n(1'b1), .nmi_n(1'b1),
@@ -265,6 +277,44 @@ module tb_se30_system;
     vas_q = cpu_as_n;
   end
 
+  // ---------------------------------------------------- the timing meter
+  // timetest: window w runs from a write to $3100+8w to one to $3104+8w;
+  // in it, the C16M clocks, the fetch and data cycles and their lengths
+  // (S0-S5, as above), and the fetches and reads the caches answered
+  integer tw = -1, tw_t0 [0:31], tw_t [0:31], tw_nf [0:31], tw_lf [0:31], tw_nd [0:31], tw_ld [0:31], tw_h [0:31];
+  integer tas = 0, tk; reg tas_q = 1; reg [2:0] tfc;
+  initial for (tk = 0; tk < 32; tk = tk + 1) begin
+    tw_t[tk] = 0; tw_nf[tk] = 0; tw_lf[tk] = 0; tw_nd[tk] = 0; tw_ld[tk] = 0; tw_h[tk] = 0;
+  end
+  always @(posedge clk) if (phi1 && timetest) begin
+    if (!cpu_as_n && !cpu_rw_n && dsack_n != 2'b11 && cpu_addr[31:8] == 24'h000031 && cpu_addr[1:0] == 0) begin
+      tk = cpu_addr[7:3];
+      if (!cpu_addr[2] && tw != tk) begin tw = tk; tw_t0[tk] = clocks; end
+      if (cpu_addr[2] && tw == tk) begin tw_t[tk] = clocks - tw_t0[tk]; tw = -1; end
+    end
+    if (!cpu_as_n && tas_q) begin tas = 0; tfc = cpu_fc; end
+    if (!cpu_as_n) tas = tas + 1;
+    if (cpu_as_n && !tas_q && tw >= 0 && tfc != 3'd7) begin
+      if (tfc == 3'd6) begin tw_nf[tw] = tw_nf[tw] + 1; tw_lf[tw] = tw_lf[tw] + tas + 1; end
+      else             begin tw_nd[tw] = tw_nd[tw] + 1; tw_ld[tw] = tw_ld[tw] + tas + 1; end
+    end
+    if (tw >= 0 && cpu.hit_ack) tw_h[tw] = tw_h[tw] + 1;
+    tas_q = cpu_as_n;
+  end
+
+  // ------------------------------------------------- the write-only meter
+  // clrtest: the data cycles into $3100-$31FF, each counted once as it
+  // starts - CLR, Scc and MOVE from SR/CCR write there and must not read
+  reg clrtest = 0;
+  integer cl_r = 0, cl_w = 0; reg cl_q = 1;
+  always @(posedge clk) if (phi1 && clrtest) begin
+    if (!cpu_as_n && cl_q && cpu_fc != 3'd6 && cpu_fc != 3'd7 && cpu_addr[31:8] == 24'h000031) begin
+      if (cpu_rw_n) begin cl_r = cl_r + 1; $display("---- a read of $%08x before the write (siz %b)", cpu_addr, cpu_siz); end
+      else cl_w = cl_w + 1;
+    end
+    cl_q = cpu_as_n;
+  end
+
 `ifdef VTRACE
   // +define+VTRACE: 60 clocks of window 1's steady state - AS*, the slot
   // select, UE7's state and both DSACKs, clock by clock (how 1.16.3's two
@@ -292,6 +342,8 @@ module tb_se30_system;
     cacheon = $test$plusargs("CACHEON");
     vramtest = $test$plusargs("VRAMTEST");
     berrtest = $test$plusargs("BERRTEST");
+    timetest = $test$plusargs("TIMETEST");
+    clrtest = $test$plusargs("CLRTEST");
     $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
     fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
@@ -299,7 +351,7 @@ module tb_se30_system;
     repeat (20) @(posedge clk);
     reset_n = 1;
     n = 0;
-    while (!done && !halted && n < 400000) begin @(posedge clk); n = n + 1; end
+    while (!done && !halted && n < (timetest ? 2000000 : 400000)) begin @(posedge clk); n = n + 1; end
     if (halted) begin fails = fails + 1; $display("FAIL: the CPU halted (double bus fault) after %0d clocks", n); end
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
     else pass = pass + 1;
@@ -312,6 +364,28 @@ module tb_se30_system;
       if ((want[31:28] == 4'hA || want[31:28] == 4'hB) && want[27:16] == 12'h008) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL: the write's fault is not a bus-error frame"); end
       if (fails == 0) $display("==== PASS: %0d checks - both handshake timeouts bus-error, the frames recorded", pass);
+      else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
+      $finish;
+    end
+    if (clrtest) begin                                                  // the write-only instructions (plan 1.17.2)
+      fd = $fopen({prog_dir, "/count.txt"}, "r"); r = $fscanf(fd, "%d", kk); $fclose(fd);   // the writes
+      $display("---- %0d writes and %0d reads into $3100-$31FF", cl_w, cl_r);
+      if (cl_w == kk) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: %0d writes, expected %0d", cl_w, kk); end
+      if (cl_r == 0) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: %0d destinations read before they were written (the 68000's behaviour)", cl_r); end
+      if (fails == 0) $display("==== PASS: %0d checks - CLR, Scc and MOVE from SR/CCR write without reading", pass);
+      else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
+      $finish;
+    end
+    if (timetest) begin                                                 // a measurement: report and stop
+      fd = $fopen({prog_dir, "/count.txt"}, "r"); r = $fscanf(fd, "%d", kk); $fclose(fd);   // the windows
+      for (vk = 0; vk < kk; vk = vk + 1) begin
+        $display("---- tw %0d clocks %0d fetch %0d %0d data %0d %0d hits %0d", vk, tw_t[vk], tw_nf[vk], tw_lf[vk], tw_nd[vk], tw_ld[vk], tw_h[vk]);
+        if (tw_t[vk] > 0) pass = pass + 1;
+        else begin fails = fails + 1; $display("FAIL: window %0d never closed", vk); end
+      end
+      if (fails == 0) $display("==== PASS: %0d checks - the timing windows ran", pass);
       else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
       $finish;
     end
