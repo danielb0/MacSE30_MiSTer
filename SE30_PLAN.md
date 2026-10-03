@@ -13217,6 +13217,51 @@ tested by seam benches and then the board.
   (1) for an empty port". The SN75175 receivers are indeterminate with
   open inputs (TI: no fail-safe), so the documents leave the choice to
   us (`se30_scc_wiring.md` OPEN 5).
+- **The whole 8530** (Daniel, 2026-10-03): asynchronous and SDLC, both
+  directions, the DPLL, the baud-rate generators, the full interrupt
+  system, two channels; the module's own synthesis measured before it
+  goes into the machine (estimate 1,200-1,800 ALMs).
+- **The outside world later** (Daniel, 2026-10-03): the chip's port pins
+  are brought out now; the modem port (channel A) reaches the MiSTer UART
+  (USER_IO) as an OSD option after the boot works.
+
+## 10.4 The machine's logic budget (2026-10-03)
+
+Measured at compile 29 (34,959 ALMs; the fit report's per-entity table):
+CPU 15,094, 68882 6,365, the probe deck 1,334 plus its JTAG hub 327, SCSI
+838 (our 53C80 67, each `scsi.v` target ~340), each floppy drive ~830
+(loader ~300, track encoder ~390, drive model ~138), the SWIM 123, the MiSTer
+framework ~5,000 (scaler 1,982, audio 883, OSDs 1,032, HDMI PLL 718).
+
+| Still to build | Estimate (ALMs) |
+|---|---|
+| SCC, the whole 8530 | 1,000-1,500 |
+| ASC (logic; its buffers in M10K) | 500-1,000 |
+| CD-ROM target and CD audio | 600-900 |
+| Modem port to the UART | < 100 |
+| Floppy writing and formatting (GCR) | 800-1,200 |
+| 1.4 MB MFM: the ISM's machinery and an MFM track engine | 800-1,400 |
+| **Sum** | **3,800-6,100**: the machine at ~38,800-41,100 |
+
+**The ceiling, from the Quadra 800 core** (`MacQuadra800_MiSTer` `a0b3072`,
+`RESUME-timing-closure-20260925.md`): timing closed at **38,329 ALMs** with
+every feature and no floppy at all. A 40,651-ALM build fitted (4,182 of
+4,191 LABs) but missed the CPU by 2.4 ns. Another needed ~40,200 and failed
+routing. The second integer pipeline was removed to close.
+
+**The levers, in order:**
+1. The probe deck out of release builds: -1,660.
+2. One track engine shared by the two drives (the SWIM talks only to the
+   selected drive; each drive keeps its own mechanism): -500 to -800,
+   provided the ROM never reads straight after changing drives.
+3. **The second floppy drive removed once SCSI is fully up** (Daniel,
+   2026-10-03: "The LC only has one and it is not really necessary"): -830
+   now, -1,300 to -1,600 once writing and 1.4 MB are built.
+4. DC42 support: -150 to -250.
+
+Options (the colour card, the 128 MB clean ROM) are decided when the base
+machine's real numbers are in. Each section's measured cost replaces its
+estimate here.
 
 ---
 
