@@ -2708,8 +2708,19 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
     extents cover 12 of its 28 blocks (8 orphan blocks), dated by an
     unset 1960 clock 19 s after the backup's own last write - the MacLC
     era, not ours.
-  - **The check on compile 33**: run Speedometer 4.02 to its results,
-    quit, and compare its fork against the backup.
+  - **The Disk test** (Daniel: it writes a big file beside the app).
+    The catalog's dead space holds the test file's record: `` `!@#Test
+    File``, type `zzzz` creator `sPd3`, a 1 MB data fork (44 blocks at
+    51377) of zeros only, created 23:30:48 UTC - Speedometer 3.23's
+    test on compile 33 tonight, created, written and deleted cleanly.
+    So the test's own write is 1 MB of zeros to its own file; the app's
+    fork got neither zeros nor 1 MB but a 32 MB EOF and twelve non-zero
+    bytes - not the test's data landing in the wrong file, but the File
+    Manager's or Resource Manager's bookkeeping going wrong while the
+    test ran (a wrong value, a wrong refnum/FCB).
+  - **The check on compile 33**: run Speedometer 4.02's Disk test
+    several times on a scratch copy of the image, quit, and compare its
+    fork against the backup.
   **Speedometer 3.23
   runs: CPU 4.271, Graphics 3.568** (Mac Classic = 1.0) against the real
   SE/30's 4.25 / 3.71 (Low End Mac, 3.06 under System 7.5.5): **CPU 1.005,
