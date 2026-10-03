@@ -13238,7 +13238,7 @@ framework ~5,000 (scaler 1,982, audio 883, OSDs 1,032, HDMI PLL 718).
 | Still to build | Estimate (ALMs) |
 |---|---|
 | SCC, the whole 8530 | **1,073, measured (compile 30)** |
-| ASC (logic; its buffers in M10K) | 500-1,000 |
+| ASC (logic; its buffers in M10K) | **447, measured (compile 31)** |
 | CD-ROM target and CD audio | 600-900 |
 | Modem port to the UART | < 100 |
 | Floppy writing and formatting (GCR) | 800-1,200 |
@@ -13700,8 +13700,19 @@ tagged HW (ASCTester), G, HO, S7, SW (the ROM's and System 7.5.5's use,
     fails 3 checks.
 - `sim/kernel_bus` PORT=8 (the odd word write): 520 checks PASS.
 - `sim/machine`: PASS (81 s).
-- **Next: compile 31** (Daniel's go-ahead, 2026-10-03: "You can also compile
-  when ready"), then the board.
+- **Compile 31** (Daniel's go-ahead, 2026-10-03: "You can also compile
+  when ready"): tag `48ba4df9`, 32 min 18 s,
+  `output_files/MacSE30_48ba4df9_asc1.rbf` (md5
+  `450ef47798b8881662ce99d2cf537011`).
+  - **36,628 ALMs** (87 %), 331 RAM blocks. **The ASC measured: 447 ALMs**
+    (the stub 54) and 4 M10Ks (Quartus duplicates the buffer for its
+    third read port); PASC 28.
+  - **Timing met at every corner** (`sta_corners.tcl`): worst +0.051 ns
+    (hold, slow -40C); the capture A or B met at every corner.
+- **Next: the board** - the volume back up, System 7.5.5 from SCSI: the
+  "not shut down properly" beep, the alert sound, the startup chime, sound
+  from the MiSTer; if anything stops, read PASC first (the mode, `$804`, the
+  counts, the interrupts raised).
 
 ---
 
