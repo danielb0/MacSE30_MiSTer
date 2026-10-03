@@ -2348,15 +2348,27 @@ untouched and lands the same result a clock later.
   `sim/machine` 17 checks. `sim/machine`'s start-up flake (vlog exits 1 in
   2 s with no message) recurred three times, alone too; a rerun passes -
   not the RTL.
-- Compile 32 next, for its timing (the fast path puts the 22-entry compare
-  in front of the bus start in one fast clock).
+- **Compile 32** (Daniel's go, 2026-10-03): tag `965b4146`, 35.5 min,
+  archived `output_files/MacSE30_965b4146_atcfast.rbf`.
+  - **37,261 ALMs (89 %)**, +633 on compile 31: the fast path's 22-way
+  match, mux and offset merge. The ceiling is ~38.3k (10.4) - about 1,000
+  left.
+  - **Our clocks meet timing at every corner**: the CPU/system clocks
+  (`general[0]`/`[1]`) worst setup **+0.497 ns** (slow 100C), worst hold
+  +0.118 ns (fast -40C) - more margin than compile 31's +0.051. The SDRAM
+  capture meets its A/B rule at every corner.
+  - `sta_corners.tcl`'s overall verdict is NOT MET, **-0.034 ns, on the
+  framework's HDMI scaler** (`ascal`, `pll_hdmi`, slow -40C) - the
+  framework path that missed in compiles 25-26, not ours.
+  - Next: the board - Speedometer 4.02 (Graphics, Disk) against compile
+  31's and the real SE/30's record.
 
 ### 1.17.4 Next
 
 1. ~~**The CLR/Scc/MOVE-from-SR read** (1.17.2): design and fix - a kernel
    correctness item before any pacing.~~ DONE 2026-10-03.
 2. **The PMMU's lost clock** (1.17.3): option A built and benched; compile
-   32 judges its timing.
+   32 met our timing (the framework's HDMI scaler misses -0.034 ns); to the board.
 3. **Re-measure** windows 12-21 after it, then Speedometer on the board:
    with the PMMU's clock gone and the CPU still 2x fast internally,
    Graphics and Disk may come out above the real machine.
