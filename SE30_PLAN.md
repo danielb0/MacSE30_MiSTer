@@ -13114,6 +13114,30 @@ chip model is ~390 ALMs.
       the image).
     - Decide whether it is our VIA1 T1/Time Manager path, the 53C80, or
       something else.
+  - **Reproduced and read (2026-10-03, same image): the cause is the
+    missing SCC, not SCSI.**
+    - Same state: PC `$EA934`/`$EA938`, last trap `_VInstall` (A033).
+      PEXC's bus-error count is saturated at 255, but PSTA's bus BERR count
+      is 0 and neither moves at the hang; the source of those vector-2
+      exceptions is not yet named.
+    - The peek of `$EA800-$EABFF` disassembles as the **LocalTalk (LAP)
+      transmit path**:
+      - it loads the low-memory globals SCCRd (`$1D8`) and SCCWr (`$1DC`);
+      - it writes SCC registers (WR14 `$41`, WR10, WR5 `$62`/`$05`);
+      - `$EA950` sets a busy byte `$63E(a2)`; `$EA9B0` parks the
+        continuation at `$634(a2)` and returns early, so only the
+        interrupt-driven completion clears `$63E`;
+      - `$EA934: TST.B $63E(A2) / BNE $EA934` waits for it with no timeout.
+    - The SCC is unbuilt: `se30_machine.v` ties `scc_irq_n` high, so the
+      transmit completion (an SCC level-4 interrupt) never comes. The
+      System is loaded from SCSI (672 sectors) and AppleTalk's driver is
+      started; the floppy Systems tried so far did not start it.
+    - **The peek releases the machine at its end.** A second peek reset it
+      mid-reboot (Daniel saw it crash), so the low-memory dump taken then is
+      not the hang's state. For a multi-region read of a hang, read every
+      region in one `quartus_stp` session.
+    - **Next: the SCC section** (Z85C30, from Zilog's SCC manual and Guide
+      2e), before the board gates of 9.6 item 5. Daniel's call.
 - **Then:** the board gates of 9.6 item 5.
 
 ---
