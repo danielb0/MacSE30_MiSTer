@@ -2678,9 +2678,10 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   reports a 16 MHz 68030** (compile 27 read 31 MHz - its DBRA loop now
   takes the manual's 6 clocks; the real SE/30 runs at 15.67 MHz). Still
   to hear: the boot RAM tests (where the -0.516 ns write-path miss would
-  show). **Speedometer no longer runs: "an error of type 40"** (compile
-  32 ran Speedometer 4.02 to its results) - a regression of compile 33,
-  so either the pace or the fit; not yet localised. **Speedometer 3.23
+  show). **Not a regression:** Speedometer 4.02 first stopped with error
+  **-40** (the File Manager's posErr, a position before the start of a
+  file) from one disk image and runs from another - the image is
+  suspect, not the machine. **Speedometer 3.23
   runs: CPU 4.271, Graphics 3.568** (Mac Classic = 1.0) against the real
   SE/30's 4.25 / 3.71 (Low End Mac, 3.06 under System 7.5.5): **CPU 1.005,
   Graphics 0.96** of the real machine (compile 27 under 3.23: CPU 5.179,
