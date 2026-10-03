@@ -13443,8 +13443,20 @@ deeper FIFOs, RR0 latched during a read) are left out.
     placement, not by a fix: its options stay with Daniel (drop the raw
     experiment port `S_RAW`, two of the mux's six sources; or choose the
     outgoing word a clock earlier).
-- **Next: the board.** System 7.5.5 from SCSI (`mac_80mb-restored.vhd` as
-  SCSI-0); if it stops, read PSCC first.
+- **On the board (2026-10-03): System 7.5.5 boots from SCSI to the
+  desktop** (`mac_80mb-restored.vhd` as SCSI-0; Daniel). The first attempt
+  "hung at the same place" because the card still had compile 29 (PBLD
+  `903df2c5`, no PSCC); with compile 30 (PBLD `24a1c9a2`) it boots.
+  - PSCC at the desktop: 2,189+ SCC accesses, MIE = 1 (LocalTalk's
+    driver running), no IP pending, /INT inactive; RR0B `$D4`:
+    Sync/Hunt 1 (the line free), TBE 1, EOM 1, and Break/Abort 1 - the
+    abort the receiver saw while it ran on RTxC before WR11 moved it to
+    the DPLL (as the chip bench's init replay showed); no 0 ever arrives
+    to end it, as on a real chip with an idle port.
+  - PSCS: 823+ sectors moved.
+- **Next:** SCSI's board gates (9.6 item 5) - System 6 and 7 from SCSI
+  (7 done), ID 1, `hfs_check` and `hfs_fork_diff` after a Finder copy, a
+  soak, Speedometer's disk test.
 
 ---
 
