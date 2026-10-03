@@ -7197,6 +7197,35 @@ the Slot Manager's 255; `_Read` and `_GetResource` among the traps.
 4. `sim/gcrread` for two drives; the full gate; the other benches.
 5. 3.3's SDRAM map; then the compile (Daniel's go-ahead).
 
+**The two-drive gate, run 2026-10-02/03 and STOPPED (Daniel: "We're not
+running a test over two days").**
+- **Result, cylinders 0-15 of both drives** (the first speed group):
+  - 768 sectors, 0 bad, 0 errors, 0 bytes taken unread, 0 taken twice;
+  - all 22 checks so far PASS: Open on both drives, the power-up,
+    recalibrate to /TK0 on both, the ISM entry's GCR path, the VBL task's
+    disk-in.
+  - Progress saved in the session scratchpad as
+    `gcrread_prog_20261003.txt`; `sim/gcrread`'s 2026-09-29 logs restored.
+- **Why stopped.** Each cylinder now reads 48 sectors (two drives x two
+  sides x 12): about 3.1 s simulated, about 32 minutes of wall time. The
+  remaining 64 cylinders alone would have taken about 34 hours. My 10-12
+  hour estimate came from the script header's single-drive figure: wrong
+  by about 3x, and reported as an overrun.
+- **The method from now on** is the MacPlus and LC floppy-write method,
+  Daniel's (2026-10-03):
+  1. **Fast unit benches**, per module and at every seam, byte-exact, in
+     seconds.
+  2. **Quartus analysis** as the elaboration check.
+  3. **Hardware gates checked on the host:** `hfs_check`, a byte-exact
+     `hfs_fork_diff` against the source, a 0xF6 census after a format, and
+     the DC42 checksum recomputed.
+  4. **Soaks on the board.**
+
+  System-level runs like `gcrread` are for a localising job only, never a
+  routine gate. The LC precedent: its 35-minute boot gate passed 16 times
+  and never caught a regression. `gcrread`'s quick mode stays available
+  for that job. SWIM rung 3 (writing) is to be gated this way.
+
 # Section 6 - The ADB and the RTC
 
 Opened 2026-09-28, after 5.11 item 6: compile 16 drew the grey desktop and
