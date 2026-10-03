@@ -2008,6 +2008,11 @@ for this step):
   - `sim/kernel_bus` at ports 16, 32 and 8, and `sim/busfault`: 24 s;
   - `sim/cpfpu`, all 12 programs: 94 s;
   - `sim/machine`: 80 s, with a fresh run.log.
+  - **cputest harness B, all 79 batches, on the cache and GLUE RTL**
+    (2026-10-02 night, 129 min): **79 of 79 PASS**.
+    - Batches 17, 20, 22 and 23 were cut short when I stopped their
+      ModelSim processes by mistake. Re-run apart, they PASS (5,160,
+      5,176, 5,181 and 5,162 checks; `hb_c28/rerun_NN.log`).
 - `sim/machine` stops in the RAM tests, before $4083F7B4, so it never
   has the data cache on.
 
