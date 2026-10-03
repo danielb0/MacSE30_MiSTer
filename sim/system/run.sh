@@ -34,7 +34,7 @@ rm -rf work
 for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; do
   "$MODELSIM/vcom.exe" -quiet -93 -work work "$RTL/tg68k/$f" || exit 1
 done
-"$MODELSIM/vlog.exe" -quiet -work work "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/se30_glue.v" "$RTL/se30_video.v" tb_se30_system.v || exit 1
+"$MODELSIM/vlog.exe" -quiet -work work "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" "$RTL/se30_video.v" tb_se30_system.v || exit 1
 ok=0
 for run in plain cacheon cachewa cachetest vramtest berrtest timetest clrtest; do
   case $run in

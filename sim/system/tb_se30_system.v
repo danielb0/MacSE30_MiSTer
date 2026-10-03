@@ -83,6 +83,24 @@ module tb_se30_system;
   always @(posedge clk) phi <= ~phi;
   wire phi1 = !phi, phi2 = phi;
   reg reset_n = 0;
+  reg pace_en = 1;                         // +NOPACE: the kernel unpaced (plan 1.17.5)
+  reg ptrace = 0;                          // +PTRACE: the pace's signals every clock
+  // a watchdog on the pace: the kernel takes no beat for 1000 clocks with the bus idle (plan 1.17.5)
+  integer wd_idle = 0;
+  always @(posedge clk) if (reset_n) begin
+    if (cpu.k_clkena || cpu.s != 3'd0) wd_idle = 0; else wd_idle = wd_idle + 1;   // a cycle in progress (a DRQ wait) is not a stall
+    if (wd_idle == 1000) begin
+      $display("FAIL: no kernel beat for 1000 clocks - dec%b rel%b cnt%0d bud%0d stall%b bs%b s%0d op%04x pc%08x eff_req%b hit%b park%b ea_on%b ea_h%0d ea_t%0d ea_cc%0d op_h%0d op_t%0d op_cc%0d tail%0d rcr%0d wcr%0d fcr%0d taken%b",
+               cpu.k_decode, cpu.p_rel, cpu.p_cnt, cpu.p_budget, cpu.pace_stall, cpu.k_busstate, cpu.s, cpu.k_opcode, cpu.k_opcode_pc, cpu.eff_req, cpu.hit_ack, cpu.park,
+               cpu.r_ea_on, cpu.r_ea_h, cpu.r_ea_t, cpu.r_ea_cc, cpu.r_op_h, cpu.r_op_t, cpu.r_op_cc, cpu.p_tail, cpu.p_rcred, cpu.p_wcred, cpu.p_fcred, cpu.r_taken);
+      $display("      p_op %04x p_pc %08x", cpu.p_op, cpu.p_pc);
+      $finish;
+    end
+  end
+  always @(posedge clk) if (ptrace && reset_n)
+    $display("%0t %s dec%b rel%b cnt%0d bud%0d stall%b clkena%b bs%b hit%b s%0d op%04x pc%08x rcr%0d wcr%0d tail%0d fcr%0d",
+             $time, phi1 ? "phi1" : "phi2", cpu.k_decode, cpu.p_rel, cpu.p_cnt, cpu.p_budget, cpu.pace_stall, cpu.k_clkena,
+             cpu.k_busstate, cpu.hit_ack, cpu.s, cpu.k_opcode, cpu.k_opcode_pc, cpu.p_rcred, cpu.p_wcred, cpu.p_tail, cpu.p_fcred);
 
   // ------------------------------------------------------------ the bus
   wire [31:0] cpu_addr, cpu_dout, cpu_din;
@@ -94,7 +112,7 @@ module tb_se30_system;
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .reset_out_n(reset_out_n), .halted(halted));
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .pace_en(pace_en), .reset_out_n(reset_out_n), .halted(halted));
 
   // --------------------------------------------------------------- GLUE
   wire        ram_req, ram_we, ram_refresh, rom_req;
@@ -351,6 +369,8 @@ module tb_se30_system;
     vramtest = $test$plusargs("VRAMTEST");
     berrtest = $test$plusargs("BERRTEST");
     timetest = $test$plusargs("TIMETEST");
+    pace_en  = !$test$plusargs("NOPACE");
+    ptrace   = $test$plusargs("PTRACE");
     clrtest = $test$plusargs("CLRTEST");
     $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};

@@ -25,6 +25,13 @@
 //   are the wrapper's own long cycles at the physical address, FC = 5,
 //   in the beats the port needs.
 //
+//   The pace (plan 1.17.5): the kernel runs its internal work about twice
+//   as fast as a 68030, so each instruction is held, at the kernel's decode
+//   beat, to the manual's instruction time - UM Section 11's tables
+//   (se30_pace030.v) by Equation 11-2, the bus cycles' wait states added
+//   as 11.5 adds them.  Only the step into the next instruction waits;
+//   cycles and acknowledges never do.  pace_en low runs unpaced.
+//
 //   CPU space (FC = 7): an interrupt acknowledge (A19-A16 = $F) is
 //   terminated here as the grounded AVEC pin terminates it on the board -
 //   the kernel autovectors (IPL_autovector) and the cycle's data is
@@ -73,6 +80,7 @@ module tg68k (
   input         berr,
   input   [2:0] ipl_n,
   input         cdis,                  // CDIS* asserted (VIA2 PB0 low): the caches disabled
+  input         pace_en,               // hold each instruction to the 68030's time (plan 1.17.5); low: unpaced
 
   output        reset_out_n,           // the RESET instruction
   output        halted,                // double bus fault
@@ -93,6 +101,8 @@ module tg68k (
   wire  [2:0] k_fc;
   wire        k_pmmu_busy, k_pmmu_fault, k_make_berr, k_trap_berr, k_halted;
   wire        k_exc_take;
+  wire        k_decode;                // the kernel's decode beat is next (decodeOPC)
+  wire        pace_stall;              // ... and the pace withholds it (below)
   wire [31:0] k_trap_vector;
   wire [15:0] k_opcode;
   wire [31:0] k_opcode_pc;
@@ -116,7 +126,8 @@ module tg68k (
     .debug_pmmu_busy(k_pmmu_busy), .debug_pmmu_fault(k_pmmu_fault),
     .debug_make_berr(k_make_berr), .debug_trap_berr(k_trap_berr), .debug_cpu_halted(k_halted),
     .debug_regfile_d6(dbg_d6), .debug_regfile_d7(dbg_d7),
-    .debug_exc_take(k_exc_take), .debug_trap_vector(k_trap_vector), .debug_opcode(k_opcode), .debug_opcode_pc(k_opcode_pc)
+    .debug_exc_take(k_exc_take), .debug_trap_vector(k_trap_vector), .debug_opcode(k_opcode), .debug_opcode_pc(k_opcode_pc),
+    .debug_decodeOPC(k_decode)
   );
   assign dbg_exc = {k_exc_take, k_trap_vector[9:2], k_opcode, k_opcode_pc};
   assign reset_out_n = k_nreset_out;
@@ -203,7 +214,7 @@ module tg68k (
   wire  [2:0] w_nb     = (w_size > 3'd4 - k_addr[1:0]) ? 3'd4 - k_addr[1:0] : w_size;
   wire  [3:0] w_mask   = (w_nb == 3'd1) ? 4'b1000 : (w_nb == 3'd2) ? 4'b1100 : (w_nb == 3'd3) ? 4'b1110 : 4'b1111;
   wire  [3:0] d_wbe    = w_mask >> k_addr[1:0];
-  wire        s1_take  = phi2 && (s == 3'd0) && !any_hit && !ack_pending && !hit_ack && eff_req;
+  wire        s1_take  = phi2 && (s == 3'd0) && !any_hit && !ack_pending && !hit_ack && eff_req && !pace_stall;
   wire        d_wr     = s1_take && k_dwrite && !k_ci && (k_fc != 3'd7);
   wire        d_inv    = phi1 && k_pmmu_fault && !walk && (s == 3'd0) && !ack_pending && !k_nwr && (k_fc != 3'd7);   // k_force's terms (declared below)
   se30_cache030 cache (
@@ -227,7 +238,7 @@ module tg68k (
   // back-to-back fetches came back with the first one's data).  The
   // kernel's new request appears at that phi1 and is taken at the following
   // phi2, so this is exactly one clk wide, and nothing during reset.
-  assign ecs      = reset_n && (s == 3'd0) && eff_req && !ack_pending && !hit_ack && !any_hit;
+  assign ecs      = reset_n && (s == 3'd0) && eff_req && !ack_pending && !hit_ack && !any_hit && !pace_stall;
   assign cpu_addr = eff_addr;
   assign cpu_as_n = as_n_r;
   assign cpu_ds_n = ds_n_r;
@@ -272,9 +283,9 @@ module tg68k (
       end
       if (phi2) begin
         case (s)
-          3'd0: if (any_hit && !ack_pending && !hit_ack) begin             // a hit: no cycle
+          3'd0: if (any_hit && !ack_pending && !hit_ack && !pace_stall) begin   // a hit: no cycle
                   hit_ack <= 1; hit_d <= !f_hit; hit_z <= z_hit; dsack_r <= 2'b00;
-                end else if (eff_req && !hit_ack) begin                      // S1
+                end else if (eff_req && !hit_ack && !pace_stall) begin       // S1
                   if (w_req && !walk) begin walk <= 1; walk_done <= 0; walk_buf <= 0; end
                   as_n_r <= 0; ds_n_r <= !eff_rw ? 1'b1 : 1'b0; s <= 3'd2;
                   cyc_fill  <= k_fetch && !k_ci && (k_fc != 3'd7);
@@ -308,11 +319,121 @@ module tg68k (
   // (no bus access) once per C16M clock, or a force-released beat on a
   // PMMU fault so the exception can dispatch
   wire k_cycle_ack = (ack_pending || hit_ack) && !walk;
-  wire k_internal  = (k_busstate == 2'b01) && !k_pmmu_busy && !w_req && !walk;
+  wire k_internal  = (k_busstate == 2'b01) && !k_pmmu_busy && !w_req && !walk && !pace_stall;
   wire k_force     = k_pmmu_fault && !walk && (s == 3'd0) && !ack_pending;
   assign k_clkena     = phi1 && (k_cycle_ack || k_internal || k_force);
   assign k_beat_valid = k_cycle_ack || k_internal;
   assign k_din   = !hit_ack ? din_r : hit_z ? 32'h0 : hit_d ? d_q : i_q;
+
+  // ------------------------------------------------------------ the pace
+  // (plan 1.17.5 item 5) The kernel runs its internal work about twice as
+  // fast as a 68030 (1.17.1), and the ROM's floppy driver cannot stand it
+  // (1.17.5).  Each instruction is held to the manual's time: at the
+  // kernel's decode beat - decodeOPC, the first beat of the next instruction
+  // - the step is withheld until the instruction just run has been on the
+  // clock for its budget, UM Section 11.3's Equation 11-2: the effective-
+  // address part's and the operation part's I-cache-case clocks
+  // (se30_pace030.v, the manual's tables), each less its overlap with the
+  // part before, min(head, tail of the previous part); plus, as 11.5 adds
+  // wait states, every bus cycle's clocks beyond the tables' two (a
+  // continuation beat of a long through a narrow port counts whole, as the
+  // manual's dynamic-sizing rule has it), and those clocks lengthen the
+  // tail of the part that ran the cycle - a read's the EA part's (rule 1a),
+  // a write's the operation's (rule 3a) - so the part after may overlap
+  // them; plus MOVEM's clocks a register.
+  // Bus cycles and acknowledges are never delayed, only the step into the
+  // next instruction.  Elapsed time runs from one release to the next; the
+  // cycle a decode beat starts belongs to the new instruction.  pace_en low
+  // runs the kernel unpaced (the bench's comparison).
+  reg  [15:0] p_op;      // the instruction running: its opcode ...
+  reg  [31:0] p_pc;      //   ... and address, latched at its release
+  reg   [5:0] p_tail;    // the tail of the instruction before it, its write cycles' wait states included (saturating)
+  reg   [8:0] p_cnt;     // C16M clocks since the release (saturating)
+  reg   [7:0] p_rcred;   // the wait-state clocks of its data read cycles so far (saturating) ...
+  reg   [7:0] p_wcred;   //   ... of its write cycles, MOVEM's register clocks with them ...
+  reg   [7:0] p_fcred;   //   ... and of its instruction fetches (the no-cache case's W: budget only, no tail)
+  reg         p_rel;     // released: the decode beat may step
+  reg   [4:0] p_cyc;     // clk edges of the cycle in progress (saturating)
+  reg         p_cont;    // the cycle in progress continues an operand through a narrow port
+  reg  [29:0] p_last_la; // the last data cycle's long address ...
+  reg   [1:0] p_last_ds; //   ... and port size
+  reg         p_last_d;  //   ... and that it was a data cycle
+  wire        d_ea_on, d_ea_ophead;
+  wire  [4:0] d_ea_h, d_op_h;
+  wire  [1:0] d_ea_t, d_op_t, d_br, d_mvm;
+  wire  [5:0] d_ea_cc;
+  wire  [6:0] d_op_cc, d_op_cc_t;
+  se30_pace030 pace (
+    .op(p_op), .ea_on(d_ea_on), .ea_ophead(d_ea_ophead), .ea_h(d_ea_h), .ea_t(d_ea_t), .ea_cc(d_ea_cc),
+    .op_h(d_op_h), .op_t(d_op_t), .op_cc(d_op_cc), .op_cc_t(d_op_cc_t), .br(d_br), .mvm(d_mvm));
+  // the decoder's answer, registered: settled two clocks before the earliest next decision
+  reg         r_ea_on;
+  reg   [5:0] r_ea_h;    // the EA's head, the op's included where the manual says "n + op head"
+  reg   [1:0] r_ea_t, r_op_t, r_br, r_mvm;
+  reg   [4:0] r_op_h;
+  reg   [5:0] r_ea_cc;
+  reg   [6:0] r_op_cc, r_op_cc_t;
+  reg         r_taken;   // a branch: the next instruction is not the one that follows
+  wire  [2:0] p_ilen  = (d_br == 2'd2) ? 3'd4 : (p_op[7:0] == 8'h00) ? 3'd4 : (p_op[7:0] == 8'hFF) ? 3'd6 : 3'd2;
+  always @(posedge clk) begin
+    r_ea_on  <= d_ea_on && (d_ea_cc != 6'd0);
+    r_ea_h   <= {1'b0, d_ea_h} + (d_ea_ophead ? {1'b0, d_op_h} : 6'd0);
+    r_ea_t   <= d_ea_t; r_ea_cc <= d_ea_cc;
+    r_op_h   <= d_op_h; r_op_t <= d_op_t; r_op_cc <= d_op_cc; r_op_cc_t <= d_op_cc_t;
+    r_br     <= d_br; r_mvm <= d_mvm;
+    r_taken  <= (d_br != 2'd0) && (k_opcode_pc != p_pc + {29'd0, p_ilen});
+  end
+  wire  [5:0] p_ov_ea  = (r_ea_h < p_tail) ? r_ea_h : p_tail;                          // min(head, tail before)
+  wire  [8:0] p_ea_tl  = {7'd0, r_ea_t} + {1'b0, p_rcred};                             // the EA part's tail, its reads' wait states in
+  wire  [8:0] p_t_mid  = r_ea_on ? p_ea_tl : {3'd0, p_tail};
+  wire  [8:0] p_ov_op  = ({4'd0, r_op_h} < p_t_mid) ? {4'd0, r_op_h} : p_t_mid;
+  wire  [6:0] p_op_clk = r_taken ? r_op_cc_t : r_op_cc;
+  wire  [9:0] p_credit = {2'd0, p_rcred} + {2'd0, p_wcred} + {2'd0, p_fcred};
+  // an overlap never exceeds its part's clocks (the tables' heads do not; a
+  // branch's taken row may have fewer clocks than the fall-through row's head)
+  wire  [5:0] p_ov_ea_c = (p_ov_ea > r_ea_cc) ? r_ea_cc : p_ov_ea;
+  wire  [8:0] p_ov_op_c = (p_ov_op > {2'd0, p_op_clk}) ? {2'd0, p_op_clk} : p_ov_op;
+  wire  [9:0] p_budget = (r_ea_on ? {4'd0, r_ea_cc} - {4'd0, p_ov_ea_c} : 10'd0) + ({3'd0, p_op_clk} - {1'b0, p_ov_op_c}) + p_credit;
+  // the tail this instruction leaves: the op's, its writes' wait states in, and its reads' if it had no EA part
+  wire  [9:0] p_tail_n = {8'd0, r_op_t} + {2'd0, p_wcred} + (r_ea_on ? 10'd0 : {2'd0, p_rcred});
+  wire        p_due    = ({1'b0, p_cnt} >= p_budget);
+  wire        p_go     = p_rel || p_due || !pace_en;
+  assign      pace_stall = k_decode && !p_go;
+  // a cycle's clocks: p_cyc + 1 clk edges with s != 0 at its S5, two a C16M, S0 and S1 before them
+  wire  [4:0] p_edges  = p_cyc + 5'd1;
+  wire  [4:0] p_len    = {1'b0, p_edges[4:1]} + 5'd1;                                   // C16M clocks
+  wire  [5:0] p_add    = (p_cont ? {1'b0, p_len} : {1'b0, p_len} - 6'd2) + {4'd0, (cyc_fc != 3'd6) ? r_mvm : 2'd0};
+  always @(posedge clk or negedge reset_n)
+    if (!reset_n) begin
+      p_op <= 16'h0; p_pc <= 32'h0; p_tail <= 6'd0; p_cnt <= 9'h1FF; p_rcred <= 8'd0; p_wcred <= 8'd0; p_fcred <= 8'd0; p_rel <= 1'b0;
+      p_cyc <= 5'd0; p_cont <= 1'b0; p_last_la <= 30'd0; p_last_ds <= 2'b00; p_last_d <= 1'b0;
+    end else begin
+      if (s != 3'd0 && p_cyc != 5'h1F) p_cyc <= p_cyc + 5'd1;
+      if (phi1) begin
+        if (p_cnt != 9'h1FF) p_cnt <= p_cnt + 9'd1;
+        if (k_decode && !p_rel && p_go) begin                             // the release
+          p_op <= k_opcode; p_pc <= k_opcode_pc; p_tail <= (p_tail_n > 10'd63) ? 6'd63 : p_tail_n[5:0];
+          p_cnt <= 9'd1; p_rcred <= 8'd0; p_wcred <= 8'd0; p_fcred <= 8'd0;     // this clock is the instruction's first
+          p_rel <= !k_clkena;                                              // an internal beat steps now
+        end else if (k_clkena && k_decode) p_rel <= 1'b0;                  // the decode beat taken
+      end
+      if (phi2) begin
+        if (s1_take) begin
+          p_cyc <= 5'd0;
+          p_cont <= !wsel && (k_fc != 3'd6) && p_last_d && (p_last_ds != 2'b00) && (k_addr[31:2] == p_last_la);
+        end
+        if (s == 3'd5) begin
+          if (cyc_fc == 3'd6) begin                                         // a fetch
+            if (p_fcred + {2'd0, p_add} < 9'd255) p_fcred <= p_fcred + {2'd0, p_add}; else p_fcred <= 8'hFF;
+          end else if (!eff_rw) begin                                        // a write: the operation's
+            if (p_wcred + {2'd0, p_add} < 9'd255) p_wcred <= p_wcred + {2'd0, p_add}; else p_wcred <= 8'hFF;
+          end else begin                                                     // a data read: the EA's
+            if (p_rcred + {2'd0, p_add} < 9'd255) p_rcred <= p_rcred + {2'd0, p_add}; else p_rcred <= 8'hFF;
+          end
+          p_last_d <= (cyc_fc != 3'd6); p_last_ds <= dsack_n; p_last_la <= cyc_la;
+        end
+      end
+    end
 
   // the probe deck's PCCH: one count per hit, at the phi1 that acknowledges it
   reg [23:0] n_ihit, n_dhit;

@@ -7,3 +7,4 @@ set_global_assignment -name VHDL_FILE    [file join $::quartus(qip_path) TG68K_P
 set_global_assignment -name VHDL_FILE    [file join $::quartus(qip_path) TG68KdotC_Kernel.vhd ]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) tg68k.v ]
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) se30_cache030.v ]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) se30_pace030.v ]

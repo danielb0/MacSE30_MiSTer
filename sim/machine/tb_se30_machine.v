@@ -124,6 +124,7 @@ module tb_se30_machine;
     .declrom_we(1'b0), .declrom_waddr(13'd0), .declrom_wdata(8'd0),
     .vidout(vidout), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
     .nmi_n(1'b1),
+    .pace_en(1'b1),
     .dbg_addr(cpu_addr), .dbg_fc(cpu_fc), .dbg_as_n(cpu_as_n), .dbg_rw_n(cpu_rw_n),
     .dbg_dsack_n(dsack_n), .dbg_berr(berr), .dbg_halted(halted), .reset_out_n(reset_out_n),
     .ps2_key(11'd0), .ps2_mouse(25'd0), .timestamp(33'd0),
