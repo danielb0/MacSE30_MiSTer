@@ -13539,6 +13539,17 @@ archived Apple FTP and developer CDs), and the chip's use is read from:
 Emulators and other cores (MAME's `asc.cpp`, MacLC's `rtl/asc.sv`, the
 Quadra's `easc.sv`) are leads only.
 
+**Found (2026-10-03, searched directly):**
+
+| Source | What it gives | Standing |
+|---|---|---|
+| Apple, *Macintosh Hardware Overview*, Feb 1991 ("Registered Confidential"; bitsavers `functionalTechnologies/`, 4,245,384 B, `C:\temp\Mac\SE30\Docs\asc\`, downloaded with Daniel's OK) | the ASC ("Foley Sound Chip"): 1 KB FIFOs, one per channel; the four-voice wavetable mode; "the hardware and software interface to the ASC is described in its spec (Apple part number 344S0053 for the original version and 344S0063 for the cost reduced version)"; the Sony chip's spec 343-0045-01 / Sony CX1063AP | **primary**, but no register map |
+| *Arioso Macintosh I/O Systems Architecture* 1.0, Jan 1992 (same folder, 10,540,056 B) | nothing on the ASC (an I/O software architecture) | not relevant |
+| **Doug Brown's ASCTester** (github.com/dougg3/ASCTester, `tests.c`; the README's per-machine results) and its 68kmla thread "Would someone with a Quadra 700/900/950 be willing to test a program for me?" (Jan 2026) | **measurements on real machines, including an SE/30 (Callan's) and a IIci (Doug's), ASC version `$00`**. Doug's conclusion: "Original ASC interrupts on FIFO full and FIFO half empty, no repeats. Clears register $804 on read." With the FIFO B write back-to-back after FIFO A's, "your SE/30 responds just like my IIci". IIci: `$804` idle `$00`; no IRQ while idle; about 1,119 samples written before "full" in stereo (1 KB plus what drains meanwhile) | **measured hardware behaviour** - third-party tests on real chips: above any emulator, below an Apple document; the tests' code is published, so the measurements can be read exactly |
+| The same thread, Arbee (R. Belmont, MAME's ASC author): "There are ERSes for ASC and EASC but they're much less helpful than you'd think, which is why ASCTester is necessary" | the Apple ERS exists; not found publicly (bitsavers, archive.org, web searches) | to keep looking for |
+| MAME `src/devices/sound/asc.cpp` (header: a full register map for the original ASC, $800-$82F; "Big thanks to Doug Brown for the ASCTester utility"; TODO: "some weirdness with the FIFO full IRQ on the original ASC") | the register map, built on ASCTester's results | **lead** |
+| MacLC `rtl/asc.sv` (MAME's `asc_v8_device`), Quadra `rtl/easc.sv`, the MESS EASC page, QEMU's 2023 ASC patches | other variants | **leads**; no core records an Apple document |
+
 ---
 
 ## Appendix - where the sources are
