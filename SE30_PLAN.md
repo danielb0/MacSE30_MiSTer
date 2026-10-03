@@ -2360,8 +2360,30 @@ untouched and lands the same result a clock later.
   - `sta_corners.tcl`'s overall verdict is NOT MET, **-0.034 ns, on the
   framework's HDMI scaler** (`ascal`, `pll_hdmi`, slow -40C) - the
   framework path that missed in compiles 25-26, not ours.
-  - Next: the board - Speedometer 4.02 (Graphics, Disk) against compile
-  31's and the real SE/30's record.
+  - **On the board** (Daniel, 2026-10-03, `C:\temp\Mac\Screenshots\
+  20261003_195741-screen.png`; Speedometer 4.02 Performance Test, System
+  7.5.5 from SCSI, 1 bit; Quadra 605 = 1.0, its built-in SE/30 record
+  beside):
+
+    | Test | Real SE/30 | Compile 31 | **Compile 32** | 32 / real |
+    |---|---|---|---|---|
+    | CPU | 0.27 | 0.32 | **0.49** | 1.81 |
+    | Graphics | 0.23 | 0.16 | **0.19** | 0.83 |
+    | Disk | 0.57 | 0.48 / 0.38 | **0.39** | 0.68 |
+    | Math | 0.97 | 1.08 | **1.29** | 1.33 |
+    | PR | 0.31 | 0.27 | **0.34** | 1.10 |
+
+    - The PMMU fix shows: CPU +53 %, Graphics +19 %, Math +19 %. With
+      the translation tax gone the kernel's internal speed shows in full -
+      CPU 1.8x the real machine (1.17.1's DBRA 3 against 6).
+    - **Graphics is still 0.83 of the real machine with the CPU at 1.8x.**
+      Drawing has a cost the timetest loops (10-16 % slow) do not show:
+      the video-RAM cycle itself (2.12's 5/6/7, 7 back to back, the
+      21-clock row transfer) or the missing write-pending overlap, at a
+      larger share of the time than the loops suggest. Not yet located.
+    - **Disk did not move** (0.39, within compile 31's two runs): the SCSI
+      loop was already at the 68030's pace (1.17.1), so the gap is the
+      target's sector latency or the driver's polled phases - step 3.
 
 ### 1.17.4 Next
 
