@@ -13157,6 +13157,11 @@ chip model is ~390 ALMs.
       launching an application from it would make that System the active
       one. To be tested under MultiFinder (which does not switch-launch),
       and on the MacPlus core.
+    - **The MacPlus core fails the same launch** (same floppy, same image):
+      no dialog, but the CPU loops in the Plus ROM's Resource Manager
+      (`$413EDA-$414024`, the open-map chain walk with ResErr `$0A60`), still
+      hunting a resource. Both machines fail the launch with intact files,
+      so it is not ours.
 - **Then:** the board gates of 9.6 item 5.
 
 ---
