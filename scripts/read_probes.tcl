@@ -523,6 +523,13 @@ for {set n 0} {$n < $samples} {incr n} {
 			[expr {($pscs >> 15) & 1}] [expr {($pscs >> 14) & 1}] [expr {($pscs >> 13) & 1}] [expr {($pscs >> 12) & 1}] \
 			[expr {($pscs >> 11) & 1}] [expr {($pscs >> 10) & 1}] [expr {$pscs & 0x3FF}]]
 	}
+	if {[have PSCC]} {
+		# plan 10.5: the SCC -- see rtl/dbg_probes.sv for the layout
+		set p [rd PSCC]
+		set r0 [expr {$p & 0xFF}]
+		puts [format "  PSCC  %08X   accesses (low 12 bits)=%d  pointer=%d  /INT=%d  MIE=%d  IPs RxA=%d TxA=%d ExtA=%d RxB=%d TxB=%d ExtB=%d" $p 			[expr {($p >> 20) & 0xFFF}] [expr {($p >> 16) & 0xF}] [expr {($p >> 15) & 1}] [expr {($p >> 14) & 1}] 			[expr {($p >> 13) & 1}] [expr {($p >> 12) & 1}] [expr {($p >> 11) & 1}] [expr {($p >> 10) & 1}] [expr {($p >> 9) & 1}] [expr {($p >> 8) & 1}]]
+		puts [format "        RR0B=%02X  Break/Abort=%d EOM=%d CTS=%d Sync/Hunt=%d DCD=%d TBE=%d ZC=%d RxAvail=%d   (LocalTalk sees the line free when Sync/Hunt=1)" $r0 			[expr {($r0 >> 7) & 1}] [expr {($r0 >> 6) & 1}] [expr {($r0 >> 5) & 1}] [expr {($r0 >> 4) & 1}] 			[expr {($r0 >> 3) & 1}] [expr {($r0 >> 2) & 1}] [expr {($r0 >> 1) & 1}] [expr {$r0 & 1}]]
+	}
 	if {[have PCCH]} {
 		# plan 1.16.3: the 68030's caches -- {CDIS*, 0, CACR[13:0]}, then the
 		# instruction and data hits (24 bits each, wrapping)

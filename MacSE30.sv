@@ -402,6 +402,7 @@ wire        dbg_swim_vread;
 wire [56:0] dbg_exc;
 wire [63:0] dbg_cache;
 wire [15:0] dbg_scsi;
+wire [31:0] dbg_scc;
 // PSCS's sector count: the SCSI slots' sd_ack rising edges (plan 9.8)
 reg   [9:0] scsi_sectors = 0;
 reg   [1:0] scsi_ack_q = 0;
@@ -427,11 +428,12 @@ se30_machine machine
 	.disk2_in(disk2_in), .disk2_eject(disk2_eject), .disk2_cyl(disk2_cyl), .trk2_cyl(trk2_cyl), .trk2_valid(trk2_valid),
 	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
 	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
-	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi),
+	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc),
 	.scsi_img_mounted(img_mounted[3:2]), .scsi_img_blocks(img_size[40:9]),
 	.scsi_io_lba(scsi_io_lba), .scsi_io_rd(scsi_io_rd), .scsi_io_wr(scsi_io_wr), .scsi_io_ack(sd_ack[3:2]),
 	.scsi_sd_buff_addr(sd_buff_addr[7:0]), .scsi_sd_buff_dout(sd_buff_dout), .scsi_sd_buff_din(scsi_sd_buff_din),
-	.scsi_sd_buff_wr(sd_buff_wr)
+	.scsi_sd_buff_wr(sd_buff_wr),
+	.scc_port_in(6'b110_110), .scc_port_out()   // both serial ports empty (plan 10.3)
 );
 
 assign LED_DISK = {1'b0, dbg_swim[15] | dbg_fdhd2[15]};   // either drive's motor (se30_fdhd's dbg[15])
@@ -536,7 +538,8 @@ dbg_probes probes
 	.flp2_state({ld2_dbg, en2_dbg, dbg_fdhd2, flp2_words}),
 	.exc_state(dbg_exc),
 	.cache_state(dbg_cache),
-	.scsi_state({dbg_scsi, scsi_io_rd, scsi_io_wr, sd_ack[3:2], scsi_sectors})
+	.scsi_state({dbg_scsi, scsi_io_rd, scsi_io_wr, sd_ack[3:2], scsi_sectors}),
+	.scc_state(dbg_scc)
 );
 `else
 assign pk_hold = 1'b0;

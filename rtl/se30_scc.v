@@ -1,0 +1,217 @@
+// se30_scc.v - the Zilog 8530 (NMOS) SCC as the Macintosh SE/30 carries
+// it (UG12, sheet 7), written to Zilog's 1986 technical manual (TM86).
+// Ours (SE30_PLAN.md Section 10).  The two channels are
+// rtl/se30_scc_chan.v; this is the chip around them and the board.
+//
+// THE CHIP AROUND THE CHANNELS
+//   - One register pointer for both channels: a control write with the
+//     pointer at 0 is WR0 (pointer bits, Point High, commands); any other
+//     control access reaches WR/RR[pointer] of the channel A/B selects, and
+//     the pointer returns to 0.  Data accesses (D/C = 1) are WR8/RR8 and
+//     leave the pointer alone [S 2.2].
+//   - Shared: WR2 (the vector) and WR9 (resets, Status High/Low, MIE, DLC,
+//     NV, VIS) [S 3.2].  WR9's reset commands: 01 channel B, 10 channel A,
+//     11 Force Hardware Reset; the register's other bits are written with
+//     the command [S 10.5].
+//   - Images on the NMOS part: RR4-RR7 = RR0-RR3, RR9 = RR13, RR11 = RR15,
+//     RR14 = RR10 [S 2.3].
+//   - Interrupts without an acknowledge cycle (/INTACK and IEI are tied
+//     high on the board): no IUS is ever set, Reset Highest IUS does
+//     nothing, /INT follows MIE and the pending bits [S 5.4].  The pending
+//     bits seen by /INT, RR2B and RR3A are updated every second PCLK and not
+//     while the pointer is at 2 or 3 (TM86 3.2.3).  RR2B carries the status
+//     of the highest pending source, whatever VIS says; "no interrupt" reads
+//     as 011 [S 4 RR2].
+//   - The bus cycle is GLUE's strobe (/CE with /RD or /WR): the access's
+//     side effects happen once, on it, and the read byte is held for GLUE's
+//     capture.  The 8530's recovery time and its reset stretch are covered
+//     by GLUE's 2.2 us hold-off and are not modelled (plan 10.5.2).
+//   - The chip has no reset pin.  hw_reset is the core's power-on (the
+//     state at configuration), Fig 3-8's hardware column.
+//
+// THE BOARD (sheet 7; plan 10.5.1)
+//   A/B = A1 (1 = channel A), D/C = A2 (1 = data).  PCLK and /RTxCB are
+//   C3M; /RTxCA is C3M while VIA1 PA3 (vSync) is 0 and GPiA (inverted, by a
+//   75175) while it is 1.  /CTS and /TRxC are tied together to HSKi
+//   (uninverted); /DCD is GPi inverted; /SYNC is not connected (read high).
+//   /W//REQA and /W//REQB are wired together to VIA1 PA7.  TxD reaches the
+//   port only while /RTS is low (the 26LS30's enable); HSKo is /DTR
+//   inverted.  The port inputs here are the receivers' outputs as the core
+//   presents them: an empty port is RxD = 1, HSKi = 1 (/CTS inactive),
+//   GPi = 0 (/DCD inactive) (plan 10.3).
+//   C3M's level: GLUE gives one enable per PCLK; the clock is high from it
+//   for two C16M clocks (engineering: the averaged clock's two halves).
+
+`timescale 1ns/1ps
+
+module se30_scc (
+  input            clk,
+  input            c16_en,
+  input            c3m_en,             // GLUE: one c16_en per PCLK, on average 15 in 64
+  input            reset_n,            // the core's power-on: the chip's hardware reset
+
+  // the bus (GLUE)
+  input            stb,                // one clk per access: /CE with /RD or /WR
+  input            rd,                 // 1 = read
+  input            a1,                 // A/B: 1 = channel A
+  input            a2,                 // D/C: 1 = data
+  input      [7:0] wdata,
+  output reg [7:0] rdata,
+  output           irq_n,              // /INT (open-drain on the board, level 4 at GLUE)
+
+  // the board
+  input            vsync,              // VIA1 PA3
+  output           w_req_n,            // to VIA1 PA7
+
+  // the ports, as the 75175s deliver them (an empty port: rxd 1, hski 1, gpi 0)
+  input            a_rxd, a_hski, a_gpi,
+  input            b_rxd, b_hski, b_gpi,
+  output           a_txd, a_txd_en, a_hsko,
+  output           b_txd, b_txd_en, b_hsko,
+
+  // for the probe deck (PSCC): {accesses[11:0], pointer, /INT, MIE,
+  // the visible IPs {Rx A, Tx A, Ext A, Rx B, Tx B, Ext B}, RR0B}
+  output    [31:0] dbg
+);
+
+  // ------------------------------------------------------------ clocks
+  wire       pclk = c16_en && c3m_en;
+  reg        c3m = 1'b0;               // C3M's level
+  reg  [1:0] c3m_n = 2'd0;
+  always @(posedge clk)
+    if (pclk) begin c3m <= 1'b1; c3m_n <= 2'd0; end
+    else if (c16_en) begin
+      if (c3m_n == 2'd1) c3m <= 1'b0;
+      if (c3m_n != 2'd3) c3m_n <= c3m_n + 2'd1;
+    end
+
+  // the port inputs, synchronised (they will come from the outside world)
+  reg  [2:0] sa1 = 3'b110, sa2 = 3'b110, sb1 = 3'b110, sb2 = 3'b110;
+  always @(posedge clk) begin
+    sa1 <= {a_rxd, a_hski, a_gpi}; sa2 <= sa1;
+    sb1 <= {b_rxd, b_hski, b_gpi}; sb2 <= sb1;
+  end
+  wire a_rx = sa2[2], a_hk = sa2[1], a_gp = sa2[0];
+  wire b_rx = sb2[2], b_hk = sb2[1], b_gp = sb2[0];
+
+  // ------------------------------------------------------------ reset
+  reg  [1:0] por = 2'b00;
+  always @(posedge clk) por <= reset_n ? {por[0], 1'b1} : 2'b00;
+  wire       hw_cfg = !por[1];         // held from configuration and while reset_n is low
+
+  // ------------------------------------------------------------ the shared registers
+  reg  [3:0] ptr;
+  reg  [7:0] wr2;
+  reg        shl, mie, dlc, nv, vis;   // WR9 D4-D0
+  reg        hw_force;                 // WR9 = 11xxxxxx: one clock
+  reg        rst_a, rst_b;             // channel resets: one clock
+
+  // ------------------------------------------------------------ the channels
+  wire [7:0] rr0a, rr1a, rr10a, rr12a, rr13a, rr15a, rda;
+  wire [7:0] rr0b, rr1b, rr10b, rr12b, rr13b, rr15b, rdb;
+  wire       ipra, ipsa, ipta, ipea, iprb, ipsb, iptb, ipeb;
+  wire       txa, rtsa_n, dtra_n, wreqa_n, txb, rtsb_n, dtrb_n, wreqb_n;
+
+  // the access, decoded once
+  wire       ctl     = stb && !a2;
+  wire       ctl_wr  = ctl && !rd;
+  wire       ctl_rd  = ctl &&  rd;
+  wire       is_wr0  = ctl_wr && (ptr == 4'd0);
+  wire       to_reg  = ctl_wr && (ptr != 4'd0);
+  wire       dat_wr  = (stb && a2 && !rd) || (to_reg && ptr == 4'd8);
+  wire       dat_rd  = (stb && a2 &&  rd) || (ctl_rd && ptr == 4'd8);
+  wire       chreg   = to_reg && ptr != 4'd2 && ptr != 4'd8 && ptr != 4'd9;
+
+  se30_scc_chan cha (
+    .clk(clk), .hw_reset(hw_cfg || hw_force), .ch_reset(rst_a), .pclk(pclk),
+    .rtxc(vsync ? !a_gp : c3m), .trxc(a_hk), .rxd(a_rx), .cts_n(a_hk), .dcd_n(!a_gp), .sync_n(1'b1),
+    .txd(txa), .rts_n(rtsa_n), .dtr_req_n(dtra_n), .w_req_n(wreqa_n),
+    .wr(chreg && a1), .wreg(ptr), .wval(wdata), .cmd(is_wr0 && a1),
+    .dwr(dat_wr && a1), .drd(dat_rd && a1),
+    .rr0(rr0a), .rr1(rr1a), .rr10(rr10a), .rr12(rr12a), .rr13(rr13a), .rr15(rr15a), .rdata(rda),
+    .ip_rx(ipra), .ip_sp(ipsa), .ip_tx(ipta), .ip_ext(ipea)
+  );
+  se30_scc_chan chb (
+    .clk(clk), .hw_reset(hw_cfg || hw_force), .ch_reset(rst_b), .pclk(pclk),
+    .rtxc(c3m), .trxc(b_hk), .rxd(b_rx), .cts_n(b_hk), .dcd_n(!b_gp), .sync_n(1'b1),
+    .txd(txb), .rts_n(rtsb_n), .dtr_req_n(dtrb_n), .w_req_n(wreqb_n),
+    .wr(chreg && !a1), .wreg(ptr), .wval(wdata), .cmd(is_wr0 && !a1),
+    .dwr(dat_wr && !a1), .drd(dat_rd && !a1),
+    .rr0(rr0b), .rr1(rr1b), .rr10(rr10b), .rr12(rr12b), .rr13(rr13b), .rr15(rr15b), .rdata(rdb),
+    .ip_rx(iprb), .ip_sp(ipsb), .ip_tx(iptb), .ip_ext(ipeb)
+  );
+
+  // ------------------------------------------------------------ interrupts [S 5]
+  // the pending bits as /INT, RR2B and RR3A see them
+  reg  [5:0] ipv;                      // {Rx A, Tx A, Ext A, Rx B, Tx B, Ext B}
+  reg        spa_v, spb_v;
+  reg        half;
+  always @(posedge clk)
+    if (hw_cfg) begin ipv <= 6'd0; spa_v <= 1'b0; spb_v <= 1'b0; half <= 1'b0; end
+    else if (pclk) begin
+      half <= !half;
+      if (half && ptr != 4'd2 && ptr != 4'd3) begin
+        ipv <= {ipra, ipta, ipea, iprb, iptb, ipeb}; spa_v <= ipsa; spb_v <= ipsb;
+      end
+    end
+  // the status of the highest-priority pending source (Table 7-4)
+  wire [2:0] code = ipv[5] ? (spa_v ? 3'b111 : 3'b110) :
+                    ipv[4] ? 3'b100 :
+                    ipv[3] ? 3'b101 :
+                    ipv[2] ? (spb_v ? 3'b011 : 3'b010) :
+                    ipv[1] ? 3'b000 :
+                    ipv[0] ? 3'b001 : 3'b011;
+  wire [7:0] rr2b = shl ? {wr2[7], code[0], code[1], code[2], wr2[3:0]} : {wr2[7:4], code, wr2[0]};
+  wire [7:0] rr3a = {2'b00, ipv[5], ipv[4], ipv[3], ipv[2], ipv[1], ipv[0]};
+  assign irq_n = !(mie && (ipv != 6'd0));
+
+  // ------------------------------------------------------------ the bus
+  // the control register a read reaches, images included
+  function [7:0] rreg (input [3:0] p, input ch_a);
+    case (p)
+      4'd0, 4'd4:   rreg = ch_a ? rr0a : rr0b;
+      4'd1, 4'd5:   rreg = ch_a ? rr1a : rr1b;
+      4'd2, 4'd6:   rreg = ch_a ? wr2  : rr2b;
+      4'd3, 4'd7:   rreg = ch_a ? rr3a : 8'h00;
+      4'd8:         rreg = ch_a ? rda  : rdb;
+      4'd10, 4'd14: rreg = ch_a ? rr10a : rr10b;
+      4'd12:        rreg = ch_a ? rr12a : rr12b;
+      4'd9, 4'd13:  rreg = ch_a ? rr13a : rr13b;
+      default:      rreg = ch_a ? rr15a : rr15b;   // 11, 15
+    endcase
+  endfunction
+
+  always @(posedge clk) begin
+    hw_force <= 1'b0; rst_a <= 1'b0; rst_b <= 1'b0;
+    if (hw_cfg) begin
+      ptr <= 4'd0; shl <= 1'b0; mie <= 1'b0; dlc <= 1'b0; nv <= 1'b0; vis <= 1'b0;
+      wr2 <= 8'h00; rdata <= 8'h00;
+    end else if (stb) begin
+      if (rd) rdata <= a2 ? (a1 ? rda : rdb) : rreg(ptr, a1);
+      if (!a2) begin
+        if (is_wr0) ptr <= (wdata[5:3] == 3'b001) ? {1'b1, wdata[2:0]} : {1'b0, wdata[2:0]};
+        else ptr <= 4'd0;                                   // the access done, the pointer returns to 0
+      end
+      if (to_reg && ptr == 4'd2) wr2 <= wdata;
+      if (to_reg && ptr == 4'd9) begin
+        shl <= wdata[4]; mie <= wdata[3]; dlc <= wdata[2]; nv <= wdata[1]; vis <= wdata[0];
+        case (wdata[7:6])
+          2'b01: rst_b <= 1'b1;
+          2'b10: rst_a <= 1'b1;
+          2'b11: hw_force <= 1'b1;
+          default: ;
+        endcase
+      end
+    end
+  end
+
+  reg [11:0] nacc = 12'd0;
+  always @(posedge clk) if (stb) nacc <= nacc + 12'd1;
+  assign dbg = {nacc, ptr, irq_n, mie, ipv, rr0b};
+
+  // ------------------------------------------------------------ the board's outputs
+  assign w_req_n  = wreqa_n && wreqb_n;            // wired together: either pulls PA7 low
+  assign a_txd    = txa;  assign a_txd_en = !rtsa_n;  assign a_hsko = !dtra_n;
+  assign b_txd    = txb;  assign b_txd_en = !rtsb_n;  assign b_hsko = !dtrb_n;
+
+endmodule

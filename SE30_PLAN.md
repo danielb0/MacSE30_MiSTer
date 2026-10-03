@@ -13217,6 +13217,8 @@ tested by seam benches and then the board.
   (1) for an empty port". The SN75175 receivers are indeterminate with
   open inputs (TI: no fail-safe), so the documents leave the choice to
   us (`se30_scc_wiring.md` OPEN 5).
+- **/CTS and /DCD held inactive (high)** on an empty port (Daniel,
+  2026-10-03): as undefined as RxD, so steady levels, no transitions.
 - **The whole 8530** (Daniel, 2026-10-03): asynchronous and SDLC, both
   directions, the DPLL, the baud-rate generators, the full interrupt
   system, two channels; the module's own synthesis measured before it
@@ -13382,6 +13384,55 @@ deeper FIFOs, RR0 latched during a read) are left out.
    on the real CPU (a few seconds).
 4. **The board:** System 7.5.5 boots from SCSI with AppleTalk active.
    Then SCSI's gates (9.6 item 5).
+
+## 10.6 As built (2026-10-03)
+
+- **`rtl/se30_scc_chan.v`**, one channel, and **`rtl/se30_scc.v`**, the
+  chip and the board, as 10.5. **Engineering readings** beyond 10.5.3:
+  - the transmitter's 5-bit zero-inserter delay is not modelled (it only
+    delays TxD);
+  - asynchronous data goes through the encoder as NRZ (non-NRZ is legal
+    only at x1);
+  - the SDLC receiver holds data bits in an eight-bit queue: the CRC
+    checker takes a bit six bits late, the assembler eight. At a flag the
+    queue is dropped, which loses exactly the last two CRC bits, as UM-QA
+    reports; the residue code is the assembler's count bit-reversed, which
+    reproduces Tables 7-9/7-10;
+  - the closing flag always follows the CRC (or an underrun's abort), even
+    with data waiting or mark idle selected.
+- **In the machine:** `/INT` to GLUE (level 4); /W//REQ A and B wired to
+  VIA1 PA7; vSync from VIA1 PA3; GLUE's strobe with `SCCEN*`; A1/A2. The
+  hardware reset is the core's power-on, never `RESET*` (the 8530 has no
+  reset pin). The ports are `scc_port_in/out`; the top holds them empty.
+- **Probe PSCC** (32 bits): accesses, the pointer, /INT, MIE, the six
+  visible IPs and RR0B. `read_probes.tcl` decodes it.
+- **Benches:**
+  - `sim/scc`: **148 checks** (Icarus, 4 s). The register file and its
+    images; the interrupt system; asynchronous transmit on TxD and receive
+    through local loopback (FIFO, overrun, parity, the receive modes).
+    SDLC/FM0 at 229.5 kbit/s on the wire, decoded by the bench's own
+    decoder: flags, zero insertion, and the FCS of "123456789" = `$906E`,
+    CRC-16/X.25's published check value. SDLC receive with address search,
+    EOF, CRC and residue, and the two lost CRC bits. The DPLL recovering a
+    bench-made FM0 stream; two missing clocks returning it to search.
+    External/Status latching, re-interrupt and the IP freeze. **The SE/30's
+    own sequence:** the ROM's init, `'ltlk' 0`'s init (which leaves one
+    External/Status interrupt, from Sync/Hunt changing source with the
+    mode, handled as `$EABB4` does) and a whole lapENQ: the line free, EOM
+    and TBE arriving 135 us after the last byte, the frame correct on the
+    wire, no interrupt afterwards.
+  - `sim/scc_seam`: **13 checks**, GLUE and the chip: the window, A1/A2,
+    the shared pointer, the 8-byte repeat, a word write as two byte cycles
+    to one register, the 2.2 us hold-off (35 clocks), one pop per read,
+    /INT at level 4.
+  - `sim/machine`: PASS with the SCC in (ModelSim, 78 s).
+  - **10.5.4 item 3 (a `sim/system` program) is not run:** under the
+    standing test method (benches, then the board) a system sim localises a
+    failure; the seam bench already drives 68030-shaped byte cycles
+    through GLUE. It is the tool if the board shows a fault.
+- **Next: compile 30** (Daniel's go-ahead given, 2026-10-03, "You can
+  compile if you reach that stage"), then the board: System 7.5.5 from
+  SCSI.
 
 ---
 

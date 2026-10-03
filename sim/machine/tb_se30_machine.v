@@ -134,6 +134,7 @@ module tb_se30_machine;
     .trk2_addr(), .trk2_side(), .trk2_bit(1'b0),
     .scsi_img_mounted(2'b00), .scsi_img_blocks(32'd0), .scsi_io_lba(), .scsi_io_rd(), .scsi_io_wr(),   // SCSI: no disks
     .scsi_io_ack(2'b00), .scsi_sd_buff_addr(8'd0), .scsi_sd_buff_dout(16'd0), .scsi_sd_buff_din(), .scsi_sd_buff_wr(1'b0),
+    .scc_port_in(6'b110_110), .scc_port_out(),
     .dbg_via(), .dbg_regs(), .dbg_exc(), .dbg_swim(), .dbg_swim_vread(), .dbg_adb(), .dbg_rtc(), .dbg_scsi());
 
   // -------------------------------------------------- the ROM's vector

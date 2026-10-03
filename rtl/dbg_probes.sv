@@ -83,6 +83,10 @@
 //         [1:0], target REQ, bus REQ, ACK, SEL, RST, ATN, MSG, C/D, I/O,
 //         chip BSY, DRQ, IRQ, 00}, then the disks' io_rd[1:0], io_wr[1:0],
 //         sd_ack[1:0] and a count of sectors moved [9:0]
+// and, since plan 10.5 (the SCC):
+//   PSCC  32 bits, registered here on clk: se30_scc's dbg {accesses[11:0]
+//         (wrapping), the register pointer, /INT, MIE, the six visible IPs
+//         {Rx A, Tx A, Ext A, Rx B, Tx B, Ext B}, RR0B}
 // and, since plan 1.16.3 (the 68030's caches):
 //   PCCH  64 bits, registered here on clk: {CDIS*, 0, CACR[13:0]} and the
 //         hits the instruction cache [47:24] and the data cache [23:0] have
@@ -131,7 +135,8 @@ module dbg_probes (
 	input  wire [63:0] flp2_state,        // PFL2: the external drive's (plan 5.14)
 	input  wire [56:0] exc_state,         // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
 	input  wire [63:0] cache_state,       // PCCH: the 68030's caches (plan 1.16.3)
-	input  wire [31:0] scsi_state         // PSCS: the SCSI bus and the disks' slots (plan 9.8)
+	input  wire [31:0] scsi_state,        // PSCS: the SCSI bus and the disks' slots (plan 9.8)
+	input  wire [31:0] scc_state          // PSCC: the SCC (plan 10.5)
 );
 
 	reg        as_q = 1;
@@ -279,6 +284,15 @@ module dbg_probes (
 		.instance_id ("PSCS"), .probe_width (32), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pscs (.probe(pscs_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the SCC (the header's PSCC)
+	reg [31:0] pscc_r = 0;
+	always @(posedge clk) pscc_r <= scc_state;
+
+	altsource_probe #(
+		.instance_id ("PSCC"), .probe_width (32), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pscc (.probe(pscc_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the caches (the header's PCCH)
 	reg [63:0] pcch_r = 0;

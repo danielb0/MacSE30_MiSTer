@@ -63,10 +63,13 @@
 //   registers read back, the FIFOs always empty, SNDINT* (VIA2 CB1) in FIFO
 //   mode only, so a System waiting on the chip does not hang; no sound.
 //
-// NOT HERE YET - what the VIAs' inputs and the device bus hold until
-//   their sections: the SCC's W/REQ*, the SCSI's interrupt and DRQ lines,
-//   all at their idle levels (plan 4.7); every other I/O device answers
-//   $00 and raises no interrupt.
+// THE SCC (plan Section 10) - our 8530, rtl/se30_scc.v: /INT to GLUE
+//   (level 4), /W//REQ A and B wired to VIA1 PA7, vSync (VIA1 PA3) choosing
+//   /RTxCA, PCLK from GLUE's C3M.  The two ports are scc_port_in/out; the
+//   top holds them empty (RxD 1, HSKi 1, GPi 0; plan 10.3).
+//
+// NOT HERE YET - every I/O device not yet built answers $00 and raises no
+//   interrupt.
 
 `timescale 1ns/1ps
 
@@ -147,6 +150,11 @@ module se30_machine #(
   output [31:0] scsi_sd_buff_din,      // {disk 1, disk 0}
   input         scsi_sd_buff_wr,
 
+  // the SCC's serial ports, as the board's 75175 receivers and 26LS30
+  // drivers present them (plan 10.5.1)
+  input   [5:0] scc_port_in,           // {A RxD, A HSKi, A GPi, B RxD, B HSKi, B GPi}
+  output  [5:0] scc_port_out,          // {A TxD, A TxD enable, A HSKo, B TxD, B TxD enable, B HSKo}
+
   // for the probe deck and the benches
   output [31:0] dbg_addr,
   output  [2:0] dbg_fc,
@@ -165,7 +173,8 @@ module se30_machine #(
   output        dbg_swim_vread,        // the SWIM's valid data reads (PFLP counts them)
   output [63:0] dbg_adb,               // PADB: the transceiver's PIC, the line, the devices (plan 6.6)
   output [31:0] dbg_rtc,               // PRTC: the clock chip (plan 6.6)
-  output [15:0] dbg_scsi               // PSCS: the SCSI bus (se30_scsi.v's dbg, plan 9.8)
+  output [15:0] dbg_scsi,              // PSCS: the SCSI bus (se30_scsi.v's dbg, plan 9.8)
+  output [31:0] dbg_scc                // PSCC: the SCC (se30_scc.v's dbg, plan 10.5)
 );
 
   // ---------------------------------------------------------- the bus
@@ -207,7 +216,8 @@ module se30_machine #(
   wire        overlay, vid_page, vsyncen_n, via1_irq_n, via2_irq_n;   // the VIAs' pins, below
   wire  [1:0] ramsiz;
   wire  [7:0] dev_rdata;
-  wire        scc_irq_n = 1'b1;        // the SCC's, until its section
+  wire        scc_irq_n, scc_w_req_n;  // the SCC's /INT; its /W//REQ A and B, wired together
+  wire  [7:0] scc_rdata;
 
   se30_glue glue (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
@@ -271,7 +281,7 @@ module se30_machine #(
   wire  [7:0] via1_pa_out, via1_pa_oe, via1_pb_out, via1_pb_oe;
   wire  [7:0] via2_pa_out, via2_pa_oe, via2_pb_out, via2_pb_oe;
   wire  [6:0] via1_ifr, via1_ier, via2_ifr, via2_ier;
-  wire  [7:0] via1_pa_ext = 8'hFF;                       // PA7 SCCWREQ* idle; PA6-0 undriven (ALTVID, HDSEL, OVERLAY, SYNC out; PDS straps)
+  wire  [7:0] via1_pa_ext = {scc_w_req_n, 7'h7F};       // PA7 SCCWREQ*; PA6-0 undriven (ALTVID, HDSEL, OVERLAY, SYNC out; PDS straps)
   wire  [7:0] via1_pb_ext = {4'b1111, adb_int_n, 2'b11, rtc_d};   // PB3 ADB-INT*, PB0 the clock's data; the rest undriven or outputs
   wire  [7:0] via2_pa_ext = {2'b11, irq6_n, 5'b11111};   // RAMSIZ undriven; IRQ*6 the video's latch; IRQ*5-1 the empty PDS
   wire  [7:0] via2_pb_ext = 8'b1011_0111;                // PB6 SNDEXT* and PB3 tied low; TM0A*/TM1A* the empty PDS
@@ -285,7 +295,7 @@ module se30_machine #(
   assign vsyncen_n = via1_pb_pin[6];
   assign ramsiz    = via2_pa_pin[7:6];
   assign dev_rdata = via1_sel ? via1_rdata : via2_sel ? via2_rdata : swim_sel ? swim_rdata :
-                     asc_sel ? asc_rdata : (scsi_sel || scsi_dack) ? scsi_rdata : 8'h00;
+                     asc_sel ? asc_rdata : (scsi_sel || scsi_dack) ? scsi_rdata : scc_sel ? scc_rdata : 8'h00;
   assign dbg_via   = {overlay, ramsiz, vsyncen_n, via1_ier, via1_ifr, via2_ier, via2_ifr};
 
   se30_via via1 (
@@ -419,5 +429,21 @@ module se30_machine #(
     .io_lba(scsi_io_lba), .io_rd(scsi_io_rd), .io_wr(scsi_io_wr), .io_ack(scsi_io_ack),
     .sd_buff_addr(scsi_sd_buff_addr), .sd_buff_dout(scsi_sd_buff_dout), .sd_buff_din(scsi_sd_buff_din),
     .sd_buff_wr(scsi_sd_buff_wr), .dbg(dbg_scsi));
+
+  // ------------------------------------------------------------ SCC
+  // the 8530 on GLUE's SCCEN* ($50004000): /CE with /RD or /WR is GLUE's
+  // strobe; A1 is A/B, A2 is D/C (plan 10.5.1).  It has no reset pin: its
+  // hardware reset is the core's power-on, never RESET*.
+  wire scc_stb = dev_strobe && phi1 && scc_sel;
+  se30_scc scc (
+    .clk(clk), .c16_en(phi1), .c3m_en(c3m_en), .reset_n(reset_n),
+    .stb(scc_stb), .rd(dev_rw), .a1(dev_addr[1]), .a2(dev_addr[2]), .wdata(dev_wdata), .rdata(scc_rdata),
+    .irq_n(scc_irq_n),
+    .vsync(via1_pa_pin[3]), .w_req_n(scc_w_req_n),
+    .a_rxd(scc_port_in[5]), .a_hski(scc_port_in[4]), .a_gpi(scc_port_in[3]),
+    .b_rxd(scc_port_in[2]), .b_hski(scc_port_in[1]), .b_gpi(scc_port_in[0]),
+    .a_txd(scc_port_out[5]), .a_txd_en(scc_port_out[4]), .a_hsko(scc_port_out[3]),
+    .b_txd(scc_port_out[2]), .b_txd_en(scc_port_out[1]), .b_hsko(scc_port_out[0]),
+    .dbg(dbg_scc));
 
 endmodule
