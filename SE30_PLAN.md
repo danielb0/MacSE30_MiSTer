@@ -13460,6 +13460,39 @@ deeper FIFOs, RR0 latched during a read) are left out.
   first Disk figure (the whole SCSI path: blind transfers through GLUE, our
   53C80, the target on the SD image). No real-SE/30 4.02 figures are in
   hand to compare; the 3.x figures of 1.16.3 are another scale.
+- **Speedometer 4.02's own SE/30 record, against the core** (Daniel,
+  `C:\temp\Mac\Screenshots\20261003_155220-screen.png`, Comparison -
+  Machine Records: the built-in "Mac SE/30" against This Machine, System
+  7.5.5 from SCSI; relayed by a side session, read off the screenshot
+  here). The first same-version reference; Quadra 605 = 1.0; two decimals,
+  so the small FPU rows carry +-5-7%. A different run from the entry
+  above (Disk 0.48 here, 0.379 there).
+
+  | Test | Real SE/30 | Core | Core/real |
+  |---|---|---|---|
+  | CPU | 0.27 | 0.32 | 1.19 |
+  | Graphics | 0.23 | 0.16 | **0.70** |
+  | Disk | 0.57 | 0.48 | **0.84** |
+  | Math | 0.97 | 1.08 | 1.11 |
+  | PR | 0.31 | 0.27 | 0.87 |
+  | KWhet / Dhry / Towers | 0.21 / 0.22 / 0.24 | 0.23 / 0.20 / 0.20 | 1.10 / 0.91 / 0.83 |
+  | Quicksort / Bubble / Queens | 0.25 / 0.26 / 0.24 | 0.32 / 0.33 / 0.27 | 1.28 / 1.27 / 1.13 |
+  | Puzzle / Permute / Int. Matrix / Sieve | 0.24 / 0.24 / 0.23 / 0.28 | 0.31 / 0.22 / 0.33 / 0.28 | 1.29 / 0.92 / 1.43 / 1.00 |
+  | Bench. Ave. | 0.24 | 0.27 | 1.13 |
+  | FPU FFT / KWhet / Matrix / Ave. | 0.09 / 0.19 / 0.10 / 0.12 | 0.07 / 0.17 / 0.09 / 0.11 | 0.78 / 0.89 / 0.90 / 0.92 |
+
+  Readings (to be checked, not settled):
+  - **Graphics 0.70** is further from the real machine than the 3.x
+    comparison suggested (0.78, then 0.85 after compile 28's GLUE fix):
+    1.16.3's video-RAM cycle question stays open. To confirm the run was
+    at 1 bit, as the SE/30's built-in screen always is.
+  - **Disk 0.84** from an SD image: the SCSI path (blind transfers through
+    GLUE, our 53C80, the target's sector fetches) is slower than the real
+    disk; a lead for Section 9's tuning.
+  - CPU and integer above the real machine: the kernel's own timing
+    (1.16.1, DBRA 3 clocks against the 030's 6; Daniel kept it).
+  - The FPU at about 0.9: within rounding at these magnitudes; low
+    priority.
 - **A crash at the desktop (2026-10-03, compile 30), idle, after the
   Speedometer run, while Daniel took a MiSTer screenshot.** Garbage on the
   screen in repeating patterns, coloured (our video is R = G = B, so the
