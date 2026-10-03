@@ -13237,7 +13237,7 @@ framework ~5,000 (scaler 1,982, audio 883, OSDs 1,032, HDMI PLL 718).
 
 | Still to build | Estimate (ALMs) |
 |---|---|
-| SCC, the whole 8530 | 1,000-1,500 |
+| SCC, the whole 8530 | **1,073, measured (compile 30)** |
 | ASC (logic; its buffers in M10K) | 500-1,000 |
 | CD-ROM target and CD audio | 600-900 |
 | Modem port to the UART | < 100 |
@@ -13430,9 +13430,21 @@ deeper FIFOs, RR0 latched during a read) are left out.
     standing test method (benches, then the board) a system sim localises a
     failure; the seam bench already drives 68030-shaped byte cycles
     through GLUE. It is the tool if the board shows a fault.
-- **Next: compile 30** (Daniel's go-ahead given, 2026-10-03, "You can
-  compile if you reach that stage"), then the board: System 7.5.5 from
-  SCSI.
+- **Compile 30** (Daniel's go-ahead, 2026-10-03: "You can compile if you
+  reach that stage"): tag `24a1c9a2`, 34 min 33 s,
+  `output_files/MacSE30_24a1c9a2_scc1.rbf` (md5
+  `d1de71f009225d21e76a1c7b73525082`).
+  - **36,022 ALMs** (86 %), 327 RAM blocks (unchanged), 34,652 registers.
+    **The SCC measured: 1,073 ALMs** (channel A 503, B 502), no block RAM;
+    the PSCC probe 29.
+  - **Timing met at every corner** (`sta_corners.tcl`): worst +0.076 ns,
+    register to register, slow -40C; the capture has A or B met at every
+    corner. Compile 29's -0.109 ns SDRAM `dq_out` path is met this time by
+    placement, not by a fix: its options stay with Daniel (drop the raw
+    experiment port `S_RAW`, two of the mux's six sources; or choose the
+    outgoing word a clock earlier).
+- **Next: the board.** System 7.5.5 from SCSI (`mac_80mb-restored.vhd` as
+  SCSI-0); if it stops, read PSCC first.
 
 ---
 
