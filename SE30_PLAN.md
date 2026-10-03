@@ -2678,7 +2678,9 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   reports a 16 MHz 68030** (compile 27 read 31 MHz - its DBRA loop now
   takes the manual's 6 clocks; the real SE/30 runs at 15.67 MHz). Still
   to hear: the boot RAM tests (where the -0.516 ns write-path miss would
-  show) and Speedometer.
+  show). **Speedometer no longer runs: "an error of type 40"** (compile
+  32 ran Speedometer 4.02 to its results) - a regression of compile 33,
+  so either the pace or the fit; not yet localised.
 
 **Added this session**: `sim/system` timetest windows 12-17 (the SWIM
 and VIA polls, the GCR address field with the strobe-gap meter, a taken
