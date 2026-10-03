@@ -13138,6 +13138,25 @@ chip model is ~390 ALMs.
       region in one `quartus_stp` session.
     - **Next: the SCC section** (Z85C30, from Zilog's SCC manual and Guide
       2e), before the board gates of 9.6 item 5. Daniel's call.
+  - **First host-checked gate (2026-10-03): SCSI reads and writes are
+    byte-exact.**
+    - Daniel booted System 6.0.8 from floppy with the image as SCSI-0. The
+      disk mounted and files read.
+    - MacWrite 4.5 and Speedometer 4.02, launched from the disk, both stop
+      with system error 85 (`dsMBarNFnd`), every time.
+    - Daniel duplicated Speedometer 4.02 (692 KB) in the Finder. On the PC,
+      from a copy of the image:
+      - `hfs_check` reports the volume consistent: 862 catalog records, every
+        fork readable.
+      - The duplicate's data fork (193,396 bytes) is identical to the
+        original's.
+      - The resource fork (498,911 bytes) differs only in 38 bytes inside
+        `$30-$63`, the TN-74 header window the Resource Manager writes.
+    - So the ID 85 is not corrupt data. The lead is System 6's
+      switch-launch: the disk carries a System 7.5.5 System Folder, and
+      launching an application from it would make that System the active
+      one. To be tested under MultiFinder (which does not switch-launch),
+      and on the MacPlus core.
 - **Then:** the board gates of 9.6 item 5.
 
 ---
