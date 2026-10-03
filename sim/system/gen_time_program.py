@@ -34,6 +34,12 @@ which decides how the 68030 prefetches them.
          A0 = $50F06000 (the DRQ-handshaked DACK port)          16 turns
      11  SCSI blind write, ROM $40826BC2-$40826BD9 verbatim:
          8 x MOVE.L (A2)+,(A1) / DBRA D1 / DBRA D5              16 turns
+    then translation on, as System 7.5.5 runs (the ROM's 24-bit mode:
+    CRP $7FFF0002 to a RAM copy of its table at $40800050, TC $80F84500,
+    plan 1.11):
+  12-21  windows 2-11 again.  On a 68030 an ATC hit costs nothing - "the
+         address translation time is completely overlapped with on-chip
+         cache accesses" (UM 11.2.6) - so their 68030 figures are 2-11's.
     Then STOP.
 """
 import os
@@ -43,6 +49,8 @@ OUT = os.path.join(HERE, "timetest")
 ORG = 0x1000
 ROM = os.environ.get("SE30_ROM", r"C:\temp\Mac\ROMS\256KB ROMs\1988-09 - 97221136 - Mac II FDHD & IIx & IIcx.ROM")
 ROM_BASE = 0x40800000
+MMU_ROOT = 0x2800                       # CRP (8 bytes) then TC (4)
+MMU_TABLE = 0x2840                      # the sixteen level-A descriptors
 
 
 def rom_words(lo, hi):
@@ -94,31 +102,41 @@ def main():
     timed("chime pass (ROM $40805F28), cache off", 40, chime_setup, chime, m=0x40805F28 % 4)
 
     cacr(0x0001)                                                       # EI
-    timed("DBRA alone, I-cache on", 1000, lambda: movew_d(6, 999), dbra_d6(-2))
-    timed("register-only ADD/LSL/MOVE/SUB + DBRA, I-cache on", 500,
-          lambda: movew_d(6, 499), [0xD481, 0xE58B, 0x2802, 0x9883] + dbra_d6(-10))
-    def ram_setup():
-        movew_d(6, 499); lea(0, 0x8000); lea(1, 0xC000)
-        w.extend([0x203C, 0x5555, 0xAAAA])                             # MOVE.L #$5555AAAA,D0
-    timed("RAM fill MOVE.L D0,(A0)+, I-cache on", 500, ram_setup, [0x20C0] + dbra_d6(-4))
-    timed("RAM read MOVE.L (A0)+,D2, I-cache on", 500, ram_setup, [0x2418] + dbra_d6(-4))
-    timed("RAM copy MOVE.L (A0)+,(A1)+, I-cache on", 500, ram_setup, [0x22D8] + dbra_d6(-4))
-    def vram_setup():
-        movew_d(6, 499); lea(0, 0xFE000000); lea(1, 0x8000)
-        w.extend([0x203C, 0x5555, 0xAAAA])
-    timed("VRAM fill MOVE.L D0,(A0)+, I-cache on", 500, vram_setup, [0x20C0] + dbra_d6(-4))
-    timed("VRAM byte MOVE.B D0,(A0)+, I-cache on", 500, vram_setup, [0x10C0] + dbra_d6(-4))
-    timed("RAM->VRAM copy MOVE.L (A1)+,(A0)+, I-cache on", 500, vram_setup, [0x20D9] + dbra_d6(-4))
-    blind_r = rom_words(0x40826B7A, 0x40826B92)
-    def blind_r_setup():
-        lea(0, 0x50F06000); lea(2, 0x8000); moveq(1, 15); moveq(5, 0)
-    timed("SCSI blind read 8 x MOVE.L (A0),(A2)+ (ROM $40826B7A), I-cache on", 16,
-          blind_r_setup, blind_r, m=0x40826B7A % 4)
-    blind_w = rom_words(0x40826BC2, 0x40826BDA)
-    def blind_w_setup():
-        lea(1, 0x50F06000); lea(2, 0x8000); moveq(1, 15); moveq(5, 0)
-    timed("SCSI blind write 8 x MOVE.L (A2)+,(A1) (ROM $40826BC2), I-cache on", 16,
-          blind_w_setup, blind_w, m=0x40826BC2 % 4)
+    def cached_windows(sfx, vram):
+        timed("DBRA alone, I-cache on" + sfx, 1000, lambda: movew_d(6, 999), dbra_d6(-2))
+        timed("register-only ADD/LSL/MOVE/SUB + DBRA, I-cache on" + sfx, 500,
+              lambda: movew_d(6, 499), [0xD481, 0xE58B, 0x2802, 0x9883] + dbra_d6(-10))
+        def ram_setup():
+            movew_d(6, 499); lea(0, 0x8000); lea(1, 0xC000)
+            w.extend([0x203C, 0x5555, 0xAAAA])                         # MOVE.L #$5555AAAA,D0
+        timed("RAM fill MOVE.L D0,(A0)+, I-cache on" + sfx, 500, ram_setup, [0x20C0] + dbra_d6(-4))
+        timed("RAM read MOVE.L (A0)+,D2, I-cache on" + sfx, 500, ram_setup, [0x2418] + dbra_d6(-4))
+        timed("RAM copy MOVE.L (A0)+,(A1)+, I-cache on" + sfx, 500, ram_setup, [0x22D8] + dbra_d6(-4))
+        def vram_setup():
+            movew_d(6, 499); lea(0, vram); lea(1, 0x8000)
+            w.extend([0x203C, 0x5555, 0xAAAA])
+        timed("VRAM fill MOVE.L D0,(A0)+, I-cache on" + sfx, 500, vram_setup, [0x20C0] + dbra_d6(-4))
+        timed("VRAM byte MOVE.B D0,(A0)+, I-cache on" + sfx, 500, vram_setup, [0x10C0] + dbra_d6(-4))
+        timed("RAM->VRAM copy MOVE.L (A1)+,(A0)+, I-cache on" + sfx, 500, vram_setup, [0x20D9] + dbra_d6(-4))
+        blind_r = rom_words(0x40826B7A, 0x40826B92)
+        def blind_r_setup():
+            lea(0, 0x50F06000); lea(2, 0x8000); moveq(1, 15); moveq(5, 0)
+        timed("SCSI blind read 8 x MOVE.L (A0),(A2)+ (ROM $40826B7A), I-cache on" + sfx, 16,
+              blind_r_setup, blind_r, m=0x40826B7A % 4)
+        blind_w = rom_words(0x40826BC2, 0x40826BDA)
+        def blind_w_setup():
+            lea(1, 0x50F06000); lea(2, 0x8000); moveq(1, 15); moveq(5, 0)
+        timed("SCSI blind write 8 x MOVE.L (A2)+,(A1) (ROM $40826BC2), I-cache on" + sfx, 16,
+              blind_w_setup, blind_w, m=0x40826BC2 % 4)
+    cached_windows("", 0xFE000000)
+    # 12-21: the same with translation on, as System 7.5.5 runs: the ROM's
+    # 24-bit mode (plan 1.11) - CRP $7FFF0002 to a RAM copy of its sixteen
+    # early-terminating page descriptors, TC $80F84500 - loaded as
+    # _SwapMMUMode loads it (PMOVE (A0),CRP; PMOVE 8(A0),TC)
+    lea(0, MMU_ROOT)
+    w.extend([0xF010, 0x4C00])                                         # PMOVE (A0),CRP
+    w.extend([0xF028, 0x4000, 0x0008])                                 # PMOVE 8(A0),TC
+    cached_windows(", PMMU on (24-bit)", 0x00E00000)   # the video RAM at its 24-bit address (descriptor $E)
 
     stop_at = pc()
     w.extend([0x4E72, 0x2700])                                         # STOP #$2700
@@ -127,6 +145,14 @@ def main():
     mem[2], mem[3] = 0x0000, ORG
     for i, x in enumerate(w):
         mem[ORG // 2 + i] = x
+    # the 24-bit root pointer, TC and table (the ROM's, from $40803B86 and
+    # $40800050, the table moved to RAM)
+    tbl = rom_words(0x40800050, 0x40800090)
+    mmu = [0x7FFF, 0x0002, MMU_TABLE >> 16, MMU_TABLE & 0xFFFF, 0x80F8, 0x4500]
+    for i, x in enumerate(mmu):
+        mem[MMU_ROOT // 2 + i] = x
+    for i, x in enumerate(tbl):
+        mem[MMU_TABLE // 2 + i] = x
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "program.hex"), "w", newline="\n") as f:
         for x in mem:

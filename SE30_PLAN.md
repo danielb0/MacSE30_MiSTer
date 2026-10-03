@@ -2262,21 +2262,82 @@ reads its destination, then writes it** - the 68000's behaviour. The
   passed - ModelSim jobs started together can collide (the earlier
   "transient" early exit was this).
 
-### 1.17.3 Next
+### 1.17.3 The PMMU costs a clock on every step (found 2026-10-03)
+
+**The measurement.** Windows 2-11 were all run with translation off; System
+7.5.5 runs with it on (the ROM's 24-bit mode, TC `$80F84500`, 1.11). So
+`timetest` gained windows 12-21: the same loops after `PMOVE (A0),CRP;
+PMOVE 8(A0),TC` with a RAM copy of the ROM's table, the video RAM at its
+24-bit address `$E00000` (descriptor `$E` -> `$FE000000`). The 68030's
+figures do not change: "when the physical address ... resides in the ATC,
+the address translation time is completely overlapped with on-chip cache
+accesses and has no effect on instruction timing" (UM 11.2.6), and the
+caches are logical (UM 6.1). Run time 5.5 min.
+
+| loop | PMMU off | **PMMU on** | 68030 | on / 68030 |
+|---|---|---|---|---|
+| DBRA, cached | 3.01 | **5.01** | 6 | 0.84 |
+| registers + DBRA | 7.03 | **11.04** | 16 | 0.69 |
+| RAM fill | 8.16 | **11.14** | 8 | **1.39** |
+| RAM read | 8.15 | **11.11** | 13 | 0.85 |
+| RAM copy | 12.23 | **16.30** | 13 | **1.25** |
+| VRAM fill (long) | 30.92 | **35.07** | 26.0 | **1.35** |
+| VRAM byte | 9.31 | **13.33** | 8 | **1.67** |
+| RAM->VRAM copy | 35.12 | **39.20** | 29.2 | **1.34** |
+| SCSI blind read (32 bytes) | 173.1 | **219.6** | 165 | **1.33** |
+| SCSI blind write | 173.1 | **219.2** | 168 | **1.30** |
+
+**This is the Graphics and Disk gap.** Video-RAM work under translation
+runs at 0.60-0.75 of a 68030 - Speedometer's Graphics 0.70 - and the SCSI
+blind loops at 0.75 - Disk 0.84 with the rest of the path. The CPU
+benchmarks hide it because their loops are mostly cache hits on short
+code.
+
+**The mechanism, traced** (the RAM fill, clock by clock). Each time the
+kernel's logical address changes - a fetch, a data access, even an
+internal step - the PMMU's `busy` rises for one fast clock while its
+translation process registers the ATC hit (`TG68K_PMMU_030.vhd`: the
+22-entry compare, then `phys_base + (addr_log - log_base)`, into
+`addr_phys_reg`/`translated_addr`). The kernel shows no request while
+`busy` (`busstate_raw` "01"), and the wrapper's `k_internal` waits for it
+too. That fast clock is always the phi2 half, the only point where the
+wrapper can start a cycle or take a cache hit, so **every kernel step whose
+address changes loses one whole C16M clock**. The fill's turn is three
+steps (the write, two cache-hit fetches): 8 -> 11. Cache hits and internal
+steps need no translation at all on the 68030.
+
+**The options** (for Daniel):
+- **A. A same-clock ATC hit (recommended).** A combinational fast path
+  beside the registered one: when an entry matches and the access is clean
+  (valid, not write-protected on a write, not a supervisor page in user
+  mode, no fault pending), `busy` is 0 in the same clock and the physical
+  address is the entry's base merged with the page offset (an OR of masked
+  bits, not the 32-bit add); everything else - misses, faults, walks -
+  stays on the registered path unchanged, which also completes a clock
+  later as now. Removes the loss everywhere, matching UM 11.2.6. Risk:
+  timing - a 22-way compare and mux now feeds the bus start in one fast
+  clock (32 ns); only a compile can tell.
+- **B. The ATC register on the falling edge.** The same registered path,
+  clocked half a period after the kernel's address changes, so it is ready
+  at phi2. Also removes the loss; halves its timing budget (16 ns).
+- **C. Hits and internal steps bypass the wait.** Cache hits (logical) and
+  internal steps no longer wait for `busy`; bus cycles still lose their
+  clock. Least timing risk; the RAM fill would be 9, the SCSI loop about
+  190. Partial.
+
+### 1.17.4 Next
 
 1. ~~**The CLR/Scc/MOVE-from-SR read** (1.17.2): design and fix - a kernel
    correctness item before any pacing.~~ DONE 2026-10-03.
-2. **The Graphics gap's cause**, by the same method: QuickDraw's own
-   inner loops from the ROM (`CopyBits`' blit, the rect fill and erase,
-   text drawing) as timetest windows; and the costs these loops leave out
-   - the PMMU's table walks under System 7.5.5 (ATC size and misses), the
-   VBL and other interrupt overheads.
-3. **The design section for a paced kernel** (Daniel's step 2): instruction
-   timing to Table 11 and the write-pending overlap together - pacing
-   alone would push Graphics further down.
-4. **The disk on its own track** (step 3): with the CPU loop shown to be at
-   the 68030's pace, measure the target's latency and the driver's polled
-   phases.
+2. **The PMMU's lost clock** (1.17.3): Daniel's choice of A/B/C; A built
+   and benched in simulation first, then a compile to judge its timing.
+3. **Re-measure** windows 12-21 after it, then Speedometer on the board:
+   with the PMMU's clock gone and the CPU still 2x fast internally,
+   Graphics and Disk may come out above the real machine.
+4. **The design section for a paced kernel** (Daniel's step 2): instruction
+   timing to Table 11 and the write-pending overlap together.
+5. **The disk on its own track** (step 3): the target's latency and the
+   driver's polled phases.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
