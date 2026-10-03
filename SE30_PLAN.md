@@ -2721,6 +2721,18 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   - **The check on compile 33**: run Speedometer 4.02's Disk test
     several times on a scratch copy of the image, quit, and compare its
     fork against the backup.
+  - **Compile 33 passes it** (Daniel, 2026-10-04 00:54 BST; three runs,
+    quit and relaunched between them; `Corrupted\boo_2.vhd`, from the
+    restored MacLC backup). Speedometer 4.02's fork is the backup's:
+    the header `00000100 000786B9 000785B9 00001626`, 498,911 bytes,
+    the resource data and data fork byte-identical; the only changes
+    are the map's runtime fields and four Finder-flag bytes at $44,
+    $4E, $50, $5A (the same four the damaged copy had). The volume is
+    clean: both B-trees walk, the bitmap equals the extents (no
+    overlap, no orphan), MDB free = bitmap free. The last test file's
+    record (1 MB of zeros, 23:54 UTC) shows the test completed. The
+    damage stays a compile 32 event; whether the pace closed it or it
+    is rare is not shown by three runs.
   **Speedometer 3.23
   runs: CPU 4.271, Graphics 3.568** (Mac Classic = 1.0) against the real
   SE/30's 4.25 / 3.71 (Low End Mac, 3.06 under System 7.5.5): **CPU 1.005,
