@@ -13509,6 +13509,12 @@ deeper FIFOs, RR0 latched during a read) are left out.
   - **Daniel, 2026-10-03: "I suggest we go on and implement the ASC. We
     will need it anyway ... I don't see much point investing time in a
     better stub."** Section 11.
+  - **Confirmed on the board (Daniel, 2026-10-03):** with the speaker
+    volume set to 0 (System 6 floppy's Control Panel, kept in PRAM across a
+    Mac restart), System 7.5.5 boots from SCSI and stays up - the Sound
+    Manager flashes the menu bar instead of feeding the ASC, so the stub's
+    storm never starts. The volume-0 setting is the workaround until the
+    ASC is built.
 - **Next:** SCSI's board gates (9.6 item 5) - System 6 and 7 from SCSI
   (7 done), ID 1, `hfs_check` and `hfs_fork_diff` after a Finder copy, a
   soak, Speedometer's disk test - after the ASC (a beep crashes the
@@ -13549,6 +13555,89 @@ Quadra's `easc.sv`) are leads only.
 | The same thread, Arbee (R. Belmont, MAME's ASC author): "There are ERSes for ASC and EASC but they're much less helpful than you'd think, which is why ASCTester is necessary" | the Apple ERS exists; not found publicly (bitsavers, archive.org, web searches) | to keep looking for |
 | MAME `src/devices/sound/asc.cpp` (header: a full register map for the original ASC, $800-$82F; "Big thanks to Doug Brown for the ASCTester utility"; TODO: "some weirdness with the FIFO full IRQ on the original ASC") | the register map, built on ASCTester's results | **lead** |
 | MacLC `rtl/asc.sv` (MAME's `asc_v8_device`), Quadra `rtl/easc.sv`, the MESS EASC page, QEMU's 2023 ASC patches | other variants | **leads**; no core records an Apple document |
+
+The specification: `C:\temp\Mac\SE30\Docs\asc\spec_asc.md`, every line
+tagged HW (ASCTester), G, HO, S7, SW (the ROM's and System 7.5.5's use,
+`audit_se30_asc_software.md`) or M (MAME, lead).
+
+## 11.2 What the software settles (SW)
+
+- **System 7.5.5** plays through `'sdev' 'asc '`: `$801 = 1`, `$802 = 2`
+  (stereo), `$807 = 0` at start-up, `$806 = vol<<5`; it never writes `$803`
+  and never leaves FIFO mode. Its CB1 handler (`lpch 28`, CB1 on the
+  falling edge) reads `$804` once and refills only on bit 2; the refill
+  writes 512 frames blind, then polls bit 3 before each further frame
+  until it reads 1. A frame is one misaligned word write to `$3FF` (left
+  to FIFO A, right to FIFO B). After a sound, CB1 stays enabled and FIFO
+  mode stays on - so a chip that interrupts while idle storms for ever (the
+  crash of 10.6).
+- **The ROM**: the chime is wavetable mode (four voices, tables at n x
+  `$200`, increments at `$814+8n`; `$800 = $00` selects its path); the
+  `.Sound` driver feeds FIFO A 370 bytes a VBL and never reads `$804`.
+- **The CPU's half is already proven:** `sim/kernel_bus` PORT=8 (520
+  checks, rerun 2026-10-03) holds the kernel to UM 7.2 for every operand
+  at every offset on an 8-bit port, the odd word included: `move.w x,$3FF`
+  is a byte cycle at `$3FF`, then one at `$400`.
+
+## 11.3 The design (2026-10-03)
+
+**`rtl/se30_asc.v`**, replacing `se30_asc_stub.v` in the same place
+(GLUE's `asc_sel`, the 5/4-clock cycle, `RESET*`, VIA2 CB1):
+
+- **The buffer:** 2 KB in one M10K pair (2048 x 8, dual port). Port A is
+  the CPU's: in FIFO mode a write appends at the FIFO's own write pointer
+  (A for `$000-$3FF`, B for `$400-$7FF`); in modes 0 and 2 it writes the
+  addressed byte; a read returns the addressed byte. Port B is the
+  playback engine's.
+- **The FIFOs:** per channel a 10-bit read and write pointer and an 11-bit
+  count (0-1,024). A write to a full FIFO is dropped and sets the full bit
+  again (engineering, after Doug Brown's repeated "full" interrupts). A
+  change of `$801` or `$803` bit 7 empties both; the clear also sets bits 1
+  and 3 (M; it explains snth 2053's discarded read).
+- **$804:** four latched bits - 0 A half empty, 1 A full, 2 B half empty,
+  3 B full. Set: full when a write leaves the count at 1,023 or more;
+  half empty when playback takes the count from 511 to 510 (M's point);
+  cleared by a write that takes the count to 512 or more (M). A read
+  returns them and clears all four; a write ORs bits in. **`SNDINT*` is
+  low while any bit is set**: one falling edge per event, none at idle.
+- **Playback:** a sample tick from C16M - every 704 C16M for `$807 = 0`
+  (22,254.5 Hz), a fractional divider for 3 (44.1 kHz) and 2 (22,050).
+  At each tick a small sequencer, sharing one read port, takes:
+  - FIFO mode: a byte from A (and from B in stereo; mono plays A on both);
+    an empty FIFO holds its last sample (engineering);
+  - wavetable mode: for each voice, phase += increment (24 bits; one adder
+    used four times in turn), byte = voice n's table at phase[23:15]; mono
+    sums all four, stereo {0,1} left and {2,3} right, unsigned and
+    unscaled, saturated at `$FF` (engineering: SW shows the software keeps
+    the sum in range).
+- **Registers:** `$800` reads `$00`; `$801-$80F` read back what was written
+  (`$801` bits 1-0; `$802` bit 7 reads 0); `$810-$82F` the voices' phases
+  (live) and increments; `$830-$837` stored (SW writes them; G describes
+  no per-voice level - OPEN).
+- **Out:** each channel's 8-bit offset-binary sample, minus `$80`, times
+  the volume (`$806` bits 7:5, linearly 0-7 of 7: no Sony datasheet), as
+  signed 16-bit to the MiSTer's `AUDIO_L/R` (`AUDIO_S = 1`). The Sony
+  chips' filter (G: about 7.5 kHz of bandwidth) is left to the MiSTer's
+  audio filter.
+- **Probe PASC:** mode, `$804`, both counts, interrupts raised.
+
+**Estimate:** 300-500 ALMs and two M10Ks (the stub was 54).
+
+## 11.4 The tests
+
+1. `sim/asc` (Icarus), rewritten for the chip:
+   - registers, the version, read-back;
+   - FIFO mode at the true rate: a fill gives one "full" interrupt, the
+     drain one "half empty", none at idle, none repeated (HW's results);
+     `$804` cleared by a read, ORed by a write;
+   - **System 7.5.5's refill replayed**: CB1-style handler, blind 512
+     frames as word writes at `$3FF` (two byte cycles), then the bit-3
+     poll - for several seconds of simulated sound: the interrupt rate
+     about 43 a second, never a storm, the FIFO never empty mid-sound;
+   - the ROM chime replayed: the right voices and pitches on the output;
+   - volume, mono/stereo, the clear.
+2. The machine bench; then the board: the 7.5.5 boot with the volume up,
+   the alert beep, the chime, and sound out of the MiSTer.
 
 ---
 
