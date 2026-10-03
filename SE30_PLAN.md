@@ -2672,6 +2672,13 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   duplicated near the enable - not the design's; Daniel's choice (4.11
   item 8's rule): this bitstream is a timing-violated build like compile
   23 (which booted) and 29.
+- **Compile 33 on the board** (2026-10-04, Daniel): **the floppy mounts
+  again** (the regression of compile 32 is fixed), **the chime is longer**
+  (the kernel-timing item of compile 31 closes with it), and **TattleTech
+  reports a 16 MHz 68030** (compile 27 read 31 MHz - its DBRA loop now
+  takes the manual's 6 clocks; the real SE/30 runs at 15.67 MHz). Still
+  to hear: the boot RAM tests (where the -0.516 ns write-path miss would
+  show) and Speedometer.
 
 **Added this session**: `sim/system` timetest windows 12-17 (the SWIM
 and VIA polls, the GCR address field with the strobe-gap meter, a taken
