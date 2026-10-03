@@ -2688,6 +2688,33 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   Graphics 3.137 = 0.85). The pace puts the CPU on the machine's speed;
   the Graphics gap is down to 4 %, which is the write-pending buffer's
   question (the version caveat of 1.16 still stands).
+- **Speedometer 4.02 on compile 33** (Daniel, `C:\temp\Mac\Screenshots\
+  20261004_003138-screen.png`, Comparison - Machine Records; Quadra 605 =
+  1.0; the Performance Test only - the Benchmark and FPU rows are 0.00,
+  not run). Two real-SE/30 references: the program's built-in record,
+  and Low End Mac's own SE/30 under System 7.5.5 (four runs, all alike):
+
+  | Test | Built-in record | Low End Mac | Compile 32 | **Compile 33** | 33 / record | 33 / LEM |
+  |---|---|---|---|---|---|---|
+  | CPU | 0.27 | 0.26 | 0.49 | **0.27** | 1.00 | 1.04 |
+  | Graphics | 0.23 | 0.16 | 0.19 | **0.16** | 0.70 | 1.00 |
+  | Disk | 0.57 | 0.70-0.77 | 0.39 | **0.49** | 0.86 | 0.64-0.70 |
+  | Math | 0.97 | 0.96-0.98 | 1.29 | **1.10** | 1.13 | 1.13 |
+  | PR | 0.31 | - | 0.34 | **0.25** | 0.81 | - |
+
+  - **CPU is on the real machine** by both references.
+  - **The two references disagree on Graphics** (0.23 against 0.16).
+    Low End Mac's machine is consistent with itself across versions
+    (3.06: 3.71; 4.02: 0.16) and the core matches it on both (0.96 and
+    1.00); the built-in record's conditions (System version, QuickDraw,
+    screen) are unknown. On this evidence the Graphics gap may be a
+    property of the record, not the core; the write-pending buffer is
+    still the 68030's behaviour and is still wanted, but it should
+    move Graphics only by the few per cent the 3.x figure leaves.
+  - **Math is 13 % high** by both - the 68882's own time (the pace
+    holds the 030's instructions, not the coprocessor's); 1.17.5's
+    small corrections list.
+  - **Disk** depends on the drive and the SCSI path, not the CPU.
 
 **Added this session**: `sim/system` timetest windows 12-17 (the SWIM
 and VIA polls, the GCR address field with the strobe-gap meter, a taken
