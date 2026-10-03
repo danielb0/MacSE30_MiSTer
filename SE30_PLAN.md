@@ -13710,10 +13710,13 @@ tagged HW (ASCTester), G, HO, S7, SW (the ROM's and System 7.5.5's use,
     third read port); PASC 28.
   - **Timing met at every corner** (`sta_corners.tcl`): worst +0.051 ns
     (hold, slow -40C); the capture A or B met at every corner.
-- **Next: the board** - the volume back up, System 7.5.5 from SCSI: the
-  "not shut down properly" beep, the alert sound, the startup chime, sound
-  from the MiSTer; if anything stops, read PASC first (the mode, `$804`, the
-  counts, the interrupts raised).
+- **On the board (Daniel, 2026-10-03): "Sound works. I am running Prince
+  of Persia with perfect sound."** Compile 31, System 7.5.5 from SCSI,
+  the volume back up: the beep that crashed compile 30 plays, and a game's
+  sampled sound runs through the FIFOs, the interrupts and the output -
+  the core's first sound.
+- **Still to hear:** the startup chime (the wavetable mode) on a restart;
+  the alert sounds from the Sound control panel.
 
 ---
 
