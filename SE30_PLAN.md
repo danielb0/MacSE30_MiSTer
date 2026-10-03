@@ -13487,13 +13487,57 @@ deeper FIFOs, RR0 latched during a read) are left out.
     `quark-hang-80mb-image-forensics` (F-line = fetching non-code; the
     fit-dependent SDRAM capture), `tg68-comb-loop-plan` (a kernel loop; ours
     is the carry item of 3.8, 4-8 nodes at `exec`, in every compile).
-  - **Next:** an A/B with AppleTalk inactive (Chooser) against active,
-    idle; and, if it recurs, a first-fault probe (freeze the trap ring,
-    the SCC's recent accesses and the faulting PC/SR at the first illegal,
-    address or bus-error exception).
+  - ~~Next: an A/B with AppleTalk inactive~~ - **superseded: the cause is
+    the ASC stub** (below).
+  - **The second crash names it (2026-10-03).** The peek's release
+    restarted the machine; it stopped at the "not shut down properly"
+    dialog - which beeps - with the mouse frozen. Probes: the CPU halted
+    (a double fault, vectors 2 then 3, fetching `$50FFF0E4`); the trap
+    ring again 16 x `_DTInstall`, new ones (A-line count +24,655);
+    **level-2 acknowledges 57,609 against 24,709 VBLs** (a normal boot
+    runs about half the VBL rate); **VIA2 IER `$12` with CB1 (SNDINT\*)
+    enabled and IFR `$5B` with CB1 pending**; the SCC idle (no IP, the
+    line free).
+  - **Cause: the stub's `SNDINT*` fires on every sample tick in FIFO mode,
+    22,254 a second** (7.3), where the chip interrupts "when the sound
+    buffers are half empty and when they are completely empty" (*Guide*
+    ch. 3, p. 95): with 512-byte halves at 22 kHz, about 43 a second. The
+    Sound Manager's handler (refill, `_DTInstall`) cannot keep up; the
+    deferred tasks pile up and the stack runs away - the frames of the
+    first crash, whose first event was at an elevated mask. The SCC only
+    made it visible: System 7.5.5 now gets far enough to make a sound.
+  - **Daniel, 2026-10-03: "I suggest we go on and implement the ASC. We
+    will need it anyway ... I don't see much point investing time in a
+    better stub."** Section 11.
 - **Next:** SCSI's board gates (9.6 item 5) - System 6 and 7 from SCSI
   (7 done), ID 1, `hfs_check` and `hfs_fork_diff` after a Finder copy, a
-  soak, Speedometer's disk test.
+  soak, Speedometer's disk test - after the ASC (a beep crashes the
+  machine until then).
+
+---
+
+# Section 11 - the ASC (opened 2026-10-03)
+
+Daniel, 2026-10-03: implement the Apple Sound Chip now; no better stub
+(10.6: the stub's interrupt storm crashes System 7.5.5 at its first
+beep). It replaces Section 7's stub. The method is the SCC's: documents
+first, the chip's use read from the ROM and the System, our own chip
+written to the documents, seam benches, then the board.
+
+## 11.1 Sources (to be gathered)
+
+Section 7.2 found no Apple register document (2026-09-28: bitsavers
+`/pdf/apple/mac/`, `ers/`, one web search). This time the search is
+wider (developer notes, ERS documents, technotes, period magazines,
+archived Apple FTP and developer CDs), and the chip's use is read from:
+- the SE/30 ROM's `.Sound` driver (`$4082F02A`-`$4082F46C`, 7.1);
+- System 7.5.5's Sound Manager and its ASC synthesizer resources (from
+  the image's System file, as `'ltlk'` was read for the SCC);
+- sheet 7 ("Serial Interface & Sound Interface"): the ASC's pins, the Sony
+  sound chips, `SNDINT*` to VIA2 CB1, its clocks.
+
+Emulators and other cores (MAME's `asc.cpp`, MacLC's `rtl/asc.sv`, the
+Quadra's `easc.sv`) are leads only.
 
 ---
 
