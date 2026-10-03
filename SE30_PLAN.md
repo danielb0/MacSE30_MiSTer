@@ -13090,7 +13090,31 @@ chip model is ~390 ALMs.
     functional SCSI test. The fix goes into the next compile:
     - the script to report the design excluding only the capture;
     - the `dq_out` path shortened.
-- **Next:** the board gates of 9.6 item 5.
+- **On the board (2026-10-03): SCSI boots, then hangs.**
+  - `I:\games\MACSE30\mac_80mb-restored.vhd` as SCSI-0 (System 7.5.5)
+    hangs at the 7.5.5 boot screen with the progress bar ~10 %.
+    `boo_.vhd` (1.5 GB, renamed by Daniel to stop autobooting) hung with
+    nothing on screen.
+  - Both carry the same layout: block 0 `'ER'`, an `Apple_Driver43`
+    partition (19 blocks at 64, "Macintosh", 68000) and one HFS partition.
+  - **The probe deck at the hang:**
+    - PSCS: 672 sectors moved, the bus idle, the chip's IRQ latched (not
+      enabled at VIA2: IER `$12`, IFR `$49`).
+    - The CPU is alive in a tight loop at **`$000EA938` (RAM)**: no new
+      traps, VBL running, caches on.
+    - The last traps: `_InsTime`/`_RmvTime`/`_PrimeTime` repeated, then
+      `_VInstall`.
+    - VIA1: IER `$27` (T1 interrupt not enabled), IFR `$40` (T1's flag
+      set).
+  - **Next:**
+    - read the hung loop's RAM with the JTAG peek (`read_probes.tcl peek`
+      takes a longword address: `$EA938` is longword `3AA4E`). The peek
+      holds the CPU in reset but SDRAM keeps its contents.
+    - Disassemble the loop and the driver (`Apple_Driver43`, block 64 of
+      the image).
+    - Decide whether it is our VIA1 T1/Time Manager path, the 53C80, or
+      something else.
+- **Then:** the board gates of 9.6 item 5.
 
 ---
 
