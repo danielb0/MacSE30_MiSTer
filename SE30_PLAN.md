@@ -2681,7 +2681,36 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   show). **Not a regression:** Speedometer 4.02 first stopped with error
   **-40** (the File Manager's posErr, a position before the start of a
   file) from one disk image and runs from another - the image is
-  suspect, not the machine. **Speedometer 3.23
+  suspect, not the machine. **But the image was damaged on the core**
+  (read 2026-10-04 against its source, the MacLC backup's `boot.vhd`;
+  the damaged copy kept as `C:\temp\Mac\Test disks\Corrupted\boo_.vhd`):
+  - The one damaged file is Speedometer 4.02's resource fork, modified
+    2026-10-03 18:59:19 by the Mac's clock, which runs on UTC (the
+    volume's last write, 23:35:33, is the 00:35 BST of the file's move) -
+    so 19:59 BST, **the compile 32 session** (its Speedometer 4.02
+    screenshot is 19:57:41), when Speedometer saved its results.
+  - Its resources and map are intact and byte-identical apart from the
+    map's runtime fields. The damage is the fork's header block only:
+    the header reads `7FFF0146 FFFE8145 7FFF7FFF 00001626` for `00000100
+    000786B9 000785B9 00001626` (the map's own copy of the header is
+    right), and the fork was extended from 498,911 to 32,577,575 bytes
+    ($01F11827, which also stands in the block's system area at $7A) -
+    1,333 new blocks of stale disk, never written. Opening it gives the
+    File Manager's -40.
+  - The values are structured, not flipped bits (the XORs are no
+    single-pin pattern; the dq_out[6] miss is compile 33's, not 32's),
+    and the SCSI path was host-checked byte-exact - so the lead is a
+    wrong value computed on the CPU side while the Resource Manager
+    wrote the header, under compile 32 (unpaced, the same-clock ATC
+    hit). Not localised.
+  - The rest of the volume checks clean (catalog and extents B-trees
+    walk, the bitmap matches every extent) except `Desktop DB 2`, whose
+    extents cover 12 of its 28 blocks (8 orphan blocks), dated by an
+    unset 1960 clock 19 s after the backup's own last write - the MacLC
+    era, not ours.
+  - **The check on compile 33**: run Speedometer 4.02 to its results,
+    quit, and compare its fork against the backup.
+  **Speedometer 3.23
   runs: CPU 4.271, Graphics 3.568** (Mac Classic = 1.0) against the real
   SE/30's 4.25 / 3.71 (Low End Mac, 3.06 under System 7.5.5): **CPU 1.005,
   Graphics 0.96** of the real machine (compile 27 under 3.23: CPU 5.179,
