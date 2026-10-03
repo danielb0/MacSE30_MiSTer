@@ -49,6 +49,11 @@ designed in full and rungs 2-3 mapped to their sources, and **Section 6
 or power should be inferred from what is written here - those sections
 do not exist yet, and the facts they need have not been read.
 
+**Revision 2026-10-03.** **Section 9 (SCSI) is new**: from NCR's
+SP-1051 manual, the *Guide*'s chapter 11, sheet 6 and the ROM's SCSI
+Manager. Daniel chose our own 53C80 to the manual with the MacPlus
+`scsi.v` targets, two disks first, then the CD-ROM with CD audio.
+
 **Revision 2026-09-27.** **Section 5 is new**: the SWIM from Apple's
 documents (the 343S0061-A drawing, the chip spec, the User's Reference,
 the ISM spec), the schematic's sheet 6 and the ROM's `.Sony` driver.
@@ -12735,6 +12740,221 @@ clocks as before; `sim/fpu` directed 143, every vector plain and +detour,
 2,000 pairs, triples and detour pairs, the APU bench; the timing matrix
 unchanged (8.9.7's reading); `sim/cpfpu` all 13; `sim/machine`. Logs:
 `sim/fpu/out/gate4`, `out/cpt_rtl`, `C:\temp\Mac\SE30\cputest`.
+
+---
+
+# Section 9 - SCSI (opened 2026-10-03)
+
+Daniel, 2026-10-03:
+- **"start on SCSI".**
+- **Targets:** two hard disks (IDs 0 and 1), the CD-ROM (ID 3) and CD
+  audio into the core's sound.
+- **Staging:** disks first, the CD-ROM after.
+- **Design: "go with option A"**. That is our own 53C80, written to NCR's
+  manual, and the MacPlus `scsi.v` targets.
+
+## 9.1 Sources, and their standing
+
+| Source | What it gives | Standing |
+|---|---|---|
+| **NCR SP-1051, *NCR 5380-53C80 SCSI Interface Chip Design Manual*, Mar 1986** (`C:\temp\Mac\SE30\Docs\scsi\`, bitsavers, 3,176,025 B, downloaded with Daniel's OK; text extract `NCR5380_53C80.txt`) | the chip: pins, registers, modes, DRQ, interrupts, reset | **primary for the chip** - the document the *Guide* itself defers to ("described in detail in NCR's documentation for the 5380") |
+| *Guide* 2e ch. 11, pp. 375-394 | the SE/30's SCSI as a system: normal and pseudo-DMA modes, polling and blind transfers, GLUE's DRQ handshake and its bus error, IRQ and DRQ to VIA2, longword moves as four byte cycles, ~1.4 MB/s blind | **primary for the system** |
+| `se30.pdf` sheet 6 "SWIM & SCSI interface" | the wiring (9.2) | **primary for the wiring** |
+| The ROM (97221136), disassembled 2026-10-03 (`audit_se30_rom_scsi.md` and `romscsi\` beside the manual) | what the SE/30's own software does with the chip (9.3) | **evidence of use** |
+| MacLC `rtl/ncr5380.sv` (3017ba7), audited against the manual (`audit_lc_ncr5380_vs_datasheet.md`) | engineering only; not taken (9.4) | donor, rejected for the chip |
+| MacPlus `rtl/scsi.v`, `master` `e5e54c7`, 1,757 lines, sha256 `5ac14cad35ae40a2...` | the drives: a SCSI target speaking only bus signals, with a CD-ROM mode and CD audio | **donor for the targets**, hardware-proven on the MacPlus (the 62 MB byte-exact soak) |
+
+## 9.2 The wiring (sheet 6, UI12 = 53C80)
+
+| 53C80 | SE/30 |
+|---|---|
+| D7-D0 | **D31-D24**: an 8-bit port, `DSACK0*` only |
+| A2-A0 | **A6-A4**: register *n* at offset `$10 x n` |
+| /CS | GLUE `SCSI*`: the `$50010000` window (2.11.3 row 7) |
+| /DACK | GLUE `SCSIDACK*`: `$50012000` (no wait, row 8) and `$50006000` (`DSACK0*` held until DRQ, row 5) |
+| /IOR, /IOW | GLUE `IOR*`, `IOW*` |
+| DRQ | `SCSIDRQ`: GLUE's handshake and VIA2 CA2 |
+| IRQ | `SCSIIRQ`: VIA2 CB2 |
+| /EOP | `PU`, **pulled up: never asserted** |
+| READY | **not connected** |
+| /RESET | `RESET*` (the CPU's RESET instruction resets it, as the VIAs) |
+| the bus | J5 (internal 50-pin) and J4 (external DB-25) in parallel; TERMPWR through D3/F3 |
+
+So the SE/30 uses the chip's CPU-paced modes only. There is no end of
+process, no block-mode DMA and no READY handshake; GLUE does the
+handshake from DRQ. IRQ and DRQ are both active high (no slash on pins
+9 and 10).
+
+## 9.3 What the ROM does with it
+
+From the disassembly (`audit_se30_rom_scsi.md`, every address there):
+
+- **Bases (`$40800634`):** SCSIBase `$0C00` = `$50F10000`, SCSIDMA `$0C04`
+  = `$50F12000`, SCSIHsk `$0C08` = `$50F06000`. The 24-bit MMU table's
+  entry 15 maps `$F00000` to `$50F00000`, CI.
+- **Commands, arbitration, selection and status** go through the
+  register window, byte by byte.
+- **Polled transfers** use `$50F12000` (write) and `$50F12060` (read),
+  byte moves, each byte waiting for **DRQ in register 5 bit 6**. The end
+  is **phase match (register 5 bit 3) going clear** (error 5). There is
+  no software timeout.
+- **Blind transfers** use `$50F06000` and `$50F06060` with **longword**
+  moves, eight a pass. Only the first byte waits for DRQ; every later byte
+  rides GLUE's held `DSACK0*`.
+- **No interrupts:** VIA2's IER only ever gets `$7F`, `$02` and `$82`
+  (slots), and the 53C80's interrupt enables are never set. The ROM never
+  uses IRQ or DRQ as interrupts. (A/UX, per the *Guide*, may.)
+- **Timeouts** are scaled from TimeSCSIDB (`$0DA6`), calibrated against a
+  1 ms VIA1 timer by reading register 4 at `$50F10040`. They hold whatever
+  the core's access time is, but that read must answer. Arbitration and
+  REQ waits are 256 ms, selection 250 ms.
+- **Bus reset (`$40826C7C`):** RST held ~125 us with interrupts masked,
+  IRQ cleared, then ~275 ms. Done once at boot unless an XPRAM bit says
+  not to.
+- **Boot (`$4080151C`):**
+  1. Drivers are loaded from IDs 7 down to 0.
+  2. Then it waits **up to 20 s from boot** for the internal disk (ID in
+     `$0C2F`, from XPRAM; 0 by default), retrying every 15 ticks.
+  3. A disk needs block 0 with `'ER'`, then block 1's partition map with
+     an `"Apple_Driver"` entry (or `"Apple_HFS"`).
+  4. Every read is a READ(6) through the polled path, with a 60-tick
+     completion timeout.
+
+  At 20 s of uptime the ROM sends TEST UNIT READY once and records in
+  PRAM whether the drive answered. **With our volatile PRAM every boot
+  without an internal disk pays the 20 s**, as a real SE/30 with a fresh
+  PRAM would.
+- **The board's loop at `$408268F4`** (compiles 26-28, no SCSI) is the
+  arbitration wait reading ICR at `$50F10010`. Our `$00` has AIP clear, so
+  each attempt gives up after 256 ms; an open-bus `$FF` would hang it.
+- **A hazard to check, not to fix:** the bus-error handler at `$40826B26`
+  always discards a 92-byte format `$B` frame. A blind **write** that
+  times out may build the short `$A` frame on a 68030 (UM 8.2: the short
+  frame when the fault falls at an instruction boundary). Whatever the
+  68030 does, we do; the bench checks that our kernel picks the frame the
+  UM's rule picks.
+
+## 9.4 The LC donor, audited and rejected for the chip
+
+`audit_lc_ncr5380_vs_datasheet.md` (2026-10-03).
+
+**Right:**
+- the register map and read/write split;
+- the bit order of the Current SCSI Bus Status and Bus and Status
+  registers;
+- phase match as a continuous compare;
+- Start DMA requiring DMA MODE;
+- a read of register 7 clearing IRQ.
+
+**Wrong in ways the SE/30 sees:**
+- End of DMA reads 1 outside a data phase; with /EOP tied high it should
+  never set.
+- Bus and Status bit 6 is not the DRQ pin.
+- DRQ is not gated by phase match, so a waiting `$50006000` access
+  completes in the status phase instead of ending in GLUE's bus error.
+- A bus reset clears IRQ instead of raising it.
+- The phase-mismatch interrupt is LC/System-7-specific.
+- A "deferred REQ" workaround hides each new REQ.
+- ACK is not tied to REQ, so blind transfers can ACK early or return a
+  stale byte.
+- ASSERT DATA BUS ignores I/O.
+- Arbitration ignores a busy bus.
+- An ICR RST clears only DMA MODE.
+
+On top of that it carries the LC's 16-bit pseudo-DMA plumbing. Its
+targets (`scsi.v`) also watch the LC chip's host-side reads, so they
+only work beside it.
+
+**So the chip is ours, written to SP-1051.** It is small: the LC's whole
+chip model is ~390 ALMs.
+
+## 9.5 The design
+
+1. **`rtl/se30_ncr53c80.v`, ours.**
+   - The registers of SP-1051 section 6.
+   - The initiator role.
+   - Arbitration on a bus that can be busy.
+   - Selection, normal-mode handshaking through ICR and TCR.
+   - **Pseudo-DMA as section 7 defines it.**
+     - DRQ asserts on REQ with phase match.
+     - On a read, the byte is **latched on REQ** and ACK is asserted.
+     - ACK releases after /DACK and REQ are both false.
+     - DRQ falls with /DACK.
+     - Phase mismatch stops recognising REQ.
+   - The interrupts of section 8 that the SE/30's wiring can raise: bus
+     reset (always), parity, phase mismatch, loss of BSY, and selection if
+     enabled. Not EOP.
+   - Reset per section 9.
+   - **The target role and block mode are not built:** the SE/30 is
+     always the initiator, and READY and /EOP are unwired.
+   - The CPU side is GLUE's existing strobes: one access per byte cycle,
+     /CS or /DACK, data on `D31-D24`.
+2. **The SCSI bus** inside the core: an 8-bit data bus plus BSY, SEL,
+   ATN, ACK, RST, MSG, C/D, I/O, REQ, wired-OR (active-high internally),
+   between the chip and the targets.
+3. **The targets:** the MacPlus `scsi.v` at `e5e54c7`, byte-exact, two
+   instances (IDs 0 and 1).
+   - Its Plus-only `data_holdoff` stall is unused. The SE/30 waits on DRQ,
+     which follows REQ.
+   - **To verify at the RTL step:** that its REQ is withheld until each
+     byte is really there (an SD read in flight). The handshake depends
+     on it.
+   - Stage 2 adds the CD-ROM at ID 3 from the same file's CD mode. The
+     `sound-phase` branch's later CD fixes are decided then.
+4. **Images:** two `S` mounts (`S2`, `S3`), `VDNUM` 4, through `hps_io`'s
+   SD block interface as on the MacPlus. 3.3's SDRAM map reserved
+   `$A00000` up for SCSI, which this design does not need: the targets
+   buffer in block RAM.
+5. **The machine:** GLUE's `scsi_drq` from the chip; VIA2 CA2 = DRQ, CB2 =
+   IRQ (4.x's table already names them); `dev_rdata` from the chip for
+   both windows; the chip's reset from `via_reset_n`'s source.
+6. **The budget.** Compile 28 is 33,755 ALMs; the practical ceiling is
+   about 38-39k.
+   - Stage 1 (chip plus two disks) is about +1,800, judged from the LC's
+     targets.
+   - Stage 2's CD-ROM with audio is about +5,800 in the LC (audio ~3,000),
+     which is at or over the ceiling. It is measured at stage 2.
+   - The probe deck (1,314 ALMs plus ~300 of JTAG hub) can be left out of
+     release builds.
+
+## 9.6 The tests (the standing method: seam benches, then the board)
+
+1. **`sim/ncr53c80`:** the chip against SP-1051, register by register, and
+   the pseudo-DMA protocol against a scripted target. It checks:
+   - DRQ on REQ with phase match only;
+   - the latched read byte;
+   - ACK release;
+   - DRQ falling with /DACK;
+   - phase mismatch;
+   - each interrupt and its clear by a register 7 read;
+   - the ICR RST reset;
+   - arbitration against a busy bus.
+2. **`sim/scsi_seam`:** chip and two real `scsi.v` targets on the bus,
+   driven by **the ROM's own sequences**: SCSIReset, arbitration,
+   selection, a READ(6) through the polled path, a blind read and write
+   through the handshake window, with longword moves as four byte cycles.
+   The image data comes back byte-exact.
+3. **`sim/system` or `sim/machine`:**
+   - GLUE's handshake window waits on DRQ;
+   - the bus error when DRQ never comes, inside 2.11.4's window;
+   - **the frame the kernel builds for a blind-write timeout, against UM
+     8.2's rule**.
+4. **Quartus analysis**, then a compile with Daniel's go-ahead.
+5. **The board**, each step checked on the host:
+   - boot System 6 and 7 from an ID 0 image;
+   - a second disk at ID 1;
+   - `hfs_check` and byte-exact `hfs_fork_diff` after a Finder copy;
+   - a soak (a large folder copied, byte-identical);
+   - Speedometer's Disk test and full Performance Rating, as Daniel's
+     forum comparison wants.
+
+## 9.7 Open
+
+- **GLUE's handshake timeout** is not given for the SE/30. Row 5 of
+  2.11.3 uses UI6's 18.4-63.3 us window until a document says otherwise.
+- **The bus-error frame** for a blind-write timeout (9.3).
+- **Persistent PRAM** would spare the 20 s wait without an internal disk
+  (a convenience, Daniel's call; plan 6 keeps PRAM volatile).
 
 ---
 
