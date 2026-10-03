@@ -179,6 +179,7 @@ entity TG68KdotC_Kernel is
 		pmmu_addr_phys			: out std_logic_vector(31 downto 0);
 		pmmu_cache_inhibit		: out std_logic;
 		rmc_out					: out std_logic;  -- a locked TAS/CAS/CAS2 data cycle (pmmu_rmw): the 68030 data cache forces its read to miss (SE30_PLAN.md 1.16.2)
+		wronly_rd_out			: out std_logic;  -- the destination read of CLR, Scc, MOVE from SR/CCR: a 68030 runs none (SE30_PLAN.md 1.17.2)
 -- Cache operation address (68030)
 		cache_op_addr			: out std_logic_vector(31 downto 0);
 -- PMMU walker memory interface (68030) - connects to real memory via cpu_wrapper
@@ -1363,6 +1364,18 @@ BEGIN
   -- Cache inhibit from PMMU
   pmmu_cache_inhibit <= pmmu_ch_inhibit;
   rmc_out <= pmmu_rmw;
+  -- SE30_PLAN.md 1.17.2: CLR, Scc and MOVE from SR/CCR reach memory through
+  -- the read-modify-write path (write_back), so they read their destination
+  -- first - the 68000's behaviour.  The MC68030's tables list no read for
+  -- any of them (CLR Mem 4(0/1/1), Scc Mem 5(0/1/1), MOVE SR/CCR,Mem
+  -- 5(0/1/1)).  This marks that read (the data read state, the write back
+  -- armed, the opcode one of the four) so the wrapper answers it without a
+  -- bus cycle; the ALU's result (0, the condition, SR or CCR) never uses it.
+  wronly_rd_out <= '1' when state = "10" and exec_write_back = '1' and berr_exception_active = '0' and
+                          (opcode(15 downto 8) = X"42" or                                   -- CLR, MOVE from CCR
+                           opcode(15 downto 6) = "0100000011" or                            -- MOVE from SR
+                           (opcode(15 downto 12) = "0101" and opcode(7 downto 6) = "11"))   -- Scc
+                   else '0';
   
   -- CACR (Cache Control Register) bit definitions for MC68030:
   -- Bit 0 (IE): Instruction Cache Enable (sticky)

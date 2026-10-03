@@ -14,7 +14,10 @@ THE PROGRAM (supervisor, from $1000; A0 = $3100, D0 = 4)
     ST (A0), 8(A0), $3160.L
     MOVE SR,(A0), MOVE SR,$3170.L, MOVE CCR,(A0)
     then STOP.  Every destination is in $3100-$31FF; the bench counts the
-    data cycles there: one write each, no read.
+    data cycles there: one write each, no read.  The region starts filled
+    with $A5; clrtest/want.hex holds its 64 longs as the program leaves them
+    (SR = $2704 at the MOVEs: the supervisor's $2700 from reset, Z from the
+    last CLR), which the bench compares.
 """
 import os
 
@@ -47,12 +50,28 @@ def main():
     mem[2], mem[3] = 0x0000, ORG
     for i, x in enumerate(w):
         mem[ORG // 2 + i] = x
+    for a in range(0x3100, 0x3200, 2):
+        mem[a // 2] = 0xA5A5
+    # the region as the program leaves it
+    b = [0xA5] * 256
+    def put(a, v, n):
+        for i in range(n):
+            b[a - 0x3100 + i] = (v >> (8 * (n - 1 - i))) & 0xFF
+    for sz in (1, 2, 4):
+        for a in (0x3100, 0x3100, 0x3100, 0x3108, 0x310C, 0x3140, 0x3150):
+            put(a, 0, sz)
+    for a in (0x3100, 0x3108, 0x3160):
+        put(a, 0xFF, 1)
+    put(0x3100, 0x2704, 2); put(0x3170, 0x2704, 2); put(0x3100, 0x0004, 2)
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "program.hex"), "w", newline="\n") as f:
         for x in mem:
             f.write("%04x\n" % x)
     with open(os.path.join(OUT, "stop_at.txt"), "w", newline="\n") as f:
         f.write("%08x\n%d\n" % (stop_at, len(w)))
+    with open(os.path.join(OUT, "want.hex"), "w", newline="\n") as f:
+        for i in range(0, 256, 4):
+            f.write("%02x%02x%02x%02x\n" % tuple(b[i:i + 4]))
     with open(os.path.join(OUT, "count.txt"), "w", newline="\n") as f:
         f.write("%d\n" % n)
     print("write-only program: %d words, %d writes, STOP at $%X" % (len(w), n, stop_at))

@@ -121,10 +121,15 @@ def main():
         g = re.search(r"---- tw (\d+) clocks (\d+) fetch (\d+) (\d+) data (\d+) (\d+) hits (\d+)", line)
         if g:
             k, clk, nf, lf, nd, ld, h = map(int, g.groups())
-            # each window holds its markers' two data cycles (the kernel's
-            # CLR.L reads before it writes: the end marker's read, the start
-            # marker's write), 4 clocks each
-            m[k] = dict(clk=clk - 8, nf=nf, lf=lf, nd=nd - 2, ld=ld - 8, h=h)
+            # each window holds the start marker's write, 4 clocks (and the
+            # end marker's read too before plan 1.17.2's fix, when CLR read
+            # its destination: two data cycles in a window with none of its own)
+            m[k] = dict(clk=clk, nf=nf, lf=lf, nd=nd, ld=ld, h=h)
+    # the marker cycles: two per window before the fix, one after - read off
+    # window 0, which has no data cycle of its own
+    mk = m[0]["nd"] if 0 in m else 1
+    for k in m:
+        m[k].update(clk=m[k]["clk"] - 4 * mk, nd=m[k]["nd"] - mk, ld=m[k]["ld"] - 4 * mk)
     missing = [k for k in win if k not in m]
     if missing:
         sys.exit("windows missing from %s: %s" % (log, missing))
@@ -154,40 +159,45 @@ def main():
     hi, internal = no_cache(chime, RAM, 2 * 3 + 4 * 2)
     lo = internal + (m[1]["lf"] + m[1]["ld"]) / win[1][0]
     rows.append((1, per(1), lo, hi, "no-cache: %d internal + the bus; NCC formula %d" % (internal, hi)))
-    # 2: DBRA alone, cached
-    rows.append((2, per(2), cache_case([part("DBcc loop")]), None, "Eq. 11-2"))
-    # 3: register-only
-    rows.append((3, per(3), cache_case([part("ADD Rn,Dn"), part("LSd #,Dy"), part("MOVE Rn,Dn"),
-                                        part("SUB Rn,Dn"), part("DBcc loop")]), None, "Eq. 11-2"))
-    # 4-6: RAM
-    rows.append((4, per(4), cache_case([part("MOVE Rn,(An)+", write_w=RAM), part("DBcc loop")]), None, "Eq. 11-2, W 2"))
-    rows.append((5, per(5), cache_case([part("fea (An)+", read_w=RAM), part("MOVE EA,Dn"), part("DBcc loop")]), None, "Eq. 11-2, W 2"))
-    rows.append((6, per(6), cache_case([part("fea (An)+", read_w=RAM), part("MOVE SRC,(An)+", write_w=RAM),
-                                        part("DBcc loop")]), None, "Eq. 11-2, W 2"))
-    # 7-9: the video RAM, its cycles as the bench measured them
-    vl = m[7]["ld"] / m[7]["nd"]              # clocks a byte cycle
-    rows.append((7, per(7), cache_case([part("MOVE Rn,(An)+", write_w=4 * vl - 2), part("DBcc loop")]), None,
-                 "Eq. 11-2, byte cycles %.2f measured" % vl))
-    vb = m[8]["ld"] / m[8]["nd"]
-    rows.append((8, per(8), cache_case([part("MOVE Rn,(An)+", write_w=vb - 2), part("DBcc loop")]), None,
-                 "Eq. 11-2, byte cycles %.2f measured" % vb))
-    v9 = (m[9]["ld"] - 4 * 500) / (m[9]["nd"] - 500)
-    rows.append((9, per(9), cache_case([part("fea (An)+", read_w=RAM), part("MOVE SRC,(An)+", write_w=4 * v9 - 2),
-                                        part("DBcc loop")]), None, "Eq. 11-2, byte cycles %.2f measured" % v9))
-    # 10-11: SCSI blind, a long through the 8-bit DACK port = four 4-clock cycles
-    SC = 4 * 4 - 2
-    rows.append((10, per(10), cache_case([part("fea (An)", read_w=SC), part("MOVE SRC,(An)+", write_w=RAM)] * 8
-                                         + [part("DBcc loop")]), None, "Eq. 11-2, port W 14, RAM W 2"))
-    rows.append((11, per(11), cache_case([part("fea (An)+", read_w=RAM), part("MOVE SRC,(An)", write_w=SC)] * 8
-                                         + [part("DBcc loop")]), None, "Eq. 11-2, RAM W 2, port W 14"))
+    def cached_rows(b):
+        """windows b..b+9: 2-11's loops (b = 2), or the same under the PMMU (b = 12)"""
+        # DBRA alone, cached
+        rows.append((b, per(b), cache_case([part("DBcc loop")]), None, "Eq. 11-2"))
+        # register-only
+        rows.append((b + 1, per(b + 1), cache_case([part("ADD Rn,Dn"), part("LSd #,Dy"), part("MOVE Rn,Dn"),
+                                                    part("SUB Rn,Dn"), part("DBcc loop")]), None, "Eq. 11-2"))
+        # RAM
+        rows.append((b + 2, per(b + 2), cache_case([part("MOVE Rn,(An)+", write_w=RAM), part("DBcc loop")]), None, "Eq. 11-2, W 2"))
+        rows.append((b + 3, per(b + 3), cache_case([part("fea (An)+", read_w=RAM), part("MOVE EA,Dn"), part("DBcc loop")]), None, "Eq. 11-2, W 2"))
+        rows.append((b + 4, per(b + 4), cache_case([part("fea (An)+", read_w=RAM), part("MOVE SRC,(An)+", write_w=RAM),
+                                                    part("DBcc loop")]), None, "Eq. 11-2, W 2"))
+        # the video RAM, its cycles as the bench measured them
+        vl = m[b + 5]["ld"] / m[b + 5]["nd"]  # clocks a byte cycle
+        rows.append((b + 5, per(b + 5), cache_case([part("MOVE Rn,(An)+", write_w=4 * vl - 2), part("DBcc loop")]), None,
+                     "Eq. 11-2, byte cycles %.2f measured" % vl))
+        vb = m[b + 6]["ld"] / m[b + 6]["nd"]
+        rows.append((b + 6, per(b + 6), cache_case([part("MOVE Rn,(An)+", write_w=vb - 2), part("DBcc loop")]), None,
+                     "Eq. 11-2, byte cycles %.2f measured" % vb))
+        v9 = (m[b + 7]["ld"] - 4 * 500) / (m[b + 7]["nd"] - 500)
+        rows.append((b + 7, per(b + 7), cache_case([part("fea (An)+", read_w=RAM), part("MOVE SRC,(An)+", write_w=4 * v9 - 2),
+                                                    part("DBcc loop")]), None, "Eq. 11-2, byte cycles %.2f measured" % v9))
+        # SCSI blind, a long through the 8-bit DACK port = four 4-clock cycles
+        SC = 4 * 4 - 2
+        rows.append((b + 8, per(b + 8), cache_case([part("fea (An)", read_w=SC), part("MOVE SRC,(An)+", write_w=RAM)] * 8
+                                                   + [part("DBcc loop")]), None, "Eq. 11-2, port W 14, RAM W 2"))
+        rows.append((b + 9, per(b + 9), cache_case([part("fea (An)+", read_w=RAM), part("MOVE SRC,(An)", write_w=SC)] * 8
+                                                   + [part("DBcc loop")]), None, "Eq. 11-2, RAM W 2, port W 14"))
+    cached_rows(2)
+    if 12 in win:
+        cached_rows(12)                       # an ATC hit costs a 68030 nothing (UM 11.2.6)
 
-    print("%-3s %-68s %9s %15s %11s  %s" % ("w", "loop", "core/turn", "68030/turn", "core/68030", "basis"))
+    print("%-3s %-88s %9s %15s %11s  %s" % ("w", "loop", "core/turn", "68030/turn", "core/68030", "basis"))
     for k, core, lo, hi, basis in rows:
         name = win[k][1]
         if hi is None:
-            print("%-3d %-68s %9.2f %15.2f %11.2f  %s" % (k, name, core, lo, core / lo, basis))
+            print("%-3d %-88s %9.2f %15.2f %11.2f  %s" % (k, name, core, lo, core / lo, basis))
         else:
-            print("%-3d %-68s %9.2f %7.1f-%-7.1f %5.2f-%-5.2f  %s" % (k, name, core, lo, hi, core / hi, core / lo, basis))
+            print("%-3d %-88s %9.2f %7.1f-%-7.1f %5.2f-%-5.2f  %s" % (k, name, core, lo, hi, core / hi, core / lo, basis))
     c = per(1)
     lo, hi = rows[1][2], rows[1][3]
     print("\nthe chime: 30,000 passes = %.2f s on the core, %.2f-%.2f s on a 68030 by the manual"

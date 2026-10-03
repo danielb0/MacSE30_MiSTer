@@ -374,6 +374,12 @@ module tb_se30_system;
       else begin fails = fails + 1; $display("FAIL: %0d writes, expected %0d", cl_w, kk); end
       if (cl_r == 0) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL: %0d destinations read before they were written (the 68000's behaviour)", cl_r); end
+      $readmemh({prog_dir, "/want.hex"}, slot_want, 0, 31);                // what was written: $3100-$317F
+      for (kk = 0; kk < 32; kk = kk + 1) begin
+        v = ram[(32'h3100 + 4*kk) >> 2];
+        if (v === slot_want[kk]) pass = pass + 1;
+        else begin fails = fails + 1; $display("FAIL: $%04x holds %08x, expected %08x", 32'h3100 + 4*kk, v, slot_want[kk]); end
+      end
       if (fails == 0) $display("==== PASS: %0d checks - CLR, Scc and MOVE from SR/CCR write without reading", pass);
       else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
       $finish;

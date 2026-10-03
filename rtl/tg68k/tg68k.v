@@ -87,7 +87,7 @@ module tg68k (
   // ------------------------------------------------------------- kernel
   wire        k_clkena, k_beat_valid;
   wire [31:0] k_din, k_dout, k_addr, k_addr_log, k_cacr, k_cache_op_addr;
-  wire        k_ci, k_rmc;
+  wire        k_ci, k_rmc, k_wronly;
   wire  [1:0] k_dsack, k_busstate, k_siz;
   wire        k_nwr, k_nreset_out, k_clr_berr, k_cp_berr_ack;
   wire  [2:0] k_fc;
@@ -109,7 +109,7 @@ module tg68k (
     .clk(clk), .nReset(reset_n), .clkena_in(k_clkena), .beat_valid(k_beat_valid),
     .data_in(k_din), .dsack(k_dsack), .IPL(ipl_n), .IPL_autovector(1'b1), .berr(k_berr), .CPU(2'b10),
     .addr_out(k_addr), .addr_log_out(k_addr_log), .data_write(k_dout), .siz(k_siz), .nWr(k_nwr),
-    .CACR_out(k_cacr), .cache_op_addr(k_cache_op_addr), .pmmu_cache_inhibit(k_ci), .rmc_out(k_rmc),
+    .CACR_out(k_cacr), .cache_op_addr(k_cache_op_addr), .pmmu_cache_inhibit(k_ci), .rmc_out(k_rmc), .wronly_rd_out(k_wronly),
     .busstate(k_busstate), .FC(k_fc), .nResetOut(k_nreset_out), .clr_berr(k_clr_berr), .cp_berr_ack(k_cp_berr_ack),
     .pmmu_walker_req(w_req), .pmmu_walker_we(w_we), .pmmu_walker_addr(w_addr), .pmmu_walker_wdat(w_wdat),
     .pmmu_walker_ack(w_ack), .pmmu_walker_data(w_data), .pmmu_walker_berr(w_berr),
@@ -183,9 +183,14 @@ module tg68k (
   wire [31:0] i_q, d_q;
   wire        f_hit    = k_fetch && i_hit;
   wire        r_hit    = k_dread && !k_rmc && d_hit && (k_fc != 3'd7);
-  wire        any_hit  = f_hit || r_hit;
+  // (plan 1.17.2) the kernel's destination read for CLR, Scc and MOVE from
+  // SR/CCR, which a 68030 does not run: answered here like a hit, no cycle,
+  // the data unused (zero)
+  wire        z_hit    = k_dread && k_wronly;
+  wire        any_hit  = f_hit || r_hit || z_hit;
   reg         hit_ack;                 // a hit taken: the kernel is acknowledged at the next phi1
   reg         hit_d;                   // ... from the data cache
+  reg         hit_z;                   // ... for a write-only instruction's read (z_hit)
   reg         cyc_fill;                // this cycle's long fills the instruction cache
   reg         cyc_dfill;               // ... the data cache
   reg  [31:2] cyc_la;
@@ -250,7 +255,7 @@ module tg68k (
       s <= 0; as_n_r <= 1; ds_n_r <= 1; din_r <= 0; dsack_r <= 2'b11;
       ack_pending <= 0; ack_berr <= 0; walk <= 0; walk_done <= 0; walk_buf <= 0;
       w_ack <= 0; w_data <= 0; berr_hold <= 0;
-      hit_ack <= 0; hit_d <= 0; cyc_fill <= 0; cyc_dfill <= 0; cyc_la <= 0; cyc_fc <= 0;
+      hit_ack <= 0; hit_d <= 0; hit_z <= 0; cyc_fill <= 0; cyc_dfill <= 0; cyc_la <= 0; cyc_fc <= 0;
     end else begin
       w_ack <= 0;
       if (phi1) begin
@@ -268,7 +273,7 @@ module tg68k (
       if (phi2) begin
         case (s)
           3'd0: if (any_hit && !ack_pending && !hit_ack) begin             // a hit: no cycle
-                  hit_ack <= 1; hit_d <= !f_hit; dsack_r <= 2'b00;
+                  hit_ack <= 1; hit_d <= !f_hit; hit_z <= z_hit; dsack_r <= 2'b00;
                 end else if (eff_req && !hit_ack) begin                      // S1
                   if (w_req && !walk) begin walk <= 1; walk_done <= 0; walk_buf <= 0; end
                   as_n_r <= 0; ds_n_r <= !eff_rw ? 1'b1 : 1'b0; s <= 3'd2;
@@ -307,13 +312,13 @@ module tg68k (
   wire k_force     = k_pmmu_fault && !walk && (s == 3'd0) && !ack_pending;
   assign k_clkena     = phi1 && (k_cycle_ack || k_internal || k_force);
   assign k_beat_valid = k_cycle_ack || k_internal;
-  assign k_din   = !hit_ack ? din_r : hit_d ? d_q : i_q;
+  assign k_din   = !hit_ack ? din_r : hit_z ? 32'h0 : hit_d ? d_q : i_q;
 
   // the probe deck's PCCH: one count per hit, at the phi1 that acknowledges it
   reg [23:0] n_ihit, n_dhit;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin n_ihit <= 0; n_dhit <= 0; end
-    else if (phi1 && hit_ack) begin
+    else if (phi1 && hit_ack && !hit_z) begin
       if (hit_d) n_dhit <= n_dhit + 1'd1; else n_ihit <= n_ihit + 1'd1;
     end
   assign dbg_cache = {cdis, 1'b0, k_cacr[13:0], n_ihit, n_dhit};

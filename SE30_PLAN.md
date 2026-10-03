@@ -2236,17 +2236,36 @@ reads its destination, then writes it** - the 68000's behaviour. The
   about 1,500 `CLR`-to-memory words, 300 `Scc` and 80 `MOVE SR` (a raw
   word scan, so approximate). A 68000 Mac's software tolerates the read;
   an SE/30's need not.
-- **The fix is the kernel's** (ours): on the 68030 these instructions take
-  the write-only path. Not yet designed.
-- **The regression is in place**: `sim/system` run `clrtest`
-  (`gen_clr_program.py`, `+CLRTEST`) counts the data cycles into the
-  destinations - 27 writes and no read expected. Today: **27 writes, 27
-  reads, FAIL**. It joins `run.sh` with the fix.
+- **The regression**: `sim/system` run `clrtest` (`gen_clr_program.py`,
+  `+CLRTEST`) counts the data cycles into the destinations - 27 writes and
+  no read - and compares the 32 longs they leave against the program's
+  model (the region pre-filled with `$A5`, so a wrong `Scc`, SR or CCR
+  value shows). Before the fix: 27 writes, **27 reads**, FAIL.
+- **FIXED 2026-10-03.** The kernel builds these instructions on its
+  read-modify-write path (`write_back`), and rerouting them through
+  MOVE's store states would touch every EA micro-state. Instead the
+  kernel marks the read - new output `wronly_rd_out`: the data read state,
+  the write back armed, no bus-error stacking, and the opcode CLR / MOVE
+  from CCR (`$42xx`), MOVE from SR (`$40C0`-`$40FF`) or Scc - and the
+  wrapper (`tg68k.v`, `z_hit`) answers it like a cache hit: no bus cycle,
+  zero data (the ALU's result never uses it), not counted in PCCH. It
+  waits for the PMMU's translation as any data access does; a fault there
+  stacks a read where the 68030 would stack the write - accepted (the
+  handler pages in and reruns either way).
+- **Benches after the fix**: `clrtest` 27 writes, 0 reads, 35 checks PASS;
+  `sim/system` all eight runs PASS (the timetest windows now carry one
+  marker cycle, not two - `report_time.py` reads the count off window 0);
+  `sim/kernel_bus` ports 16/32/8 and `sim/busfault` PASS (25 s); `sim/cpfpu`
+  all 12 PASS (93 s); `sim/machine` PASS (82 s); `sim/kernel_upstream`
+  verdicts identical to `ours.txt` (14 pass, the 3 known failures). Run in
+  parallel, `sim/machine`'s `vlog` exited 1 with no message twice; alone it
+  passed - ModelSim jobs started together can collide (the earlier
+  "transient" early exit was this).
 
 ### 1.17.3 Next
 
-1. **The CLR/Scc/MOVE-from-SR read** (1.17.2): design and fix - a kernel
-   correctness item before any pacing.
+1. ~~**The CLR/Scc/MOVE-from-SR read** (1.17.2): design and fix - a kernel
+   correctness item before any pacing.~~ DONE 2026-10-03.
 2. **The Graphics gap's cause**, by the same method: QuickDraw's own
    inner loops from the ROM (`CopyBits`' blit, the rect fill and erase,
    text drawing) as timetest windows; and the costs these loops leave out
