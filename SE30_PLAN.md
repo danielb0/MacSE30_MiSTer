@@ -13484,8 +13484,9 @@ deeper FIFOs, RR0 latched during a read) are left out.
   Readings (to be checked, not settled):
   - **Graphics 0.70** is further from the real machine than the 3.x
     comparison suggested (0.78, then 0.85 after compile 28's GLUE fix):
-    1.16.3's video-RAM cycle question stays open. To confirm the run was
-    at 1 bit, as the SE/30's built-in screen always is.
+    1.16.3's video-RAM cycle question stays open. **The run was at 1 bit**
+    (Daniel, 2026-10-03), as the SE/30's built-in screen always is - so
+    the gap is the core's timing, not the depth.
   - **Disk 0.84** from an SD image: the SCSI path (blind transfers through
     GLUE, our 53C80, the target's sector fetches) is slower than the real
     disk; a lead for Section 9's tuning.
