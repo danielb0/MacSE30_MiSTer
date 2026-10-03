@@ -2680,7 +2680,13 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   to hear: the boot RAM tests (where the -0.516 ns write-path miss would
   show). **Speedometer no longer runs: "an error of type 40"** (compile
   32 ran Speedometer 4.02 to its results) - a regression of compile 33,
-  so either the pace or the fit; not yet localised.
+  so either the pace or the fit; not yet localised. **Speedometer 3.23
+  runs: CPU 4.271, Graphics 3.568** (Mac Classic = 1.0) against the real
+  SE/30's 4.25 / 3.71 (Low End Mac, 3.06 under System 7.5.5): **CPU 1.005,
+  Graphics 0.96** of the real machine (compile 27 under 3.23: CPU 5.179,
+  Graphics 3.137 = 0.85). The pace puts the CPU on the machine's speed;
+  the Graphics gap is down to 4 %, which is the write-pending buffer's
+  question (the version caveat of 1.16 still stands).
 
 **Added this session**: `sim/system` timetest windows 12-17 (the SWIM
 and VIA polls, the GCR address field with the strobe-gap meter, a taken
