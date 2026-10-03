@@ -2656,7 +2656,22 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   35); `sim/machine` 17 checks (90 s); `sim/busfault` 14; `sim/cpfpu`
   all twelve programs (b1-b5d, mmu, full). `sim/kernel_upstream` and the
   cputest corpus run the kernel without the wrapper and are untouched.
-- **Compile**: COMPILE
+- **Compile 33** (2026-10-04 00:12, tag `3a1cd700`, 48 min - the fitter 36;
+  archived `output_files/MacSE30_3a1cd700_paced.rbf`): **37,936 ALMs (91 %)**,
+  +675 on compile 32 - the pace's decoder, counters and comparators; 43 %
+  of the block memory. **Timing NOT MET: -0.516 ns** at the slow 100C corner
+  (-0.177 at slow -40C; the fast corners meet), on the system clock
+  (`general[1]`), and the path is the SDRAM controller's own:
+  `se30_sdram|a_written` -> `dq_out[6]`, three logic levels but 9.6 ns of
+  the 11.3 ns data delay is interconnect - the fitter placed the write
+  data register far from its enable on a 91 % full device (compile 29
+  missed the same family by -0.109). The pace's own paths meet (the
+  CPU clock `general[0]` +0.716). The SDRAM read capture meets its A/B
+  rule at every corner; the framework's HDMI scaler +0.006. The remedy
+  is a fit matter - a seed or effort change, or the write data register
+  duplicated near the enable - not the design's; Daniel's choice (4.11
+  item 8's rule): this bitstream is a timing-violated build like compile
+  23 (which booted) and 29.
 
 **Added this session**: `sim/system` timetest windows 12-17 (the SWIM
 and VIA polls, the GCR address field with the strobe-gap meter, a taken
