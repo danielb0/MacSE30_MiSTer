@@ -14579,6 +14579,16 @@ Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
   by ear (~0.7 s, both; 18 % would be ~0.13 s). To check before building:
   `fputime` around Speedometer's CPU test - few misses there predicts the
   correction leaves CPU and brings Math down.
+- **Speedometer 3's FP Matrix** (compile 40, 21:09-21:13; Daniel: 6.559,
+  apparently the Benchmark Mix scale, Mac Classic = 1.0 - no real SE/30
+  figure for it alone in hand). `fputime` (217 s, the shareware dialog
+  inside it): 2,244,163 FPU instructions over 264,201 `_FP68K` calls
+  (~8.5 a call: one operation and the moves around it), **the CPU in
+  bus cycles to the 68882 1.99 s (0.9 %)**, the APU 0.38 s; 2,916,372
+  A-line traps; **255 M fetches from the bus against 133 M I-cache hits
+  (66 % missed)**. Even a floating-point benchmark is integer-bound
+  through SANE. (PFPU's "not idle" leaves out the CU's own moves - it is
+  the APU's and the hand-off's time only.)
 - **Compile 40** (tag `f7c95109`, 33 min): 37,953 ALMs (+374 on compile
   39: PFPU's counters and its 408-bit capture); our clocks meet at every
   corner (clk_sys +1.183 worst, clk_mem +0.815, the capture clocks +2.29,
