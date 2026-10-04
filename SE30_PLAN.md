@@ -3001,6 +3001,16 @@ development and the compile", and compile 35 right after 34).
    a pair and 1.45 s an hour the run ends around 16:00-17:00, ~14 hours
    in all - far past the ~4 h Daniel approved. Left running (his rule:
    tests run to completion), for him to keep or stop.
+   **09:50: STOPPED by Daniel**, clean to the end - 22 checks, then
+   cylinders 0 and 16 of both drives byte for byte (92 sectors, 0 bad, 0
+   errors, 0 bytes taken unread or twice) at 10.0 s simulated; parts 4b
+   and 7 and the final contention check NOT reached. His reasons: the
+   second drive will probably go (the logic budget, 10.4), and floppy
+   support is partial anyway - it is to be tested thoroughly later, as a
+   whole. So compile 34's data-pin change has the real-controller
+   evidence of two cylinders, not the full 28/28 gate; the board is the
+   verdict. The `wpb` worktree (dev at 243581e, scratch logs only) is
+   still to be removed.
 4. **To decide: the ATC fast path's structure** (it must meet timing
    by design, not by fit). Options for the morning:
    - **a. A small fast-path ATC in front of the 22 entries** (2-4 most
