@@ -14360,6 +14360,14 @@ routing. The second integer pipeline was removed to close.
    1.17.1's open Disk question already points. To settle it: the Disk
    test two or three times more on compile 37, quitting between runs,
    and once more on compile 36 the same way.
+   **Repeat runs (Daniel, 2026-10-04 afternoon): compile 37 now gives
+   Disk ~0.43; the figure fluctuates, possibly lower on the first run
+   after a boot.** That settles it: 0.34 was the spread (a first run's
+   reading), not the drive's removal. A slower first run fits a cache
+   warming on the HPS side (Linux's page cache over the SD card image),
+   which is more evidence that the Disk rate is the HPS block round trip
+   (item 3 below). For comparisons between builds, quote the Disk figure
+   from a second or later run.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
@@ -14369,8 +14377,8 @@ unpushed (Daniel pushes).
    buffer (1.17.7), no external drive (10.4 item 3). 36,997 ALMs; our
    paths met at every corner; the framework's HDMI scaler -0.087 at slow
    -40C (precedent). On the board it reads as compile 36 on Speedometer
-   4.02 but Disk (0.34 against 0.41) - probably the measurement's spread,
-   to settle with repeat runs (above). Compile 36 (`..._36462531_fastset
+   4.02 but Disk (0.34 against 0.41) - the measurement's spread, SETTLED
+   by repeat runs (~0.43, above). Compile 36 (`..._36462531_fastset
    .rbf`) is the fallback with the drive in.
 2. **Closed today**: the ATC path (1.17.7's decision -> 1.17.8, +4.149 ns
    through the fast set, timing met by design); compile 34 proven on the
