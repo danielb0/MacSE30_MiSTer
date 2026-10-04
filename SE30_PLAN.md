@@ -14704,6 +14704,40 @@ bitmap, the MDB's counts):
   repair (2026-10-04 ~21:10). The damaged images stay on the PC for the
   cross-check (`Test disks\Corrupted\mac_80mb-restored.vhd`, compile 39;
   `...-backup.vhd`, compile 38).
+- **RESOLVED 2026-10-04 (late evening): NOT a bug in our core - it is how
+  System 7.5.5 behaves on the IIx/SE/30 ROM.** The decisive test is a
+  deterministic one-minute image, `tools/hfs/make_fidtest.py` (branch
+  `fidthread`): a copy of the clean backup with root files FIDTest A/B and
+  a 309-byte hand-assembled application in Startup Items that calls
+  CreateFileIDRef on both, _HDelete on B, HCreate's a marker named
+  `FIDTest R <create A> <create B> <delete B>` (hex result words) and
+  FlushVol. No Finder interaction, so the same bytes ran on three machines:
+  - **Our core, compile 40**: `FIDTest R FAEB FAEB 0000` (fidExists = -1301
+    twice, since the re-laid volume gives every file a thread; delete
+    noErr); B's record gone, **B's thread an orphan**; a 'Find File' alias
+    the system deleted from Recent Applications also left its thread.
+  - **The MacLC core**, same image: the same codes, **B's thread removed**.
+  - **MAME 0.289's 68030 (`macse30`, our 97221136 ROM, video ROM and ADB
+    PIC - CRCs identical to MAME's set), 8 MB**: the same codes, **B's
+    thread an orphan, and the same 'Find File' orphan** - byte for byte our
+    core's signature. Two independent CPU implementations agree, so the
+    software leaves the thread: the System 7.5.5 patch set for this ROM
+    family does not remove file ID references on delete, and the LC's
+    newer ROM (a different patch set) does. Inside Macintosh describes the
+    newer behaviour. (MAME is a cross-check of instruction semantics only,
+    never evidence for the hardware - its chime is wrong, as Daniel noted.)
+  - Thread-exists flags are right on every image (creation path fine); the
+    orphans are harmless to data and Disk First Aid removes them.
+  - Lessons: MAME never writes the CHD, it writes `diff/<name>.dif` keyed
+    by the CHD's file name and reuses it - a stale diff from another image
+    boots to a flashing ? (an evening of false 'flaky boot' and 'the
+    debugger breaks the boot'); `rm -rf diff` before each run, read the
+    result with `chdman extracthd -i diff/x.dif -ip x.chd`. MAME's SE/30
+    defaults to 2 MB (`-ramsize 8M`); a SIZE resource is needed or the
+    Finder refuses the app for memory; the builder's `--cacr` variants
+    (caches off/on) were built for a board bisection and were not needed.
+  - Nothing to fix in the core. **FUTURE BOARD TESTS item 5 and 10.4 item
+    4's end are closed by this.**
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a
@@ -14749,7 +14783,7 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    then on the board `profile start` before Speedometer's Math test and
    `profile stop` + `profile read` after; the rows with the biggest share
    and their clocks against budget say where Math's time is too short.**
-4. **Open bug, parked by Daniel behind the Math profile: deleting a file
+4. **RESOLVED (see 10.4 item 3's block above): deleting a file never
    never removes its file thread** (Disk First Aid "Missing file record
    for file thread"; 0 of 21 removed on compiles 38 and 39, so not the
    write path; the MacLC core, from the same image, removes them as Inside
@@ -14785,7 +14819,7 @@ strike what is done).** Each on a scratch copy of the image unless noted.
 4. **HD SC Setup's Test Disk** on a SCSI image, if the tool is to hand
    (compile 39's integrity checks were the copy, the launch from the copy
    and Disk First Aid - all clean).
-5. **The orphan file threads - PARKED by Daniel 2026-10-04, after Math**
+5. ~~The orphan file threads~~ **CLOSED 2026-10-04 late evening: not our bug (MAME's 68030 on our ROM leaves them too; the test image is tools/hfs/make_fidtest.py)**; was: PARKED by Daniel 2026-10-04, after Math
    (10.4 item 4's end): the same delete under System 7.5.5 on an
    independent machine (an emulator such as Basilisk II, or the MacLC
    core) - leftovers there = 7.5.5's own behaviour; clean there = our
