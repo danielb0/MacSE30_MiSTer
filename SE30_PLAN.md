@@ -14819,8 +14819,8 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    exact ROM leaves the same orphans as compile 40 (the deterministic test
    image `tools/hfs/make_fidtest.py`); the LC's newer ROM runs a different
    7.5.5 patch set and removes them. Nothing to fix; Disk First Aid clears
-   the orphans. Images in `C:	emp\Mac\Test disks\FIDTest`, MAME in
-   `C:	emp\Mac\mame` (lesson: its writes go to `diff/<name>.dif`).
+   the orphans. Images in `C:\temp\Mac\Test disks\FIDTest`, MAME in
+   `C:\temp\Mac\mame` (lesson: its writes go to `diff/<name>.dif`).
 5. Then: the FUTURE BOARD TESTS list (below), floppy writing.
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
