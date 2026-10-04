@@ -14814,18 +14814,13 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    then on the board `profile start` before Speedometer's Math test and
    `profile stop` + `profile read` after; the rows with the biggest share
    and their clocks against budget say where Math's time is too short.)**
-4. **RESOLVED (see 10.4 item 3's block above): deleting a file never
-   never removes its file thread** (Disk First Aid "Missing file record
-   for file thread"; 0 of 21 removed on compiles 38 and 39, so not the
-   write path; the MacLC core, from the same image, removes them as Inside
-   Macintosh says). Treated as a bug in our core - likely the CPU running
-   the IIx ROM's File Manager delete wrongly. The images are in `C:\temp\
-   Mac\Test disks\Corrupted` (`mac_80mb-restored.vhd` compile 39,
-   `-backup.vhd` compile 38, `-LC.vhd` the LC; the clean backup in
-   `MiSTer SE30 Backup`). The checkers are in `tools/hfs/` (read-only):
-   `hfs_vol.py image` (the whole volume's consistency), `hfs_threads.py
-   image [--dump ID...]` (orphan file threads), `cmp_threads.py before
-   after` (each orphan against the before image).
+4. **RESOLVED 2026-10-04 late evening (10.4 item 3's block): deleting a
+   file never removes its file thread - NOT our core.** MAME's 68030 on our
+   exact ROM leaves the same orphans as compile 40 (the deterministic test
+   image `tools/hfs/make_fidtest.py`); the LC's newer ROM runs a different
+   7.5.5 patch set and removes them. Nothing to fix; Disk First Aid clears
+   the orphans. Images in `C:	emp\Mac\Test disks\FIDTest`, MAME in
+   `C:	emp\Mac\mame` (lesson: its writes go to `diff/<name>.dif`).
 5. Then: the FUTURE BOARD TESTS list (below), floppy writing.
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
