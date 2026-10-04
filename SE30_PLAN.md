@@ -2775,6 +2775,48 @@ branch, a not-taken branch, an indexed read) and their PMMU-on copies
 `$FF`; the markers at `$3000+8w` (64 windows); `report_time.py` rows for
 each; `sim/gcrread` `+kpace` and its gap meter; `tools/time030/um11.py`.
 
+### 1.17.6 The SDRAM data pins loaded a clock ahead (2026-10-04)
+
+**Daniel's rule (2026-10-04): no seed lottery.** A timing miss is fixed
+in the design, never by a seed or effort re-fit ("we had that in the LC
+until it was fixed") - a lucky fit is re-rolled by every later change,
+and the device is 91 % full.
+
+**The miss.** Compile 33: -0.516 ns at slow 100C on `a_written ->
+dq_out[6]` (compile 29: -0.109 on the same family). `dq_out` and `dq_oe`
+are I/O-cell registers at the pins, so the logic deciding their next
+value must reach the die's edge in one clock; it was the sequencer's
+own decision (the write issues when the request has come: `req_q`,
+`a_written`, `seq`), and the fitter put it far from the pins - three
+levels, 9.6 ns of the 11.3 ns in wire.
+
+**The fix** (`rtl/se30_sdram.v`, header THE DATA PINS ARE LOADED A CLOCK
+AHEAD; commit d3ecbe7): the pins take `dq_pre` and `oe_pre`, registers
+loaded on the clock before from the state alone - one hop, no logic.
+- The data needs no decision: while a write access is open `dq_pre`
+  holds the word the next WRITE needs (the high word; the low word from
+  the clock the high word's WRITE issues); the chip ignores the pins
+  except on a WRITE's clock.
+- The enable needs none either: on for a write access's whole length
+  (the clock after its ACTIVE to two after it ends) instead of each
+  WRITE's clock. Safe because the chip drives the pins only after a
+  READ, and every READ's data is off the pins (tHZ) clocks before the
+  next ACTIVE can issue (ACT_BUSY).
+- The raw experiment port keeps its exact per-clock schedule, read a
+  clock ahead from its control word (`r_kn`).
+
+**Benches.** `sim/sdram` gains a contention monitor (our driver against
+the chip's, at the chip's pins, including its tOH/tHZ tail): 195 checks
++ the three training runs, all pass, no clash. Mutants: the high/low word
+choice (476 of 585 fail), the raw schedule's index (5), the download
+word (56); an enable inside a read's data window clashes and corrupts
+the reads; an enable from seq 6 of a read (one clock past the data) does
+not clash - the real enable starts at the next access's ACTIVE + 1, at
+least two clocks later. `sim/machine` 17. The gcrread real-SDRAM run
+(four hours) is not run, per the test method.
+
+**Compile 34** (tag `d3ecbe7e`): running.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
