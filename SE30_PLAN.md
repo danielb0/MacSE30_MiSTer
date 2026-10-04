@@ -14559,6 +14559,51 @@ Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
   busy time a large share of the Math test -> the FPU's side; SANE calls
   and little FPU time -> integer code (the pacing); many fetch misses ->
   the cache's share.
+- **Compile 40** (tag `f7c95109`, 33 min): 37,953 ALMs (+374 on compile
+  39: PFPU's counters and its 408-bit capture); our clocks meet at every
+  corner (clk_sys +1.183 worst, clk_mem +0.815, the capture clocks +2.29,
+  SDRAM pins +2.3 or more, holds positive; the capture by A or B); the
+  flow's -0.042 ns at slow -40C is the framework's HDMI scaler again.
+  Archived `output_files/MacSE30_f7c95109_pfpu.rbf`. It carries compile
+  39's multi-block writes - see the next item before using it on a
+  valued image.
+
+**10.4 item 3, reopened: Disk First Aid after a 16 MB deletion (Daniel,
+2026-10-04 ~20:25, compile 39).** "System 7.5.5 80MB" reports three
+"Missing file record for file thread" (1990, 338 / 2968, 367 / 3154,
+401 - file ID, leaf node), the same when booted from MacPack. Daniel
+copied the image (`C:\temp\Mac\Test disks\Corrupted\mac_80mb-restored.vhd`,
+md5 e6764bf4..., identical to the card's) beside the backup taken before
+compile 39 (`MiSTer SE30 Backup\mac_80mb-restored.vhd`, 18:39). A
+read-only checker (scratch `hfs_vol.py`: the catalog's parents and
+threads, every fork's extents including the overflow tree against the
+bitmap, the MDB's counts):
+- **Backup: 0 problems** (871 files, 139 folders, 18 file threads,
+  38,950 blocks in use = the bitmap's). **Now: 3 problems, exactly the
+  three orphans** - 642 files, 74 folders, 21 file threads, 33,749 blocks
+  in use = the bitmap's, MDB free = bitmap free, no overlap, no missing
+  parent, every folder thread right. The deletion freed 5,201 blocks and
+  every one is accounted for.
+- **The orphans are systematic, not random**: each is the file thread of
+  an APPLICATION whose whole folder was deleted - Speedometer 4.02 (1990,
+  its thread already in the backup), Microsoft Word (2968, no thread in
+  the backup: made this evening, presumably by launching it - System
+  7.5's Recent Applications aliases give an application a file ID) and
+  the QuarkXPress copy (3154, made this evening). Their file records,
+  their folders and the folders' threads were all removed; only the file
+  threads stayed. A misplaced or stale sector would damage whatever its
+  node held, not exactly these.
+- **The same signature predates compile 39**: the MacPack backup (18:39)
+  has five orphan file threads - "Dark Dungeon v1", "DD lib", "DD
+  SaveData", "DD Stack2" (their folder deleted) and "Royal Game of Ur"
+  (in the Trash).
+- **Reading**: most likely the software (deleting a file that has a file
+  ID leaves its thread), not the write path - but not proven. A web
+  search found no statement either way. **The decisive test** (Daniel's
+  go): a scratch copy of the clean backup on compile 38 (single-block
+  writes): launch an application, quit, delete its folder, empty the
+  Trash, Disk First Aid from MacPack. An orphan there clears the
+  multi-block writes; then compile 39/40 the same way for symmetry.
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a
