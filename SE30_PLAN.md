@@ -14853,6 +14853,14 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    ~1,000), balanced synthesis with register duplication off (unmeasured;
    clk_sys has ~2 ns of slack). The Quadra puts CD-ROM with audio at ~3,000
    ALMs - 10.4's 600-900 looks optimistic.
+   **And an area audit of the core when the time comes (Daniel,
+   2026-10-04)**: the fit report's per-entity table against what each
+   block needs to do - logic built for benches or bring-up, duplicated
+   machinery (the floppy loaders and encoders, wide counters), arrays left
+   in logic that belong in M10K or MLABs (the Quadra's FPU saved ~1,500 by
+   moving its register bank into MLABs), the build settings - to find
+   room before anything is given up. (Daniel will not mention space in his
+   forum post: "we simply don't know yet".)
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
