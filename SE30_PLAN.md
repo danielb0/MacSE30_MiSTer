@@ -14491,9 +14491,9 @@ routing. The second integer pipeline was removed to close.
      multi-block READ requests would take most of the 102 us Linux wait
      (under a second a run) - not needed, an option.
      **Integrity (Daniel, ~19:30): the QuarkXPress folder duplicated in the
-     Finder; Get Info identical to the original.** Still to do: launch
-     QuarkXPress from the copy (every byte of code and resources), and
-     Disk First Aid after a reboot.
+     Finder; Get Info identical to the original. QuarkXPress launched from
+     the copy opened a document that was itself copied with the folder -
+     loaded OK.** Still to do: Disk First Aid after a reboot.
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a
