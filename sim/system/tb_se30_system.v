@@ -198,6 +198,13 @@ module tb_se30_system;
 
   integer pass = 0, fails = 0;
 
+  // plan 1.17.7: the wrapper posts writes only to ports that always
+  // terminate, so a posted beat must never see BERR
+  always @(posedge clk)
+    if (phi2 && cpu.post && (cpu.s == 3'd3 || cpu.s == 3'd5) && berr) begin
+      fails = fails + 1; $display("FAIL: a posted write's beat bus-errored at %08x", cpu_addr);
+    end
+
   // ------------------------------------------------------ cycle metering
   // a cycle's length in C16M clocks: S0 is the clock before AS* asserts,
   // so it is the phi1 edges seen with AS* low, plus one
