@@ -266,7 +266,17 @@ setting and TattleTech reads "Machine is 32 Bit capable = No" - so 7.5.5
 alone does not make an SE/30 32-bit; the extension or a clean ROM is
 needed. TattleTech's whole first page otherwise reads as a real SE/30's:
 Mac SE/30 (ID 9), MC68030 at 16 MHz, both caches on, MC68882, the 030's
-MMU, 8 MB, VM off.)
+MMU, 8 MB, VM off.) Confirmed by 68kMLA, "32-bit Addressing in SE/30"
+(https://68kmla.org/bb/threads/32-bit-addressing-in-se-30.24573/, 2012):
+under 7.5.5 an SE/30 runs 32-bit "using the Mode32 utility ... or source a
+IIfx/IIsi ROM SIMM"; MODE32 must be installed with its own installer (its
+last version covers 7.0-7.5.5); with a clean ROM it is not needed, and
+32-bit is switched on in the Memory control panel. **For the 128 MB
+clean-ROM option:** the poster followed "Gamba's page" (a ResEdit edit of
+the System file for the IIsi/IIfx ROM in an SE/30), and changing the
+Memory control panel then gave a Sad Mac and an unreadable drive until it
+was restored from a DiskCopy image (a PRAM reset suggested) - so that
+option's first board test is on a scratch image, PRAM reset first.
 
 So 24-bit is not an edge case to get to eventually. It is the path a stock
 SE/30 boots down every time, and it has to work first.
