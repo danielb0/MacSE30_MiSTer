@@ -14926,7 +14926,13 @@ Daniel - add to it, move items out when fixed).**
    relative to its CPU test. **So the cause is most likely on the
    reference's side, or a real-hardware effect none of them models - not
    our core; and ours is the closest of the three.** (MAME's emulated
-   clocks keep its scores valid at any host speed.)
+   clocks keep its scores valid at any host speed.) **Qualified the same
+   night: TattleTech on MAME reads a 24 MHz CPU** (Daniel) - MAME's 68030
+   runs TattleTech's tight timing loop ~1.5x a real 16 MHz 030 in emulated
+   time (our core read 31 MHz before the pace, 16 MHz now). Its timing is
+   an approximation and not uniform, so its 1.34 partly reflects its own
+   model; the LC core and ours are the more meaningful pair, and ours is
+   still the closest.
 2. **Disk is faster than a real SE/30** (Speedometer 1.12 against
    0.70-0.77) - by design: full speed, never paced (Daniel, 10.4 item 3).
 3. **Deleting a file never removes its file thread record** - an
