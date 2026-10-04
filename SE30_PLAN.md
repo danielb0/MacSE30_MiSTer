@@ -2832,7 +2832,12 @@ compilation of every Mac's startup chime
 than the LC's. So no board evidence of a fast chime; the uncached
 fetch charge stays a correction on the bench's evidence (TimeDBRA 15 %
 high), and timing the SE/30's chime in that video against the core's
-would close the question.
+would close the question. **Closed the same night (Daniel): the core's
+chime lasts about 0.7 s, more or less identical to the SE/30's in the
+video.** (The bench's 1.04 s is the ROM's routine run to its end,
+computed from the pass count; the ear hears less of the fade's tail -
+presumably why the two differ. Either way the board matches the real
+machine.)
 
 ### 1.17.7 The write pending buffer (design, 2026-10-04)
 
