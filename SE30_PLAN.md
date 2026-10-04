@@ -14402,6 +14402,31 @@ routing. The second integer pipeline was removed to close.
      (`sta_corners.tcl`: worst +0.105 ns, the capture met by A or B at
      each); archived `output_files/MacSE30_65f8a27f_psct.rbf`. The
      machine is compile 37's otherwise (no external drive).
+   - **ON THE BOARD (Daniel, 2026-10-04 18:19-18:24; `scsitime` either
+     side of two Disk tests, the windows a few seconds wider than the
+     tests):**
+
+     | | run 1: Disk 0.438 | run 2: Disk 0.330 |
+     |---|---|---|
+     | window / bus busy / commands | 63.7 s / 22.3 s / 395 | 71.3 s / 29.4 s / 268 |
+     | target waiting on the HPS | 16.7 s | 24.0 s |
+     | GLUE holding the CPU for DRQ | 1.09 s | 1.07 s |
+     | HPS reads | 7,678 blocks, 134 us each (30 Linux + 104 moving), 1.03 s | 7,235, 139 us (34 + 104), 1.00 s |
+     | **HPS writes** | **8,960 blocks, 2,213 us each (2,065 Linux + 148 moving), 19.8 s** | **8,961, 3,030 us (2,882 + 148), 27.2 s** |
+     | longest write | 34.6 ms | 201.6 ms |
+
+     **The Disk gap is the HPS's writes**: 90-95 % of the bus's time,
+     ~2-3 ms of Linux per 512-byte block. The test writes 4.4 MB and reads
+     3.6-3.8 MB (not the 1 MB file alone). Reads are already fast (the
+     ring, and Main's own 16 KB read cache: 30 us). **The score's spread
+     (0.33-0.49) is the SD card's write latency** - run 2's writes 37 %
+     slower, a 200 ms stall - not a first-run cache (the reads are equal).
+   - **Why 2 ms (Main_MiSTer `user_io.cpp`, master of 2026-10-01):**
+     writable images are opened `O_RDWR | O_SYNC` (line 2224) and each
+     write request is one synchronous `FileWriteAdv` of the request's
+     whole size, `(blk_cnt + 1) x blksz` up to its 16 KB buffer (3380-
+     3555): one SD card write per request. A 512-byte request pays it per
+     block; a 16 KB request pays it once per 32 blocks.
    - **The board test**: Speedometer open, `scsitime` just before the
      Disk test is started and again just after it ends; twice, to see the
      first run against a later one. The window includes the seconds
