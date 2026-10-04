@@ -14762,7 +14762,9 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    0.33-0.49 -> 1.115-1.133, integrity checked; Daniel: full speed, never
    paced); TattleTech's first page matches a real SE/30 on 7.5.5; MODE32
    is not built into 7.5.5 (plan 1.5 corrected).
-3. **Built, NOT yet compiled: the PPRF time profile** (`3fa0bf7`) for the
+3. **DONE since: Math profiled and ACCEPTED as a known deviation (see KNOWN
+   ISSUES below; compile 41, `MacSE30_e98c4ef3_pprf.rbf`, carries the
+   profile).** Was: **the PPRF time profile** (`3fa0bf7`) for the
    Math figure (10.4 item 4: Math 1.151 against the real 0.96-0.98; not the
    68882 - under 1 % in every test; SANE and Toolbox code missing the
    I-cache 45-77 %; the fetch correction would close only half and take
@@ -14791,6 +14793,32 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    image [--dump ID...]` (orphan file threads), `cmp_threads.py before
    after` (each orphan against the before image).
 5. Then: the FUTURE BOARD TESTS list (below), floppy writing.
+
+**KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
+Daniel - add to it, move items out when fixed).**
+1. **Speedometer 4.02 Math reads ~13-16 % fast** (1.13-1.15 against the
+   real SE/30's 0.96-0.98). **ACCEPTED by Daniel (2026-10-04: "I can live
+   with a 13 % deviation").** Measured, not fixed: the 68882 is under 1 %
+   of the test (PFPU); the time is SANE and Toolbox code missing the
+   I-cache; per the PPRF profile the core already runs 1.106 x the
+   manual's budget, and no documented model (per-miss charge, the no-cache
+   case per row, ROM speed, the FPU dialog) brings Math to the real
+   machine while keeping CPU on it (10.4 item 4). CPU, Graphics and the
+   68882's own timing match the real machine.
+2. **Disk is faster than a real SE/30** (Speedometer 1.12 against
+   0.70-0.77) - by design: full speed, never paced (Daniel, 10.4 item 3).
+3. **Deleting a file never removes its file thread record** - an OPEN
+   FAULT, likely our core (the MacLC core removes them), being chased in
+   a separate session (10.4 item 4's end; the checkers in `tools/hfs/`).
+   Harmless to data: Disk First Aid removes the orphans.
+4. **Floppy writing and formatting are not built** - the drives read only
+   (10.4: next after the open items).
+5. **The 68882's atypical operands** (special values, denormals, rare
+   rounding cases) may run up to ~13 clocks over the 68881's per-case
+   figures: no document gives the 68882's own (8.9.7).
+6. **The framework's HDMI scaler** (`ascal`) misses timing by tens of ps
+   to -0.313 ns at slow -40C on some fits (compiles 18, 20, 25, 37, 39,
+   40); not our logic, accepted as precedent. Compile 41 met everywhere.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
