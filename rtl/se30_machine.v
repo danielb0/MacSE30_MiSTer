@@ -192,7 +192,7 @@ module se30_machine #(
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(cpu_cdis), .pace_en(pace_en), .reset_out_n(reset_out_n), .halted(halted),
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(cpu_cdis), .pace_en(pace_en), .post_en(1'b1), .reset_out_n(reset_out_n), .halted(halted),
     .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache));
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;

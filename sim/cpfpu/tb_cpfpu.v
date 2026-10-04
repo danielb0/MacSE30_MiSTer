@@ -51,6 +51,7 @@ module tb_cpfpu;
   wire        cpu_as_n, cpu_ds_n, cpu_rw_n, berr, reset_out_n, halted;
   wire        glue_berr;
   reg         berr_inj = 0;                // an injected bus error (B5c; below)
+  wire        post_en;                     // the write pending buffer, off for a run that faults a write (below)
   assign berr = glue_berr | berr_inj;
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
@@ -59,7 +60,7 @@ module tb_cpfpu;
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .pace_en(1'b1), .reset_out_n(reset_out_n), .halted(halted));
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .pace_en(1'b1), .post_en(post_en), .reset_out_n(reset_out_n), .halted(halted));
 
   // --------------------------------------------------------------- GLUE
   wire        ram_req, ram_we, ram_refresh, rom_req;
@@ -122,6 +123,12 @@ module tb_cpfpu;
   reg  [7:0] ba_used = 0;
   integer bi;
   initial for (bi = 0; bi < 8; bi = bi + 1) ba[bi] = 0;
+  // a write the bench faults must not be posted (plan 1.17.7): the buffer
+  // acknowledges a RAM write early and could report its fault only late -
+  // the SE/30's RAM never bus-errors, this bench's injection does - so a
+  // run with any injected write fault (b5c) waits for every write
+  assign post_en = !((ba[0] != 0 && !ba[0][0]) || (ba[1] != 0 && !ba[1][0]) || (ba[2] != 0 && !ba[2][0]) || (ba[3] != 0 && !ba[3][0]) ||
+                     (ba[4] != 0 && !ba[4][0]) || (ba[5] != 0 && !ba[5][0]) || (ba[6] != 0 && !ba[6][0]) || (ba[7] != 0 && !ba[7][0]));
   always @(posedge clk) begin
     if (!cpu_as_n && cpu_fc != 3'd7)
       for (bi = 0; bi < 8; bi = bi + 1)

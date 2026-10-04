@@ -84,6 +84,7 @@ module tb_se30_system;
   wire phi1 = !phi, phi2 = phi;
   reg reset_n = 0;
   reg pace_en = 1;                         // +NOPACE: the kernel unpaced (plan 1.17.5)
+  reg post_en = 1;                         // +NOPOST: every write waited for (plan 1.17.7)
   reg ptrace = 0;                          // +PTRACE: the pace's signals every clock
   // a watchdog on the pace: the kernel takes no beat for 1000 clocks with the bus idle (plan 1.17.5)
   integer wd_idle = 0;
@@ -112,7 +113,7 @@ module tb_se30_system;
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .pace_en(pace_en), .reset_out_n(reset_out_n), .halted(halted));
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .pace_en(pace_en), .post_en(post_en), .reset_out_n(reset_out_n), .halted(halted));
 
   // --------------------------------------------------------------- GLUE
   wire        ram_req, ram_we, ram_refresh, rom_req;
@@ -377,6 +378,7 @@ module tb_se30_system;
     berrtest = $test$plusargs("BERRTEST");
     timetest = $test$plusargs("TIMETEST");
     pace_en  = !$test$plusargs("NOPACE");
+    post_en  = !$test$plusargs("NOPOST");
     ptrace   = $test$plusargs("PTRACE");
     clrtest = $test$plusargs("CLRTEST");
     $readmemh({prog_dir, "/program.hex"}, img);

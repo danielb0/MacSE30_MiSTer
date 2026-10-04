@@ -94,6 +94,7 @@ module tg68k (
   input   [2:0] ipl_n,
   input         cdis,                  // CDIS* asserted (VIA2 PB0 low): the caches disabled
   input         pace_en,               // hold each instruction to the 68030's time (plan 1.17.5); low: unpaced
+  input         post_en,               // the write pending buffer (plan 1.17.7); low: every write waited for
 
   output        reset_out_n,           // the RESET instruction
   output        halted,                // double bus fault
@@ -255,7 +256,11 @@ module tg68k (
   // first carry their byte on every lane: D31-D24 is the only lane an
   // 8-bit port reads (the first beat is the kernel's own Table 7-5 image).
   wire        pb_vid   = (k_addr[31:24] == 8'hFE);
-  wire        k_post   = k_dwrite && !k_rmc && (k_fc != 3'd7) && ((k_addr[31:30] == 2'b00) || pb_vid);
+  // post_en low waits for every write: for a bench that bus-errors a RAM
+  // write (sim/cpfpu b5c) - a fault the SE/30 cannot raise there, and one
+  // the buffer, having acknowledged early, could only report late (the
+  // header).
+  wire        k_post   = post_en && k_dwrite && !k_rmc && (k_fc != 3'd7) && ((k_addr[31:30] == 2'b00) || pb_vid);
   reg         post_ack;                // the kernel's acknowledge for its posted write, at the next phi1
   reg  [31:0] pb_lanes;                // the long as the kernel drove it: each byte on its own address's lane
   reg   [1:0] pb_lane;                 // the beat's lane in it
