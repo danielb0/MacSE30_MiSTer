@@ -143,7 +143,9 @@ module se30_glue (
   // control
   input         overlay,               // VIA1 PA4
   input   [1:0] ramsiz,                // VIA2 PA7:6
-  input         hsync_n                // from the video PALs: the UI6 timeout's clock
+  input         hsync_n,               // from the video PALs: the UI6 timeout's clock
+
+  output        dbg_hs_wait            // the CPU held at $50006000 waiting for DRQ (PSCT, plan 10.4 item 3)
 );
 
   localparam SCC_HOLD = 6'd33;         // clocks from select release to the next SCC select, 2.2 us
@@ -307,6 +309,7 @@ module se30_glue (
   // (plan 9.5; GLUE's internals are not documented, this is the reading
   // under which NCR's chip works)
   assign scsi_dack = active && (d_dma || (d_hs && dcnt != 0));
+  assign dbg_hs_wait = active && d_hs && (dcnt == 0) && !scsi_drq;   // dc_adv's wait, measured only
   assign asc_sel   = active && d_asc;
   assign swim_sel  = active && d_swim;
   assign exp_sel   = active && d_exp;

@@ -24,6 +24,13 @@
 #                                                DQM pins; the machine stays held):
 #                                                a peek then reads the floating bus
 #                                                if the chip sees it; 0 releases
+#   ... scsitime [file]                          the SCSI disk's time (PSCT, plan
+#                                                10.4 item 3): the counters, and
+#                                                their differences from the last
+#                                                scsitime (saved in file, default
+#                                                scsitime_last.txt here) - run it
+#                                                just before and just after a test;
+#                                                the machine is not touched
 #
 # The board is never flashed from here (the standing rule); the writes above
 # are to the SDRAM, through the design's own controller, for measurement.
@@ -46,7 +53,7 @@ set samples 1
 set delay   1.0
 set op      ""
 set opargs  {}
-if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce} [lindex $argv 0]] >= 0} {
+if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime} [lindex $argv 0]] >= 0} {
 	set op     [lindex $argv 0]
 	set opargs [lrange $argv 1 end]
 } else {
@@ -126,6 +133,61 @@ start_insystem_source_probe -hardware_name $hw -device_name $dev
 # with old data (item 18's peek kept them in two probes and was seen one
 # read behind).  Addresses are the controller's: the 32 MB as longwords, the
 # ROM image at $200000 (byte $800000, CPU $40800000).
+if {$op eq "scsitime"} {
+	# MacSE30.sv's meter, MSB first: clocks, BSY, hold-off, GLUE's DRQ
+	# wait (40 bits each), commands (24), then reads and writes, each
+	# {requests 24, round trips summed 40, sd_ack high 40, longest 24}
+	if {![have PSCT]} { puts "ERROR: this bitstream has no PSCT (built before plan 10.4 item 3's meter)"; end_insystem_source_probe; exit 1 }
+	set v [rd PSCT]
+	set names {clk bsy hold hsw cmd rd_n rd_sum rd_ack rd_max wr_n wr_sum wr_ack wr_max}
+	set widths {40 40 40 40 24 24 40 40 24 24 40 40 24}
+	set sh 440
+	array set now {}
+	foreach nm $names w $widths {
+		set sh [expr {$sh - $w}]
+		set now($nm) [expr {($v >> $sh) & ((1 << $w) - 1)}]
+	}
+	set f [expr {[llength $opargs] >= 1 ? [lindex $opargs 0] : "scsitime_last.txt"}]
+	set mhz 31.3344
+	proc us {clk n} { global mhz; return [expr {$n > 0 ? double($clk) / $n / $mhz : 0.0}] }
+	puts [format "  PSCT  since configuration: %.1f s, %u commands, %u HPS reads, %u HPS writes" \
+		[expr {$now(clk) / ($mhz * 1e6)}] $now(cmd) $now(rd_n) $now(wr_n)]
+	puts [format "        longest round trip: read %.0f us, write %.0f us" \
+		[expr {$now(rd_max) / $mhz}] [expr {$now(wr_max) / $mhz}]]
+	if {[file exists $f]} {
+		set fh [open $f r]; array set was [read $fh]; close $fh
+		array set dt {}
+		foreach nm $names w $widths { set dt($nm) [expr {($now($nm) - $was($nm)) & ((1 << $w) - 1)}] }
+		set el [expr {$dt(clk) / ($mhz * 1e6)}]
+		set pc [expr {$dt(clk) > 0 ? 100.0 / $dt(clk) : 0.0}]
+		puts ""
+		puts [format "  since the last scsitime: %.3f s" $el]
+		puts [format "    SCSI bus busy (a target BSY)   %8.3f s  %5.1f %%   %u commands" \
+			[expr {$dt(bsy) / ($mhz * 1e6)}] [expr {$dt(bsy) * $pc}] $dt(cmd)]
+		puts [format "    a target waiting on the HPS    %8.3f s  %5.1f %%   (data phase, next byte not there)" \
+			[expr {$dt(hold) / ($mhz * 1e6)}] [expr {$dt(hold) * $pc}]]
+		puts [format "    GLUE holding the CPU for DRQ   %8.3f s  %5.1f %%" \
+			[expr {$dt(hsw) / ($mhz * 1e6)}] [expr {$dt(hsw) * $pc}]]
+		foreach k {rd wr} kn {reads writes} {
+			set n $dt(${k}_n)
+			puts [format "    HPS %-6s %7u blocks (%.0f KB)  round trip %8.3f s  %5.1f %%  per block: %6.1f us = %6.1f us waiting for Linux + %5.1f us moving the block" \
+				$kn $n [expr {$n * 0.5}] [expr {$dt(${k}_sum) / ($mhz * 1e6)}] [expr {$dt(${k}_sum) * $pc}] \
+				[us $dt(${k}_sum) $n] [us [expr {$dt(${k}_sum) - $dt(${k}_ack)}] $n] [us $dt(${k}_ack) $n]]
+		}
+		set nb [expr {$dt(rd_n) + $dt(wr_n)}]
+		if {$el > 0 && $nb > 0} {
+			puts [format "    blocks per elapsed second: %.0f KB/s; per second of HPS round trip: %.0f KB/s" \
+				[expr {$nb * 0.5 / $el}] [expr {$nb * 0.5 / (($dt(rd_sum) + $dt(wr_sum)) / ($mhz * 1e6))}]]
+		}
+	} else {
+		puts "  (no earlier snapshot in $f: run scsitime again after the test for the differences)"
+	}
+	set fh [open $f w]; puts $fh [array get now]; close $fh
+	puts "  snapshot saved to $f"
+	end_insystem_source_probe
+	exit 0
+}
+
 if {$op ne ""} {
 	foreach need {PPEK PPKS PPOK PRAW} {
 		if {![have $need]} { puts "ERROR: this bitstream has no $need (built before plan 3.8 item 19's poke)"; exit 1 }
@@ -534,6 +596,7 @@ for {set n 0} {$n < $samples} {incr n} {
 			[expr {($d >> 15) & 1}] [expr {($d >> 14) & 1}] [expr {($d >> 13) & 1}] [expr {($d >> 12) & 1}] \
 			[expr {($d >> 11) & 1}] [expr {($d >> 10) & 1}] [expr {($d >> 9) & 1}] [expr {($d >> 8) & 1}] $phn \
 			[expr {($d >> 4) & 1}] [expr {($d >> 3) & 1}] [expr {($d >> 2) & 1}]]
+		puts [format "        a target waiting on the HPS=%d  GLUE holding the CPU for DRQ=%d" [expr {($d >> 1) & 1}] [expr {$d & 1}]]
 		puts [format "        disks: rd=%d%d wr=%d%d ack=%d%d  sectors moved (low 10 bits)=%d" \
 			[expr {($pscs >> 15) & 1}] [expr {($pscs >> 14) & 1}] [expr {($pscs >> 13) & 1}] [expr {($pscs >> 12) & 1}] \
 			[expr {($pscs >> 11) & 1}] [expr {($pscs >> 10) & 1}] [expr {$pscs & 0x3FF}]]

@@ -516,6 +516,54 @@ always @(posedge clk_sys) begin
 	if (dbg_swim_vread) flp_bytes <= flp_bytes + 1'd1;
 end
 
+// PSCT (plan 10.4 item 3): where the SCSI disk's time goes.  Free-running
+// counters on clk_sys; the reader takes the difference of two reads, one
+// either side of a test (read_probes.tcl scsitime).  An HPS request is
+// timed from the target's io_rd or io_wr rising to sd_ack falling (the
+// round trip: Linux's response, then the block's transfer while sd_ack is
+// high); one request is in flight at a time per disk, and the two disks'
+// slots are taken together (the test uses one).  dbg_scsi[1] is a target's
+// hold-off (a data phase waiting on the HPS), dbg_scsi[0] GLUE holding the
+// CPU at $50006000 for DRQ.
+reg  [39:0] st_clk = 0, st_bsy = 0, st_hold = 0, st_hsw = 0;
+reg  [23:0] st_cmd = 0;
+reg  [23:0] st_rd_n = 0, st_rd_max = 0, st_wr_n = 0, st_wr_max = 0;
+reg  [39:0] st_rd_sum = 0, st_rd_ack = 0, st_wr_sum = 0, st_wr_ack = 0;
+reg  [23:0] st_cur = 0;                     // clocks into the request in flight, saturating
+reg         st_bsy_q = 0, st_ack_q = 0, st_fly = 0, st_fly_wr = 0;
+wire        st_bsy_now = |dbg_scsi[15:14];
+wire        st_ack     = |sd_ack[3:2];
+always @(posedge clk_sys) begin
+	st_clk   <= st_clk + 1'd1;
+	st_bsy_q <= st_bsy_now;
+	st_ack_q <= st_ack;
+	if (st_bsy_now) st_bsy <= st_bsy + 1'd1;
+	if (st_bsy_now && !st_bsy_q) st_cmd <= st_cmd + 1'd1;
+	if (dbg_scsi[1]) st_hold <= st_hold + 1'd1;
+	if (dbg_scsi[0]) st_hsw <= st_hsw + 1'd1;
+	if (!st_fly) begin
+		if (|scsi_io_rd || |scsi_io_wr) begin st_fly <= 1; st_fly_wr <= |scsi_io_wr; st_cur <= 24'd1; end
+	end else begin
+		if (~&st_cur) st_cur <= st_cur + 1'd1;
+		if (st_ack) begin
+			if (st_fly_wr) st_wr_ack <= st_wr_ack + 1'd1;
+			else           st_rd_ack <= st_rd_ack + 1'd1;
+		end
+		if (st_ack_q && !st_ack) begin
+			st_fly <= 0;
+			if (st_fly_wr) begin
+				st_wr_n   <= st_wr_n + 1'd1;
+				st_wr_sum <= st_wr_sum + st_cur;
+				if (st_cur > st_wr_max) st_wr_max <= st_cur;
+			end else begin
+				st_rd_n   <= st_rd_n + 1'd1;
+				st_rd_sum <= st_rd_sum + st_cur;
+				if (st_cur > st_rd_max) st_rd_max <= st_cur;
+			end
+		end
+	end
+end
+
 // The peek and poke.  PPEK's source word is {go, hold, we, raw, 5'b0,
 // longword address[22:0]}; PPOK's is {26'b0, DQM force, odd, byte enables
 // [3:0], write data[31:0]}; PRAW's is the controller's raw schedule word
@@ -581,6 +629,9 @@ dbg_probes probes
 	.exc_state(dbg_exc),
 	.cache_state(dbg_cache),
 	.scsi_state({dbg_scsi, scsi_io_rd, scsi_io_wr, sd_ack[3:2], scsi_sectors}),
+	.scsi_meter({st_clk, st_bsy, st_hold, st_hsw, st_cmd,
+	             st_rd_n, st_rd_sum, st_rd_ack, st_rd_max,
+	             st_wr_n, st_wr_sum, st_wr_ack, st_wr_max}),
 	.scc_state(dbg_scc),
 	.asc_state(dbg_asc)
 );

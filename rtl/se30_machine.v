@@ -209,6 +209,8 @@ module se30_machine #(
   wire [15:0] rom_addr;
   wire        via1_sel, via2_sel, scc_sel, scsi_sel, scsi_dack, asc_sel, swim_sel, exp_sel;
   wire        scsi_drq, scsi_irq;          // the 53C80's DRQ and IRQ (below, plan 9.2)
+  wire        scsi_hs_wait;                // GLUE holding the CPU for DRQ (PSCT, plan 10.4 item 3)
+  wire [15:0] scsi_dbg;                    // se30_scsi's dbg, before bit 0 takes scsi_hs_wait
   wire        dev_strobe, dev_rw, e_clk, c3m_en, slot_sel, slot_irq_or_n;
   wire [12:0] dev_addr;
   wire  [7:0] dev_wdata;
@@ -241,7 +243,7 @@ module se30_machine #(
     .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
     .via1_irq_n(via1_irq_n), .via2_irq_n(via2_irq_n), .scc_irq_n(scc_irq_n), .nmi_n(nmi_n),
     .slot_irq_n({irq6_n, 5'b11111}), .slot_irq_or_n(slot_irq_or_n),
-    .overlay(overlay), .ramsiz(ramsiz), .hsync_n(hsync_n));
+    .overlay(overlay), .ramsiz(ramsiz), .hsync_n(hsync_n), .dbg_hs_wait(scsi_hs_wait));
 
   // ------------------------------------------------------------ the FPU
   // The MC68882 (plan Section 8): clocked by C16M as the 68030 is (Guide
@@ -447,7 +449,9 @@ module se30_machine #(
     .img_mounted(scsi_img_mounted), .img_blocks(scsi_img_blocks),
     .io_lba(scsi_io_lba), .io_rd(scsi_io_rd), .io_wr(scsi_io_wr), .io_ack(scsi_io_ack),
     .sd_buff_addr(scsi_sd_buff_addr), .sd_buff_dout(scsi_sd_buff_dout), .sd_buff_din(scsi_sd_buff_din),
-    .sd_buff_wr(scsi_sd_buff_wr), .dbg(dbg_scsi));
+    .sd_buff_wr(scsi_sd_buff_wr), .dbg(scsi_dbg));
+  // PSCS's bit 0: GLUE holding the CPU at $50006000 for DRQ (plan 10.4 item 3)
+  assign dbg_scsi = {scsi_dbg[15:1], scsi_hs_wait};
 
   // ------------------------------------------------------------ SCC
   // the 8530 on GLUE's SCCEN* ($50004000): /CE with /RD or /WR is GLUE's

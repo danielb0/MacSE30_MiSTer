@@ -53,7 +53,7 @@ module se30_scsi #(
   output     [31:0] sd_buff_din,       // {disk 1, disk 0}
   input             sd_buff_wr,
 
-  output     [15:0] dbg                // {target BSY[1:0], REQ raw, REQ bus, ACK, SEL, RST, ATN, MSG, C/D, I/O, chip BSY, DRQ, IRQ, 2'b0}
+  output     [15:0] dbg                // {target BSY[1:0], REQ raw, REQ bus, ACK, SEL, RST, ATN, MSG, C/D, I/O, chip BSY, DRQ, IRQ, hold-off, 0}
 );
 
   // ------------------------------------------------------------ the chip
@@ -90,9 +90,14 @@ module se30_scsi #(
     .o_db(c_db), .o_db_en(c_db_en), .o_bsy(c_bsy), .o_sel(c_sel), .o_rst(c_rst), .o_atn(c_atn), .o_ack(c_ack));
 
   // ------------------------------------------------------------ the drives
+  // the targets' data_holdoff: in a data phase and unable to serve the next
+  // byte (a sector not yet fetched, a flush in flight) - not wired to the
+  // bus (GLUE's handshake waits on DRQ), measured only (PSCT, plan 10.4
+  // item 3)
+  wire [1:0] t_holdoff;
+
   genvar i;
   generate for (i = 0; i < 2; i = i + 1) begin : g_disk
-    wire       holdoff_nc;
     wire signed [15:0] snd_l_nc, snd_r_nc;
     scsi #(.ID(i[2:0]), .CDROM(0)) target (
       .clk(clk), .rst(c_rst), .sys_rst(!sys_reset_n),
@@ -108,10 +113,10 @@ module se30_scsi #(
       .sd_buff_addr(sd_buff_addr), .sd_buff_addr_hi(5'd0),
       .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[16*i +: 16]),
       .sd_buff_wr(sd_buff_wr & io_ack[i]),
-      .data_holdoff(holdoff_nc),
+      .data_holdoff(t_holdoff[i]),
       .cd_snd_l(snd_l_nc), .cd_snd_r(snd_r_nc));
   end endgenerate
 
-  assign dbg = {t_bsy, t_req_b, b_req, c_ack, c_sel, c_rst, c_atn, t_msg_b, t_cd_b, t_io_b, c_bsy, drq, irq, 2'b00};
+  assign dbg = {t_bsy, t_req_b, b_req, c_ack, c_sel, c_rst, c_atn, t_msg_b, t_cd_b, t_io_b, c_bsy, drq, irq, |t_holdoff, 1'b0};
 
 endmodule
