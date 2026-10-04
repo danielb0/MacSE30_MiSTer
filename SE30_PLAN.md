@@ -14586,7 +14586,7 @@ Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
 strike what is done).** Each on a scratch copy of the image unless noted.
 1. **32-bit mode with MODE32** (Daniel, 2026-10-04): install MODE32 with
    its own installer (copying the extension does not work - 68kMLA,
-   plan 1.5 addendum), switch 32-Bit Addressing on in the Memory control
+   plan 1.5 addendum; **the installer is on Daniel's MacPack disk**), switch 32-Bit Addressing on in the Memory control
    panel, restart. Exercises the ROM's and MODE32's 32-bit translation
    tables and the core's full 32-bit decode, paths 24-bit mode never
    touches; a prerequisite in practice for the 128 MB option. Check:
