@@ -33,6 +33,7 @@ module scsi #(
   output [31:0] io_lba,
   output        io_rd,
   output reg    io_wr,
+  output  [5:0] io_blk_cnt,
   input         io_ack,
   input   [7:0] sd_buff_addr,
   input   [4:0] sd_buff_addr_hi,
@@ -48,6 +49,7 @@ module scsi #(
   assign io_lba = 32'd0;
   assign io_rd = 1'b0;
   initial io_wr = 1'b0;
+  assign io_blk_cnt = 6'd0;
   assign sd_buff_din = 16'd0;
   assign data_holdoff = 1'b0;
   assign cd_snd_l = 16'sd0;

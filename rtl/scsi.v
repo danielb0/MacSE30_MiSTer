@@ -54,13 +54,14 @@ module scsi
 	output [31:0] io_lba,
 	output        io_rd,
 	output reg 	  io_wr,
+	output  [5:0] io_blk_cnt, // hps_io sd_blk_cnt: blocks - 1 of the write request in flight (0 for a read)
 	input         io_ack,
 
 	input   [7:0] sd_buff_addr,
-	input   [4:0] sd_buff_addr_hi, // hps_io addr[12:8] (CD whole-frame bursts).
-	                               // Unused until the cd_audio engine lands; a
-	                               // 2352-byte frame needs 11 address bits and
-	                               // this port carries the 3 above our 8.
+	input   [4:0] sd_buff_addr_hi, // hps_io addr[12:8]: a multi-block write's
+	                               // word address runs past 255 (up to 32
+	                               // blocks, SE30_PLAN.md 10.4 item 3); also
+	                               // the CD engine's whole-frame bursts.
 	input  [15:0] sd_buff_dout,
 	output [15:0] sd_buff_din,
 	input         sd_buff_wr,
@@ -104,12 +105,23 @@ parameter CDROM = 0;
 // drive streams continuously off a spinning platter; the original two-sector
 // double buffer stalled at every 512-byte boundary while the next block was
 // fetched from the HPS. The ring keeps RING_BLOCKS sectors fetched AHEAD of the
-// Mac so that latency is hidden. RING_LOG=1 reproduces the old double buffer
-// exactly. WRITES are unchanged -- they stay on the two-slot buffer (slots 0/1).
-// Ported from MacLC_MiSTer rtl/scsi.v, which uses the same value; we have ~475
-// M10K free, so the depth is not fit-constrained.
+// Mac so that latency is hidden. Ported from MacLC_MiSTer rtl/scsi.v, which
+// uses the same value; we have ~475 M10K free, so the depth is not
+// fit-constrained.
+//
+// WRITES use the same ring (SE30_PLAN.md 10.4 item 3, 2026-10-04). They were a
+// two-slot double buffer flushed one 512-byte block per HPS request, and Main
+// opens a writable image O_SYNC and writes each request in one call - so every
+// block paid a whole SD card write, 2-3 ms, measured on the board as 90-95 % of
+// Speedometer's Disk test. Now the Mac fills the ring and the flush engine
+// sends everything filled and not yet sent as ONE request (sd_blk_cnt = blocks
+// - 1, up to the ring's 32 = Main's 16 KB buffer) whenever no request is in
+// flight: the first block of a command goes alone, and each later request
+// carries the blocks the Mac wrote while the previous one was out.
+// RING_LOG must stay <= 5: the HPS word address is 13 bits.
 parameter  RING_LOG    = 5;             // log2(sectors); 5 => 32 sectors / 16KB
-localparam RING_BLOCKS = 1 << RING_LOG; // sectors buffered for reads
+localparam RING_BLOCKS = 1 << RING_LOG; // sectors buffered, for reads and writes
+localparam [5:0] RING_BLOCKS6 = RING_BLOCKS; // the ring as a write request's sector count
 localparam BUF_AW      = 8 + RING_LOG;  // dpram word-address width (256 words/sector)
 
 // A core reset must tear the target down as thoroughly as a bus reset: without
@@ -126,9 +138,13 @@ localparam PHASE_MESSAGE_OUT = 3'd5;
 reg [2:0]  phase;
 
 // ------------ sector buffer IO controller read/write -----------------------
-// the buffer itself. Holds RING_BLOCKS sectors for reads; writes use slots 0/1.
-reg sd_buff_sel;         // WRITE double-buffer half (unchanged path)
+// the buffer itself: RING_BLOCKS sectors, for reads and for writes.
 reg [22:0] rd_hps_blk;   // READ ring: # of sectors the HPS has delivered this command
+reg [22:0] wr_fill;      // WRITE ring: # of sectors the Mac has delivered this command
+reg [22:0] wr_done;      // WRITE ring: # of sectors the HPS has taken this command
+reg  [5:0] wr_n;         // sectors in the write request in flight (1..RING_BLOCKS)
+reg        wr_busy;      // a write request is in flight (io_wr up to sd_ack's fall)
+wire [22:0] wr_pend = wr_fill - wr_done;   // filled, not yet sent; <= RING_BLOCKS
 
 // HPS sector-buffer byte order. buffer0 always holds the byte the Mac reads
 // FIRST (even byte) and buffer1 the odd byte. The real MiSTer HPS packs WIDE
@@ -138,21 +154,20 @@ reg [22:0] rd_hps_blk;   // READ ring: # of sectors the HPS has delivered this c
 // bench, which packs big-endian; we have no such bench, so there is nothing to
 // switch on and the lanes stay as they always were.
 
-// Buffer addressing. READS span the whole RING_BLOCKS-sector ring; WRITES stay
-// on the original two-slot double buffer so the freshly-validated write path is
-// byte-for-byte unchanged. A command is either a read or a write, so the two
-// schemes never collide on a port. The two-slot addresses are zero-extended to
-// BUF_AW by assignment, so RING_LOG=1 still compiles and exactly reproduces the
-// original double buffer.
+// Buffer addressing. Both directions span the whole RING_BLOCKS-sector ring:
+// sector n of a command lives in slot n mod RING_BLOCKS. A command is either a
+// read or a write, so the two never collide on a port.
 wire [22:0] rd_cur_blk = data_cnt[31:9];                       // sector the Mac is reading
 wire [RING_LOG-1:0] rd_hps_slot = rd_hps_blk[RING_LOG-1:0];
-wire [BUF_AW-1:0] hps_addr_wr = {sd_buff_sel, sd_buff_addr};   // write flush: slot 0/1
-wire [BUF_AW-1:0] mac_addr_wr = data_cnt[9:1];                 // Mac write: slot 0/1
-// HPS side (port A): read fills target the ring fetch-slot; write flushes keep
-// the original sd_buff_sel half.
+// a write request's words run from the first unsent sector's slot through as
+// many sectors as the request carries, wrapping round the ring (the 13-bit add)
+wire [12:0] hps_word = {sd_buff_addr_hi, sd_buff_addr};
+wire [BUF_AW-1:0] hps_addr_wr = {wr_done[RING_LOG-1:0], 8'd0} + hps_word[BUF_AW-1:0];
+// HPS side (port A): a read fills its one fetch slot; a write request reads
+// its run of slots.
 wire [BUF_AW-1:0] hps_addr = cmd_write ? hps_addr_wr : {rd_hps_slot, sd_buff_addr};
-// Mac side (port B): reads address the full ring; writes the 2-slot half.
-wire [BUF_AW-1:0] mac_addr = (phase == PHASE_DATA_IN) ? mac_addr_wr : data_cnt[BUF_AW:1];
+// Mac side (port B): the ring, by the byte count.
+wire [BUF_AW-1:0] mac_addr = data_cnt[BUF_AW:1];
 
 wire [7:0] buffer0_dout;
 scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer0
@@ -189,25 +204,35 @@ scsi_dpram #(.ADDRWIDTH(BUF_AW)) buffer1
 reg old_io_ack;
 always @(posedge clk) begin
 	old_io_ack <= io_ack;
-	if (phase == PHASE_IDLE)
-		sd_buff_sel <= 0;
-	else
-		// ~ca_io_active: a CD-audio channel transfer started at bus-idle can
-		// still be in flight when the Mac's next command reaches a data phase.
-		// Its ack falling here would toggle the write double-buffer and bump
-		// the ring counter below - wrong sectors served. MacLC hit exactly
-		// this on hardware (2026-07-17: artifacted CD icons, then a wedged
-		// READ). Same scope the io_busy term already has.
-		if (old_io_ack & ~io_ack & ~ca_io_active) sd_buff_sel <= !sd_buff_sel;
 
 	// READ ring fetch counter: # of sectors the HPS has delivered this command.
 	// Reset alongside data_cnt (any non-transfer phase); bump on each io_ack
-	// falling edge during a read. Writes never touch it (they use sd_buff_sel).
+	// falling edge during a read.
+	// ~ca_io_active: a CD-audio channel transfer started at bus-idle can
+	// still be in flight when the Mac's next command reaches a data phase.
+	// Its ack falling here would bump the ring counters - wrong sectors
+	// served. MacLC hit exactly this on hardware (2026-07-17: artifacted CD
+	// icons, then a wedged READ). Same scope the io_busy term already has.
 	if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN &&
 	    phase != PHASE_STATUS_OUT && phase != PHASE_MESSAGE_OUT)
 		rd_hps_blk <= 23'd0;
 	else if (old_io_ack & ~io_ack & cmd_read & ~ca_io_active)
 		rd_hps_blk <= rd_hps_blk + 23'd1;
+
+	// WRITE ring counters, reset with the read's. wr_fill follows the Mac:
+	// the sectors whose last byte it has delivered (data_cnt[31:9] in the data
+	// phase - the byte is in the buffer a clock after its ACK rises, data_cnt
+	// counts it at ACK's fall), and keeps that count after the phase so the
+	// tail goes out from STATUS. wr_done advances by the request's sectors when
+	// its sd_ack falls.
+	if (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN &&
+	    phase != PHASE_STATUS_OUT && phase != PHASE_MESSAGE_OUT) begin
+		wr_fill <= 23'd0;
+		wr_done <= 23'd0;
+	end else begin
+		if (phase == PHASE_DATA_IN && cmd_write) wr_fill <= data_cnt[31:9];
+		if (old_io_ack & ~io_ack & wr_busy & ~ca_io_active) wr_done <= wr_done + {17'd0, wr_n};
+	end
 end
 
 // -----------------------------------------------------------
@@ -242,14 +267,22 @@ assign io = (phase == PHASE_DATA_OUT) || (phase == PHASE_STATUS_OUT) || (phase =
 // medium gone the read completes with stale bytes and the driver gets its error
 // through the normal status path instead (MacLC finding, HW 2026-07-17).
 //
-// wr_pending is included in the write/non-data clauses: between a block's
-// req_wr edge and the flush actually issuing, neither io_wr nor io_ack is high,
-// so the old term dropped the busy indication for that window and one extra
-// byte could land in the slot the flush had not read yet.
+// WRITE stall: the sector the Mac is writing (data_cnt[31:9]) would land in a
+// slot whose earlier occupant, RING_BLOCKS sectors back, the HPS has not taken
+// yet - the ring is full. A request in flight is not taken until its sd_ack
+// falls, so its slots stay held while the HPS reads them. Gated on cmd_write:
+// MODE SELECT and WRITE BUFFER also receive data but never flush.
+//
+// The non-data clause holds the STATUS byte until every filled sector has
+// gone out (wr_pend) and the last request has finished: a write reports GOOD
+// only once the HPS has the data. Not for an aborted command, whose flushes
+// stop (req_wr) so it can send its CHECK CONDITION.
 wire   rd_cur_unfilled = (rd_cur_blk >= rd_hps_blk);
+wire   wr_ring_full    = ((data_cnt[31:9] - wr_done) >= RING_BLOCKS);
+wire   wr_unsent       = cmd_write && !cmd_aborted && (wr_pend != 23'd0);
 wire   io_busy = (phase == PHASE_DATA_OUT && cmd_read && mounted && rd_cur_unfilled) ||
-                 (phase == PHASE_DATA_IN  && (io_wr | wr_pending | (io_ack & ~ca_io_active)) && data_cnt[9] == sd_buff_sel) ||
-                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd_d | io_wr | wr_pending | (io_ack & ~ca_io_active)));
+                 (phase == PHASE_DATA_IN  && cmd_write && wr_ring_full && !data_done) ||
+                 (phase != PHASE_DATA_OUT && phase != PHASE_DATA_IN && (io_rd_d | io_wr | wr_unsent | (io_ack & ~ca_io_active)));
 
 // A zero-length data phase (allocation length 0) never sees an ACK edge, so
 // data_complete -- which only sets on one -- would never assert and REQ would be
@@ -694,39 +727,22 @@ wire        rd_ring_space = ((rd_hps_blk - rd_cur_blk) < RING_BLOCKS);
 wire req_rd = (phase == PHASE_DATA_OUT) && cmd_read && (data_len != 32'd0) &&
               !data_complete && rd_blk_remain && rd_ring_space && !cmd_aborted;
 
-// generate an io_wr signal whenever a 512 byte block has been received or when the status
-// phase of a write command has been reached.
-// data_len != 0 guard: a zero-length WRITE reaches STATUS_OUT with no data phase;
-// without the guard the STATUS_OUT clause would flush a stale sector-buffer block
-// (the previous READ's data) to the command's LBA.
-// data_in_seen on the STATUS_OUT clause is the same guard for the other way a
-// write can reach STATUS with no data phase: being REJECTED. A WRITE refused for
-// an out-of-range LBA -- or, on a CD, refused because the medium is read-only --
-// reaches STATUS_OUT with cmd_write and data_len both still set, and flushed a
-// stale sector-buffer block to the LBA it had just declined to write. Requiring
-// that a data phase actually happened covers every rejection path at once.
-// !cmd_aborted: the tail clause above is still true after an abort -- we are
-// still in STATUS_OUT, still a write, still non-zero length -- so the flush the
-// abort just cleared would re-arm on the very next cycle, re-assert io_busy, and
-// suppress the REQ the abort needs in order to send its own status byte. An
-// aborted command must not arm any NEW HPS transaction. See the abort branch in
-// the phase FSM.
-wire req_wr = ((((phase == PHASE_DATA_IN) && (data_cnt[8:0] == 0) && (data_cnt != 0)) ||
-                ((phase == PHASE_STATUS_OUT) && data_in_seen))
-               && cmd_write && (data_len != 32'd0) && !cmd_aborted);
+// A write request is wanted while sectors the Mac has filled have not gone out
+// (wr_pend), in the data phase or after it (the tail, from STATUS_OUT, before
+// the status byte - io_busy holds it). Only filled sectors are ever sent, which
+// carries the old guards by construction: a zero-length WRITE, or one REJECTED
+// (out-of-range LBA, a CD's read-only medium) reaches STATUS_OUT with wr_fill
+// still 0 and sends nothing - the old two-slot engine needed data_len and a
+// data_in_seen flag for those, having flushed a stale block to the LBA it had
+// just declined to write.
+// !cmd_aborted: an aborted command must not arm any NEW HPS transaction - the
+// flush would re-assert io_busy and suppress the REQ the abort needs to send
+// its own status byte. See the abort branch in the phase FSM.
+wire req_wr = cmd_write && (data_len != 32'd0) && !cmd_aborted &&
+              ((phase == PHASE_DATA_IN) || (phase == PHASE_STATUS_OUT)) && (wr_pend != 23'd0);
 
-// Did this command actually get a data-in phase? data_cnt cannot answer that:
-// it keeps counting through STATUS_OUT and MESSAGE_OUT, so it is non-zero again
-// the moment the status byte has gone out -- which is exactly when the tail
-// flush of a rejected write used to fire.
-reg data_in_seen;
-always @(posedge clk) begin
-	if((phase == PHASE_IDLE) || (phase == PHASE_CMD_IN)) data_in_seen <= 0;
-	else if(phase == PHASE_DATA_IN) data_in_seen <= 1;
-end
-
-// wr_pending lives at module scope because io_busy must include it (see there).
-reg wr_pending;
+// the request's size for hps_io: sectors - 1 while a write is in flight
+assign io_blk_cnt = wr_busy ? (wr_n - 6'd1) : 6'd0;
 
 // Data-path io_rd (the sector-ring engine's own request). The MODULE OUTPUT is
 // that ORed with the CD-audio engine's request.
@@ -749,7 +765,6 @@ reg io_rd_d;
 assign io_rd = io_rd_d | ca_io_rd_w;
 
 always @(posedge clk) begin
-	reg old_wr;
 	reg rd_busy;   // a read-prefetch sector fetch is outstanding
 
 	// A reset aborts any in-flight/queued disk IO. Without this, io_rd/io_wr and
@@ -759,19 +774,17 @@ always @(posedge clk) begin
 	// resets again -- an intermittent reset/re-scan loop. These registers also
 	// had no reset at all and powered up as X in
 	// simulation, which made io_busy (and therefore req) X forever.
-	// wdog_abort, not iostall_abort: the bus watchdog can also fire with
-	// wr_pending set (io_busy's DATA_IN clause is qualified on
-	// data_cnt[9] == sd_buff_sel, so a pending flush does not always hold it),
-	// and a stale request left over an abort poisons the next command.
+	// wdog_abort, not iostall_abort: the bus watchdog can fire while a write
+	// is wanted or in flight (a data phase whose ring is not full does not
+	// hold io_busy), and a stale request left over an abort poisons the next
+	// command.
 	if(any_rst || wdog_abort) begin
 		io_rd_d    <= 1'b0;
 		io_wr      <= 1'b0;
-		wr_pending <= 1'b0;
-		old_wr     <= 1'b0;
 		rd_busy    <= 1'b0;
+		wr_busy    <= 1'b0;
+		wr_n       <= 6'd1;
 	end else begin
-		old_wr <= req_wr;
-		if(~old_wr & req_wr) wr_pending <= 1;
 
 		// READ prefetch engine: while req_rd (sectors remain AND ring has space),
 		// issue back-to-back sector fetches -- one per io_ack -- to keep the ring
@@ -784,9 +797,18 @@ always @(posedge clk) begin
 		else if(req_rd && !io_rd && !rd_busy) begin io_rd_d <= 1'b1; rd_busy <= 1'b1; end
 		if(old_io_ack & ~io_ack) rd_busy <= 1'b0;
 
-		// WRITE flush engine -- unchanged two-slot double-buffer behavior.
+		// WRITE flush engine: whenever no request is in flight and sectors
+		// are filled and unsent, ONE request for all of them (wr_pend never
+		// exceeds the ring: the Mac stalls first). wr_n is fixed for the
+		// request - hps_io reads sd_blk_cnt from it - and wr_busy holds until
+		// sd_ack falls, when wr_done takes the sectors and lba moves past them.
 		if(io_ack) io_wr <= 1'b0;
-		else if(wr_pending && !io_wr) begin io_wr <= 1'b1; wr_pending <= 0; end
+		else if(req_wr && !io_wr && !io_rd && !wr_busy) begin
+			io_wr   <= 1'b1;
+			wr_busy <= 1'b1;
+			wr_n    <= (wr_pend >= RING_BLOCKS) ? RING_BLOCKS6 : wr_pend[5:0];
+		end
+		if(old_io_ack & ~io_ack) wr_busy <= 1'b0;
 	end
 end
 
@@ -1289,7 +1311,8 @@ reg [31:0] lba;
 reg [15:0] tlen;
 
 always @(posedge clk) begin
-	if (old_io_ack & ~io_ack) lba <= lba + 1'd1;
+	// past the request's sectors: a write request's wr_n, a read's one
+	if (old_io_ack & ~io_ack) lba <= lba + (wr_busy ? {26'd0, wr_n} : 32'd1);
 	if(cmd_cpl && (phase == PHASE_CMD_IN)) begin
 		// CDROM READs address 2048-byte logical blocks; the HPS block device is
 		// 512-byte sectors, so scale lba/tlen by 4 AT LATCH TIME and the whole

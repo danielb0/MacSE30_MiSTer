@@ -103,10 +103,12 @@ if {[llength $info] == 0} {
 	exit 1
 }
 array set idx {}
+array set pw {}
 array set absent {}
 foreach inst $info {
 	# {index source_width probe_width instance_name}
 	set idx([lindex $inst 3]) [lindex $inst 0]
+	set pw([lindex $inst 3]) [lindex $inst 2]
 	puts [format "  found %-6s index=%s probe_width=%s" [lindex $inst 3] [lindex $inst 0] [lindex $inst 2]]
 }
 puts ""
@@ -136,12 +138,14 @@ start_insystem_source_probe -hardware_name $hw -device_name $dev
 if {$op eq "scsitime"} {
 	# MacSE30.sv's meter, MSB first: clocks, BSY, hold-off, GLUE's DRQ
 	# wait (40 bits each), commands (24), then reads and writes, each
-	# {requests 24, round trips summed 40, sd_ack high 40, longest 24}
+	# {requests 24, round trips summed 40, sd_ack high 40, longest 24}, and
+	# since compile 39 (464 bits) the sectors the write requests carried (24)
 	if {![have PSCT]} { puts "ERROR: this bitstream has no PSCT (built before plan 10.4 item 3's meter)"; end_insystem_source_probe; exit 1 }
 	set v [rd PSCT]
 	set names {clk bsy hold hsw cmd rd_n rd_sum rd_ack rd_max wr_n wr_sum wr_ack wr_max}
 	set widths {40 40 40 40 24 24 40 40 24 24 40 40 24}
-	set sh 440
+	set sh $pw(PSCT)
+	if {$sh >= 464} { lappend names wr_sec; lappend widths 24 }
 	array set now {}
 	foreach nm $names w $widths {
 		set sh [expr {$sh - $w}]
@@ -157,7 +161,13 @@ if {$op eq "scsitime"} {
 	if {[file exists $f]} {
 		set fh [open $f r]; array set was [read $fh]; close $fh
 		array set dt {}
-		foreach nm $names w $widths { set dt($nm) [expr {($now($nm) - $was($nm)) & ((1 << $w) - 1)}] }
+		foreach nm $names w $widths {
+			if {![info exists was($nm)]} { set was($nm) $now($nm) }
+			set dt($nm) [expr {($now($nm) - $was($nm)) & ((1 << $w) - 1)}]
+		}
+		# sectors: a read request carries one, a write request sd_blk_cnt + 1
+		set dt(rd_sec) $dt(rd_n)
+		if {![info exists dt(wr_sec)]} { set dt(wr_sec) $dt(wr_n) }
 		set el [expr {$dt(clk) / ($mhz * 1e6)}]
 		set pc [expr {$dt(clk) > 0 ? 100.0 / $dt(clk) : 0.0}]
 		puts ""
@@ -170,11 +180,13 @@ if {$op eq "scsitime"} {
 			[expr {$dt(hsw) / ($mhz * 1e6)}] [expr {$dt(hsw) * $pc}]]
 		foreach k {rd wr} kn {reads writes} {
 			set n $dt(${k}_n)
-			puts [format "    HPS %-6s %7u blocks (%.0f KB)  round trip %8.3f s  %5.1f %%  per block: %6.1f us = %6.1f us waiting for Linux + %5.1f us moving the block" \
-				$kn $n [expr {$n * 0.5}] [expr {$dt(${k}_sum) / ($mhz * 1e6)}] [expr {$dt(${k}_sum) * $pc}] \
-				[us $dt(${k}_sum) $n] [us [expr {$dt(${k}_sum) - $dt(${k}_ack)}] $n] [us $dt(${k}_ack) $n]]
+			set ns $dt(${k}_sec)
+			puts [format "    HPS %-6s %6u requests, %7u blocks (%.0f KB)  round trip %8.3f s  %5.1f %%" \
+				$kn $n $ns [expr {$ns * 0.5}] [expr {$dt(${k}_sum) / ($mhz * 1e6)}] [expr {$dt(${k}_sum) * $pc}]]
+			puts [format "           per request: %7.1f us = %7.1f us waiting for Linux + %6.1f us moving the blocks;  per block %6.1f us" \
+				[us $dt(${k}_sum) $n] [us [expr {$dt(${k}_sum) - $dt(${k}_ack)}] $n] [us $dt(${k}_ack) $n] [us $dt(${k}_sum) $ns]]
 		}
-		set nb [expr {$dt(rd_n) + $dt(wr_n)}]
+		set nb [expr {$dt(rd_sec) + $dt(wr_sec)}]
 		if {$el > 0 && $nb > 0} {
 			puts [format "    blocks per elapsed second: %.0f KB/s; per second of HPS round trip: %.0f KB/s" \
 				[expr {$nb * 0.5 / $el}] [expr {$nb * 0.5 / (($dt(rd_sum) + $dt(wr_sum)) / ($mhz * 1e6))}]]

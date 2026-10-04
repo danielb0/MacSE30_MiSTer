@@ -146,8 +146,9 @@ module se30_machine #(
   output [63:0] scsi_io_lba,           // {disk 1, disk 0}
   output  [1:0] scsi_io_rd,
   output  [1:0] scsi_io_wr,
+  output [11:0] scsi_io_blk_cnt,       // {disk 1, disk 0}: hps_io sd_blk_cnt (plan 10.4 item 3)
   input   [1:0] scsi_io_ack,
-  input   [7:0] scsi_sd_buff_addr,
+  input  [12:0] scsi_sd_buff_addr,
   input  [15:0] scsi_sd_buff_dout,
   output [31:0] scsi_sd_buff_din,      // {disk 1, disk 0}
   input         scsi_sd_buff_wr,
@@ -447,7 +448,7 @@ module se30_machine #(
     .cs(scsi_sel), .dack(scsi_dack), .rd(scsi_stb && dev_rw), .wr(scsi_stb && !dev_rw),
     .rs(dev_addr[6:4]), .wdata(dev_wdata), .rdata(scsi_rdata), .drq(scsi_drq), .irq(scsi_irq),
     .img_mounted(scsi_img_mounted), .img_blocks(scsi_img_blocks),
-    .io_lba(scsi_io_lba), .io_rd(scsi_io_rd), .io_wr(scsi_io_wr), .io_ack(scsi_io_ack),
+    .io_lba(scsi_io_lba), .io_rd(scsi_io_rd), .io_wr(scsi_io_wr), .io_blk_cnt(scsi_io_blk_cnt), .io_ack(scsi_io_ack),
     .sd_buff_addr(scsi_sd_buff_addr), .sd_buff_dout(scsi_sd_buff_dout), .sd_buff_din(scsi_sd_buff_din),
     .sd_buff_wr(scsi_sd_buff_wr), .dbg(scsi_dbg));
   // PSCS's bit 0: GLUE holding the CPU at $50006000 for DRQ (plan 10.4 item 3)

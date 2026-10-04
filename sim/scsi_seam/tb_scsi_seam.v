@@ -43,6 +43,15 @@
 //       ends on PHASE MATCH (the ROM's error 5)
 //    9. slow image fetches (~100 us a sector): reads still byte-exact - the
 //       target holds REQ, DRQ follows it, the deskew keeps stale bytes out
+//   10. multi-block writes (SE30_PLAN.md 10.4 item 3): the target sends the
+//       sectors the Mac has filled as one request (sd_blk_cnt), the model
+//       takes them as Main does; with a slow SD card (one write request
+//       ~1.3 ms, ~9.6 ms) a 40-block write wraps the 32-sector ring, fills
+//       it (the Mac stalls between blocks), and lands byte-exact with fewer
+//       requests than blocks, none over 32 sectors; the status byte waits
+//       for the last request (the image is checked at once, no settling
+//       time); an unaligned 33-block write and a 1-block write after it;
+//       reads still ask one sector a request
 
 `timescale 1ns/1ps
 
@@ -63,8 +72,9 @@ module tb_scsi_seam;
   reg [31:0] img_blocks = 0;
   wire [63:0] io_lba;
   wire [1:0] io_rd, io_wr;
+  wire [11:0] io_blk_cnt;
   reg  [1:0] io_ack = 0;
-  reg  [7:0] sd_buff_addr = 0;
+  reg [12:0] sd_buff_addr = 0;
   reg [15:0] sd_buff_dout = 0;
   wire [31:0] sd_buff_din;
   reg        sd_buff_wr = 0;
@@ -74,7 +84,7 @@ module tb_scsi_seam;
     .clk(clk), .reset_n(reset_n), .sys_reset_n(reset_n),
     .cs(cs), .dack(dack), .rd(rd), .wr(wr), .rs(rs), .wdata(wdata), .rdata(rdata), .drq(drq), .irq(irq),
     .img_mounted(img_mounted), .img_blocks(img_blocks),
-    .io_lba(io_lba), .io_rd(io_rd), .io_wr(io_wr), .io_ack(io_ack),
+    .io_lba(io_lba), .io_rd(io_rd), .io_wr(io_wr), .io_blk_cnt(io_blk_cnt), .io_ack(io_ack),
     .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din), .sd_buff_wr(sd_buff_wr),
     .dbg(dbg));
 
@@ -89,20 +99,25 @@ module tb_scsi_seam;
   reg [7:0] img0 [0:BLOCKS*512-1];
   reg [7:0] img1 [0:BLOCKS*512-1];
   integer k, latency = 300;              // clocks before a sector arrives (~10 us)
+  integer wr_latency = 300;              // clocks before a write request is taken (the SD card's write)
   initial begin
     for (k = 0; k < BLOCKS*512; k = k + 1) begin
       img0[k] = (k * 7 + (k >> 9) * 13) & 8'hFF;
       img1[k] = (k * 11 + 5 + (k >> 9) * 3) & 8'hFF;
     end
   end
-  // one slot at a time, as hps_io serves them
-  integer s, w, blk;
+  // one slot at a time, as hps_io serves them; a write request's size is read
+  // with the request (Main's UIO_GET_SDSTAT), then (n+1) x 256 words are read
+  // over the 13-bit address, as Main's spi_block_read does
+  integer s, w, blk, nblk;
+  integer wr_reqs = 0, wr_secs = 0, wr_max = 0, rd_multi = 0;
   always begin
     @(negedge clk);
     if (io_rd[0] || io_rd[1] || io_wr[0] || io_wr[1]) begin
       s = io_rd[0] || io_wr[0] ? 0 : 1;
       blk = io_lba[32*s +: 32];
       if (io_rd[s]) begin
+        if (io_blk_cnt[6*s +: 6] != 0) rd_multi = rd_multi + 1;
         ticks(latency);
         io_ack[s] = 1;
         for (w = 0; w < 256; w = w + 1) begin
@@ -113,9 +128,11 @@ module tb_scsi_seam;
         end
         @(negedge clk); io_ack[s] = 0;
       end else begin
-        ticks(latency);
+        nblk = io_blk_cnt[6*s +: 6] + 1;
+        wr_reqs = wr_reqs + 1; wr_secs = wr_secs + nblk; if (nblk > wr_max) wr_max = nblk;
+        ticks(wr_latency);
         io_ack[s] = 1;
-        for (w = 0; w < 256; w = w + 1) begin
+        for (w = 0; w < 256 * nblk; w = w + 1) begin
           @(negedge clk); sd_buff_addr = w; ticks(2);
           if (s == 0) begin img0[blk*512 + 2*w] = sd_buff_din[7:0]; img0[blk*512 + 2*w + 1] = sd_buff_din[15:8]; end
           else        begin img1[blk*512 + 2*w] = sd_buff_din[23:16]; img1[blk*512 + 2*w + 1] = sd_buff_din[31:24]; end
@@ -192,7 +209,9 @@ module tb_scsi_seam;
   // a programmed-I/O byte in a given phase (TCR value)
   task pio_in(input [3:0] tcr, output [7:0] b, output ok);
     begin
-      reg_wr(3, tcr); wait_csr(5, 1, 20000, ok);
+      // the status's REQ can wait for a write's last HPS request (test 10:
+      // ~10 ms); SCSIComplete's own limit is the caller's, in ticks
+      reg_wr(3, tcr); wait_csr(5, 1, 400000, ok);
       if (ok) begin reg_rd(5); ok = rv[3]; end
       if (ok) begin reg_rd(0); b = rv; reg_wr(1, 8'h10); wait_csr(5, 0, 2000, ok); reg_wr(1, 8'h00); end
     end
@@ -202,7 +221,7 @@ module tb_scsi_seam;
     begin pio_in(4'h3, st, ok); pio_in(4'h7, msg, ok2); ok = ok && ok2; end
   endtask
   // data in, n bytes, into rbuf; blind = the handshake window; returns 5 on a phase change
-  reg [7:0] rbuf [0:8191];
+  reg [7:0] rbuf [0:32767];
   integer   rerr;
   task scsi_read(input integer n, input blind, input integer chunk);
     integer b, c;
@@ -225,7 +244,7 @@ module tb_scsi_seam;
       reg_wr(2, 8'h00); reg_wr(1, 8'h00);                                // scStop
     end
   endtask
-  reg [7:0] wbuf [0:8191];
+  reg [7:0] wbuf [0:32767];
   task scsi_write(input integer n, input blind, input integer chunk);
     integer b, c, ok;
     begin
@@ -281,6 +300,8 @@ module tb_scsi_seam;
       scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "status GOOD, message COMMAND COMPLETE");
     end
   endtask
+  reg [7:0] around [0:1023];             // test 10: the blocks either side of a write, before it
+  integer settle = 4000;                 // clocks between the status and the image check
   task do_write(input [2:0] id, input [20:0] lba, input [7:0] cnt, input blind, input [7:0] seed);
     integer b, n;
     begin
@@ -291,7 +312,7 @@ module tb_scsi_seam;
       scsi_write(n, blind, blind ? 512 : n); check(rerr == 0, "the write's data phase");
       if (rerr != 0) $display("     write error %0d", rerr);
       scsi_complete(st, msg, ok); check(ok && st == 8'h00, "write status GOOD");
-      ticks(4000);                                                       // the flush to the image
+      ticks(settle);                                                     // the flush to the image
       bad = 0;
       for (b = 0; b < n; b = b + 1)
         if (((id == 0) ? img0[lba*512 + b] : img1[lba*512 + b]) !== wbuf[b]) bad = bad + 1;
@@ -344,6 +365,36 @@ module tb_scsi_seam;
     latency = 3000;
     do_read(3'd0, 21'd20, 8'd3, 1'b0, "9. slow fetches, polled: byte-exact");
     do_read(3'd1, 21'd30, 8'd3, 1'b1, "9. slow fetches, blind per block: byte-exact");
+
+    // 10: multi-block writes
+    check(rd_multi == 0, "10. every read request so far asked one sector");
+    settle = 0;                                                          // the status must follow the last request
+    wr_latency = 40000;                                                  // ~1.3 ms a request
+    wr_reqs = 0; wr_secs = 0; wr_max = 0;
+    do_write(3'd0, 21'd16, 8'd40, 1'b1, 8'h5D);
+    $display("     40 blocks, 1.3 ms requests: %0d requests, %0d sectors, the largest %0d", wr_reqs, wr_secs, wr_max);
+    check(wr_secs == 40, "10. 40 blocks at 1.3 ms: every sector sent exactly once");
+    check(wr_reqs < 40 && wr_max > 1, "10. 40 blocks at 1.3 ms: the sectors went out in multi-block requests");
+    check(wr_max <= 32, "10. 40 blocks at 1.3 ms: no request over the ring's 32 sectors");
+    do_read(3'd0, 21'd16, 8'd40, 1'b1, "10. the 40 blocks read back blind, byte-exact");
+    wr_latency = 300000;                                                 // ~9.6 ms: the ring fills
+    wr_reqs = 0; wr_secs = 0; wr_max = 0;
+    for (k = 0; k < 512; k = k + 1) begin around[k] = img1[6*512 + k]; around[512 + k] = img1[40*512 + k]; end
+    do_write(3'd1, 21'd7, 8'd33, 1'b1, 8'hC4);
+    bad = 0;
+    for (k = 0; k < 512; k = k + 1) begin
+      if (img1[6*512 + k] !== around[k]) bad = bad + 1;
+      if (img1[40*512 + k] !== around[512 + k]) bad = bad + 1;
+    end
+    check(bad == 0, "10. the blocks either side of the 33 (LBA 6 and 40) untouched");
+    $display("     33 blocks from LBA 7, 9.6 ms requests: %0d requests, %0d sectors, the largest %0d", wr_reqs, wr_secs, wr_max);
+    check(wr_secs == 33, "10. 33 blocks at 9.6 ms: every sector sent exactly once");
+    check(wr_max >= 30 && wr_max <= 32, "10. 33 blocks at 9.6 ms: the ring filled (a request of 30-32 sectors)");
+    do_read(3'd1, 21'd7, 8'd33, 1'b0, "10. the 33 blocks read back polled, byte-exact");
+    wr_reqs = 0; wr_secs = 0; wr_max = 0;
+    do_write(3'd0, 21'd63, 8'd1, 1'b0, 8'h91);
+    check(wr_reqs == 1 && wr_secs == 1, "10. a 1-block write at the last LBA: one request, one sector");
+    check(rd_multi == 0, "10. reads still ask one sector a request");
 
     if (fails == 0) $display("==== PASS: %0d checks, the 53C80 and the MacPlus targets meet at the bus", checks);
     else $display("==== FAIL: %0d of %0d checks", fails, checks);

@@ -85,14 +85,15 @@
 //         then the disks' io_rd[1:0], io_wr[1:0], sd_ack[1:0] and a count of
 //         sectors moved [9:0]
 // and, since plan 10.4 item 3 (the Disk figure):
-//   PSCT  440 bits, registered here on clk, free-running counters (the
+//   PSCT  464 bits, registered here on clk, free-running counters (the
 //         reader differences two reads; MacSE30.sv's meter): {clocks[39:0],
 //         a target BSY[39:0], a target's hold-off[39:0], GLUE holding the
 //         CPU for DRQ[39:0], commands (BSY rises)[23:0], then for HPS reads
 //         {requests[23:0], clocks request to sd_ack's fall summed[39:0],
 //         clocks sd_ack high[39:0], the longest request[23:0]}, then the
-//         same four for writes}: is the time the HPS round trip, the bus,
-//         or the Mac
+//         same four for writes, then the sectors the write requests carried
+//         [23:0] (since compile 39's multi-block writes)}: is the time the
+//         HPS round trip, the bus, or the Mac
 // and, since plan 11.3 (the ASC):
 //   PASC  32 bits, registered here on clk: se30_asc's dbg {mode[1:0], $804
 //         [3:0], FIFO A's count [10:0], FIFO B's count [10:0], interrupts
@@ -150,7 +151,7 @@ module dbg_probes (
 	input  wire [56:0] exc_state,         // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
 	input  wire [63:0] cache_state,       // PCCH: the 68030's caches (plan 1.16.3)
 	input  wire [31:0] scsi_state,        // PSCS: the SCSI bus and the disks' slots (plan 9.8)
-	input  wire [439:0] scsi_meter,       // PSCT: the SCSI disk's time (plan 10.4 item 3)
+	input  wire [463:0] scsi_meter,       // PSCT: the SCSI disk's time (plan 10.4 item 3)
 	input  wire [31:0] scc_state,         // PSCC: the SCC (plan 10.5)
 	input  wire [31:0] asc_state          // PASC: the ASC (plan 11.3)
 );
@@ -303,11 +304,11 @@ module dbg_probes (
 
 	// the SCSI disk's time (the header's PSCT): one probe, so one read is
 	// one moment's counters
-	reg [439:0] psct_r = 0;
+	reg [463:0] psct_r = 0;
 	always @(posedge clk) psct_r <= scsi_meter;
 
 	altsource_probe #(
-		.instance_id ("PSCT"), .probe_width (440), .source_width (1),
+		.instance_id ("PSCT"), .probe_width (464), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_psct (.probe(psct_r), .source(), .source_clk(clk), .source_ena(1'b1));
 

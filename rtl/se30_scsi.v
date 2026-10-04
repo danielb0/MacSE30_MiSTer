@@ -47,8 +47,9 @@ module se30_scsi #(
   output     [63:0] io_lba,            // {disk 1, disk 0}
   output      [1:0] io_rd,
   output      [1:0] io_wr,
+  output     [11:0] io_blk_cnt,        // {disk 1, disk 0}: hps_io sd_blk_cnt, a write request's sectors - 1
   input       [1:0] io_ack,
-  input       [7:0] sd_buff_addr,
+  input      [12:0] sd_buff_addr,      // hps_io's word address (a multi-block write's runs past 255)
   input      [15:0] sd_buff_dout,
   output     [31:0] sd_buff_din,       // {disk 1, disk 0}
   input             sd_buff_wr,
@@ -106,11 +107,11 @@ module se30_scsi #(
       .bsy(t_bsy[i]), .msg(t_msg[i]), .cd(t_cd[i]), .io(t_io[i]), .req(t_req[i]),
       .din(b_db), .dout(t_dout[i]),
       .img_mounted(img_mounted[i]), .img_blocks(img_blocks),
-      .io_lba(io_lba[32*i +: 32]), .io_rd(io_rd[i]), .io_wr(io_wr[i]),
+      .io_lba(io_lba[32*i +: 32]), .io_rd(io_rd[i]), .io_wr(io_wr[i]), .io_blk_cnt(io_blk_cnt[6*i +: 6]),
       // as the MacPlus core frames its disks: the ack blanked once the
       // target has left the bus; the buffer writes framed by this slot's ack
       .io_ack(io_ack[i] & t_bsy[i]),
-      .sd_buff_addr(sd_buff_addr), .sd_buff_addr_hi(5'd0),
+      .sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_addr_hi(sd_buff_addr[12:8]),
       .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[16*i +: 16]),
       .sd_buff_wr(sd_buff_wr & io_ack[i]),
       .data_holdoff(t_holdoff[i]),
