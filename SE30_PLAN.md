@@ -14606,7 +14606,7 @@ Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
   profile (core clocks against the budget, by the decoder's row) would
   show it - another compile, Daniel's call.
 - **THE PROFILE ON THE BOARD (compile 41, Daniel, 2026-10-04 22:25-22:30;
-  `profile_math41.csv`, `profile_cpu41.csv` in the repo root, untracked).**
+  `tools/time030/profiles/profile_math41.csv` and `profile_cpu41.csv`).**
   Math 1.129 (40.05 s counted): 72,953,830 instructions, 627.5 M C16M
   clocks against a budget of 567.1 M - **the core 1.106 x its budget**;
   the top rows Bcc.B 14.6 %, MOVE EA,An 9.6 %, RTS 6.6 %, MOVE EA,Dn 5.3 %,
