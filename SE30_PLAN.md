@@ -14913,6 +14913,12 @@ Daniel - add to it, move items out when fixed).**
    32-bit (MODE32 or a clean ROM), unlike our stock 8 MB. Math is not
    explained by it: Low End Mac's own SE/30 reads 0.96-0.98, agreeing with
    the record's 0.97 (its RAM unstated).
+   **Daniel's ruling: the built-in record is not a credible benchmark;
+   Low End Mac's figures are the reference** (CPU 0.26, Graphics 0.16, Math
+   0.96-0.98, Disk 0.70-0.77 internal; core 0.27 / 0.16 / 1.13 / 1.09:
+   1.04 / 1.00 / 1.15-1.18 / faster by design). The record is kept only as
+   a rough guide for the CPU-bound rows Low End Mac does not give (the
+   integer and FPU benchmarks), never to tune against.
    **The MacLC core shows the same pattern** (Daniel, 2026-10-04 23:57,
    `20261004_235702-screen.png`, against Speedometer's built-in Mac LC
    record): CPU 0.20 / 0.22 (0.91), **Math 0.67 / 0.59 (1.14)**, benchmark
