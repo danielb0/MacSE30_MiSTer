@@ -2981,6 +2981,17 @@ development and the compile", and compile 35 right after 34).
    contention check), started 02:56 from the worktree; result in
    `C:\Git\MacSE30_wpb\sim\gcrread\run_sdram.log` (28/28 passed on
    2026-10-03 with the old controller).
+   **07:00 status: still running, and over my estimate.** The "about
+   four hours" in run.sh's header predates the second drive; part 4 now
+   reads each cylinder on both drives in turn, with a select, seek and
+   power-up at every switch. So far all clean: 22 checks passed, then
+   cylinder 0 of both drives - 48 sectors byte for byte, 0 bad, 0 errors,
+   0 bytes taken unread or twice - at 5.54 s simulated; it simulates
+   about 1.45 s an hour, with four cylinder pairs, 4b and the final
+   checks (the contention check among them) to go - another 3-5 hours
+   by that rate. It uses one core and blocks nothing; Daniel approved
+   ~4 h, so it is his to stop: `taskkill //PID 44092` (Git Bash) or
+   `Stop-Process -Id 44092` (PowerShell).
 4. **To decide: the ATC fast path's structure** (it must meet timing
    by design, not by fit). Options for the morning:
    - **a. A small fast-path ATC in front of the 22 entries** (2-4 most
