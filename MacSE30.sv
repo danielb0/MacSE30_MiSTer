@@ -66,11 +66,27 @@ assign VIDEO_ARX = (!ar) ? 12'd256 : (ar - 1'd1);
 assign VIDEO_ARY = (!ar) ? 12'd171 : 12'd0;
 
 `include "build_id.v"
+
+// The external floppy drive (plan 5.14) is a build option (plan 10.4 item
+// 3, compile 37): define SE30_EXT_DRIVE for the second FDHD on the DB-19,
+// its OSD mount, its image loader and track encoder.  Without it the
+// machine has the internal drive alone, as Daniel's LC core does, and the
+// logic goes to the features still to build.  The benches (sim/machine,
+// sim/gcrread) instantiate se30_machine with EXT_DRIVE = 1 regardless.
+// `define SE30_EXT_DRIVE
+`ifdef SE30_EXT_DRIVE
+localparam EXT_DRIVE = 1;
+`else
+localparam EXT_DRIVE = 0;
+`endif
+
 localparam CONF_STR = {
 	"MACSE30;;",
 	"-;",
 	"S0,DSKIMG,Mount Internal Floppy;",
+`ifdef SE30_EXT_DRIVE
 	"S1,DSKIMG,Mount External Floppy;",
+`endif
 	"-;",
 	"SC2,IMGVHD,Mount SCSI-0;",
 	"SC3,IMGVHD,Mount SCSI-1;",
@@ -311,6 +327,7 @@ se30_flp_encoder flp_encoder
 	.dbg(en_dbg)
 );
 
+generate if (EXT_DRIVE) begin : ext   // the external drive's chain (the option above)
 se30_flp_loader #(.BASE(24'h900000)) flp2_loader
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
@@ -332,6 +349,26 @@ se30_flp_encoder #(.BASE(24'h900000)) flp2_encoder
 	.mem_req(en2_req), .mem_addr(en2_addr), .mem_rdata(en2_rdata), .mem_ack(en2_ack),
 	.dbg(en2_dbg)
 );
+end else begin : noext   // no external drive: no image, no disk, no port requests
+assign flp2_sd_lba   = 32'd0;
+assign sd_rd[1]      = 1'b0;
+assign disk2_in      = 1'b0;
+assign img2_ds       = 1'b0;
+assign img2_800k     = 1'b0;
+assign img2_tags     = 1'b0;
+assign flp2_readonly = 1'b0;
+assign flp2_loading  = 1'b0;
+assign ld2_req       = 1'b0;
+assign ld2_addr      = 24'd0;
+assign ld2_wdata     = 16'd0;
+assign ld2_dbg       = 16'd0;
+assign en2_req       = 1'b0;
+assign en2_addr      = 24'd0;
+assign en2_dbg       = 16'd0;
+assign trk2_cyl      = 7'd0;
+assign trk2_valid    = 1'b0;
+assign trk2_bit      = 1'b0;
+end endgenerate
 
 se30_flp_dkmux flp_dkmux
 (
@@ -414,7 +451,7 @@ always @(posedge clk_sys) begin
 	if ((sd_ack[2] && !scsi_ack_q[0]) || (sd_ack[3] && !scsi_ack_q[1])) scsi_sectors <= scsi_sectors + 1'd1;
 end
 
-se30_machine machine
+se30_machine #(.EXT_DRIVE(EXT_DRIVE)) machine
 (
 	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n),
 	.mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),

@@ -76,7 +76,8 @@
 module se30_machine #(
   parameter DECLROM_HEX = "",          // the video's declaration ROM preload, for the benches
   parameter V_TOTAL     = 370,
-  parameter FPU_UCODE   = "rtl/fpu/ucode/"   // the 68882's microcode images (the benches: ../../rtl/fpu/ucode/)
+  parameter FPU_UCODE   = "rtl/fpu/ucode/",  // the 68882's microcode images (the benches: ../../rtl/fpu/ucode/)
+  parameter EXT_DRIVE   = 1                  // the external FDHD on /ENBL2 (plan 5.14; a build option, 10.4 item 3: MacSE30.sv passes 0 unless SE30_EXT_DRIVE is defined)
 ) (
   input         clk,
   input         phi1,
@@ -400,12 +401,25 @@ module se30_machine #(
     .cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .dbg(fdhd_dbg));
 
-  se30_fdhd fdhd_ext (
-    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
-    .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
-    .sense(fdhd2_sense), .disk_in(disk2_in), .eject(disk2_eject),
-    .cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
-    .dbg(dbg_fdhd2));
+  // the external drive is a build option (plan 10.4 item 3, compile 37):
+  // EXT_DRIVE = 0 leaves the DB-19 empty - nothing on /ENBL2, so its RD
+  // reads 1 as an absent drive's does and the ROM's drive-2 probes find
+  // no drive - and its disk interface quiet.  The benches keep it.
+  generate if (EXT_DRIVE) begin : ext
+    se30_fdhd fdhd_ext (
+      .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+      .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
+      .sense(fdhd2_sense), .disk_in(disk2_in), .eject(disk2_eject),
+      .cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+      .dbg(dbg_fdhd2));
+  end else begin : noext
+    assign fdhd2_sense = 1'b1;
+    assign disk2_eject = 1'b0;
+    assign disk2_cyl   = 7'd0;
+    assign trk2_addr   = 17'd0;
+    assign trk2_side   = 1'b0;
+    assign dbg_fdhd2   = 16'd0;
+  end endgenerate
 
   // ------------------------------------------------------------ video
   // slot $E: GLUE's slot select at $FExxxxxx (plan 2.10 item 2: A23-A17

@@ -14303,6 +14303,24 @@ routing. The second integer pipeline was removed to close.
 3. **The second floppy drive removed once SCSI is fully up** (Daniel,
    2026-10-03: "The LC only has one and it is not really necessary"): -830
    now, -1,300 to -1,600 once writing and 1.4 MB are built.
+   **Done 2026-10-04 as a build option, for compile 37** (Daniel, 10:50:
+   agreed, after the fast set, one change per compile; he recalls the
+   second drive as over 1,000 ALMs - this compile measures it). Not
+   deleted: `MacSE30.sv` has `` `define SE30_EXT_DRIVE `` commented out,
+   which sets `EXT_DRIVE` = 0; without it the OSD's "Mount External
+   Floppy" line, the external drive's loader and encoder (`generate`) and
+   its hps_io reads are gone, and `se30_machine` (new parameter
+   `EXT_DRIVE`, passed from the top, default 1 for the benches) generates
+   no `fdhd_ext`: its RD reads 1 as an absent drive's, so the ROM's
+   drive-2 probes find nothing on /ENBL2, as on an SE/30 with the DB-19
+   empty. The disk-port mux keeps its four ways with two requests tied
+   low (the fitter trims them); hps_io keeps VDNUM = 4 with slot 1 idle,
+   so the SCSI slots stay 2 and 3; the PFL2 probe word reads 0. The
+   benches are untouched: `sim/machine` passes 17 checks with the
+   default (two drives) and with `EXT_DRIVE` forced to 0 (`vsim
+   -g/tb_se30_machine/machine/EXT_DRIVE=0`, under `MSYS_NO_PATHCONV=1` in
+   Git Bash); `sim/gcrread` keeps both drives for the full floppy test
+   later (1.17.7: the overnight run was stopped for this reason).
 4. DC42 support: -150 to -250.
 
 Options (the colour card, the 128 MB clean ROM) are decided when the base
