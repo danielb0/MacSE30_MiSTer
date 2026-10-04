@@ -14559,6 +14559,26 @@ Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
   busy time a large share of the Math test -> the FPU's side; SANE calls
   and little FPU time -> integer code (the pacing); many fetch misses ->
   the cache's share.
+- **ON THE BOARD (compile 40, Daniel, 2026-10-04 21:07-21:08): Speedometer
+  4.02 Math 1.151.** `fputime` either side (66.7 s window): 273,898 FPU
+  instructions (command CIR writes) and 10,346 conditionals, 1,429,855 CIR
+  cycles; **the CPU in bus cycles to the 68882 0.27 s (0.4 %), the 68882
+  busy 0.09 s (0.1 %)**; SANE `_FP68K` 30,977, `_Elems68K` 0, every A-line
+  trap 1,093,348; **instruction fetches 93.7 M from the bus against 27.5 M
+  I-cache hits - 77 % missed the cache**. (Since boot before the test:
+  112 FPU instructions, 8 `_FP68K`.) **So Math is not the 68882**: even at
+  60 clocks an FPU instruction it would be under 2 % of the test. It is
+  integer code - SANE and a million Toolbox traps - running mostly from
+  outside the 256-byte I-cache.
+- **The withdrawn fetch correction, revisited on this evidence**: Math
+  core/real 1.151 / 0.96-0.98 = 1.17-1.20, in the uncached regime; the
+  core's uncached DBRA against the manual's NCC formula 12 / 10.2 = 1.18;
+  CPU (cached loops) 1.00-1.04. The core charges a miss at the bottom of
+  the manual's documented range; a real SE/30's Speedometer, in that
+  regime, says the machine runs near the top. Against it only the chime
+  by ear (~0.7 s, both; 18 % would be ~0.13 s). To check before building:
+  `fputime` around Speedometer's CPU test - few misses there predicts the
+  correction leaves CPU and brings Math down.
 - **Compile 40** (tag `f7c95109`, 33 min): 37,953 ALMs (+374 on compile
   39: PFPU's counters and its 408-bit capture); our clocks meet at every
   corner (clk_sys +1.183 worst, clk_mem +0.815, the capture clocks +2.29,
