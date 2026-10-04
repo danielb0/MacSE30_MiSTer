@@ -2992,6 +2992,15 @@ development and the compile", and compile 35 right after 34).
    by that rate. It uses one core and blocks nothing; Daniel approved
    ~4 h, so it is his to stop: `taskkill //PID 44092` (Git Bash) or
    `Stop-Process -Id 44092` (PowerShell).
+   **09:00: still clean, and much longer than that.** 8.8 s simulated;
+   cylinder 0 of both drives took 3.0 s (2.52 to 5.54) and the cylinder
+   16 pair is not done at 3.3 s - against 0.3 s a cylinder in the old
+   single-drive runs. Every drive switch is a select and the ROM's
+   power-up wait, which fits most of it; part 7's "each side inside two
+   revolutions" will say whether the reads themselves slowed. At ~3.3 s
+   a pair and 1.45 s an hour the run ends around 16:00-17:00, ~14 hours
+   in all - far past the ~4 h Daniel approved. Left running (his rule:
+   tests run to completion), for him to keep or stop.
 4. **To decide: the ATC fast path's structure** (it must meet timing
    by design, not by fit). Options for the morning:
    - **a. A small fast-path ATC in front of the 22 entries** (2-4 most
