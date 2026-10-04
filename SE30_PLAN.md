@@ -14916,6 +14916,17 @@ Daniel - add to it, move items out when fixed).**
    Speedometer 4.02's Math on MAME's `macse30` (Daniel has it set up) -
    high there too = the benchmark or the reference; ~0.97 = something the
    two FPGA cores share.
+   **DONE (Daniel, 2026-10-05 ~00:10, MAME 0.289 `macse30`, 8 MB, the
+   clean 18:39 backup as `C:\temp\Mac\mame\se30_bench.chd`): CPU 0.289,
+   Graphics 0.247, Disk 2.766, Math 1.390, PR 0.364.** Against the record:
+   CPU 1.07, **Math 1.43**. Math's excess over the CPU ratio, against the
+   real records: MAME 1.34, the MacLC core 1.25, **our core 1.16** - three
+   independent CPU timing models (MAME's approximate 68030, the LC's
+   unpaced TG68K, our paced kernel) all run Speedometer's Math fast
+   relative to its CPU test. **So the cause is most likely on the
+   reference's side, or a real-hardware effect none of them models - not
+   our core; and ours is the closest of the three.** (MAME's emulated
+   clocks keep its scores valid at any host speed.)
 2. **Disk is faster than a real SE/30** (Speedometer 1.12 against
    0.70-0.77) - by design: full speed, never paced (Daniel, 10.4 item 3).
 3. **Deleting a file never removes its file thread record** - an
