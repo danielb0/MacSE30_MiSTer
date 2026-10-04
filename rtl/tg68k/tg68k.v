@@ -102,6 +102,8 @@ module tg68k (
   output [31:0] dbg_d7,                //   keeps a failed test's code there (plan 3.8 item 23)
   output [56:0] dbg_exc,               // {an exception taken (one clk), its vector number, the opcode, its PC}:
                                        //   the probe deck's PEXC and PTRP (plan 5.12.12 item 8)
+  output [35:0] dbg_pace,              // one instruction released by the pace: {release (one clk), its decoder row[7:0],
+                                       //   clocks it took[8:0], its budget[9:0], its fetches' wait states[7:0]} (PPRF, plan 10.4 item 4)
   output [63:0] dbg_cache              // {CDIS*, 1'b0, CACR[13:0], instruction hits[23:0], data hits[23:0]}:
                                        //   the probe deck's PCCH (plan 1.16.3); the counts wrap
 );
@@ -448,11 +450,12 @@ module tg68k (
   wire        d_ea_on, d_ea_ophead;
   wire  [4:0] d_ea_h, d_op_h;
   wire  [1:0] d_ea_t, d_op_t, d_br, d_mvm;
+  wire  [7:0] d_row;
   wire  [5:0] d_ea_cc;
   wire  [6:0] d_op_cc, d_op_cc_t;
   se30_pace030 pace (
     .op(p_op), .ea_on(d_ea_on), .ea_ophead(d_ea_ophead), .ea_h(d_ea_h), .ea_t(d_ea_t), .ea_cc(d_ea_cc),
-    .op_h(d_op_h), .op_t(d_op_t), .op_cc(d_op_cc), .op_cc_t(d_op_cc_t), .br(d_br), .mvm(d_mvm));
+    .op_h(d_op_h), .op_t(d_op_t), .op_cc(d_op_cc), .op_cc_t(d_op_cc_t), .br(d_br), .mvm(d_mvm), .row(d_row));
   // the decoder's answer, registered: settled two clocks before the earliest next decision
   reg         r_ea_on;
   reg   [5:0] r_ea_h;    // the EA's head, the op's included where the manual says "n + op head"
@@ -461,13 +464,14 @@ module tg68k (
   reg   [5:0] r_ea_cc;
   reg   [6:0] r_op_cc, r_op_cc_t;
   reg         r_taken;   // a branch: the next instruction is not the one that follows
+  reg   [7:0] r_row;     // the decoder's row, for the profile (dbg_pace)
   wire  [2:0] p_ilen  = (d_br == 2'd2) ? 3'd4 : (p_op[7:0] == 8'h00) ? 3'd4 : (p_op[7:0] == 8'hFF) ? 3'd6 : 3'd2;
   always @(posedge clk) begin
     r_ea_on  <= d_ea_on && (d_ea_cc != 6'd0);
     r_ea_h   <= {1'b0, d_ea_h} + (d_ea_ophead ? {1'b0, d_op_h} : 6'd0);
     r_ea_t   <= d_ea_t; r_ea_cc <= d_ea_cc;
     r_op_h   <= d_op_h; r_op_t <= d_op_t; r_op_cc <= d_op_cc; r_op_cc_t <= d_op_cc_t;
-    r_br     <= d_br; r_mvm <= d_mvm;
+    r_br     <= d_br; r_mvm <= d_mvm; r_row <= d_row;
     r_taken  <= (d_br != 2'd0) && (k_opcode_pc != p_pc + {29'd0, p_ilen});
   end
   wire  [5:0] p_ov_ea  = (r_ea_h < p_tail) ? r_ea_h : p_tail;                          // min(head, tail before)
@@ -486,6 +490,9 @@ module tg68k (
   wire        p_due    = ({1'b0, p_cnt} >= p_budget);
   wire        p_go     = p_rel || p_due || !pace_en;
   assign      pace_stall = k_decode && !p_go;
+  // the profile (dbg_pace): the instruction running ends at its release
+  wire        p_release = phi1 && k_decode && !p_rel && p_go;
+  assign      dbg_pace  = {p_release, r_row, p_cnt, p_budget, p_fcred};
   // a cycle's clocks: p_cyc + 1 clk edges with s != 0 at its S5, two a C16M, S0 and S1 before them
   wire  [4:0] p_edges  = p_cyc + 5'd1;
   wire  [4:0] p_len    = {1'b0, p_edges[4:1]} + 5'd1;                                   // C16M clocks

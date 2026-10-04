@@ -37,6 +37,13 @@
 #                                                SANE traps, the I-cache's misses
 #                                                and hits; differences from the last
 #                                                fputime (default fputime_last.txt)
+#   ... profile start | stop | read [file]       the pace's time profile (PPRF, plan
+#                                                10.4 item 4): start clears and
+#                                                counts, stop stops, read prints every
+#                                                decoder row (tools/time030/
+#                                                pace_rows.txt) by its share of the
+#                                                clocks and writes them to file
+#                                                (default profile_last.csv)
 #
 # The board is never flashed from here (the standing rule); the writes above
 # are to the SDRAM, through the design's own controller, for measurement.
@@ -59,7 +66,7 @@ set samples 1
 set delay   1.0
 set op      ""
 set opargs  {}
-if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime fputime} [lindex $argv 0]] >= 0} {
+if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime fputime profile} [lindex $argv 0]] >= 0} {
 	set op     [lindex $argv 0]
 	set opargs [lrange $argv 1 end]
 } else {
@@ -244,6 +251,81 @@ if {$op eq "fputime"} {
 	}
 	set fh [open $f w]; puts $fh [array get now]; close $fh
 	puts "  snapshot saved to $f"
+	end_insystem_source_probe
+	exit 0
+}
+
+if {$op eq "profile"} {
+	# rtl/dbg_probes.sv's PPRF: source {enable, clear toggle, row[7:0]};
+	# probe {row[7:0], count[31:0], clocks[39:0], budget[39:0], fetch wait
+	# states[31:0], clocks enabled[39:0], enabled, clearing}
+	if {![have PPRF]} { puts "ERROR: this bitstream has no PPRF (built before plan 10.4 item 4's profile)"; end_insystem_source_probe; exit 1 }
+	set sub [lindex $opargs 0]
+	set cur [expr 0x[read_source_data -instance_index $idx(PPRF) -value_in_hex]]
+	proc pr_src {v} { global idx; write_source_data -instance_index $idx(PPRF) -value_in_hex -value [format %03X $v] }
+	if {$sub eq "start"} {
+		set cur [expr {($cur & 0x100) ^ 0x100}]
+		pr_src $cur
+		set n 0
+		while {([rd PPRF] & 1) || $n < 2} { after 5; incr n; if {$n > 200} break }
+		pr_src [expr {$cur | 0x200}]
+		puts [format "  profile cleared and counting (enable=%d)" [expr {([rd PPRF] >> 1) & 1}]]
+	} elseif {$sub eq "stop"} {
+		pr_src [expr {$cur & 0x100}]
+		set v [rd PPRF]
+		puts [format "  profile stopped: %.3f s counted" [expr {(($v >> 2) & ((1 << 40) - 1)) / 31.3344e6}]]
+	} elseif {$sub eq "read"} {
+		if {($cur >> 9) & 1} { puts "  (counting: stop it first)"; end_insystem_source_probe; exit 1 }
+		set names {}
+		set rf [file join [file dirname [info script]] .. tools time030 pace_rows.txt]
+		array set rname {}
+		if {[file exists $rf]} {
+			set fh [open $rf r]
+			foreach line [split [read $fh] "\n"] {
+				if {$line eq "" || [string index $line 0] eq "#"} continue
+				set f [split $line "\t"]
+				set rname([lindex $f 0]) "[lindex $f 2] [lindex $f 3]"
+			}
+			close $fh
+		}
+		set rows {}
+		set tclk 0; set tcnt 0; set tbud 0; set ten 0
+		for {set r 0} {$r < 256} {incr r} {
+			pr_src [expr {($cur & 0x100) | $r}]
+			set n 0
+			while {1} {
+				set v [rd PPRF]
+				if {(($v >> 186) & 0xFF) == $r} break
+				if {[incr n] > 50} { puts "  row $r: no answer"; break }
+			}
+			set fc  [expr {($v >> 42) & 0xFFFFFFFF}]
+			set bud [expr {($v >> 74) & ((1 << 40) - 1)}]
+			set clk [expr {($v >> 114) & ((1 << 40) - 1)}]
+			set cnt [expr {($v >> 154) & 0xFFFFFFFF}]
+			set ten [expr {($v >> 2) & ((1 << 40) - 1)}]
+			if {$cnt == 0} continue
+			lappend rows [list $r $cnt $clk $bud $fc]
+			incr tclk $clk; incr tcnt $cnt; incr tbud $bud
+		}
+		set f [expr {[llength $opargs] >= 2 ? [lindex $opargs 1] : "profile_last.csv"}]
+		set fh [open $f w]
+		puts $fh "row,name,count,clocks,budget,fetch_ws"
+		puts [format "  counted %.3f s (%u C16M clocks); %u instructions released, %u clocks in them (budget %u: the core %.3f of its budget)" \
+			[expr {$ten / 31.3344e6}] [expr {$ten / 2}] $tcnt $tclk $tbud [expr {$tbud > 0 ? double($tclk) / $tbud : 0}]]
+		puts "   row  share   count       avg clk  avg bud  avg fetch-ws  name"
+		foreach e [lsort -integer -decreasing -index 2 $rows] {
+			lassign $e r cnt clk bud fc
+			set nm [expr {[info exists rname($r)] ? $rname($r) : "?"}]
+			puts $fh "$r,\"$nm\",$cnt,$clk,$bud,$fc"
+			puts [format "  %4d %5.1f%% %10u  %8.2f %8.2f %8.2f      %s" $r [expr {$tclk > 0 ? 100.0 * $clk / $tclk : 0}] $cnt \
+				[expr {double($clk) / $cnt}] [expr {double($bud) / $cnt}] [expr {double($fc) / $cnt}] $nm]
+		}
+		close $fh
+		puts "  written to $f"
+		pr_src [expr {$cur & 0x100}]
+	} else {
+		puts "usage: profile start | stop | read \[file\]"
+	}
 	end_insystem_source_probe
 	exit 0
 }

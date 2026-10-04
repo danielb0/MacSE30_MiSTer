@@ -180,6 +180,7 @@ module se30_machine #(
   output [31:0] dbg_scc,               // PSCC: the SCC (se30_scc.v's dbg, plan 10.5)
   output [31:0] dbg_asc,               // PASC: the ASC (se30_asc.v's dbg, plan 11.3)
   output  [1:0] dbg_fpu,               // PFPU: {the 68882 not idle, its APU running} (plan 10.4 item 4)
+  output [35:0] dbg_pace,              // PPRF: the pace's per-instruction event (tg68k.v's dbg_pace, plan 10.4 item 4)
   output [15:0] audio_l,               // the ASC's channels, signed PCM after its volume (plan 11.3)
   output [15:0] audio_r
 );
@@ -196,7 +197,7 @@ module se30_machine #(
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(cpu_cdis), .pace_en(pace_en), .post_en(1'b1), .reset_out_n(reset_out_n), .halted(halted),
-    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache));
+    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_pace(dbg_pace));
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;
   assign dbg_rw_n = cpu_rw_n;  assign dbg_dsack_n = dsack_n;  assign dbg_berr = berr;

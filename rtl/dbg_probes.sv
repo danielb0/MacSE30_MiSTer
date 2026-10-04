@@ -106,6 +106,17 @@
 //         instruction fetch bus cycles (the I-cache's misses and uncached
 //         fetches) [39:0], the I-cache's hits [39:0]}: is Math's time the
 //         68882's, SANE's integer code, or cache misses
+//   PPRF  the pace's time profile (plan 10.4 item 4): per row of the
+//         instruction timing decoder (tools/time030/pace_rows.txt), while
+//         enabled, the instructions released [31:0], the C16M clocks they
+//         took summed [39:0] (each saturates at 511), their budgets
+//         (Equation 11-2 with the wait states) summed [39:0] and their
+//         instruction fetches' wait states summed [31:0], in a 256-row
+//         block RAM. Source {enable, clear (a toggle), row[7:0]}: clear
+//         zeroes the RAM (256 clocks), enable counts; with enable low the
+//         probe reads the row selected. Probe {row[7:0], the four
+//         counters, clocks enabled[39:0], enabled, clearing}. read_probes
+//         .tcl profile start | stop | read
 // and, since plan 11.3 (the ASC):
 //   PASC  32 bits, registered here on clk: se30_asc's dbg {mode[1:0], $804
 //         [3:0], FIFO A's count [10:0], FIFO B's count [10:0], interrupts
@@ -166,7 +177,8 @@ module dbg_probes (
 	input  wire [463:0] scsi_meter,       // PSCT: the SCSI disk's time (plan 10.4 item 3)
 	input  wire [31:0] scc_state,         // PSCC: the SCC (plan 10.5)
 	input  wire [31:0] asc_state,         // PASC: the ASC (plan 11.3)
-	input  wire  [1:0] fpu_state          // PFPU: {the 68882 not idle, its APU running} (plan 10.4 item 4)
+	input  wire  [1:0] fpu_state,         // PFPU: {the 68882 not idle, its APU running} (plan 10.4 item 4)
+	input  wire [35:0] pace_ev            // PPRF: {release, decoder row[7:0], clocks[8:0], budget[9:0], fetch wait states[7:0]} (plan 10.4 item 4)
 );
 
 	reg        as_q = 1;
@@ -383,6 +395,60 @@ module dbg_probes (
 		.instance_id ("PFPU"), .probe_width (408), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pfpu (.probe(pfpu_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the pace's time profile (the header's PPRF). A release comes at most
+	// every other clk (on phi1): the row is read on the release's edge and
+	// written back, the event added, on the next - so the following
+	// release's read sees it.
+	wire  [9:0] pr_src;
+	reg   [2:0] pr_en_s = 0;                    // enable, synchronised
+	reg   [2:0] pr_clr_s = 0;                   // the clear toggle, synchronised (and its last value)
+	reg   [7:0] pr_sel = 0, pr_sel_q = 0;       // the row to read, and the row pr_q holds
+	reg         pr_clearing = 0;
+	reg   [7:0] pr_clr_a = 0;
+	reg  [39:0] pr_clk = 0;                     // clocks counted while enabled
+	reg [143:0] pr_ram [0:255];
+	reg [143:0] pr_q;
+	reg         pr_v = 0;                       // a release's row in pr_q: add it back
+	reg   [7:0] pr_row = 0;
+	reg   [8:0] pr_cnt = 0;
+	reg   [9:0] pr_bud = 0;
+	reg   [7:0] pr_fc = 0;
+	wire        pr_en  = pr_en_s[1] && !pr_clearing;
+	wire        pr_ev  = pace_ev[35] && pr_en;
+	wire  [7:0] pr_ra  = pr_en ? pace_ev[34:27] : pr_sel;
+	wire [143:0] pr_sum = {pr_q[143:112] + 32'd1,
+	                       pr_q[111:72] + {31'd0, pr_cnt},
+	                       pr_q[71:32]  + {30'd0, pr_bud},
+	                       pr_q[31:0]   + {24'd0, pr_fc}};
+	always @(posedge clk) pr_q <= pr_ram[pr_ra];
+	always @(posedge clk) begin
+		if (pr_clearing) pr_ram[pr_clr_a] <= 144'd0;
+		else if (pr_v)   pr_ram[pr_row] <= pr_sum;
+	end
+	always @(posedge clk) begin
+		pr_en_s  <= {pr_en_s[1:0], pr_src[9]};
+		pr_clr_s <= {pr_clr_s[1:0], pr_src[8]};
+		pr_sel   <= pr_src[7:0];
+		pr_sel_q <= pr_sel;
+		pr_v     <= pr_ev;
+		if (pr_ev) begin
+			pr_row <= pace_ev[34:27]; pr_cnt <= pace_ev[26:18]; pr_bud <= pace_ev[17:8]; pr_fc <= pace_ev[7:0];
+		end
+		if (pr_en) pr_clk <= pr_clk + 1'd1;
+		if (pr_clr_s[2] != pr_clr_s[1]) begin pr_clearing <= 1'b1; pr_clr_a <= 8'd0; pr_clk <= 40'd0; end
+		else if (pr_clearing) begin
+			pr_clr_a <= pr_clr_a + 1'd1;
+			if (pr_clr_a == 8'hFF) pr_clearing <= 1'b0;
+		end
+	end
+	reg [193:0] pprf_r = 0;
+	always @(posedge clk) pprf_r <= {pr_sel_q, pr_q, pr_clk, pr_en_s[1], pr_clearing};
+
+	altsource_probe #(
+		.instance_id ("PPRF"), .probe_width (194), .source_width (10),
+		.sld_auto_instance_index ("YES")
+	) cp_pprf (.probe(pprf_r), .source(pr_src), .source_clk(clk), .source_ena(1'b1));
 
 	// the caches (the header's PCCH)
 	reg [63:0] pcch_r = 0;

@@ -28,6 +28,10 @@ What is decided here, and the simplifications (all noted in the plan):
   - MOVEM: the row's fixed clocks (8 or 4) plus, per register, 4 (reads) or
     2 (writes) - the wrapper adds mvm per data cycle.
 
+The module also names the pattern that matched (row, 0-254 in the order
+below, 255 none) for the probe deck's time profile (SE30_PLAN.md 10.4 item
+4); tools/time030/pace_rows.txt lists them.
+
 Run: python tools/time030/gen_pace030.py   (writes rtl/tg68k/se30_pace030.v)
 """
 import os
@@ -38,6 +42,7 @@ sys.path.insert(0, HERE)
 import um11  # noqa: E402
 
 OUT = os.path.join(HERE, "..", "..", "rtl", "tg68k", "se30_pace030.v")
+ROWS = os.path.join(HERE, "pace_rows.txt")
 
 # ---------------------------------------------------------------- the EA tables
 # ea table codes
@@ -364,7 +369,8 @@ def main():
     w("  output reg  [6:0] op_cc,")
     w("  output reg  [6:0] op_cc_t,")
     w("  output reg  [1:0] br,")
-    w("  output reg  [1:0] mvm")
+    w("  output reg  [1:0] mvm,")
+    w("  output reg  [7:0] row        // the pattern that matched (gen_pace030.py's order, 255 none): the profile's")
     w(");")
     w("")
     for tbl, name in ((FEA, "f_fea"), (FIEA, "f_fiea"), (CEA, "f_cea"), (CIEA, "f_ciea"), (JEA, "f_jea")):
@@ -375,17 +381,20 @@ def main():
     w("  reg [13:0] ea;")
     w("")
     w("  always @* begin")
-    w("    tbl = 3'd0; szs = 3'd0; op_h = 5'd0; op_t = 2'd0; op_cc = 7'd0; op_cc_t = 7'd0; br = 2'd0; mvm = 2'd0;")
+    w("    tbl = 3'd0; szs = 3'd0; op_h = 5'd0; op_t = 2'd0; op_cc = 7'd0; op_cc_t = 7'd0; br = 2'd0; mvm = 2'd0; row = 8'd255;")
     w("    casez (op)")
-    for pat, tbl, row, ea, sz, kw in P:
+    names = []
+    assert len(P) <= 255
+    for idx, (pat, tbl, row, ea, sz, kw) in enumerate(P):
         vpat = "16'b" + pat
+        names.append("%d\t%s\t%s\t%s" % (idx, pat, tbl or "-", row or "the coprocessors (F-line), unpaced"))
         if tbl is None:
-            w("      %s: ;   // the coprocessors: unpaced" % vpat)
+            w("      %s: row = 8'd%d;   // the coprocessors: unpaced" % (vpat, idx))
             continue
         r = T[tbl][row]
         cc = min(r["cc"], 127)
         alt = T[tbl][kw["alt"]] if "alt" in kw else r
-        fields = ["tbl = 3'd%d" % ea, "szs = 3'd%d" % sz,
+        fields = ["row = 8'd%d" % idx, "tbl = 3'd%d" % ea, "szs = 3'd%d" % sz,
                   "op_h = 5'd%d" % r["head"], "op_t = 2'd%d" % r["tail"], "op_cc = 7'd%d" % cc,
                   "op_cc_t = 7'd%d" % min(alt["cc"], 127)]
         if "br" in kw:
@@ -410,6 +419,9 @@ def main():
     w("endmodule")
     with open(OUT, "w", newline="\n") as f:
         f.write("\n".join(out) + "\n")
+    with open(ROWS, "w", newline="\n") as f:
+        f.write("# se30_pace030.v's row numbers (gen_pace030.py): index, opcode pattern, table, row\n")
+        f.write("\n".join(names) + "\n255\t-\t-\tno pattern\n")
     print("%s: %d patterns" % (os.path.relpath(OUT), len(P)))
 
 
