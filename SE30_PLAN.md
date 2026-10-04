@@ -14589,6 +14589,22 @@ Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
   (66 % missed)**. Even a floating-point benchmark is integer-bound
   through SANE. (PFPU's "not idle" leaves out the CU's own moves - it is
   the APU's and the hand-off's time only.)
+- **Speedometer 4.02's CPU test alone** (compile 40, 21:16:32-21:16:58,
+  28.5 s; Daniel: **0.267**, real 0.26-0.27): 1,751 FPU instructions, 188
+  `_FP68K`, 439,236 A-line traps (~15,400 a second, Math ~16,400); **25.0 M
+  fetches from the bus against 31.0 M hits - 44.6 % missed** (Math 77.3 %).
+  The prediction ("few misses") was wrong. Estimate of the fetch
+  correction at the NCC formula's level (~0.9 clock a missed fetch, the
+  DBRA gap 1.8 over two fetches): Math +~9 % of its time (93.7 M misses,
+  ~5.4 s of ~60), CPU +~5 % (25.0 M, ~1.4 s of ~28) - Math 1.151 -> ~1.06,
+  CPU 0.267 -> ~0.254. It would close about half of Math's gap and take
+  CPU slightly below the real machine: **not the whole answer; not
+  applied.** Settled: not the 68882 (under 1 % in every test). Left: what
+  in SANE's integer code (multi-word ADDX/ROXR, long shifts, MULU.L/
+  DIVU.L - the decoder charges MUL/DIV at their maxima, which errs the
+  other way) runs faster than a 68030; a per-instruction-class time
+  profile (core clocks against the budget, by the decoder's row) would
+  show it - another compile, Daniel's call.
 - **Compile 40** (tag `f7c95109`, 33 min): 37,953 ALMs (+374 on compile
   39: PFPU's counters and its 408-bit capture); our clocks meet at every
   corner (clk_sys +1.183 worst, clk_mem +0.815, the capture clocks +2.29,
