@@ -14679,6 +14679,16 @@ bitmap, the MDB's counts):
   cross-check (the same delete on an emulator running 7.5.5, or on the
   MacLC core, whose CPU shares the TG68K lineage) and/or localising it
   (the ROM's delete path, a PC probe on the board).
+- **The MacLC core (Daniel, 2026-10-04 ~21:40): Disk First Aid clean
+  after a deletion there.** Supports a fault in our core, with two
+  qualifications: (1) it counts only if the deleted files had threads
+  (launched or opened first) - the LC image through the checker would
+  confirm; (2) the File Manager is largely in ROM, and the LC's ROM is
+  newer than the SE/30's (the IIx/IIcx ROM, 97221136) and patched
+  differently by 7.5.5 - so the LC runs a different delete path than a
+  real SE/30 would. The clean proof: the same delete on a different CPU
+  implementation running the IIx/IIcx/SE/30 ROM (an emulator in IIx or
+  IIcx mode). Still parked behind the Math profile (Daniel).
 - Daniel then let Disk First Aid repair the boot volume: clean after the
   repair (2026-10-04 ~21:10). The damaged images stay on the PC for the
   cross-check (`Test disks\Corrupted\mac_80mb-restored.vhd`, compile 39;
