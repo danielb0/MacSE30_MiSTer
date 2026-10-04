@@ -14919,6 +14919,10 @@ Daniel - add to it, move items out when fixed).**
    1.04 / 1.00 / 1.15-1.18 / faster by design). The record is kept only as
    a rough guide for the CPU-bound rows Low End Mac does not give (the
    integer and FPU benchmarks), never to tune against.
+   (Where Daniel found it: the "?" button beside the machine's name in
+   Speedometer's Comparison - Machine Records window shows the record's
+   configuration. Check it before using any record - the Mac LC record
+   behind the LC core comparison included.)
    **The MacLC core shows the same pattern** (Daniel, 2026-10-04 23:57,
    `20261004_235702-screen.png`, against Speedometer's built-in Mac LC
    record): CPU 0.20 / 0.22 (0.91), **Math 0.67 / 0.59 (1.14)**, benchmark
