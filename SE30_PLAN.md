@@ -2948,7 +2948,57 @@ development and the compile", and compile 35 right after 34).
   new check that no posted beat is ever bus-errored; `sim/cpfpu` all
   twelve (b5c 26 with posting off for it, the other eleven with it on);
   `sim/busfault` 14; `sim/machine` 17.
-- **Compile 35** (tag `243581ed`): running.
+- **Compile 35** (2026-10-04 02:02-02:52, tag `243581ed`, 49.5 min;
+  archived `output_files/MacSE30_243581ed_wpb_VIOLATED.rbf`): **37,789
+  ALMs (90 %)**, 64 fewer than compile 34. **TIMING NOT MET: -2.272 ns
+  at slow 100C, -2.028 at slow -40C** (the fast corners meet; the SDRAM
+  pins keep compile 34's +2.44). Not the buffer's logic: both failing
+  paths are compile 32's same-clock ATC hit (1.17.3 option A) -
+  `RDindex_A` -> the register read -> the address adder (`Add47`) ->
+  `PMMU_030|fast_xlat` (the 22-way match) -> `fast_hit` -> `busy` ->
+  the kernel's `fetch_ok` -> `clkena_lw` -> `setstate` -> its next state
+  (`Mux456`), 34 levels, 33.4 ns against 31.9 on the CPU clock
+  (`general[0]`); and the same front through `addr_out` and the
+  wrapper's address mux to the SDRAM controller's `xs_addr` (17 levels,
+  -1.770 on `general[1]`). The path's history: +0.497 (compile 32),
+  +0.716 (33), about +0.03 (34's register-to-register worst), -2.27
+  (35) - it lives at the edge, and any change to the fit moves it: the
+  seed lottery Daniel ruled out, so the remedy is structural and his
+  call (below). **Compiles stopped here**, as agreed for a failure.
+
+**FOR DANIEL, MORNING OF 2026-10-04 - what is ready and what to decide.**
+1. **Compile 34** - `output_files/MacSE30_d3ecbe7e_dqpre.rbf` (tag
+   d3ecbe7e): timing met at every corner (+0.027 worst). Expect compile
+   33's behaviour exactly: floppy, chime, Speedometer 3.23 CPU ~4.27 /
+   Graphics ~3.57, 4.02 CPU 0.27 / Graphics 0.16. **The one to test.**
+2. **Compile 35** - `output_files/MacSE30_243581ed_wpb_VIOLATED.rbf`:
+   the write pending buffer, but -2.27 ns on the ATC path. It may run at
+   room temperature (the slow-corner model is pessimistic), but a fault
+   on it could not be told from the timing miss - test it only as a
+   preview of Graphics (expect a few % up), never as evidence.
+3. **The overnight run** - `sim/gcrread` run 2 (the real SDRAM
+   controller, compile 34's data pins, on the chip model with the new
+   contention check), started 02:56 from the worktree; result in
+   `C:\Git\MacSE30_wpb\sim\gcrread\run_sdram.log` (28/28 passed on
+   2026-10-03 with the old controller).
+4. **To decide: the ATC fast path's structure** (it must meet timing
+   by design, not by fit). Options for the morning:
+   - **a. A small fast-path ATC in front of the 22 entries** (2-4 most
+     recently used translations, compared in the same clock; any other
+     ATC hit takes the registered path, a clock later). Same
+     translations; the clock lost only when a loop touches more pages
+     than the fast entries hold. Shallower compare and mux - the levels
+     the path needs to lose.
+   - **b. Cut the path after the match**: register `fast_hit` and the
+     physical address at the half clock (1.17.3's option B in effect),
+     half the budget each side - only if the halves fit, which the
+     path's split (the match ends ~21 ns in) says they do not.
+   - **c. Back to compile 31's registered ATC** (a clock per address
+     change under the PMMU) - safe, slower; the measured loss was 8 ->
+     11 on the RAM fill.
+   My recommendation is **a**; it needs the PMMU bench suite, timetest
+   and a compile, and should be designed with the levels counted from
+   this report before it is built.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
