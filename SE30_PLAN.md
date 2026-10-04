@@ -14727,6 +14727,40 @@ bitmap, the MDB's counts):
      target is not the lever. GLUE's DRQ wait shows how much of the
      bus time the CPU actually spends held.
 
+**END OF SESSION 2026-10-04 (evening) - READ THIS TO RESUME** (supersedes
+the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
+1. **Current good bitstream: compile 40**, `output_files/MacSE30_f7c95109_
+   pfpu.rbf` (compile 39's multi-block SCSI writes + the PFPU probe; our
+   clocks meet at every corner, the framework's HDMI scaler -0.042).
+   Compile 39 (`..._6ca438bc_mbwrite.rbf`) is the same machine without
+   PFPU.
+2. **Closed today**: the Disk figure (multi-block writes: Speedometer Disk
+   0.33-0.49 -> 1.115-1.133, integrity checked; Daniel: full speed, never
+   paced); TattleTech's first page matches a real SE/30 on 7.5.5; MODE32
+   is not built into 7.5.5 (plan 1.5 corrected).
+3. **Built, NOT yet compiled: the PPRF time profile** (`3fa0bf7`) for the
+   Math figure (10.4 item 4: Math 1.151 against the real 0.96-0.98; not the
+   68882 - under 1 % in every test; SANE and Toolbox code missing the
+   I-cache 45-77 %; the fetch correction would close only half and take
+   CPU below real). Its benches at the session's end: see the commit and
+   the line below. **Next: compile it (stamp, build, sta_corners, archive),
+   then on the board `profile start` before Speedometer's Math test and
+   `profile stop` + `profile read` after; the rows with the biggest share
+   and their clocks against budget say where Math's time is too short.**
+4. **Open bug, parked by Daniel behind the Math profile: deleting a file
+   never removes its file thread** (Disk First Aid "Missing file record
+   for file thread"; 0 of 21 removed on compiles 38 and 39, so not the
+   write path; the MacLC core, from the same image, removes them as Inside
+   Macintosh says). Treated as a bug in our core - likely the CPU running
+   the IIx ROM's File Manager delete wrongly. The images are in `C:\temp\
+   Mac\Test disks\Corrupted` (`mac_80mb-restored.vhd` compile 39,
+   `-backup.vhd` compile 38, `-LC.vhd` the LC; the clean backup in
+   `MiSTer SE30 Backup`). The checkers are in `tools/hfs/` (read-only):
+   `hfs_vol.py image` (the whole volume's consistency), `hfs_threads.py
+   image [--dump ID...]` (orphan file threads), `cmp_threads.py before
+   after` (each orphan against the before image).
+5. Then: the FUTURE BOARD TESTS list (below), floppy writing.
+
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
 1. **32-bit mode with MODE32** (Daniel, 2026-10-04): install MODE32 with
