@@ -14368,6 +14368,52 @@ routing. The second integer pipeline was removed to close.
    which is more evidence that the Disk rate is the HPS block round trip
    (item 3 below). For comparisons between builds, quote the Disk figure
    from a second or later run.
+   **Daniel: ~0.43 is still far below the real machine's 0.70-0.77, so
+   the Disk gap is investigated (2026-10-04 afternoon).**
+   - **What the code says.** Speedometer's Disk test writes a 1 MB file
+     (1.17.5's catalog record: 2,048 blocks), and probably reads it back
+     (not yet seen - the meter's read and write counts will say). Our target
+     (`rtl/scsi.v`, MacPlus/LC's) asks the HPS for ONE 512-byte block per
+     request (`sd_blk_cnt` tied 0 for every slot, `MacSE30.sv`) with one
+     request in flight. Its 32-sector read ring hides the first block's
+     wait, not the rate: a read runs at 512 bytes per round trip however
+     deep the ring. Writes flush through a two-slot buffer, one block per
+     round trip. The framework's `hps_io` moves up to 32 blocks (16 KB)
+     per request (`sd_blk_cnt`, "blocks - 1"); no Mac core on this
+     hardware uses it for a disk (the Quadra 800's only for CD-DA frames).
+   - **Not known**: the round trip's length, and whether the bus is the
+     test's time at all (the File Manager and the driver run on the Mac
+     between commands). Multi-block requests cannot help with the part
+     that is the Mac's. So measure first (Daniel agreed).
+   - **The meter, compile 38** (`65f8a27`): PSCT, 440 bits of
+     free-running counters (rtl/dbg_probes.sv's header): clocks; a target
+     BSY; a target's hold-off (a data phase whose next byte the HPS has
+     not delivered); GLUE holding the CPU at `$50006000` for DRQ;
+     commands; and for HPS reads and writes the requests, the round trip
+     (io_rd/io_wr rising to sd_ack falling) summed, sd_ack's high time
+     summed (the block's transfer; the rest is Linux's response) and the
+     longest. `quartus_stp -t scripts/read_probes.tcl scsitime` prints
+     them and their differences from the previous `scsitime`. Benches:
+     sim/scsi_seam 58, sim/glue 98, sim/machine 17 PASS.
+     **Compiled** (tag `65f8a27f`, 33 min): 37,775 ALMs, 778 more than
+     compile 37 (above the few hundred estimated: thirteen wide counters
+     plus the 440-bit probe's capture and shift registers - probe-only,
+     gone in a build without USE_DBG_PROBES); timing met at every corner
+     (`sta_corners.tcl`: worst +0.105 ns, the capture met by A or B at
+     each); archived `output_files/MacSE30_65f8a27f_psct.rbf`. The
+     machine is compile 37's otherwise (no external drive).
+   - **The board test**: Speedometer open, `scsitime` just before the
+     Disk test is started and again just after it ends; twice, to see the
+     first run against a later one. The window includes the seconds
+     around the test, so read the absolute times and the per-block
+     figures, not only the percentages.
+   - **What decides what**: HPS round trip a large share of the test's
+     time -> multi-block requests (reads: fetch up to 32 blocks per
+     request into the ring; writes: flush several blocks per request),
+     the per-block Linux wait saying how much they can save. Bus busy a
+     small share -> the time is the Mac's (driver, File Manager), and the
+     target is not the lever. GLUE's DRQ wait shows how much of the
+     bus time the CPU actually spends held.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
