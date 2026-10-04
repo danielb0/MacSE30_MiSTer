@@ -7,14 +7,15 @@ hfs_threads.py on the image shows whether B's thread was removed with it (A's
 thread is the control). The HFS volume is re-laid by machfs (CNIDs renumbered,
 Desktop DB fresh, EVERY file given a thread - so the create calls return fidExists
 -1303 = $FAE9); the partition map, the other partitions and the boot blocks are kept.
-Usage: python make_fidtest.py source.vhd out.vhd"""
+Usage: python make_fidtest.py source.vhd out.vhd [--markers]  (--markers: the app writes
+$F1D7E57A to the stack before the delete and $F1D7E57B after, for a debugger's watchpoints)"""
 import sys, struct, machfs
 from macresources import Resource, make_file
 
 def pstr(s):
     b = s.encode("mac-roman"); return bytes([len(b)]) + b
 
-def assemble():
+def assemble(markers=False):
     """CODE 1: header (JT offset 0, 1 entry) then the code; PC-relative labels resolved."""
     VOL = "System 7.5.5 80MB:"
     items, labels, fix = [], {}, []
@@ -32,7 +33,9 @@ def assemble():
     for name, call, dreg in (("nameA", "7014 A260", 3), ("nameB", "7014 A260", 4), ("nameB", "A209", 5)):
         emit("41EE FF00"); lea_pc(1, name)              # LEA -256(A6),A0 ; LEA name(PC),A1
         emit("2149 0012 4268 0016 42A8 0030")           # ioNamePtr, ioVRefNum = 0, ioDirID/ioSrcDirID = 0
+        if markers and dreg == 5: emit("2F3C F1D7E57A 588F")   # MOVE.L #$F1D7E57A,-(SP) ; ADDQ.L #4,SP: a write an emulator's debugger can watch for
         emit(call)                                      # MOVEQ #$14,D0 ; _HFSDispatch (CreateFileIDRef)  |  _HDelete
+        if markers and dreg == 5: emit("2F3C F1D7E57B 588F")
         emit("3%X28 0010" % (dreg * 2))                 # MOVE.W ioResult(A0),Dn
     emit("43EE FE00"); lea_pc(0, "prefix"); emit("701C"); label("cp"); emit("12D8 51C8 FFFC")  # copy 29 bytes (len + 28)
     for d in (3, 4, 5):
@@ -55,6 +58,7 @@ def assemble():
 
 def main():
     src, out = sys.argv[1], sys.argv[2]
+    markers = len(sys.argv) > 3 and sys.argv[3] == "--markers"
     img = bytearray(open(src, "rb").read())
     pm = img[512:1024]; n = struct.unpack(">I", pm[4:8])[0]
     for i in range(n):
@@ -67,11 +71,15 @@ def main():
     for nm in ("A", "B"):
         f = machfs.File(); f.type, f.creator = b"TEXT", b"ttxt"; f.data = ("FIDTest target %s\r" % nm).encode()
         v["FIDTest " + nm] = f
-    code1 = assemble()
+    code1 = assemble(markers)
     code0 = struct.pack(">IIII", 0x28, 0x100, 8, 0x20) + bytes.fromhex("0000 3F3C 0001 A9F0")
     app = machfs.File(); app.type, app.creator = b"APPL", b"FIDT"
-    app.rsrc = make_file([Resource(b"CODE", 0, data=code0), Resource(b"CODE", 1, data=code1)])
+    sizer = struct.pack(">HII", 0x4880, 0x40000, 0x20000)   # SIZE -1: suspend/resume, activate on switch, 32-bit clean; 256K / 128K
+    app.rsrc = make_file([Resource(b"CODE", 0, data=code0), Resource(b"CODE", 1, data=code1), Resource(b"SIZE", -1, data=sizer)])
     v["System Folder"]["Startup Items"]["FIDTest"] = app
+    for folder, name in (("Control Panels", "Extensions Manager"), ("Extensions", "EM Extension")):
+        if name in v["System Folder"][folder]:
+            del v["System Folder"][folder][name]          # no Extensions Manager at startup (an emulator's stuck space bar opened it)
     vol = v.write(size=size, align=512, desktopdb=True, bootable=True)
     assert len(vol) == size, (len(vol), size)
     vol = img[base:base + 1024] + vol[1024:]                      # the original boot blocks, verbatim
