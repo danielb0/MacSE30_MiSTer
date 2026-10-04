@@ -179,6 +179,7 @@ module se30_machine #(
   output [15:0] dbg_scsi,              // PSCS: the SCSI bus (se30_scsi.v's dbg, plan 9.8)
   output [31:0] dbg_scc,               // PSCC: the SCC (se30_scc.v's dbg, plan 10.5)
   output [31:0] dbg_asc,               // PASC: the ASC (se30_asc.v's dbg, plan 11.3)
+  output  [1:0] dbg_fpu,               // PFPU: {the 68882 not idle, its APU running} (plan 10.4 item 4)
   output [15:0] audio_l,               // the ASC's channels, signed PCM after its volume (plan 11.3)
   output [15:0] audio_r
 );
@@ -259,7 +260,7 @@ module se30_machine #(
     .clk(clk), .ce(phi1), .reset(!(reset_n && reset_out_n)),
     .cs(fpu_sel), .rw(cpu_rw_n), .a(cpu_addr[4:0]), .din(cpu_dout), .dout(fpu_rdata),
     .dsack_n(fpu_dsack_n),
-    .dbg_exop(), .dbg_clocks(), .dbg_err(), .dbg_state());
+    .dbg_exop(), .dbg_clocks(), .dbg_err(), .dbg_state(), .dbg_busy(dbg_fpu));
 
   // ------------------------------------------------- the memory port
   // one access a cycle, RAM or ROM by GLUE's decode; the controller's

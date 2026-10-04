@@ -444,6 +444,7 @@ wire [63:0] dbg_cache;
 wire [15:0] dbg_scsi;
 wire [31:0] dbg_scc;
 wire [31:0] dbg_asc;
+wire  [1:0] dbg_fpu;
 // PSCS's sector count: the SCSI slots' sd_ack rising edges (plan 9.8)
 reg   [9:0] scsi_sectors = 0;
 reg   [1:0] scsi_ack_q = 0;
@@ -470,7 +471,7 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE)) machine
 	.disk2_in(disk2_in), .disk2_eject(disk2_eject), .disk2_cyl(disk2_cyl), .trk2_cyl(trk2_cyl), .trk2_valid(trk2_valid),
 	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
 	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
-	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc), .dbg_asc(dbg_asc),
+	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc), .dbg_asc(dbg_asc), .dbg_fpu(dbg_fpu),
 	.audio_l(asc_audio_l), .audio_r(asc_audio_r),
 	.scsi_img_mounted(img_mounted[3:2]), .scsi_img_blocks(img_size[40:9]),
 	.scsi_io_lba(scsi_io_lba), .scsi_io_rd(scsi_io_rd), .scsi_io_wr(scsi_io_wr), .scsi_io_blk_cnt(scsi_io_blk_cnt), .scsi_io_ack(sd_ack[3:2]),
@@ -641,7 +642,8 @@ dbg_probes probes
 	             st_rd_n, st_rd_sum, st_rd_ack, st_rd_max,
 	             st_wr_n, st_wr_sum, st_wr_ack, st_wr_max, st_wr_sec}),
 	.scc_state(dbg_scc),
-	.asc_state(dbg_asc)
+	.asc_state(dbg_asc),
+	.fpu_state(dbg_fpu)
 );
 `else
 assign pk_hold = 1'b0;

@@ -176,7 +176,8 @@ module se30_fpu #(
   output     [79:0] dbg_exop,
   output     [15:0] dbg_clocks,
   output            dbg_err,
-  output     [4:0]  dbg_state
+  output     [4:0]  dbg_state,
+  output     [1:0]  dbg_busy       // {the 68882 not idle (CU or APU), the APU running}: PFPU (plan 10.4 item 4)
 );
   `include "se30_fpu_fn.vh"
 
@@ -477,6 +478,7 @@ module se30_fpu #(
   // (nor about to resume a restored busy frame's instruction: its context
   // is loaded while the APU is idle, and nothing may start in between - 7e)
   wire apu_idle = !apu_busy && !apu_was_busy && !cu_busy && !apu_start && !go_pend && !apu_go;
+  assign dbg_busy = {!apu_idle, apu_busy};
 
   // -- the CU's moves (7e-2): UM Table 5-5 and its notes -------------------------
   //   FMOVE FPm,FPn; FMOVE <ea>,FPn in S, D, X; FMOVE FPm,<ea> in S, D, X.

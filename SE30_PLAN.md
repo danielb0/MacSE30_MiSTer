@@ -14499,6 +14499,49 @@ routing. The second integer pipeline was removed to close.
      data intact). The same `scsi.v` target is MacPlus's and MacLC's: the
      multi-block write would carry over to those cores (Daniel's call,
      once it has run a while here).
+
+**10.4 item 4: the Math figure (opened 2026-10-04 evening, Daniel).**
+Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
+- **What is known.** The 68882's own clocks already match the manual: its
+  timing bench (8.9.7, an ideal MPU) reproduces Table 8-3 in 227 of 228
+  rows. The MPU's side of a coprocessor instruction is unpaced (the
+  decoder leaves F-line out, 1.17.5) - and the 030 UM gives no timing for
+  it at all; Table 8-3's totals were measured with a 68020 ("the MC68030
+  ... always yields better values"), ~11 clocks of interface overhead in
+  each. Compile 30's Speedometer had the FPU benchmarks *slower* than the
+  real machine (0.78-0.92) while Math was faster (1.11): Math may be
+  mostly integer code (SANE), not the 68882.
+- **Daniel's question: can it ever match exactly?** No - the CPU is paced
+  per instruction, not cycle-exact, and the dialog's MPU side is
+  undocumented. But the undocumented part is a few clocks of 38-700, so a
+  benchmark heavy in FPU work can land within a few per cent; 13 % is too
+  large to come from the dialog alone.
+- **A pacing correction proposed and WITHDRAWN (the same evening).** The
+  uncached fetch charge (1.17.5: an uncached DBRA 10.2 clocks against the
+  NCC formula's 12) was put forward as documented and 15 % fast. On
+  reading UM 11.3.3 and report_time.py again: the NCC formula is the
+  manual's own upper estimate ("equal to or greater than the actual" -
+  averaged alignments, no overlap), the lower estimate (the tables'
+  internal clocks plus the bus the loop runs) is ~10, and the core's 10.2
+  sits inside the documented range at its bottom. The one hardware
+  comparison agrees: the chime (ROM, caches off - exactly this path) was
+  timed by Daniel as more or less identical to a real SE/30's. No real
+  SE/30 TimeDBRA has been found. So there is no documented basis for it;
+  not applied. (The other listed simplifications - MUL/DIV/CHK/CAS at their
+  maxima, brief-format figures for full-format EAs - stand as they are.)
+- **Measure first (Daniel: "build just the probe")**: PFPU, 408 bits of
+  free-running counters in `rtl/dbg_probes.sv` (its header has the
+  layout): clocks; the CPU's clocks in bus cycles to the 68882 and those
+  cycles; command CIR writes (a general FPU instruction each) and
+  condition CIR writes; the 68882 not idle and its APU running (new
+  `se30_fpu` output `dbg_busy`); SANE's `_FP68K` ($A9EB) and `_Elems68K`
+  ($A9EC) traps and every A-line trap; instruction fetch bus cycles (the
+  I-cache's misses and uncached fetches) beside the I-cache's hits.
+  `read_probes.tcl fputime` prints them and their differences, as
+  `scsitime` does. Nothing else changes. The reading decides: the 68882's
+  busy time a large share of the Math test -> the FPU's side; SANE calls
+  and little FPU time -> integer code (the pacing); many fetch misses ->
+  the cache's share.
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a

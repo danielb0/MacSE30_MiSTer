@@ -31,6 +31,12 @@
 #                                                scsitime_last.txt here) - run it
 #                                                just before and just after a test;
 #                                                the machine is not touched
+#   ... fputime [file]                           the Math figure's counters (PFPU,
+#                                                plan 10.4 item 4): the 68882's
+#                                                instructions and busy time, the
+#                                                SANE traps, the I-cache's misses
+#                                                and hits; differences from the last
+#                                                fputime (default fputime_last.txt)
 #
 # The board is never flashed from here (the standing rule); the writes above
 # are to the SDRAM, through the design's own controller, for measurement.
@@ -53,7 +59,7 @@ set samples 1
 set delay   1.0
 set op      ""
 set opargs  {}
-if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime} [lindex $argv 0]] >= 0} {
+if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime fputime} [lindex $argv 0]] >= 0} {
 	set op     [lindex $argv 0]
 	set opargs [lrange $argv 1 end]
 } else {
@@ -193,6 +199,48 @@ if {$op eq "scsitime"} {
 		}
 	} else {
 		puts "  (no earlier snapshot in $f: run scsitime again after the test for the differences)"
+	}
+	set fh [open $f w]; puts $fh [array get now]; close $fh
+	puts "  snapshot saved to $f"
+	end_insystem_source_probe
+	exit 0
+}
+
+if {$op eq "fputime"} {
+	# rtl/dbg_probes.sv's PFPU, MSB first
+	if {![have PFPU]} { puts "ERROR: this bitstream has no PFPU (built before plan 10.4 item 4's probe)"; end_insystem_source_probe; exit 1 }
+	set v [rd PFPU]
+	set names  {clk fclk cir cmd cond busy apu fp68k elems aline fetch ihit}
+	set widths {40 40 32 32 24 40 40 24 24 32 40 40}
+	set sh 408
+	array set now {}
+	foreach nm $names w $widths {
+		set sh [expr {$sh - $w}]
+		set now($nm) [expr {($v >> $sh) & ((1 << $w) - 1)}]
+	}
+	set f [expr {[llength $opargs] >= 1 ? [lindex $opargs 0] : "fputime_last.txt"}]
+	set hz 31.3344e6
+	puts [format "  PFPU  since configuration: %.1f s, %u FPU instructions (command writes), %u SANE _FP68K, %u _Elems68K" [expr {$now(clk) / $hz}] $now(cmd) $now(fp68k) $now(elems)]
+	if {[file exists $f]} {
+		set fh [open $f r]; array set was [read $fh]; close $fh
+		array set dt {}
+		foreach nm $names w $widths { set dt($nm) [expr {($now($nm) - $was($nm)) & ((1 << $w) - 1)}] }
+		set el [expr {$dt(clk) / $hz}]
+		set pc [expr {$dt(clk) > 0 ? 100.0 / $dt(clk) : 0.0}]
+		puts ""
+		puts [format "  since the last fputime: %.3f s" $el]
+		puts [format "    FPU instructions (command CIR writes)  %9u   conditionals (FBcc etc.) %u   CIR cycles %u" $dt(cmd) $dt(cond) $dt(cir)]
+		puts [format "    CPU in bus cycles to the 68882         %8.3f s  %5.1f %%" [expr {$dt(fclk) / $hz}] [expr {$dt(fclk) * $pc}]]
+		puts [format "    the 68882 not idle                     %8.3f s  %5.1f %%" [expr {$dt(busy) / $hz}] [expr {$dt(busy) * $pc}]]
+		puts [format "    its APU running                        %8.3f s  %5.1f %%" [expr {$dt(apu) / $hz}] [expr {$dt(apu) * $pc}]]
+		puts [format "    SANE: _FP68K %u  _Elems68K %u   (every A-line trap: %u)" $dt(fp68k) $dt(elems) $dt(aline)]
+		set nf [expr {$dt(fetch) + $dt(ihit)}]
+		puts [format "    instruction fetches: %u from the bus, %u I-cache hits  -> %.1f %% went to the bus" $dt(fetch) $dt(ihit) [expr {$nf > 0 ? 100.0 * $dt(fetch) / $nf : 0.0}]]
+		if {$dt(cmd) > 0} {
+			puts [format "    per FPU instruction: %.1f clocks of the 68882 busy, %.1f of the CPU in its bus cycles (C16M clocks)" [expr {$dt(busy) / 2.0 / $dt(cmd)}] [expr {$dt(fclk) / 2.0 / $dt(cmd)}]]
+		}
+	} else {
+		puts "  (no earlier snapshot in $f: run fputime again after the test for the differences)"
 	}
 	set fh [open $f w]; puts $fh [array get now]; close $fh
 	puts "  snapshot saved to $f"

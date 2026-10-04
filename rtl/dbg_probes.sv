@@ -94,6 +94,18 @@
 //         same four for writes, then the sectors the write requests carried
 //         [23:0] (since compile 39's multi-block writes)}: is the time the
 //         HPS round trip, the bus, or the Mac
+// and, since plan 10.4 item 4 (the Math figure):
+//   PFPU  408 bits, registered here on clk, free-running counters (the
+//         reader differences two reads: read_probes.tcl fputime): {clocks
+//         [39:0], clocks the CPU spends in bus cycles to the 68882 [39:0],
+//         those cycles [31:0], command CIR writes (one a general FPU
+//         instruction) [31:0], condition CIR writes (FBcc, FScc, FTRAPcc,
+//         FDBcc) [23:0], clocks the 68882 is not idle [39:0], clocks its
+//         APU runs [39:0], SANE calls: _FP68K ($A9EB, Pack 4) [23:0] and
+//         _Elems68K ($A9EC, Pack 5) [23:0], every A-line trap [31:0], the
+//         instruction fetch bus cycles (the I-cache's misses and uncached
+//         fetches) [39:0], the I-cache's hits [39:0]}: is Math's time the
+//         68882's, SANE's integer code, or cache misses
 // and, since plan 11.3 (the ASC):
 //   PASC  32 bits, registered here on clk: se30_asc's dbg {mode[1:0], $804
 //         [3:0], FIFO A's count [10:0], FIFO B's count [10:0], interrupts
@@ -153,7 +165,8 @@ module dbg_probes (
 	input  wire [31:0] scsi_state,        // PSCS: the SCSI bus and the disks' slots (plan 9.8)
 	input  wire [463:0] scsi_meter,       // PSCT: the SCSI disk's time (plan 10.4 item 3)
 	input  wire [31:0] scc_state,         // PSCC: the SCC (plan 10.5)
-	input  wire [31:0] asc_state          // PASC: the ASC (plan 11.3)
+	input  wire [31:0] asc_state,         // PASC: the ASC (plan 11.3)
+	input  wire  [1:0] fpu_state          // PFPU: {the 68882 not idle, its APU running} (plan 10.4 item 4)
 );
 
 	reg        as_q = 1;
@@ -329,6 +342,47 @@ module dbg_probes (
 		.instance_id ("PSCC"), .probe_width (32), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pscc (.probe(pscc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the Math figure (the header's PFPU): the CPU's cycles to the 68882
+	// (CPU space, A19-A13 = 0010 001, the CIRs at A4-A0), the 68882's busy
+	// time, the SANE packages' traps, and the instruction fetches that went
+	// to the bus beside the I-cache's hits (PCCH's 24-bit count, accumulated)
+	reg         pf_as_q = 1'b1;
+	wire        pf_fpu  = !cpu_as_n && (cpu_fc == 3'd7) && (cpu_addr[19:13] == 7'b0010_001);
+	wire        pf_as_f = !cpu_as_n && pf_as_q;                     // AS* asserted this clock
+	reg  [39:0] pf_clk = 0, pf_fclk = 0, pf_busy = 0, pf_apu = 0, pf_fetch = 0, pf_ihit = 0;
+	reg  [31:0] pf_cir = 0, pf_cmd = 0, pf_aline = 0;
+	reg  [23:0] pf_cond = 0, pf_fp68k = 0, pf_elems = 0, pf_ihit_q = 0;
+	always @(posedge clk) begin
+		pf_as_q <= cpu_as_n;
+		pf_clk  <= pf_clk + 1'd1;
+		if (pf_fpu) pf_fclk <= pf_fclk + 1'd1;
+		if (pf_as_f) begin
+			if (pf_fpu) begin
+				pf_cir <= pf_cir + 1'd1;
+				if (!cpu_rw_n && cpu_addr[4:0] == 5'h0A) pf_cmd  <= pf_cmd + 1'd1;
+				if (!cpu_rw_n && cpu_addr[4:0] == 5'h0E) pf_cond <= pf_cond + 1'd1;
+			end
+			if (cpu_fc == 3'd2 || cpu_fc == 3'd6) pf_fetch <= pf_fetch + 1'd1;
+		end
+		if (fpu_state[1]) pf_busy <= pf_busy + 1'd1;
+		if (fpu_state[0]) pf_apu  <= pf_apu + 1'd1;
+		if (exc_take && exc_vec == 8'd10) begin
+			pf_aline <= pf_aline + 1'd1;
+			if (exc_opc[15:11] == 5'b10101 && exc_opc[9:0] == 10'h1EB) pf_fp68k <= pf_fp68k + 1'd1;
+			if (exc_opc[15:11] == 5'b10101 && exc_opc[9:0] == 10'h1EC) pf_elems <= pf_elems + 1'd1;
+		end
+		pf_ihit_q <= cache_state[47:24];
+		pf_ihit   <= pf_ihit + {16'd0, cache_state[47:24] - pf_ihit_q};
+	end
+	reg [407:0] pfpu_r = 0;
+	always @(posedge clk) pfpu_r <= {pf_clk, pf_fclk, pf_cir, pf_cmd, pf_cond, pf_busy, pf_apu,
+	                                 pf_fp68k, pf_elems, pf_aline, pf_fetch, pf_ihit};
+
+	altsource_probe #(
+		.instance_id ("PFPU"), .probe_width (408), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pfpu (.probe(pfpu_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the caches (the header's PCCH)
 	reg [63:0] pcch_r = 0;
