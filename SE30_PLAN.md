@@ -14477,6 +14477,19 @@ routing. The second integer pipeline was removed to close.
      far slower than per request); 24,001 reads at 154 us; bus busy 16.0
      s, hold-off 2.65 s, GLUE's DRQ wait 1.75 s, 6,153 commands; the
      longest write request 18.8 ms. The integrity checks below are next.
+     **Second run, `scsitime` either side (19:26:38-19:27:18): Disk
+     1.115.** Window 42.4 s: bus busy 8.47 s (compile 38: 22.3 / 29.4),
+     261 commands; hold-off 1.76 s (16.7 / 24.0); GLUE's DRQ wait 0.76 s;
+     writes 809 requests carrying 8,961 sectors (11.1 a request), 5.70 s,
+     636 us a sector (2,213 / 3,030), a request 7.0 ms = 5.4 Linux + 1.6
+     moving; reads 7,228 at 207 us (102 Linux + 104 moving; compile 38
+     134-139, 30 Linux) - Main drops its 16 KB read cache on every write
+     request (`buffer_lba[disk] = -1`), so reads after writes miss it;
+     1.50 s against 1.0. Longest write 49.4 ms, read 56.3 ms. **Two runs
+     1.133 and 1.115: the spread is now small.** What is left of the bus
+     time is the SD card's write (bounded by Main's O_SYNC) and the reads;
+     multi-block READ requests would take most of the 102 us Linux wait
+     (under a second a run) - not needed, an option.
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a
