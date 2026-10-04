@@ -2817,6 +2817,16 @@ least two clocks later. `sim/machine` 17. The gcrread real-SDRAM run
 
 **Compile 34** (tag `d3ecbe7e`): running.
 
+**Daniel, 2026-10-04 (compile 33 on the board): the chime still sounds
+slightly fast.** The bench's chime pass is 542 clocks against the
+manual's 534-697 (cache off, the no-cache case's range) - at the
+range's bottom - and the uncached DBRA runs 15 % fast (1.17.5: a fetch
+miss is credited its wait states but not the no-cache case's extra
+prefetch clocks). The chime runs from ROM with the caches off, so both
+point at the same correction. Wanted: a real SE/30's chime duration
+(a recording) as the measured reference; then the no-cache-case fetch
+charge per UM 11.3.3.
+
 ### 1.17.7 The write pending buffer (design, 2026-10-04)
 
 **What the 68030 does** (UM 11.2.5, 11.2.5.2, 11.2.5.3): "a single write
