@@ -14360,6 +14360,50 @@ routing. The second integer pipeline was removed to close.
    1.17.1's open Disk question already points. To settle it: the Disk
    test two or three times more on compile 37, quitting between runs,
    and once more on compile 36 the same way.
+
+**END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
+at the commit after this one, tree clean, 65 commits since `903df2c`
+unpushed (Daniel pushes).
+1. **The current good bitstream is compile 37**, `output_files/
+   MacSE30_e749a396_noext.rbf`: the fast set (1.17.8), the write pending
+   buffer (1.17.7), no external drive (10.4 item 3). 36,997 ALMs; our
+   paths met at every corner; the framework's HDMI scaler -0.087 at slow
+   -40C (precedent). On the board it reads as compile 36 on Speedometer
+   4.02 but Disk (0.34 against 0.41) - probably the measurement's spread,
+   to settle with repeat runs (above). Compile 36 (`..._36462531_fastset
+   .rbf`) is the fallback with the drive in.
+2. **Closed today**: the ATC path (1.17.7's decision -> 1.17.8, +4.149 ns
+   through the fast set, timing met by design); compile 34 proven on the
+   board; the Graphics figure (0.16 = Low End Mac's real SE/30, 1.17.5;
+   the buffer's bench gain is below what Speedometer resolves); the
+   overnight floppy run stopped by Daniel (clean as far as it got).
+3. **Open, in order of Daniel's interest**:
+   - **Disk** (Speedometer 0.34-0.49 against the real machine's 0.70-0.77):
+     the SCSI loops already run at the 68030's speed (1.17.1), so the
+     lead is the HPS block round trip behind the 53C80 and whether the
+     target fetches a multi-block read one block at a time; measure
+     first (a probe counting clocks from command to first and last DRQ,
+     or the SCSI seam bench with the HPS latency modelled), then
+     read-ahead in the target if that is it. 1.17.5's "the disk on its
+     own track".
+   - **Math 13 % high** (1.10-1.13 against 0.96-0.98): the 68882's own
+     execution time is not held to its manual's figures; the pace covers
+     the 030 only. Build to the MC68881/MC68882 UM's timing tables, with
+     the coprocessor dialog's timing unchanged (sim/cpfpu is the gate).
+   - The small pacing corrections of 1.17.5 (TimeDBRA ~15 % high; the
+     taken-branch heads; MUL/DIV maxima).
+   - Floppy writing and formatting (10.4: 800-1,200 ALMs; ~1,300 free).
+   - The full floppy test, as a whole, later (sim/gcrread with both
+     drives, `EXT_DRIVE` = 1 in the benches).
+   - Options when the base is done: the colour card, the 128 MB clean
+     ROM, an OSD "unpaced" switch (`pace_en`).
+4. **Housekeeping**: the `wpb` worktree at `C:\Git\MacSE30_wpb` (branch
+   `wpb` = dev at 243581e, scratch logs only) is still to be removed -
+   `git worktree remove --force C:/Git/MacSE30_wpb && git branch -d wpb`;
+   the session's scratch outputs in the tree root (`compile36.out`,
+   `compile37.out`, `check37.out`, `sta_*36.out`, `sta_*37.out`) and in
+   `sim/*/fast_*.out`, `sim/*/ext1_run.out`, `sim/machine/run_noext.log`
+   are untracked and can go.
 4. DC42 support: -150 to -250.
 
 Options (the colour card, the 128 MB clean ROM) are decided when the base
