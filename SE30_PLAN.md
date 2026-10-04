@@ -258,8 +258,15 @@ about the hardware and incomplete about the machine. The SE/30's ROM is
 **32-bit dirty**: it contains 24-bit addressing code, so its Memory Manager
 is not 32-bit clean, and a stock machine runs in 24-bit mode and sees
 **8MB**, however much is fitted. 32-bit addressing needs either MODE32
-(Connectix - period-correct, and built into System 7.5.3 / 7.5.5) or a Mac
-IIsi / IIfx ROM SIMM, which is a hardware modification.
+(Connectix - period-correct, an extension installed on the System) or a Mac
+IIsi / IIfx ROM SIMM, which is a hardware modification. (Corrected
+2026-10-04: this said MODE32 was "built into System 7.5.3 / 7.5.5". On the
+core, System 7.5.5's Memory control panel offers no 32-Bit Addressing
+setting and TattleTech reads "Machine is 32 Bit capable = No" - so 7.5.5
+alone does not make an SE/30 32-bit; the extension or a clean ROM is
+needed. TattleTech's whole first page otherwise reads as a real SE/30's:
+Mac SE/30 (ID 9), MC68030 at 16 MHz, both caches on, MC68882, the 030's
+MMU, 8 MB, VM off.)
 
 So 24-bit is not an edge case to get to eventually. It is the path a stock
 SE/30 boots down every time, and it has to work first.
