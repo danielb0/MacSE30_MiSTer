@@ -14321,6 +14321,31 @@ routing. The second integer pipeline was removed to close.
    -g/tb_se30_machine/machine/EXT_DRIVE=0`, under `MSYS_NO_PATHCONV=1` in
    Git Bash); `sim/gcrread` keeps both drives for the full floppy test
    later (1.17.7: the overnight run was stopped for this reason).
+   Found on the way: `build_only.sh --check` (Analysis & Synthesis alone)
+   writes the framework's sourced assignments (`sys/sys.tcl`'s pins and
+   more, ~250 lines) back into `MacSE30.qsf`, which the full flow does
+   not; `git checkout MacSE30.qsf` before stamping and compiling, or the
+   stamp warns "design files are dirty" and the compile's settings are
+   not the committed ones. Compile 37 started 11:29 (tag `e749a396`).
+   **Compile 37** (2026-10-04 11:29-12:02, tag `e749a396`, 33.7 min -
+   synthesis 9, the fitter 22; archived `output_files/
+   MacSE30_e749a396_noext.rbf`): **36,997 ALMs (88 %), 577 fewer than
+   compile 36** - the second drive's measured cost (10.4's ~830 per
+   drive counted the internal one's share of the SWIM-side logic too;
+   the fitter's per-entity figures move with packing, so the total is
+   the number). **Our paths meet timing at every corner**
+   (`sta_corners.tcl` plus a per-clock report at slow -40C: the CPU
+   clock +2.548, the SDRAM controller's clock +0.684, `sdram_clk`
+   +2.409, the SDRAM outputs +2.4, the capture meeting its A/B rule at
+   every corner). **The flow reports -0.087 ns at slow -40C, which is
+   the framework's HDMI scaler** - four `ascal|o_vpix_inner -> o_poly_lum`
+   paths on `pll_hdmi`'s clock, the same path class accepted on compiles
+   18, 20 and 25 (-0.016 then) and not ours to fix; at slow 100C the
+   whole design meets with +0.241. **For the board**: expect compile 36's
+   machine with the "Mount External Floppy" line gone from the OSD and
+   the ROM finding no second drive. Budget after this: ~1,300 ALMs to
+   the ~38.3k ceiling, for the floppy writing (800-1,200) and the rest
+   of 10.4's table.
 4. DC42 support: -150 to -250.
 
 Options (the colour card, the 128 MB clean ROM) are decided when the base
