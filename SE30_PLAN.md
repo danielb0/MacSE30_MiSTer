@@ -2914,6 +2914,42 @@ RAM->VRAM 35.8/32.1).
   `sim/busfault`, `sim/cpfpu`; then the board (Speedometer Graphics,
   floppy, chime, a clean disk image after the disk test).
 
+**Built 2026-10-04** (c829a33, 243581e; Daniel: "go ahead with the
+development and the compile", and compile 35 right after 34).
+- **timetest** (pacing on; the manual's figure from the measured byte
+  cycles):
+
+  | window | before (compile 33) | buffer | manual | ratio |
+  |---|---|---|---|---|
+  | VRAM byte MOVE.B D0,(A0)+ | 11.1 | **9.07** | 8.00 | 1.13 |
+  | RAM->VRAM copy | 35.8 | **33.76** | 32.21 | 1.05 |
+  | VRAM fill MOVE.L D0,(A0)+ | 31.5 | 31.51 | 29.73 | 1.06 |
+  | RAM fill | 8.17 | 8.03 | 8.00 | 1.00 |
+  | SWIM poll / GCR field (gap) / chime pass | 15.0 / 87.2 (23) / 542 | 15.01 / 87.19 (23) / 541.75 | | |
+
+  The fill is bus-bound - four byte beats back to back, the same cycles
+  as before - so the buffer cannot shorten it; its 6 % is the video
+  card's beat pattern, a question of its own. Every other window is
+  unchanged, as designed.
+- **The gate found one thing: sim/cpfpu b5c.** The bench bus-errors two
+  RAM writes (an FMOVE.X store's third long, an FSAVE frame's write) to
+  test the fault frames inside FPU dialogs; posted, the faults arrived
+  late and the frames named the kernel's next access ($3300 and $36C4
+  for $3308 and $36E4) - the limit the design names: an early
+  acknowledge can only report a write fault late. The SE/30 cannot
+  raise one there, so the wrapper gained `post_en` (the machine ties it
+  high); tb_cpfpu drives it low for a run that injects any write fault
+  (b5c), tb_se30_system has `+NOPOST`. The 68030 itself reports a
+  posted write's fault exactly (its frame carries the data output
+  buffer and the fault address); ours cannot, which is why only ports
+  that never fault are posted.
+- **Gate, final**: `sim/system` all eight (plain/cacheon/cachewa 24,
+  cachetest 28, vramtest 4, berrtest 3, timetest 35, clrtest 35) with the
+  new check that no posted beat is ever bus-errored; `sim/cpfpu` all
+  twelve (b5c 26 with posting off for it, the other eleven with it on);
+  `sim/busfault` 14; `sim/machine` 17.
+- **Compile 35** (tag `243581ed`): running.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
