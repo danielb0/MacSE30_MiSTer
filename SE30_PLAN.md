@@ -14605,6 +14605,30 @@ Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
   other way) runs faster than a 68030; a per-instruction-class time
   profile (core clocks against the budget, by the decoder's row) would
   show it - another compile, Daniel's call.
+- **THE PROFILE ON THE BOARD (compile 41, Daniel, 2026-10-04 22:25-22:30;
+  `profile_math41.csv`, `profile_cpu41.csv` in the repo root, untracked).**
+  Math 1.129 (40.05 s counted): 72,953,830 instructions, 627.5 M C16M
+  clocks against a budget of 567.1 M - **the core 1.106 x its budget**;
+  the top rows Bcc.B 14.6 %, MOVE EA,An 9.6 %, RTS 6.6 %, MOVE EA,Dn 5.3 %,
+  MOVE EA,(d16,An) 4.9 %, MOVEM RL,EA 4.5 % (34.7 clocks against 20.5),
+  JSR 4.2 % (20.0 against 14.7), MOVE Rn,-(An) 4.0 %, A-line trap 3.8 %,
+  F-line (unpaced) 1.8 % (279,601 at 40.9). CPU 0.267 (29.07 s): 58.5 M
+  instructions, the core 1.068 x its budget, a cached loop (CMPM, DBcc,
+  BSET, MOVE (An)+) plus the same Toolbox code. Missed fetches per
+  instruction: Math 0.66, CPU 0.45.
+- **Models tried against both (the fix must bring Math x1.164 and leave
+  CPU x0.989-1.027)**: a flat charge per missed fetch - Math needs ~3
+  clocks, CPU then +12 %: no. The manual's no-cache model per row (NCC -
+  CC on the missed fraction; with and without the overlap removed): Math
+  +1-8 %, CPU +1-6 %: no. ROM slower than modelled: the *Guide*'s Table
+  5-9 gives the SE/30 15.67 MB/s (one wait state, as RAM) - as modelled.
+  The FPU dialog's unpaced CPU side: ~280 k instructions, ~2 % at most.
+  **So by the manual's own figures Math's code should take less time than
+  a real SE/30 takes; no documented model reproduces the real figure
+  while keeping CPU right.** Going further needs a sub-benchmark reference
+  from a real SE/30 (code-sequence timings), which we do not have.
+  Recommendation to Daniel: record Math as a known, measured deviation
+  (~16 % fast) and move on.
 - **Compile 40** (tag `f7c95109`, 33 min): 37,953 ALMs (+374 on compile
   39: PFPU's counters and its 408-bit capture); our clocks meet at every
   corner (clk_sys +1.183 worst, clk_mem +0.815, the capture clocks +2.29,
