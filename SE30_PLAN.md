@@ -2817,6 +2817,71 @@ least two clocks later. `sim/machine` 17. The gcrread real-SDRAM run
 
 **Compile 34** (tag `d3ecbe7e`): running.
 
+### 1.17.7 The write pending buffer (design, 2026-10-04)
+
+**What the 68030 does** (UM 11.2.5, 11.2.5.2, 11.2.5.3): "a single write
+pending buffer, allowing the microsequencer to continue execution after
+the request for a write cycle proceeds to the bus controller.
+Interlocks prevent the microsequencer from overwriting this buffer." A
+cycle the bus controller cannot run at once "is queued and the bus
+controller runs the cycle when the current cycle is complete", and the
+micro bus controller "implements any dynamic bus sizing required". So
+the bus controller, not the microsequencer, runs a written operand's
+beats through a narrow port; the microsequencer goes on with internal
+work and with cache hits, and waits only when it wants the bus again.
+
+**What the core does now.** The kernel waits for every write's
+acknowledge and runs its own dynamic sizing (a long to the video RAM's
+byte port is four kernel requests). The pace (1.17.5) charges the
+manual's time, but the kernel's real time is longer wherever a slow
+write could have overlapped the next instruction's head: the video-RAM
+loops run 1.11-1.38 of the manual (fill 31.5/27.9, byte 11.1/8,
+RAM->VRAM 35.8/32.1).
+
+**The design** (the wrapper, `tg68k.v`; the kernel untouched):
+- **What is posted**: a kernel data write (not the walker's, not CPU
+  space, not a read-modify-write's) to a port that always terminates and
+  never bus-errors, so the early acknowledge can never be wrong:
+  low space `$00000000-$3FFFFFFF` (GLUE: RAM, or the ROM with the
+  overlay on - "a ROM write: acknowledged, no effect"; a 32-bit port,
+  DSACK 00, one beat) and the video card `$FExxxxxx` (it answers every
+  address there, VRAM and declaration ROM mirrored; the 8-bit port,
+  DSACK0*). Everything else - VIAs, SCC, SWIM, SCSI, ASC, the slots,
+  the FPU - stays a waited cycle, as now.
+- **The buffer**: at the posted write's S1 the wrapper latches address,
+  the long's lane image (the kernel's data, Table 7-5's 32-bit column:
+  each byte on its own address's lane), the bytes to the long's end
+  (`w_nb`, as the 32-bit port would take them) and FC, and acknowledges
+  the kernel at the next phi1 with DSACK 00 - the bytes a 32-bit port
+  takes, so the kernel's own split at a long boundary is unchanged. The
+  bus is driven from the buffer until the operand is out.
+- **The beats**: RAM one, identical on the bus to today's cycle. The
+  video card one per byte, the wrapper's own (the micro bus
+  controller's sizing): address +1, SIZ the bytes remaining, the byte on
+  D31-D24 (the only lane an 8-bit port reads; the first beat carries the
+  kernel's exact Table 7-5 image, later beats the byte on every lane -
+  a simplification no device here can see).
+- **The interlock**: while the buffer is busy no other cycle starts -
+  the kernel's next write, a read or fetch that misses, the walker, a
+  PMMU fault's forced beat all wait for it; instruction and data cache
+  hits and internal beats go on. The order of bus cycles is unchanged.
+- **The pace**: a posted beat's clocks beyond two are credited as now
+  (continuation beats whole). If the instruction that wrote has been
+  released before a beat completes, that beat's clocks are added to the
+  running instruction's budget and to the tail it overlaps (Equation
+  11-2's min(head, tail) with the write's wait states in the tail, rule
+  3a) - the same total the manual computes, now reachable because the
+  kernel's head really runs under the write.
+- **Not reachable, handled anyway**: a bus error on a posted beat
+  (neither region can time out) ends the operand and is held to the
+  kernel as today's late BERR; a bench check makes it visible.
+- **Cost**: about 75 registers and the bus muxes' third input, an
+  estimated 100-150 ALMs (about 360 left under the ~38.3k ceiling).
+- **Gate**: `sim/system` timetest (the VRAM windows toward the manual,
+  every other window unchanged), all `sim/system` programs, `sim/machine`,
+  `sim/busfault`, `sim/cpfpu`; then the board (Speedometer Graphics,
+  floppy, chime, a clean disk image after the disk test).
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
