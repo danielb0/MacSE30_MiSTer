@@ -14346,6 +14346,20 @@ routing. The second integer pipeline was removed to close.
    the ROM finding no second drive. Budget after this: ~1,300 ALMs to
    the ~38.3k ceiling, for the floppy writing (800-1,200) and the rest
    of 10.4's table.
+   **On the board (Daniel, 12:20): runs; Speedometer 4.02 identical to
+   compile 36 except Disk, 0.34 against 0.41.** Nothing in this change
+   touches the SCSI path or the HPS's disk slots (slot 1 was idle before
+   too, no external image being mounted), and the Disk figure has moved
+   between builds that did not touch it either: compile 32 0.39, 33
+   0.49, 34 0.43, 36 0.41, 37 0.34 - a spread of 0.34-0.49 across five
+   builds, three of which changed nothing on the disk's path. So the
+   reading is the measurement's spread, not the drive's removal, until a
+   repeat says otherwise; the spread itself says the Disk rate is set by
+   something that varies run to run - the HPS side's block round trip
+   (Linux's file I/O on the SD card, its caching), which is where
+   1.17.1's open Disk question already points. To settle it: the Disk
+   test two or three times more on compile 37, quitting between runs,
+   and once more on compile 36 the same way.
 4. DC42 support: -150 to -250.
 
 Options (the colour card, the 128 MB clean ROM) are decided when the base
