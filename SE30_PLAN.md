@@ -14678,6 +14678,11 @@ strike what is done).** Each on a scratch copy of the image unless noted.
 4. **HD SC Setup's Test Disk** on a SCSI image, if the tool is to hand
    (compile 39's integrity checks were the copy, the launch from the copy
    and Disk First Aid - all clean).
+5. **The orphan file threads - PARKED by Daniel 2026-10-04, after Math**
+   (10.4 item 4's end): the same delete under System 7.5.5 on an
+   independent machine (an emulator such as Basilisk II, or the MacLC
+   core) - leftovers there = 7.5.5's own behaviour; clean there = our
+   core's fault, then localise it (the ROM's delete path, a PC probe).
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
