@@ -14834,6 +14834,23 @@ Daniel - add to it, move items out when fixed).**
    case per row, ROM speed, the FPU dialog) brings Math to the real
    machine while keeping CPU on it (10.4 item 4). CPU, Graphics and the
    68882's own timing match the real machine.
+   **And the opposite way, Speedometer 4.02's FPU benchmarks read ~6 %
+   slow** (compile 41, 2026-10-04 23:05, Daniel's screenshot
+   `20261004_230526-screen.png`): KWhetstones 0.171 / Matrix 0.093 / FFT
+   0.075 / average 0.113 against the built-in SE/30 record's 0.19 / 0.10 /
+   0.09 / 0.12 (core/real 0.90 / 0.93 / 0.83 / 0.94; the record's two
+   decimals carry ~+-5 %). These use the 68882 directly (3.33 M FPU
+   instructions, 2,924 SANE calls in 58.8 s); the profile
+   (`tools/time030/profiles/profile_fpu41.csv`) puts the F-line row at
+   16.8 % of the time, **46.4 clocks an FPU instruction** (unpaced: the
+   kernel's side of the dialog, ~6 CIR cycles, 20.6 clocks of them on the
+   bus, and the waits for the 68882), which carries 78 M of the core's
+   117 M clocks over its budget (the core 1.145 x its budget); the 68882
+   busy 4.3 %, the CPU in CIR cycles 7.4 %, fetches 68 % missed. No
+   document gives the 68030's coprocessor-dialog timing (Table 8-3's
+   totals are a 68020's), so there is no exact target. Accepted with
+   Math's: across Speedometer the core is within ~+-15 % of the real
+   machine on every figure.
 2. **Disk is faster than a real SE/30** (Speedometer 1.12 against
    0.70-0.77) - by design: full speed, never paced (Daniel, 10.4 item 3).
 3. **Deleting a file never removes its file thread record** - an
