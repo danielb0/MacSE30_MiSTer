@@ -14493,7 +14493,12 @@ routing. The second integer pipeline was removed to close.
      **Integrity (Daniel, ~19:30): the QuarkXPress folder duplicated in the
      Finder; Get Info identical to the original. QuarkXPress launched from
      the copy opened a document that was itself copied with the folder -
-     loaded OK.** Still to do: Disk First Aid after a reboot.
+     loaded OK. Disk First Aid after a reboot: the disk is OK.**
+     **Compile 39 (`MacSE30_6ca438bc_mbwrite.rbf`) is the current good
+     bitstream; the Disk item is CLOSED** (1.115-1.133 against 0.33-0.49;
+     data intact). The same `scsi.v` target is MacPlus's and MacLC's: the
+     multi-block write would carry over to those cores (Daniel's call,
+     once it has run a while here).
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a
