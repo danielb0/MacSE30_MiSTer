@@ -14680,10 +14680,12 @@ bitmap, the MDB's counts):
   MacLC core, whose CPU shares the TG68K lineage) and/or localising it
   (the ROM's delete path, a PC probe on the board).
 - **The MacLC core (Daniel, 2026-10-04 ~21:40): Disk First Aid clean
-  after a deletion there.** Supports a fault in our core, with two
-  qualifications: (1) it counts only if the deleted files had threads
-  (launched or opened first) - the LC image through the checker would
-  confirm; (2) the File Manager is largely in ROM, and the LC's ROM is
+  after a deletion there.** The same sequence as on our core: a copy of
+  the QuarkXPress folder made, Quark launched from it, the folder
+  deleted (on our core that left the copy's thread, 3146 / 3154).
+  Supports a fault in our core, with two qualifications: (1) it assumes
+  the launch gave the copy a thread on the LC too (Recent Applications) -
+  the LC image through the checker would confirm; (2) the File Manager is largely in ROM, and the LC's ROM is
   newer than the SE/30's (the IIx/IIcx ROM, 97221136) and patched
   differently by 7.5.5 - so the LC runs a different delete path than a
   real SE/30 would. The clean proof: the same delete on a different CPU
