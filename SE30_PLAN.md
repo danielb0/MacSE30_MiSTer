@@ -14904,6 +14904,15 @@ Daniel - add to it, move items out when fixed).**
    on the real machine (every one within ~+-9 %); SANE's software floating
    point (Math, the SANE Whetstone) runs ~15-20 % fast; the 68882 path
    ~8-10 % slow.
+   **The built-in record's conditions (Daniel, 2026-10-05): Speedometer's
+   Mac SE/30 figures were made on a machine with 20 MB of RAM and an 8-bit
+   colour card.** So its Graphics 0.23 is a colour card's, not the built-in
+   1-bit screen's - not comparable; Low End Mac's 0.16 (the built-in
+   screen, presumably) is the like-for-like reference and matches the core
+   exactly: **Graphics is accurate.** 20 MB means the record's machine ran
+   32-bit (MODE32 or a clean ROM), unlike our stock 8 MB. Math is not
+   explained by it: Low End Mac's own SE/30 reads 0.96-0.98, agreeing with
+   the record's 0.97 (its RAM unstated).
    **The MacLC core shows the same pattern** (Daniel, 2026-10-04 23:57,
    `20261004_235702-screen.png`, against Speedometer's built-in Mac LC
    record): CPU 0.20 / 0.22 (0.91), **Math 0.67 / 0.59 (1.14)**, benchmark
