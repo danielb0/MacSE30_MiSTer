@@ -14839,6 +14839,20 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
      shared with floppy writing.
    - The options: the colour card in the PDS pseudo-slots, 128 MB with a
      clean ROM (MODE32 test first), an OSD unpaced switch.
+   **How they are built (Daniel, 2026-10-04): floppy writing and CD-ROM
+   each on its own branch, developed and probed separately (each fits on
+   its own with the probe deck); then the probes come out and the two are
+   merged into the release build.** Before that: this week's measurement
+   probes (PSCT, PFPU, PPRF - ~1,500 ALMs, their questions answered) leave
+   the development builds, to give each branch room; they can return if
+   Disk or Math needs another look. The release recipe's other levers,
+   measured when the merge needs them (the Quadra 800 core's precedent:
+   it keeps CD-ROM and pays with them): the probe deck out (~1,600), the
+   framework's ALSA mix and scaler refinements off (`MISTER_DISABLE_ALSA`,
+   `MISTER_DOWNSCALE_NN`, `MISTER_DISABLE_ADAPTIVE`; several hundred to
+   ~1,000), balanced synthesis with register duplication off (unmeasured;
+   clk_sys has ~2 ns of slack). The Quadra puts CD-ROM with audio at ~3,000
+   ALMs - 10.4's 600-900 looks optimistic.
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
