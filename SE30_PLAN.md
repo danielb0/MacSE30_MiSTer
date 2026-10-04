@@ -14851,6 +14851,20 @@ Daniel - add to it, move items out when fixed).**
    totals are a 68020's), so there is no exact target. Accepted with
    Math's: across Speedometer the core is within ~+-15 % of the real
    machine on every figure.
+   **The whole comparison** (compile 41, Daniel's screenshot
+   `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
+   Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
+   Graphics 0.16 / 0.23 (Low End Mac's real SE/30: 0.16); Disk 1.09 /
+   0.57; Math 1.13 / 0.97; PR 0.27 / 0.31; KWhet 0.25 / 0.21 (**1.19 -
+   SANE's Whetstone, Math's pattern**); Dhrystone 0.20 / 0.22; Towers 0.22
+   / 0.24; Quicksort 0.26 / 0.25; Bubble Sort 0.25 / 0.26; Queens 0.25 /
+   0.24; Puzzle 0.25 / 0.24; Permute 0.26 / 0.24; Int. Matrix 0.25 / 0.23;
+   Sieve 0.26 / 0.28; **benchmark average 0.25 / 0.24 (1.04; compile 30,
+   unpaced: 1.13)**; FPU FFT 0.08 / 0.09, KWhet 0.17 / 0.19, Matrix 0.09 /
+   0.10, **FPU average 0.11 / 0.12**. Reading: the integer benchmarks sit
+   on the real machine (every one within ~+-9 %); SANE's software floating
+   point (Math, the SANE Whetstone) runs ~15-20 % fast; the 68882 path
+   ~8-10 % slow.
 2. **Disk is faster than a real SE/30** (Speedometer 1.12 against
    0.70-0.77) - by design: full speed, never paced (Daniel, 10.4 item 3).
 3. **Deleting a file never removes its file thread record** - an
