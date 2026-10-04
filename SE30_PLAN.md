@@ -2825,7 +2825,14 @@ miss is credited its wait states but not the no-cache case's extra
 prefetch clocks). The chime runs from ROM with the caches off, so both
 point at the same correction. Wanted: a real SE/30's chime duration
 (a recording) as the measured reference; then the no-cache-case fetch
-charge per UM 11.3.3.
+charge per UM 11.3.3. **Later the same night Daniel withdrew it**: he
+had been comparing with the Mac LC, whose chime is longer; a
+compilation of every Mac's startup chime
+(https://www.youtube.com/watch?v=fu4DTm1rQQ0) has the SE/30's shorter
+than the LC's. So no board evidence of a fast chime; the uncached
+fetch charge stays a correction on the bench's evidence (TimeDBRA 15 %
+high), and timing the SE/30's chime in that video against the core's
+would close the question.
 
 ### 1.17.7 The write pending buffer (design, 2026-10-04)
 
