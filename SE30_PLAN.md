@@ -14836,10 +14836,12 @@ Daniel - add to it, move items out when fixed).**
    68882's own timing match the real machine.
 2. **Disk is faster than a real SE/30** (Speedometer 1.12 against
    0.70-0.77) - by design: full speed, never paced (Daniel, 10.4 item 3).
-3. **Deleting a file never removes its file thread record** - an OPEN
-   FAULT, likely our core (the MacLC core removes them), being chased in
-   a separate session (10.4 item 4's end; the checkers in `tools/hfs/`).
-   Harmless to data: Disk First Aid removes the orphans.
+3. **Deleting a file never removes its file thread record** - an
+   ACCEPTED DEVIATION FROM INSIDE MACINTOSH, NOT OUR CORE (resolved
+   2026-10-04 late evening, 10.4 item 3's block): MAME's 68030 running our
+   SE/30 ROM and System 7.5.5 leaves the same orphans; the MacLC's newer
+   ROM removes them. Test image `tools/hfs/make_fidtest.py`; harmless to
+   data: Disk First Aid removes the orphans.
 4. **Floppy writing and formatting are not built** - the drives read only
    (10.4: next after the open items).
 5. **The 68882's atypical operands** (special values, denormals, rare
