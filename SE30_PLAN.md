@@ -2744,7 +2744,15 @@ disk was an 800K GCR image, so the board hit the 15-clock edge).**
   20261004_003138-screen.png`, Comparison - Machine Records; Quadra 605 =
   1.0; the Performance Test only - the Benchmark and FPU rows are 0.00,
   not run). Two real-SE/30 references: the program's built-in record,
-  and Low End Mac's own SE/30 under System 7.5.5 (four runs, all alike):
+  and Low End Mac's own SE/30 under System 7.5.5 (four runs, all alike;
+  **https://lowendmac.com/2000/mac-se30-benchmarks/** - Speedometer 4.02,
+  Quadra 605 = 1.0, "tested on 1999.06.17 and 2000.11.21 under System
+  7.5.5", rows for 32/64/128/256 KB disk cache all CPU 0.26, graphics
+  0.16, math 0.96-0.98, disk 0.70-0.77 on the internal drive and 1.46 on
+  an external ST2.1S; the same page's Speedometer 3.06 rows, 8 MHz Classic
+  = 1.0, "tested on 2000.10.08 under System 7.5.5": CPU 4.24-4.25,
+  graphics 3.69-3.71, disk 2.43-2.45, math 6.63-6.70 - the 4.25 / 3.71
+  cited above):
 
   | Test | Built-in record | Low End Mac | Compile 32 | **Compile 33** | 33 / record | 33 / LEM |
   |---|---|---|---|---|---|---|
@@ -2969,6 +2977,13 @@ development and the compile", and compile 35 right after 34).
   (35) - it lives at the edge, and any change to the fit moves it: the
   seed lottery Daniel ruled out, so the remedy is structural and his
   call (below). **Compiles stopped here**, as agreed for a failure.
+  **Daniel, 2026-10-04 10:40, for the record: Speedometer 4.02 Graphics
+  on this violated bitstream = 0.155** (compile 33: 0.16; Low End Mac's
+  real SE/30: 0.16). A preview only (the timing miss is on the ATC
+  path, so a figure from it is not evidence), but it says the buffer does
+  not move Speedometer's Graphics: the bench's 5 % on the VRAM byte and
+  copy loops is inside whatever else QuickDraw does per pixel, and the
+  Graphics gap is the record's (above), not the core's.
 
 **FOR DANIEL, MORNING OF 2026-10-04 - what is ready and what to decide.**
 1. **Compile 34** - `output_files/MacSE30_d3ecbe7e_dqpre.rbf` (tag
@@ -3123,6 +3138,54 @@ compile 34's machine with Graphics a few % up (the buffer's VRAM byte
 invisible, except that a loop touching five or more pages between ATC
 misses, or the first access to each page after a miss, pays the old one
 clock again - `FAST_ENTRIES` is the lever if a Graphics figure moves.**
+Corrected at 10:40 by Daniel's compile 35 preview (1.17.7: Graphics
+0.155 against compile 33's 0.16): expect compile 36's Speedometer
+figures to equal compile 34's, Graphics included; the buffer's gain is
+real on the bench but below what Speedometer resolves.
+
+**Gate run (2026-10-04, 10:03-10:32, all in parallel):**
+- upstream's PMMU suite: **identical to the baseline** - 58 pass, the
+  same 5 fail (`tb_mmu_badfeed_fault_frame`, `tb_pmmu_030`,
+  `tb_pmmu_walker_comprehensive`, `tb_pmove_crp_a7_postinc`,
+  `tb_pmove_pc_all_regs`) with the same failure lines; 6 min 54 s.
+- `sim/system` all eight (17.5 min): plain/cacheon/cachewa 24, cachetest
+  28, vramtest 4, berrtest 3, timetest 35, clrtest 35. **timetest's
+  PMMU-on windows equal the PMMU-off ones**: RAM fill 8.05 / 8.03, RAM
+  read 13.10 / 13.09, copy 13.10 / 13.10, VRAM fill 31.78 / 31.51, VRAM
+  byte 8.83 / 9.07, RAM->VRAM 33.76 / 33.76, SCSI blind read 168.44 /
+  168.00, write 173.69 / 173.75, GCR address field 87.19 / 87.19 (SWIM gap
+  23) - the 1.17.3 loss stays gone; chime 1.04 s.
+- `sim/cpfpu` mmu 11, b5a 15, b5b 18, b5c 26, b5d 19; `sim/busfault` 14;
+  `sim/kernel_bus` 16/32/8 (338/237/520 checks); `sim/machine` 17 (91 s).
+Committed `3646253`. **Compile 36 started 10:30** (tag `36462531`,
+Daniel's "compile when ready"); result below when it lands.
+
+**Compile 36** (2026-10-04 10:30-11:02, tag `36462531`, 32.5 min -
+synthesis 9, the fitter **21** against compile 35's 38; archived
+`output_files/MacSE30_36462531_fastset.rbf`): **37,574 ALMs (90 %)**,
+215 fewer than compile 35 and 279 fewer than compile 34 (the PMMU
+entity: 4,926). **TIMING MET AT EVERY CORNER** (`sta_corners.tcl`):
+the design's worst slack over every corner +0.063 ns (slow -40C, a
+framework path; the flow's +0.162 at slow 100C), the SDRAM outputs
++2.438 / +2.489 as compile 34, the read capture meeting its A/B rule
+at every corner (best margins 1.627, 1.324, 2.016, 1.853). **The ATC
+path**: the CPU clock's worst path is now +1.096 ns (a PMOVE
+micro-state path, `sta_paths.tcl`), the SDRAM clock's +0.352 (inside
+the SDRAM controller, `busy -> sd_addr`), and the worst path *through
+the fast set* (`report_timing -through` its `fast_hit` nets) is
+**+4.149 ns** against compile 35's -2.272 through the 22-way search: a
+6.4 ns gain, the 5-6 ns the design counted on. The fast-set state
+(`fs_*`) paths have +6.13. The fitter's routing time fell with the
+congestion, as 1.17.7's note on compile times suggested it would.
+
+**On the board (Daniel, 11:10, `C:\temp\Mac\Screenshots\
+20261004_111009-screen.png`, Speedometer 4.02 Comparison against the
+saved compile 34 record): runs fine, and reads as compile 34** - CPU
+0.27 / 0.27, Graphics 0.16 / 0.15, Disk 0.41 / 0.43, Math 1.13 / 1.10,
+PR 0.25 / 0.25 (compile 36 first). Graphics is back on Low End Mac's
+0.16. **Compile 36 is the current good bitstream**: compile 35's buffer
+and the fast set, timing met by design. 1.17.7's open decision is
+closed by this. Next: compile 37, the second floppy drive out (10.4).
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
