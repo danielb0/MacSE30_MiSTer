@@ -14691,6 +14691,15 @@ bitmap, the MDB's counts):
   real SE/30 would. The clean proof: the same delete on a different CPU
   implementation running the IIx/IIcx/SE/30 ROM (an emulator in IIx or
   IIcx mode). Still parked behind the Math profile (Daniel).
+  **Checked (the LC's image, `Test disks\Corrupted\mac_80mb-restored-
+  LC.vhd`, from the same backup): 0 problems, the volume consistent;
+  Speedometer 4.02 (1990) deleted with its thread - the very thread our
+  core left; Disk First Aid v7.2.2 (3029) and TattleTech (3037) deleted
+  with theirs; Sound (1128) and Newspaper (1680) kept, their threads
+  removed and the thread-exists flags cleared (the System's own ID
+  housekeeping - working there too).** So on the same starting image the
+  LC removes threads as Inside Macintosh says and our core never does:
+  **treated as a bug in our core** (the ROM difference the only caveat).
 - Daniel then let Disk First Aid repair the boot volume: clean after the
   repair (2026-10-04 ~21:10). The damaged images stay on the PC for the
   cross-check (`Test disks\Corrupted\mac_80mb-restored.vhd`, compile 39;
