@@ -14582,6 +14582,29 @@ Speedometer 4.02's Math reads 1.10-1.13 against the real SE/30's 0.96-0.98.
      target is not the lever. GLUE's DRQ wait shows how much of the
      bus time the CPU actually spends held.
 
+**FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
+strike what is done).** Each on a scratch copy of the image unless noted.
+1. **32-bit mode with MODE32** (Daniel, 2026-10-04): install MODE32 with
+   its own installer (copying the extension does not work - 68kMLA,
+   plan 1.5 addendum), switch 32-Bit Addressing on in the Memory control
+   panel, restart. Exercises the ROM's and MODE32's 32-bit translation
+   tables and the core's full 32-bit decode, paths 24-bit mode never
+   touches; a prerequisite in practice for the 128 MB option. Check:
+   boots, TattleTech reads "Booted in 32-Bit mode = Yes", Speedometer and
+   a few applications run, back to 24-bit and restart cleanly. With 8 MB
+   it brings no other benefit (Daniel asked; answered 2026-10-04).
+2. **The 128 MB clean-ROM option** (when built): a IIsi/IIfx ROM file,
+   the System edited per "Gamba's page"; PRAM reset first; watch for the
+   68kMLA poster's Sad Mac and unreadable drive after a Memory control
+   panel change (plan 1.5 addendum).
+3. **The floppy, as a whole** (Daniel, 2026-10-04 morning: "tested
+   thoroughly later, as a whole"): reading on both drives, and writing
+   and formatting once built (10.4) - the full `sim/gcrread` gate with
+   `EXT_DRIVE` = 1 is its bench side.
+4. **HD SC Setup's Test Disk** on a SCSI image, if the tool is to hand
+   (compile 39's integrity checks were the copy, the launch from the copy
+   and Disk First Aid - all clean).
+
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
 unpushed (Daniel pushes).
