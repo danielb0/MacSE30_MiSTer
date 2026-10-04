@@ -14904,6 +14904,18 @@ Daniel - add to it, move items out when fixed).**
    on the real machine (every one within ~+-9 %); SANE's software floating
    point (Math, the SANE Whetstone) runs ~15-20 % fast; the 68882 path
    ~8-10 % slow.
+   **The MacLC core shows the same pattern** (Daniel, 2026-10-04 23:57,
+   `20261004_235702-screen.png`, against Speedometer's built-in Mac LC
+   record): CPU 0.20 / 0.22 (0.91), **Math 0.67 / 0.59 (1.14)**, benchmark
+   average 0.18 / 0.17. The LC has no FPU (Math is pure SANE) and its core
+   is not paced like ours, yet Math sits ~25 % above its CPU ratio (ours
+   ~16 %). Two cores with different CPU timing, both fast on Math by a
+   similar margin, point away from either core's instruction timing -
+   toward something shared (the TG68K lineage, or the reference records'
+   conditions, or how Speedometer times Math). A cheap discriminator:
+   Speedometer 4.02's Math on MAME's `macse30` (Daniel has it set up) -
+   high there too = the benchmark or the reference; ~0.97 = something the
+   two FPGA cores share.
 2. **Disk is faster than a real SE/30** (Speedometer 1.12 against
    0.70-0.77) - by design: full speed, never paced (Daniel, 10.4 item 3).
 3. **Deleting a file never removes its file thread record** - an
