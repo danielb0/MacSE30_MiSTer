@@ -2815,7 +2815,17 @@ not clash - the real enable starts at the next access's ACTIVE + 1, at
 least two clocks later. `sim/machine` 17. The gcrread real-SDRAM run
 (four hours) is not run, per the test method.
 
-**Compile 34** (tag `d3ecbe7e`): running.
+**Compile 34** (2026-10-04 01:09-01:48, tag `d3ecbe7e`, 39.5 min - synthesis
+10, the fitter 27; archived `output_files/MacSE30_d3ecbe7e_dqpre.rbf`):
+**37,853 ALMs (90 %)**, 83 fewer than compile 33; 43 % of the block
+memory. **Timing met at every corner** (`sta_corners.tcl`): worst slack
++0.027 ns (slow -40C, register to register); the SDRAM output pins
+setup +2.438 / hold +2.523 at slow 100C (compile 33: -0.516 on
+`a_written -> dq_out[6]`), +2.489 / +2.638 at slow -40C, +3.29 / +2.96
+and +3.33 / +2.97 at the fast corners; the read capture meets its A/B
+rule at every corner (best margins 1.627, 1.324, 2.015, 1.853). **On
+the board, expect compile 33's behaviour exactly** (the same commands on
+the same clocks; only the enable's longer window differs).
 
 **Daniel, 2026-10-04 (compile 33 on the board): the chime still sounds
 slightly fast.** The bench's chime pass is 542 clocks against the
