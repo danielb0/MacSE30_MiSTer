@@ -14822,7 +14822,10 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    the orphans. Images in `C:\temp\Mac\Test disks\FIDTest`, MAME in
    `C:\temp\Mac\mame` (lesson: its writes go to `diff/<name>.dif`).
 5. Then the FUTURE BOARD TESTS list (below), and **the features still to
-   build** (Daniel's list; order to be set with him):
+   build** (Daniel's list. **Priority, Daniel 2026-10-04: CD-ROM above the
+   options and wanted if it fits; the options are the least important and
+   are dropped if there is no space.** Floppy writing - the base machine -
+   taken as first unless he says otherwise):
    - **Floppy writing and formatting** (GCR; 10.4's budget 800-1,200 ALMs).
    - **CD-ROM support** (Daniel, 2026-10-04 late evening). Section 9's
      stage 2: the AppleCD at SCSI ID 3 from `rtl/scsi.v`'s CD-ROM
