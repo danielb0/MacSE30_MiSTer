@@ -2826,6 +2826,10 @@ and +3.33 / +2.97 at the fast corners; the read capture meets its A/B
 rule at every corner (best margins 1.627, 1.324, 2.015, 1.853). **On
 the board, expect compile 33's behaviour exactly** (the same commands on
 the same clocks; only the enable's longer window differs).
+**Daniel, 2026-10-04 10:xx: compile 34 ON THE BOARD WORKS, and performs
+as compile 33 did, as expected** - the SDRAM data-pin change (1.17.6) is
+proven on the hardware with timing met at every corner; compile 34 is
+the current good bitstream.
 
 **Daniel, 2026-10-04 (compile 33 on the board): the chime still sounds
 slightly fast.** The bench's chime pass is 542 clocks against the
