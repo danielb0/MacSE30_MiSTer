@@ -14427,6 +14427,56 @@ routing. The second integer pipeline was removed to close.
      whole size, `(blk_cnt + 1) x blksz` up to its 16 KB buffer (3380-
      3555): one SD card write per request. A 512-byte request pays it per
      block; a 16 KB request pays it once per 32 blocks.
+   - **Daniel's decisions (2026-10-04 18:25)**: build multi-block writes;
+     **full speed, no pacing to a period drive** ("today you can connect
+     an SD card to a real Mac, and that is not considered non-authentic") -
+     a Disk figure above the real SE/30's 0.70-0.77 is not a regression.
+   - **Built (`6ca438b`, compile 39)**: `rtl/scsi.v`'s writes move to the
+     32-sector ring. `wr_fill` counts the sectors the Mac has delivered,
+     `wr_done` those the HPS has taken; whenever no request is in flight
+     and sectors are filled and unsent, ONE request goes out for all of
+     them (`io_blk_cnt` = sectors - 1 -> `sd_blk_cnt`, at most 32 = Main's
+     16 KB), read over hps_io's 13-bit word address; `lba` advances by the
+     request's sectors. Adaptive, no threshold: a command's first sector
+     goes alone and each later request carries what the Mac wrote while
+     the previous one was out (at ~2.5 ms a request and the Mac's ~1.4-2.9
+     MB/s, ~7-14 sectors). The Mac stalls only on a full ring; the status
+     byte waits for the last request (GOOD still means the HPS has the
+     data); only filled sectors are sent, so a zero-length or rejected
+     WRITE sends nothing (the old `data_in_seen` guard is now structural);
+     an aborted command arms no new request. Reads unchanged. The meter
+     gains the written sector count (PSCT 464 bits; `scsitime` decodes
+     both widths). The file's inherited mixed line endings are kept (the
+     first commit of it normalised them; amended).
+   - **Benches**: `sim/scsi_seam` test 10 (97 checks, 46 s): the hps_io
+     model takes `sd_blk_cnt` as Main does; 40 blocks at 1.3 ms a request
+     (6 requests, the largest 8) read back byte-exact; 33 blocks from LBA 7
+     at 9.6 ms (the ring fills: 1, 31, 1) read back, LBA 6 and 40
+     untouched; the image checked the moment the status arrives; 1 block
+     at the last LBA; reads one sector a request. Mutants (lba +1 a
+     request; `sd_blk_cnt` tied 0): FAIL 2 and 6 checks. `sim/machine` 17
+     PASS (its idle stub target gains the port).
+   - **Compile 39** (tag `6ca438bc`, 36 min): 37,579 ALMs (compile 38
+     37,775: the two-slot write logic and its edge latches gone, the ring
+     counters added); archived `output_files/MacSE30_6ca438bc_mbwrite.rbf`.
+     **Our paths meet at every corner** (per-clock report, the four
+     corners): clk_sys setup +1.799 worst (slow 100C), clk_mem +0.372,
+     the capture clocks +2.04, SDRAM pins +2.3 or more, every hold
+     positive; the capture met by A or B at each corner. **The flow
+     reports -0.313 ns at slow -40C (-0.065 at slow 100C): every failing
+     path is the framework's HDMI scaler** (`ascal|o_h_lum_pix` ->
+     `o_poly_lum` on `pll_hdmi`), the class accepted on compiles 18, 20,
+     25 and 37 (-0.087 there) - larger this fit, still not ours.
+   - **The board test (compile 39)**: FIRST on a scratch copy of the boot
+     image (a write-path change): boot; copy a folder of a few MB to a
+     new folder and Finder-compare it (or Get Info sizes), duplicate a
+     large file; HD SC Setup's Test Disk if available; Speedometer's Disk
+     test twice with `scsitime` either side; reboot and check the volume
+     mounts clean (Disk First Aid). Then the usual image. (Daniel backed
+     up the SD card's images before compile 39, 18:50.)
+   - Also on compile 38 (Daniel, 2026-10-04 ~18:55): **Arkanoid plays
+     very nicely; Prince of Persia starts and plays its music with no
+     extra noise.**
    - **The board test**: Speedometer open, `scsitime` just before the
      Disk test is started and again just after it ends; twice, to see the
      first run against a later one. The window includes the seconds
