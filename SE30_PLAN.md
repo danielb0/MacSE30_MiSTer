@@ -14604,6 +14604,35 @@ bitmap, the MDB's counts):
   writes): launch an application, quit, delete its folder, empty the
   Trash, Disk First Aid from MacPack. An orphan there clears the
   multi-block writes; then compile 39/40 the same way for symmetry.
+- **DONE (Daniel, ~20:55): the same delete on a scratch copy of the clean
+  backup under COMPILE 38 (single-block writes) - the same result, "many
+  missing file records".** The image (`Test disks\Corrupted\mac_80mb-
+  restored-backup.vhd`): 17 orphan file threads, the volume otherwise
+  consistent (548 files, 78 folders, 28,584 blocks in use = the bitmap's,
+  MDB free = bitmap free). Against the backup: **every deleted file with a
+  thread left it behind - none of the backup's threads was removed**
+  (905 EfiColor XTension Help, 1604 QuarkXPress, 1680 Newspaper, 1990
+  Speedometer 4.02); eight more files gained threads during the session
+  and kept them after deletion (Microsoft Word and its ReadMe twice, the
+  sample documents, the MS-Word and WordPerfect filters), and so did five
+  files created in it (the new copies, IDs >= 3083). **The multi-block
+  writes are cleared**: compile 39 is the current good bitstream again.
+- **But Inside Macintosh: Files says the File Manager removes the
+  thread**: FSpDelete "both forks of the file are deleted. The file ID
+  reference, if any, is removed" (Files-55/193); PBHDelete "if a file ID
+  reference for the specified file exists, that file ID reference is also
+  removed" (Files-236); the file ID reference is the file thread record
+  (Files-282). On the core 0 of 21 were removed, compiles 38 and 39 alike.
+  **So this is most likely a fault in the core, older than today** - the
+  CPU running the File Manager's delete (in the IIx ROM, as patched by
+  7.5.5) wrongly, e.g. the test of the file record's thread-exists flag
+  (filFlags bit 1) or the thread key's B-tree delete - unless System 7.5.5
+  itself departs from Inside Macintosh. MacPack's five orphans (before
+  compile 39) fit the same fault. Harmless to the data (Disk First Aid
+  removes orphan threads), but a fidelity bug. Next: Daniel's choice of a
+  cross-check (the same delete on an emulator running 7.5.5, or on the
+  MacLC core, whose CPU shares the TG68K lineage) and/or localising it
+  (the ROM's delete path, a PC probe on the board).
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a
