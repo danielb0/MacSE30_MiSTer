@@ -136,6 +136,26 @@
 //   reads returning the words, and the held mask of item 21 - while the
 //   FPGA's DQM pins did exactly as told. sd_dqm still copies A12:11, as
 //   the other cores' do, for a module wired to the DQM pins.
+//   THE DATA PINS ARE LOADED A CLOCK AHEAD (plan 1.17.6, compile 34,
+//   2026-10-04): dq_out and dq_oe are I/O-cell registers at the pins, so
+//   whatever decides their next value has to reach the pins' edge of the
+//   die in one clock.  Until compile 33 that decision was the sequencer's
+//   own - the write issues when the request has come (req_q, a_written,
+//   seq) - and on a 91 % full device the fitter placed it far away:
+//   a_written -> dq_out[6], three levels and 9.6 ns of wire, -0.516 ns at
+//   slow 100C.  Now the pins take dq_pre and oe_pre, registers loaded on
+//   the clock before from the state alone, so the pins' own paths are one
+//   hop with no logic.  The data needs no decision: while a write access
+//   is open dq_pre holds the word the next WRITE needs (the high word,
+//   then the low one from the clock the high word's WRITE issues), and
+//   the chip ignores the pins except on a WRITE's clock.  The enable
+//   needs none either: it is on for the whole of a write access (from the
+//   clock after its ACTIVE to two after it ends) instead of on each WRITE's
+//   clock, which is safe because the chip drives the pins only after a
+//   READ, and every READ's data is off the pins (tHZ) clocks before the
+//   next ACTIVE may issue (ACT_BUSY) - sim/sdram checks that the two
+//   drivers never overlap.  The raw experiment port keeps its exact
+//   per-clock schedule, read one clock ahead from its control word.
 //
 // THE TRAINING (S_TRAIN, after the ladder and before ready)
 //   Writes the complementary pair $A5C3, $5A3C to the top two words of the
@@ -338,6 +358,14 @@ module se30_sdram #(
   reg [15:0] dq_out;
   reg        dq_oe;
   assign sd_dq = dq_oe ? dq_out : 16'hzzzz;
+  // the pins' next value, decided a clock ahead (the header's THE DATA
+  // PINS ARE LOADED A CLOCK AHEAD); the pins' registers take it with no
+  // logic in between
+  reg [15:0] dq_pre;
+  reg        oe_pre;
+  always @(posedge clk or negedge reset_n)
+    if (!reset_n) begin dq_out <= 0; dq_oe <= 0; end
+    else begin dq_out <= dq_pre; dq_oe <= oe_pre; end
 
   // The read capture: one register in the I/O cell, on capture A or B as
   // cap_sel says (the header).  The clock control block is the Cyclone V
@@ -431,6 +459,7 @@ module se30_sdram #(
   reg  [2:0] state;
   reg  [3:0] seq;                      // clocks since the ACTIVE
   wire [1:0] r_k = seq[1:0] - 2'd2;    // the schedule's index on clocks 2..5 of a raw experiment
+  wire [1:0] r_kn = seq[1:0] - 2'd1;   // and the next clock's, loaded a clock ahead
   reg  [3:0] busy;                     // clocks until the next ACTIVE or refresh may issue
   reg  [9:0] ref_cnt;
   reg        ref_due, ref_early, ref_force;
@@ -464,7 +493,7 @@ module se30_sdram #(
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0;
-      cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_out <= 0; dq_oe <= 0;
+      cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_pre <= 0; oe_pre <= 0;
       cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; raw_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
       dk_ack <= 0; dk_rdata <= 0;
       since_start <= 6'd63;
@@ -474,7 +503,6 @@ module se30_sdram #(
       cap_fail_a <= 0; cap_fail_b <= 0;
     end else begin
       cmd    <= CMD_NOP;
-      dq_oe  <= 0;
       if (busy != 0) busy <= busy - 1'b1;
       if (ref_cnt != 10'h3FF) ref_cnt <= ref_cnt + 1'b1;
       ref_due   <= (ref_cnt >= REF_PERIOD);
@@ -518,11 +546,9 @@ module se30_sdram #(
               if (seq == 4'd0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
               if (seq == 4'd2) begin
                 cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b0, 1'b0, TR_COL};
-                dq_out <= TR_W1; dq_oe <= 1;
               end
               if (seq == 4'd3) begin
                 cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL | 9'd1};
-                dq_out <= TR_W2; dq_oe <= 1;
               end
               if (seq == 4'd9) begin tr_step <= 1; seq <= 0; end
             end
@@ -625,7 +651,6 @@ module se30_sdram #(
               if (seq == 4'd15) seq <= 4'd15;                       // count the wait, saturating
               if (req_q && seq >= 4'd2) begin                       // tRCD met at 2
                 cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {~a_be[3:2], 1'b0, 1'b0, a_col_r};
-                dq_out <= a_wdata[31:16]; dq_oe <= 1;
                 a_written <= 1; seq <= 4'd3; cpu_ack <= 1;
                 busy <= 4'd6;                                       // the low word, tWR, tRP: 4.8 from here
               end else if (seq >= 4'd5) begin
@@ -638,7 +663,6 @@ module se30_sdram #(
             end else begin
               if (seq == 4'd3) begin                                // the low word, auto-precharged
                 cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {~a_be[1:0], 1'b1, 1'b0, a_col_r | 9'd1};
-                dq_out <= a_wdata[15:0]; dq_oe <= 1;
               end
               if (seq == 4'd4) state <= S_DONE;
             end
@@ -687,7 +711,7 @@ module se30_sdram #(
           seq <= seq + 1'b1;
           if (seq == 4'd2) begin
             cmd <= CMD_WRITE; sd_ba <= d_bank; sd_addr <= {2'b00, 1'b1, 1'b0, d_col};
-            dq_out <= xs_dl_data; dq_oe <= 1; dl_ack <= 1;
+            dl_ack <= 1;
           end
           if (seq == 4'd4) state <= S_IDLE;
         end
@@ -703,7 +727,7 @@ module se30_sdram #(
           seq <= seq + 1'b1;
           if (seq == 4'd2) begin
             cmd <= k_we_r ? CMD_WRITE : CMD_READ; sd_ba <= k_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, k_col_r};
-            if (k_we_r) begin dq_out <= k_wdata_r; dq_oe <= 1; dk_ack <= 1; end
+            if (k_we_r) dk_ack <= 1;
           end
           if (k_we_r && seq == 4'd4) state <= S_IDLE;
           if (!k_we_r && seq == 4'd7) begin dk_rdata <= dq_m; dk_ack <= 1; state <= S_IDLE; end
@@ -723,11 +747,8 @@ module se30_sdram #(
             if (seq == 4'd3 && r_second && !r_read) begin
               cmd <= CMD_WRITE; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap, 1'b0, r_col | 9'd1};
             end
-            if (seq >= 4'd2 && seq <= 4'd5) begin                   // the schedule
-              dq_out <= r_sel[r_k] ? r_w1 : r_w0;
+            if (seq >= 4'd2 && seq <= 4'd5)                         // the schedule's mask (its data and enable: below)
               sd_addr[12:11] <= r_dqm[2 * r_k +: 2];               // after the column address: the schedule wins
-              dq_oe  <= r_oe[r_k] && !r_read;
-            end
             if (r_read && seq == 4'd7) cpu_rdata[31:16] <= dq_m;   // a read's words, as S_ACC takes them
             if (r_read && seq == 4'd8) cpu_rdata[15:0]  <= dq_m;
             if (seq == 4'd7 && !r_ap) begin                         // tRAS met at 4, tWR after the last data
@@ -738,6 +759,27 @@ module se30_sdram #(
         end
 
         default: state <= S_IDLE;
+      endcase
+
+      // the data pins' next clock (the header's THE DATA PINS ARE LOADED A
+      // CLOCK AHEAD), from the state as it is now: a WRITE issued on the
+      // next clock finds its word and the enable already at the pins
+      oe_pre <= 1'b0;
+      case (state)
+        S_TRAIN: if (tr_step == 2'd0) begin                         // the pair: $A5C3 at 2, $5A3C at 3
+          oe_pre <= 1'b1; dq_pre <= (seq == 4'd2) ? TR_W2 : TR_W1;
+        end
+        S_ACC: if (a_we) begin                                      // the high word; the low one from the high WRITE's clock
+          oe_pre <= 1'b1;
+          dq_pre <= (a_written || (req_q && seq >= 4'd2)) ? a_wdata[15:0] : a_wdata[31:16];
+        end
+        S_DL: begin oe_pre <= 1'b1; dq_pre <= xs_dl_data; end
+        S_DK: if (k_we_r) begin oe_pre <= 1'b1; dq_pre <= k_wdata_r; end
+        S_RAW: if (!r_kind) begin                                   // the schedule's entry for the next clock
+          oe_pre <= (seq >= 4'd1 && seq <= 4'd4) && r_oe[r_kn] && !r_read;
+          dq_pre <= r_sel[r_kn] ? r_w1 : r_w0;
+        end
+        default: ;
       endcase
       // plan 3.8 item 21: the mask high for as long as the poke holds this,
       // but never into a mode register's reserved bits; the last

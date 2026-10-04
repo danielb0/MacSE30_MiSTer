@@ -175,6 +175,17 @@ module tb_se30_sdram;
     // controller header's THE MASK); dqm_c, the FPGA's DQM pins, reaches nothing
     .ba(ba_c), .addr(addr_c), .dqm(addr_c[12:11]), .dq(dq_chip));
 
+  // ------------------------------------------------- bus contention
+  // Plan 1.17.5 item 6: our output enable may stay on for a write's whole
+  // access, so it must never overlap the chip driving read data (or its
+  // tOH/tHZ tail) at the chip's pins.
+  integer clashes = 0;
+  always @(oe_c or chip.dq_drv)
+    if (oe_c === 1'b1 && chip.dq_drv !== 16'hzzzz) begin
+      clashes = clashes + 1;
+      if (clashes <= 5) $display("CLASH: our DQ driver on while the chip drives, t=%0t", $time);
+    end
+
   // ------------------------------------------------------------ scoring
   integer pass = 0, fails = 0;
   task check(input cond, input [8*96-1:0] what);
@@ -324,6 +335,7 @@ module tb_se30_sdram;
     check(chip.mem[24'hFFFFFE] == 16'hA5C3 && chip.mem[24'hFFFFFF] == 16'h5A3C, "the training wrote its pair to the top two words");
     check(cap_ok == EXPECT_OK, "the training's verdict is what these delays call for");
     check(cap_sel == EXPECT_SEL, "and its choice");
+    check(clashes == 0, "our DQ driver never overlaps the chip's (the training)");
     check((cap_fail_a == 0) == cap_ok[1] && (cap_fail_b == 0) == cap_ok[0] && (cap_ok[1] || cap_fail_a == 32) && (cap_ok[0] || cap_fail_b == 32),
           "the failure counts agree with the verdict (a capture outside the eye fails every read)");
     $display("      ready at %0.1f us; the training passed A=%0d B=%0d and chose %s", t_ready / 1000.0,
@@ -612,6 +624,7 @@ module tb_se30_sdram;
 
     // 11. the model's verdict
     check(chip.errors == 0, "no datasheet violation in the whole run");
+    check(clashes == 0, "our DQ driver never overlaps the chip's (the whole run)");
 
     check(acks_late == late_dl + 2 + late_dk + late_ref,
           "only the two late-request cycles, the download collisions, the disk's idle-bus collision and a refresh due after the idle were late");
