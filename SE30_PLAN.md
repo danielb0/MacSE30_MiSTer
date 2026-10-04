@@ -14467,6 +14467,16 @@ routing. The second integer pipeline was removed to close.
      path is the framework's HDMI scaler** (`ascal|o_h_lum_pix` ->
      `o_poly_lum` on `pll_hdmi`), the class accepted on compiles 18, 20,
      25 and 37 (-0.087 there) - larger this fit, still not ours.
+   - **ON THE BOARD (Daniel, 2026-10-04 ~19:30): Speedometer 4.02 Disk
+     1.133** (compile 37/38: 0.33-0.49; the real SE/30's internal drive
+     0.70-0.77, Daniel's decision makes the excess fine). PBLD `6ca438bc`.
+     PSCT since configuration (boot + that one Disk test, 207 s): 871
+     write requests carrying 9,020 sectors (10.4 a request), round trips
+     5.66 s = **627 us a sector** (compile 38: 2,213-3,030), a request 6.5
+     ms of which 5.0 ms Linux (the SD write cost grows with size, but
+     far slower than per request); 24,001 reads at 154 us; bus busy 16.0
+     s, hold-off 2.65 s, GLUE's DRQ wait 1.75 s, 6,153 commands; the
+     longest write request 18.8 ms. The integrity checks below are next.
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a
