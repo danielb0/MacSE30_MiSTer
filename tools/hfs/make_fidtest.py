@@ -7,15 +7,17 @@ hfs_threads.py on the image shows whether B's thread was removed with it (A's
 thread is the control). The HFS volume is re-laid by machfs (CNIDs renumbered,
 Desktop DB fresh, EVERY file given a thread - so the create calls return fidExists
 -1303 = $FAE9); the partition map, the other partitions and the boot blocks are kept.
-Usage: python make_fidtest.py source.vhd out.vhd [--markers]  (--markers: the app writes
-$F1D7E57A to the stack before the delete and $F1D7E57B after, for a debugger's watchpoints)"""
+Usage: python make_fidtest.py source.vhd out.vhd [--markers] [--cacr HHHH]
+(--cacr: the app first writes that value to the 68030 CACR, e.g. 0808 = both caches
+cleared and off, 0801 = data cache off, 2108 = instruction cache off; the ROM runs $2101)  (--markers: the app writes
+$F1D7E57A to $800000 (ROM, ignored) before the delete and $F1D7E57B after, for a debugger's watchpoints)"""
 import sys, struct, machfs
 from macresources import Resource, make_file
 
 def pstr(s):
     b = s.encode("mac-roman"); return bytes([len(b)]) + b
 
-def assemble(markers=False):
+def assemble(markers=False, cacr=None):
     """CODE 1: header (JT offset 0, 1 entry) then the code; PC-relative labels resolved."""
     VOL = "System 7.5.5 80MB:"
     items, labels, fix = [], {}, []
@@ -29,19 +31,22 @@ def assemble(markers=False):
         items.append(b"\x12\xFB"); fix.append((sum(len(x) for x in items), n, "b8")); items.append(b"\x20\x00")
     emit("0000 0001")                                   # jump-table offset 0, one entry
     emit("4E56 FE00")                                   # LINK A6,#-512   (-256: param block, -512: name buffer)
+    if cacr is not None:
+        emit("203C %08X 4E7B 0002" % cacr)              # MOVE.L #cacr,D0 ; MOVEC D0,CACR  (supervisor mode, as all 68k Mac OS code runs)
     emit("41EE FF00 703F"); label("clr"); emit("4298 51C8 FFFC")   # clear the 256-byte block
     for name, call, dreg in (("nameA", "7014 A260", 3), ("nameB", "7014 A260", 4), ("nameB", "A209", 5)):
         emit("41EE FF00"); lea_pc(1, name)              # LEA -256(A6),A0 ; LEA name(PC),A1
         emit("2149 0012 4268 0016 42A8 0030")           # ioNamePtr, ioVRefNum = 0, ioDirID/ioSrcDirID = 0
-        if markers and dreg == 5: emit("2F3C F1D7E57A 588F")   # MOVE.L #$F1D7E57A,-(SP) ; ADDQ.L #4,SP: a write an emulator's debugger can watch for
+        if markers and dreg == 5: emit("203C F1D7E579 5280 23C0 0080 0000")   # MOVE.L #$F1D7E579,D0 ; ADDQ.L #1,D0 ; MOVE.L D0,($800000).L: writes $F1D7E57A to the ROM's 24-bit address (ignored by the hardware), a value an emulator's debugger can watch for (computed, so the code itself never holds it)
         emit(call)                                      # MOVEQ #$14,D0 ; _HFSDispatch (CreateFileIDRef)  |  _HDelete
-        if markers and dreg == 5: emit("2F3C F1D7E57B 588F")
+        if markers and dreg == 5: emit("203C F1D7E579 5480 23C0 0080 0000")   # writes $F1D7E57B after the call
         emit("3%X28 0010" % (dreg * 2))                 # MOVE.W ioResult(A0),Dn
     emit("43EE FE00"); lea_pc(0, "prefix"); emit("701C"); label("cp"); emit("12D8 51C8 FFFC")  # copy 29 bytes (len + 28)
     for d in (3, 4, 5):
         if d > 3: emit("12FC 0020")
         emit("320%d" % d); bsr("hex4")
     emit("41EE FF00 43EE FE00 2149 0012 4268 0016 4228 001A 42A8 0030 A208")  # _HCreate the marker
+    emit("41EE FF00 42A8 0012 4268 0016 A013")                                 # _FlushVol, the default volume: the catalog reaches the disk now
     emit("4E5E A9F4")                                   # UNLK A6 ; _ExitToShell
     label("hex4"); emit("7003"); label("h4l"); emit("E959 3401 0242 000F"); movb_pcidx_d2_a1inc("hextab"); emit("51C8 FFF2 4E75")
     label("hextab"); items.append(b"0123456789ABCDEF")
@@ -58,7 +63,8 @@ def assemble(markers=False):
 
 def main():
     src, out = sys.argv[1], sys.argv[2]
-    markers = len(sys.argv) > 3 and sys.argv[3] == "--markers"
+    markers = "--markers" in sys.argv[3:]
+    cacr = int(sys.argv[sys.argv.index("--cacr") + 1], 16) if "--cacr" in sys.argv[3:] else None
     img = bytearray(open(src, "rb").read())
     pm = img[512:1024]; n = struct.unpack(">I", pm[4:8])[0]
     for i in range(n):
@@ -71,7 +77,7 @@ def main():
     for nm in ("A", "B"):
         f = machfs.File(); f.type, f.creator = b"TEXT", b"ttxt"; f.data = ("FIDTest target %s\r" % nm).encode()
         v["FIDTest " + nm] = f
-    code1 = assemble(markers)
+    code1 = assemble(markers, cacr)
     code0 = struct.pack(">IIII", 0x28, 0x100, 8, 0x20) + bytes.fromhex("0000 3F3C 0001 A9F0")
     app = machfs.File(); app.type, app.creator = b"APPL", b"FIDT"
     sizer = struct.pack(">HII", 0x4880, 0x40000, 0x20000)   # SIZE -1: suspend/resume, activate on switch, 32-bit clean; 256K / 128K
