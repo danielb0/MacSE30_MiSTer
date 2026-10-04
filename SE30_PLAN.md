@@ -14744,11 +14744,16 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    I-cache 45-77 %; the fetch correction would close only half and take
    CPU below real). Its benches (21:41): sim/system all eight PASS, the
    34 timetest windows IDENTICAL clock for clock to the 10:29 log (the
-   pace unchanged); sim/machine 17 PASS; the PPRF RAM bench PASS. **Next:
-   compile it (stamp, build, sta_corners, archive),
+   pace unchanged); sim/machine 17 PASS; the PPRF RAM bench PASS.
+   **Compiled: compile 41** (tag `e98c4ef3`, 35 min,
+   `output_files/MacSE30_e98c4ef3_pprf.rbf`): 38,758 ALMs (+805 on compile
+   40 - at the practical ceiling, but PPRF is probe-only), 313 RAM blocks;
+   **timing met at every corner with no exception** (clk_sys +2.137 worst,
+   clk_mem +0.536, the framework's HDMI scaler +0.140; the capture by A or
+   B). **Next: on the board, the profile around Math. (Was: compile it (stamp, build, sta_corners, archive),
    then on the board `profile start` before Speedometer's Math test and
    `profile stop` + `profile read` after; the rows with the biggest share
-   and their clocks against budget say where Math's time is too short.**
+   and their clocks against budget say where Math's time is too short.)**
 4. **Open bug, parked by Daniel behind the Math profile: deleting a file
    never removes its file thread** (Disk First Aid "Missing file record
    for file thread"; 0 of 21 removed on compiles 38 and 39, so not the
