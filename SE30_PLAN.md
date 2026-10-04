@@ -14742,8 +14742,10 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    Math figure (10.4 item 4: Math 1.151 against the real 0.96-0.98; not the
    68882 - under 1 % in every test; SANE and Toolbox code missing the
    I-cache 45-77 %; the fetch correction would close only half and take
-   CPU below real). Its benches at the session's end: see the commit and
-   the line below. **Next: compile it (stamp, build, sta_corners, archive),
+   CPU below real). Its benches (21:41): sim/system all eight PASS, the
+   34 timetest windows IDENTICAL clock for clock to the 10:29 log (the
+   pace unchanged); sim/machine 17 PASS; the PPRF RAM bench PASS. **Next:
+   compile it (stamp, build, sta_corners, archive),
    then on the board `profile start` before Speedometer's Math test and
    `profile stop` + `profile read` after; the rows with the biggest share
    and their clocks against budget say where Math's time is too short.**
