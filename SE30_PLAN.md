@@ -14923,6 +14923,10 @@ Daniel - add to it, move items out when fixed).**
    Speedometer's Comparison - Machine Records window shows the record's
    configuration. Check it before using any record - the Mac LC record
    behind the LC core comparison included.)
+   (**The Mac LC record is standard** - Daniel, from its "?": 6 MB, System
+   7.1, 8-bit graphics - so the LC comparison below is credible; the LC
+   core ran 7.5.5, a System difference that on the SE/30 does not move
+   Math: the 7.1 record and Low End Mac's 7.5.5 agree.)
    **The MacLC core shows the same pattern** (Daniel, 2026-10-04 23:57,
    `20261004_235702-screen.png`, against Speedometer's built-in Mac LC
    record): CPU 0.20 / 0.22 (0.91), **Math 0.67 / 0.59 (1.14)**, benchmark
