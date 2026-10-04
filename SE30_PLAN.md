@@ -14633,6 +14633,10 @@ bitmap, the MDB's counts):
   cross-check (the same delete on an emulator running 7.5.5, or on the
   MacLC core, whose CPU shares the TG68K lineage) and/or localising it
   (the ROM's delete path, a PC probe on the board).
+- Daniel then let Disk First Aid repair the boot volume: clean after the
+  repair (2026-10-04 ~21:10). The damaged images stay on the PC for the
+  cross-check (`Test disks\Corrupted\mac_80mb-restored.vhd`, compile 39;
+  `...-backup.vhd`, compile 38).
    - **The board test (compile 39)**: FIRST on a scratch copy of the boot
      image (a write-path change): boot; copy a folder of a few MB to a
      new folder and Finder-compare it (or Get Info sizes), duplicate a
