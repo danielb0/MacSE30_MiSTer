@@ -14821,7 +14821,21 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    7.5.5 patch set and removes them. Nothing to fix; Disk First Aid clears
    the orphans. Images in `C:\temp\Mac\Test disks\FIDTest`, MAME in
    `C:\temp\Mac\mame` (lesson: its writes go to `diff/<name>.dif`).
-5. Then: the FUTURE BOARD TESTS list (below), floppy writing.
+5. Then the FUTURE BOARD TESTS list (below), and **the features still to
+   build** (Daniel's list; order to be set with him):
+   - **Floppy writing and formatting** (GCR; 10.4's budget 800-1,200 ALMs).
+   - **CD-ROM support** (Daniel, 2026-10-04 late evening). Section 9's
+     stage 2: the AppleCD at SCSI ID 3 from `rtl/scsi.v`'s CD-ROM
+     personality (`CDROM` = 1 - the MacPlus core's, carried in the file
+     unused: SONY CDU-8004 identity, 2048-byte blocks, the CD command set,
+     the TOC from Main), then CD audio (`cd_audio.sv`, not yet in this
+     repo). **Budget is the question**: 10.4's table says 600-900 ALMs for
+     the target and audio, 9.x's note +5,800 in the LC (audio ~3,000) -
+     to be measured at the target before the audio is committed to; the
+     release build (no probe deck) has ~2k under the ~38.3k ceiling,
+     shared with floppy writing.
+   - The options: the colour card in the PDS pseudo-slots, 128 MB with a
+     clean ROM (MODE32 test first), an OSD unpaced switch.
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
