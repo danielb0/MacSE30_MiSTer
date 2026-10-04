@@ -3034,6 +3034,96 @@ development and the compile", and compile 35 right after 34).
    and a compile, and should be designed with the levels counted from
    this report before it is built.
 
+### 1.17.8 The fast set: option a built (2026-10-04)
+
+**Daniel, 10:xx: "start on option a."** Compile 34 works on the board,
+performing as compile 33 (1.17.6), so the base is sound.
+
+**The path, from compile 35's report** (`sta_paths_..._general_0_...txt`,
+slow 100C; the clock arrives at 4.60 ns, the data must be in by 35.77):
+
+| segment | cells | from -> to (ns) | span |
+|---|---|---|---|
+| kernel front: `RDindex_A` -> register-file read (`Mux475`) -> address adder (`Add47`) -> wire to the PMMU | 2 | 4.60 -> 10.23 | 5.6 |
+| ATC search: 4 cells of per-entry masked compare, 2 of the "last match" priority chain (`hi`), 3 of the 22:1 mux (`Mux376`), 2 of the clean test (`fast_hit`) | 11 | 10.23 -> 21.69 | 11.5 |
+| tail: `busy` -> `fetch_ok` -> `clkena_lw` (fan-out 1,207) -> `setstate` -> ... -> `RDindex_A` -> `Mux456` | 20 | 21.69 -> 37.05 | 15.4 |
+
+33.4 ns against 31.2: -2.27. The second path (`general[1]`, -1.77) shares
+the front and the search to `fast_hit~12` (22.83), then `addr_out` -> the
+wrapper's `cpu_addr` -> the SDRAM controller's `xs_addr` register (26.40
+against 24.63). The front and the tail are the kernel's; only the search is
+ours to shorten, and it has to lose 2.3 ns plus a margin that survives
+the fit - say 5-6 ns of its 11.5.
+
+**What costs the 11.5.** Each of the 22 entries keeps its own page shift
+(`atc_shift(i)`), so each compare is a 32-bit variable-mask compare though
+every fill uses `tc_page_shift` ("always TC.PS granularity", W_PAGE); the
+hit is the *last* matching entry, a 22-deep priority chain; the physical
+base and attributes come through a 22:1 mux of 36 bits; and the clean test
+(fault entry, write to WP or M=0, user access to a supervisor page, base
+aligned) is done after the mux, per access.
+
+**The design** (`TG68K_PMMU_030.vhd`: `fast_xlat` rewritten, `fast_set`
+added; the registered path, the 22-entry ATC and every port untouched):
+- **The fast set**: `FAST_ENTRIES` = 4 copies of ATC entries, each {valid,
+  FC, logical page, physical page, CI, WP, `wr_ok` = M and not WP,
+  `user_ok` = U_ACC, MRU}. One **registered page mask** for all
+  (`fs_page_mask`, from `tc_page_shift`).
+- **The compare** (`fast_xlat`): per entry `valid and FC = fc and
+  (addr_log and mask) = page and (read or wr_ok) and (supervisor or
+  user_ok)` - the clean test is folded into the match as two
+  precomputed bits; the set is **canonical** (one copy of a page), so at
+  most one entry matches and the 32-bit physical page, CI and WP come
+  through a 4-way AND-OR; `fast_phys` = page OR (addr_log and not mask);
+  `fast_hit` = any match AND the same quiet-MMU test as 1.17.3's (all
+  registered signals). Expected: compare 2-3 cells, match 1, AND-OR 1-2,
+  OR 1 - about 5-6 cells from `addr_log` to `fast_hit` against 11, so
+  `fast_hit` near 16 ns instead of 21.7 and both paths some +3 ns.
+- **Loading** (`fast_set`): the registered path requests an MRU update
+  the clock after every ATC hit (`atc_mru_update_req/idx`); if that entry
+  is a real translation (not a cached fault) with page-aligned bases, it
+  is copied into the set - over its own copy if the page is there already
+  (refreshing MRU), else an empty slot, else the first not-recently-used
+  (the ATC's pseudo-LRU rule). A fast hit still runs the registered path,
+  so it refreshes MRU through the same request.
+- **Clearing**: the whole set empties in any clock where the walker may
+  write an ATC entry - `wstate /= W_IDLE`, `walk_req`, `atc_flush_req`,
+  `pflush_clear_atc`, `atc_mbit_inval_req` - or the context changes
+  (`xlat_cfg_seq` moved, `tc_en` = 0, MMUDIS, the page mask changed).
+  Every writer of `atc_valid`/`atc_log_base`/... (reset, W_PLOAD_FLUSH,
+  W_FILL, the fault fill, the M-bit invalidation, PFLUSH's three forms)
+  falls in one of these clocks, so **the set is always a subset of the
+  ATC's valid non-fault entries**, and a fast hit is exactly what the
+  registered path lands a clock later. Over-clearing (a walk empties
+  the set) costs one registered-path clock per page to refill - the
+  1.17.3 loss, briefly, after each miss.
+- **Semantics preserved** against 1.17.3: a write to an M=0 or WP page
+  misses the set (wr_ok = 0) and takes the registered path (BUG #410's
+  invalidate-and-rewalk, or the WP fault); a user access to a supervisor
+  page likewise (the fault); fault entries are never loaded; TTR matches,
+  CPU space, translation off and MMUDIS are decided before the set as
+  before.
+- **Logic**: the 22 variable-mask compares, the priority chain and the
+  22:1 36-bit mux go (compile 32 cost +633 ALMs for them); 4 x 71 bits
+  of state, four 32-bit fixed-mask compares and a 4-way AND-OR come.
+  Expect a net saving.
+
+**Gate** (estimates from yesterday's logs): upstream's PMMU suite
+(`sim/kernel_upstream`, SUITE=pmmu_suite.txt, 63 benches, ~8 min;
+baseline 58 pass / 5 fail in `results_pours`), `sim/system` all eight
+(~25 min; timetest windows 12-21 must equal 2-11 as in 1.17.3),
+`sim/cpfpu` mmu and b5a-d, `sim/busfault`, `sim/kernel_bus`,
+`sim/machine`. Then compile 36 = dev's head: compile 35's content (the
+write pending buffer, whose own gate passed and whose fit compile 35
+proved) with the fast set in place of the 22-way search; compile 37
+removes the second floppy drive (Daniel, 10:xx: agreed, one change per
+compile). **Perceived effect on the board, as told to Daniel (10:25):
+compile 34's machine with Graphics a few % up (the buffer's VRAM byte
+11.1 -> 9.07, copy 35.8 -> 33.8); the fast set itself should be
+invisible, except that a loop touching five or more pages between ATC
+misses, or the first access to each page after a miss, pays the old one
+clock again - `FAST_ENTRIES` is the lever if a Graphics figure moves.**
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records

@@ -278,6 +278,24 @@ architecture rtl of TG68K_PMMU_030 is
   signal fast_phys : std_logic_vector(31 downto 0);
   signal fast_ci   : std_logic;
   signal fast_wp   : std_logic;
+  -- SE30_PLAN.md 1.17.8: the fast set - the few most recently used ATC
+  -- entries, copied out of the 22 at the TC page size, that fast_xlat
+  -- compares in the same clock (fast_set below loads and clears them)
+  constant FAST_ENTRIES : integer := 4;
+  type fs_addr_t is array(0 to FAST_ENTRIES-1) of std_logic_vector(31 downto 0);
+  type fs_fc_t   is array(0 to FAST_ENTRIES-1) of std_logic_vector(2 downto 0);
+  type fs_bit_t  is array(0 to FAST_ENTRIES-1) of std_logic;
+  signal fs_valid     : fs_bit_t := (others => '0');
+  signal fs_mru       : fs_bit_t := (others => '0');   -- pseudo-LRU, as the ATC's
+  signal fs_fc        : fs_fc_t  := (others => (others => '0'));
+  signal fs_log       : fs_addr_t := (others => (others => '0'));  -- the logical page (aligned)
+  signal fs_phys      : fs_addr_t := (others => (others => '0'));  -- the physical page (aligned)
+  signal fs_ci        : fs_bit_t := (others => '0');
+  signal fs_wp        : fs_bit_t := (others => '0');
+  signal fs_wr_ok     : fs_bit_t := (others => '0');   -- a write may use the entry: M set, WP clear
+  signal fs_user_ok   : fs_bit_t := (others => '0');   -- a user access may: U_ACC
+  signal fs_page_mask : std_logic_vector(31 downto 0) := x"FFFFF000";  -- the TC page, registered
+  signal fs_cfg_seq   : unsigned(7 downto 0) := (others => '0');
   signal translated_match_dbg : std_logic;
   signal walk_req  : std_logic;
   signal walker_completed : std_logic := '0';
@@ -1663,38 +1681,149 @@ begin
   -- merge equals the registered path's add).  Everything else - misses, faults,
   -- walks - stays on the registered path, which still runs and lands the same
   -- result a clock later.
+  --
+  -- SE30_PLAN.md 1.17.8 (option a of 1.17.7): the compare is no longer over
+  -- the 22 entries.  Compile 35 timed the 22-way search at 11.5 ns of the
+  -- path's 33.4 (four cells of per-entry masked compare, two of the "last
+  -- match" priority chain, three of the 22:1 mux, two of the clean test),
+  -- and the path swung from +0.5 to -2.3 ns across four fits.  The same-clock
+  -- answer now comes from the FAST SET: up to four ATC entries, copied out
+  -- of the 22 by fast_set below, held at the TC page size with one registered
+  -- page mask shared by all, their clean-access tests (a write needs M and
+  -- not WP; a user access needs U_ACC) worked out when they are loaded.  The
+  -- set is kept canonical (one copy of a page) so at most one entry matches
+  -- and the mux is an AND-OR, not a priority chain; the physical address is
+  -- the entry's page OR the page offset.  The set is always a subset of the
+  -- ATC's valid, non-fault entries: it is loaded only from the registered
+  -- path's hits and cleared in every clock in which an ATC entry can change
+  -- (fast_set), so a fast hit is exactly the answer the registered path lands
+  -- a clock later - as before, misses, faults and walks take that path.
   fast_xlat: process(req, fc, rw, addr_log, tc_en, mmudis, ttr0_match_comb, ttr1_match_comb,
-                     atc_valid, atc_flush_req, atc_fc, atc_log_base, atc_phys_base, atc_shift,
-                     atc_attr, atc_buserr, fault_reg, walker_fault, walker_fault_ack_pending,
-                     translation_pending, wstate, pload_active, xlat_cfg_seq_seen, xlat_cfg_seq)
-    variable h   : std_logic;
-    variable hi  : integer range 0 to ATC_ENTRIES-1;
-    variable om  : std_logic_vector(31 downto 0);
+                     atc_flush_req, fault_reg, walker_fault, walker_fault_ack_pending,
+                     translation_pending, wstate, pload_active, xlat_cfg_seq_seen, xlat_cfg_seq,
+                     fs_valid, fs_fc, fs_log, fs_phys, fs_ci, fs_wp, fs_wr_ok, fs_user_ok,
+                     fs_page_mask)
+    variable ok    : std_logic;
+    variable any   : std_logic;
+    variable quiet : std_logic;
+    variable sel   : std_logic_vector(31 downto 0);
+    variable phys  : std_logic_vector(31 downto 0);
+    variable ci    : std_logic;
+    variable wp    : std_logic;
   begin
-    h := '0'; hi := 0;
-    for i in 0 to ATC_ENTRIES-1 loop
-      if atc_valid(i) = '1' and atc_fc(i) = fc and
-         align_addr(addr_log, atc_shift(i)) = atc_log_base(i) and
-         (rw = '1' or atc_attr(i)(1) = '1' or atc_attr(i)(0) = '1' or atc_buserr(i) = '1') then
-        h := '1'; hi := i;
+    any := '0'; phys := (others => '0'); ci := '0'; wp := '0';
+    for i in 0 to FAST_ENTRIES-1 loop
+      if fs_valid(i) = '1' and fs_fc(i) = fc and
+         (addr_log and fs_page_mask) = fs_log(i) and
+         (rw = '1' or fs_wr_ok(i) = '1') and
+         (fc(2) = '1' or fs_user_ok(i) = '1') then
+        ok := '1';
+      else
+        ok := '0';
       end if;
+      sel  := (others => ok);
+      any  := any or ok;
+      phys := phys or (fs_phys(i) and sel);
+      ci   := ci or (fs_ci(i) and ok);
+      wp   := wp or (fs_wp(i) and ok);
     end loop;
-    om := not std_logic_vector(shift_left(unsigned'(x"FFFFFFFF"), atc_shift(hi)));
+    -- nothing else in flight: the same quiet-MMU test as 1.17.3's
     if req = '1' and fc /= "111" and ttr0_match_comb = '0' and ttr1_match_comb = '0' and
        tc_en = '1' and mmudis = '0' and atc_flush_req = '0' and fault_reg = '0' and
        walker_fault = '0' and walker_fault_ack_pending = '0' and translation_pending = '0' and
-       wstate = W_IDLE and pload_active = '0' and xlat_cfg_seq_seen = xlat_cfg_seq and
-       h = '1' and atc_buserr(hi) = '0' and
-       not (rw = '0' and atc_attr(hi)(0) = '1') and
-       not (fc(2) = '0' and atc_attr(hi)(3) = '0') and
-       (atc_phys_base(hi) and om) = x"00000000" then
-      fast_hit <= '1';
+       wstate = W_IDLE and pload_active = '0' and xlat_cfg_seq_seen = xlat_cfg_seq then
+      quiet := '1';
     else
-      fast_hit <= '0';
+      quiet := '0';
     end if;
-    fast_phys <= atc_phys_base(hi) or (addr_log and om);
-    fast_ci   <= atc_attr(hi)(2);
-    fast_wp   <= atc_attr(hi)(0);
+    fast_hit  <= any and quiet;
+    fast_phys <= phys or (addr_log and not fs_page_mask);
+    fast_ci   <= ci;
+    fast_wp   <= wp;
+  end process;
+
+  -- The fast set's keeper (1.17.8).  Loads: the registered path asks for an
+  -- MRU update the clock after every ATC hit (atc_mru_update_req/idx); if
+  -- that entry is a real translation (not a cached fault) and its bases are
+  -- page-aligned, it is copied in - over its own earlier copy if the set has
+  -- the page already (which also refreshes that copy's MRU bit), else into
+  -- an empty slot, else the first slot not recently used, with the ATC's
+  -- pseudo-LRU rule.  Clears: every clock in which the walker may write an
+  -- ATC entry (a walk in progress or requested, a fill, PFLUSH, the M-bit
+  -- invalidation) or the translation context changes (TC/CRP/SRP written,
+  -- translation off, a page-size change) empties the whole set.  Clearing
+  -- too often costs only the refill - one registered-path clock per page.
+  fast_set: process(clk, nreset)
+    variable mask    : std_logic_vector(31 downto 0);
+    variable idx     : integer range 0 to ATC_ENTRIES-1;
+    variable victim  : integer range 0 to FAST_ENTRIES-1;
+    variable found   : boolean;
+    variable all_mru : boolean;
+  begin
+    if nreset = '0' then
+      fs_valid     <= (others => '0');
+      fs_mru       <= (others => '0');
+      fs_page_mask <= x"FFFFF000";
+      fs_cfg_seq   <= (others => '0');
+    elsif rising_edge(clk) then
+      mask := std_logic_vector(shift_left(unsigned'(x"FFFFFFFF"), tc_page_shift));
+      fs_page_mask <= mask;
+      fs_cfg_seq   <= xlat_cfg_seq;
+      if wstate /= W_IDLE or walk_req = '1' or atc_flush_req = '1' or pflush_clear_atc = '1' or
+         atc_mbit_inval_req = '1' or fs_cfg_seq /= xlat_cfg_seq or tc_en = '0' or mmudis = '1' or
+         fs_page_mask /= mask then
+        fs_valid <= (others => '0');
+        fs_mru   <= (others => '0');
+      elsif atc_mru_update_req = '1' then
+        idx := atc_mru_update_idx;
+        if atc_valid(idx) = '1' and atc_buserr(idx) = '0' and
+           (atc_log_base(idx) and not mask) = x"00000000" and
+           (atc_phys_base(idx) and not mask) = x"00000000" then
+          found := false; victim := 0;
+          for i in 0 to FAST_ENTRIES-1 loop
+            if fs_valid(i) = '1' and fs_fc(i) = atc_fc(idx) and fs_log(i) = atc_log_base(idx) then
+              victim := i; found := true;
+            end if;
+          end loop;
+          if not found then
+            for i in 0 to FAST_ENTRIES-1 loop
+              if not found and fs_valid(i) = '0' then
+                victim := i; found := true;
+              end if;
+            end loop;
+          end if;
+          if not found then
+            for i in 0 to FAST_ENTRIES-1 loop
+              if not found and fs_mru(i) = '0' then
+                victim := i; found := true;
+              end if;
+            end loop;
+          end if;
+          fs_valid(victim)   <= '1';
+          fs_fc(victim)      <= atc_fc(idx);
+          fs_log(victim)     <= atc_log_base(idx);
+          fs_phys(victim)    <= atc_phys_base(idx);
+          fs_ci(victim)      <= atc_attr(idx)(2);
+          fs_wp(victim)      <= atc_attr(idx)(0);
+          fs_wr_ok(victim)   <= atc_attr(idx)(1) and not atc_attr(idx)(0);
+          fs_user_ok(victim) <= atc_attr(idx)(3);
+          fs_mru(victim)     <= '1';
+          all_mru := true;
+          for i in 0 to FAST_ENTRIES-1 loop
+            if i /= victim and fs_mru(i) = '0' then
+              all_mru := false;
+            end if;
+          end loop;
+          if all_mru then
+            for i in 0 to FAST_ENTRIES-1 loop
+              if i /= victim then
+                fs_mru(i) <= '0';
+              end if;
+            end loop;
+          end if;
+        end if;
+      end if;
+    end if;
   end process;
 
   -- Output the current translation result.
