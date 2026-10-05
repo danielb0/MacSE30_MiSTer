@@ -8770,6 +8770,25 @@ write) may not, and is measured when it comes.
 8. Quartus analysis; the warning count against compile 41's; then a
    compile (measured against compile 40 for the probes' and this step's
    costs, kept apart) and the board gates of 5.15.10.
+   **Compile 42 (Daniel's go-ahead 2026-10-05; tag `a1d606aa`, 36 min,
+   `output_files/MacSE30_a1d606aa_fwrite.rbf`): 37,769 ALMs (compile 41:
+   38,758), 314 RAM blocks; timing met at every corner** - our clocks'
+   worst setup +0.472 ns (PLL output 1, slow 100C; compile 41's clk_mem
+   +0.536), worst hold +0.116; the capture by A or B at every corner; the
+   flow's +0.017 is the framework's HDMI scaler (KNOWN ISSUES item 6).
+   The first attempt (tag `f380d1ef`) failed in synthesis: the track
+   buffer read the cell it wrote on the same port, which an M10K in
+   true dual-port mode cannot do, and was not inferred - fixed at
+   `a1d606a` (a port reads only when not writing); the elaboration checks
+   do not reach that stage. **The cost, per entity**: the decoder 395, the
+   SD writer 333, the encoder 423 (+33 on compile 29's ~390), the drive
+   178 (+40), the SWIM 138 (+15), the mux 20, the loader 304 - writing
+   about **840 ALMs**, the low end of 10.4's 800-1,200. So the three
+   measurement probes freed about 1,800 (989 net; the fitter's packing
+   moves a few hundred between builds). The probe deck is now 1,445.
+   Headroom under the ~38.3k ceiling: about 500. Synthesis 0 errors,
+   7,504 warnings (compile 41's count was not kept, so no comparison).
+   **Next: the board gates of 5.15.10 (Daniel).**
 
 # Section 6 - The ADB and the RTC
 
