@@ -15981,7 +15981,11 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
      release build (no probe deck) has ~2k under the ~38.3k ceiling,
      shared with floppy writing.
    - The options: the colour card in the PDS pseudo-slots, 128 MB with a
-     clean ROM (MODE32 test first), an OSD unpaced switch.
+     clean ROM (MODE32 test first). ~~An OSD unpaced switch~~ **dropped
+     (Daniel, 2026-10-05): not in the first release, and probably never -
+     the timing faults before the pacing (1.17: the floppy regression,
+     the short chime) are what an unpaced mode would bring back.
+     `pace_en` stays tied high in the top.**
    **How they are built (Daniel, 2026-10-04): floppy writing and CD-ROM
    each on its own branch, developed and probed separately (each fits on
    its own with the probe deck); then the probes come out and the two are
@@ -16205,7 +16209,8 @@ unpushed (Daniel pushes).
    - The full floppy test, as a whole, later (sim/gcrread with both
      drives, `EXT_DRIVE` = 1 in the benches).
    - Options when the base is done: the colour card, the 128 MB clean
-     ROM, an OSD "unpaced" switch (`pace_en`).
+     ROM. (An OSD "unpaced" switch, `pace_en`, was listed here: dropped
+     by Daniel 2026-10-05 - see the features list above.)
 4. **Housekeeping**: the `wpb` worktree at `C:\Git\MacSE30_wpb` (branch
    `wpb` = dev at 243581e, scratch logs only) is still to be removed -
    `git worktree remove --force C:/Git/MacSE30_wpb && git branch -d wpb`;
