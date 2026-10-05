@@ -16070,6 +16070,26 @@ bitmap, the MDB's counts):
      target is not the lever. GLUE's DRQ wait shows how much of the
      bus time the CPU actually spends held.
 
+**END OF SESSION 2026-10-06 (early) - READ THIS TO RESUME** (supersedes
+the blocks below). Branch `floppy-write` at the commit after this one, tree
+clean, nothing pushed (Daniel pushes).
+1. **Current bitstream: compile 44**, `output_files/MacSE30_144c4b8d_
+   stabilise1.rbf` (39,149 ALMs with the PBER probe; our timing met at
+   every corner).
+2. **Done 2026-10-05/06**: GCR writing FINISHED on the board - the soak
+   (5.15.10 gate 5, 3 rounds, `tools/hfs/soak.py`) passed, every copy
+   exact against the seed; 1.44 MB MFM read host-checked (5.13, 24/24
+   files, `tools/hfs/fork_cmp.py`); KNOWN ISSUES 9 (PC Exchange) PARKED,
+   judgement reserved until MFM writing (FUTURE BOARD TESTS item 7).
+3. **Next (Daniel): MFM writing, then CD-ROM support (data)** - the MVP's
+   remaining features with persistent PRAM. **First, measure how much
+   will really fit**: compile 42 was 37,769 ALMs without PBER, ~530
+   under the ~38.3k practical ceiling; the levers are in 10.4.1 (probes
+   out for the release profile, 10.4.2) - Daniel decides.
+4. Still owed: 720K MFM read on the board; KNOWN ISSUES 10's board
+   reading (FUTURE BOARD TESTS item 6) needs a compile carrying the PSTA
+   fix; no compile on this branch without Daniel's word.
+
 **END OF SESSION 2026-10-04 (evening) - READ THIS TO RESUME** (supersedes
 the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
 1. **Current good bitstream: compile 40**, `output_files/MacSE30_f7c95109_
