@@ -159,11 +159,14 @@ module se30_flp_encoder #(
   reg [15:0] sbuf [0:261];                       // a sector: 6 tag words, 256 data words
   reg  [7:0] cbuf [0:702];                       // its 703 data-field codes
 
-  // port A, the drive: a cell read, or written by the recording
+  // port A, the drive: a cell read, or written by the recording - never
+  // both in one clock (a read while writing would ask the M10K for the
+  // old data on the same port, which true dual-port mode cannot give, and
+  // Quartus then builds the buffer from registers; trk_bit holds instead)
   wire [17:0] pa = trk_side ? SIDE1 + {1'b0, trk_addr} : {1'b0, trk_addr};
   always @(posedge clk) begin
     if (trk_we) tbuf[pa] <= trk_wbit;
-    trk_bit <= tbuf[pa];
+    else        trk_bit <= tbuf[pa];
   end
 
   // ------------------------------------------------------------ the build
@@ -232,7 +235,7 @@ module se30_flp_encoder #(
   wire [17:0] pb = tb_we ? tb_a : dec_addr;
   always @(posedge clk) begin
     if (tb_we) tbuf[pb] <= tb_d;
-    dec_bit <= tbuf[pb];
+    else       dec_bit <= tbuf[pb];
   end
 
   reg        sb_we;
