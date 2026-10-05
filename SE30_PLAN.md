@@ -9251,35 +9251,35 @@ peek resets the machine.
      checksum, a block freed in the bitmap - all FAIL; the File Manager's
      header bytes - PASS. Agrees with `hfs_vol.py` on `mac_80mb.vhd` (its
      6 unowned blocks are the image's own).
-   - **The images**: `C:\temp\Mac\Test disks\Soak\` (3 rounds made).
-     Round r: `soak_rN_int` and `soak_rN_ext`, raw and DC42 with tags
-     alternating per drive (each drive writes both containers);
-     `soak_final_int.dsk`.
+   - **The images**: `C:\temp\Mac\Test disks\Soak\` (5 rounds made).
+     **One drive**: compile 44 has no external drive (`SE30_EXT_DRIVE`
+     is a build option, off - 10.4 item 3; Daniel 2026-10-06), so there
+     is no floppy-to-floppy hop. `soak_r1.dsk` .. `soak_r5.dsk`, raw and
+     DC42 with tags alternating by round (`soak_r2.image`,
+     `soak_r4.image`); `soak_final.dsk`. (`make --ext` makes two a round
+     for a build with the external drive.)
    - **The rounds** (compile 44, `MacSE30_144c4b8d_stabilise1.rbf` - it
      carries GCR writing; no compile needed). Keep the **mouse moving
      during every copy** (the MacPlus HD20 lesson: a still mouse tests the
      easy path).
-     0. `soak_source.dsk` in the internal drive; drag its `Soak` into a
-        new folder `Soak 0` on the SCSI disk; eject.
-     1. Round r = 1..3: `soak_rN_int` in the internal drive, `soak_rN_ext`
-        in the external; **Initialize** both (two-sided; the unreadable
-        blank is formatted - every track written); drag `Soak r-1:Soak`
-        from the SCSI disk to the internal floppy (SCSI read, floppy
-        write); internal `Soak` to the external floppy (both drives);
-        external `Soak` into a new SCSI folder `Soak r` (floppy read,
-        SCSI write); eject both.
-     2. `soak_final_int.dsk` in the internal drive, Initialize, drag
-        `Soak 3:Soak` to it, eject.
+     0. `soak_source.dsk` in the drive; drag its `Soak` into a new folder
+        `Soak 0` on the SCSI disk; eject.
+     1. Round r = 1..5: `soak_rN` in the drive; **Initialize** it
+        (two-sided; the unreadable blank is formatted - every track
+        written); drag `Soak r-1:Soak` from the SCSI disk to the floppy
+        (SCSI read, floppy write); drag the floppy's `Soak` into a new
+        SCSI folder `Soak r` (floppy read, SCSI write); eject.
+     2. `soak_final.dsk`: Initialize, drag `Soak 5:Soak` to it, eject.
      Every hop is checked: each SCSI copy is the next round's source, so
      its faults reach a floppy; the SCSI image never needs pulling (its
      own audit would fail on old faults - `check --sets-only` if wanted).
-   - **The check**: copy the 7 written images to the PC; `python
-     tools/hfs/soak.py check <the 7 images>` - every image PASS
+   - **The check**: copy the 6 written images to the PC; `python
+     tools/hfs/soak.py check <the 6 images>` - every image PASS
      (seconds).
-   - **The estimate**: ~9 min a round on the board (two initializes ~3
-     min, three ~700 KB copies ~5 min, mounting and ejecting ~1 min), so
-     ~35 min for 3 rounds + the source and final steps - Daniel's board
-     time; more rounds by `make --rounds N`, ~9 min each.
+   - **The estimate**: ~5-6 min a round on the board (the initialize
+     ~1.5 min, two ~700 KB copies ~2.5 min, mounting and ejecting ~1-2
+     min), so ~30-35 min for 5 rounds + the source and final steps -
+     Daniel's board time; 4 rounds ~27 min.
 
 ### 5.15.11 The budget
 
