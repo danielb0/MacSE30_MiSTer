@@ -185,6 +185,7 @@ module dbg_probes #(
 	input  wire [63:0] flp2_state,        // PFL2: the external drive's (plan 5.14)
 	input  wire [63:0] fwr_state,         // PFWR: the internal drive's writing (plan 5.15)
 	input  wire [56:0] exc_state,         // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
+	input  wire [55:0] berr_state,        // PBER: the PMMU's last fault (tg68k.v's dbg_mmuf)
 	input  wire [63:0] cache_state,       // PCCH: the 68030's caches (plan 1.16.3)
 	input  wire [31:0] scsi_state,        // PSCS: the SCSI bus and the disks' slots (plan 9.8)
 	input  wire [463:0] scsi_meter,       // PSCT: the SCSI disk's time (plan 10.4 item 3)
@@ -321,6 +322,23 @@ module dbg_probes #(
 		.instance_id ("PFLN"), .probe_width (192), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pfln (.probe(fln_ring), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// PBER (KNOWN ISSUES 8, 2026-10-05): the last four bus-error exceptions,
+	// newest in [103:0], each {opcode[15:0], PC[31:0], tg68k.v's dbg_mmuf
+	// as the exception is taken[55:0]} - the PMMU's fault address, its
+	// MMUSR-coded status, FC, read/write, an instruction fetch, and which
+	// kind of bus error was pending - then a 16-bit count of them (wraps)
+	reg [415:0] ber_ring = 0;
+	reg  [15:0] n_ber = 0;
+	always @(posedge clk) if (exc_take && exc_vec == 8'd2) begin
+		ber_ring <= {ber_ring[311:0], exc_opc, exc_pc, berr_state};
+		n_ber    <= n_ber + 1'd1;
+	end
+
+	altsource_probe #(
+		.instance_id ("PBER"), .probe_width (432), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pber (.probe({n_ber, ber_ring}), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the floppy (the header's PFLP)
 	reg [63:0] pflp_r = 0;

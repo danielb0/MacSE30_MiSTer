@@ -814,6 +814,32 @@ for {set n 0} {$n < $samples} {incr n} {
 		}
 		puts "        [join $lines {   }]"
 	}
+	if {[have PBER]} {
+		# KNOWN ISSUES 8: the last four bus-error exceptions, newest first;
+		# MMUSR bits per the MC68030 UM 9.6.4 (B bus error, L limit, S
+		# supervisor only, W write protected, I invalid, M modified, T
+		# transparent, N levels)
+		set pber [rd PBER]
+		puts [format "  PBER  bus-error exceptions (16-bit count, wraps)=%d; the last four, newest first:" [expr {($pber >> 416) & 0xFFFF}]]
+		for {set k 0} {$k < 4} {incr k} {
+			set e   [expr {($pber >> (104 * $k)) & ((1 << 104) - 1)}]
+			set opc [expr {($e >> 88) & 0xFFFF}]
+			set pc  [expr {($e >> 56) & 0xFFFFFFFF}]
+			set f   [expr {$e & ((1 << 56) - 1)}]
+			set fa  [expr {$f & 0xFFFFFFFF}]
+			set ms  [expr {($f >> 32) & 0xFFFF}]
+			set fc  [expr {($f >> 48) & 7}]
+			set rd  [expr {($f >> 51) & 1}]
+			set ins [expr {($f >> 52) & 1}]
+			set mmu [expr {($f >> 53) & 1}]
+			set bus [expr {($f >> 54) & 1}]
+			set bits {}
+			foreach {b nm} {15 B 14 L 13 S 11 W 10 I 9 M 6 T} { if {($ms >> $b) & 1} { lappend bits $nm } }
+			puts [format "        %d: opcode %04X at PC %08X   PMMU fault at %08X  %s FC=%d%s  MMUSR=%04X (%s, levels %d)  pending: MMU=%d bus=%d" \
+				$k $opc $pc $fa [expr {$rd ? "read" : "write"}] $fc [expr {$ins ? " instruction fetch" : ""}] \
+				$ms [expr {[llength $bits] ? [join $bits " "] : "-"}] [expr {$ms & 7}] $mmu $bus]
+		}
+	}
 	if {[have PRTC]} {
 		# plan 6.6: the clock chip
 		set prtc [rd PRTC]

@@ -56,11 +56,20 @@ module tb_cpfpu;
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
 
+  wire [56:0] cpu_exc;                     // {an exception taken, its vector, opcode, PC}
+  wire [55:0] cpu_mmuf;                    // the PMMU's last fault (PBER, KNOWN ISSUES 8)
   tg68k cpu (
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .pace_en(1'b1), .post_en(post_en), .reset_out_n(reset_out_n), .halted(halted));
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .pace_en(1'b1), .post_en(post_en), .reset_out_n(reset_out_n), .halted(halted),
+    .dbg_exc(cpu_exc), .dbg_mmuf(cpu_mmuf));
+  // what the probe deck's PBER captures at each bus-error exception
+  // (KNOWN ISSUES 8): the fault the PMMU reports as the exception is taken
+  always @(posedge clk) if (cpu_exc[56] && cpu_exc[55:48] == 8'd2)
+    $display("PBER: opcode %h at %h, fault at %h %s FC=%0d insn=%0d MMUSR=%h pending mmu=%0d bus=%0d",
+             cpu_exc[47:32], cpu_exc[31:0], cpu_mmuf[31:0], cpu_mmuf[51] ? "read" : "write", cpu_mmuf[50:48],
+             cpu_mmuf[52], cpu_mmuf[47:32], cpu_mmuf[53], cpu_mmuf[54]);
 
   // --------------------------------------------------------------- GLUE
   wire        ram_req, ram_we, ram_refresh, rom_req;

@@ -311,6 +311,8 @@ entity TG68KdotC_Kernel is
 		debug_pmmu_fault_rw : out std_logic;
 		debug_pmmu_fault_is_insn : out std_logic;
 		debug_pmmu_fault_fc : out std_logic_vector(2 downto 0);
+		debug_pmmu_fault_addr  : out std_logic_vector(31 downto 0);  -- SE/30 PBER: the faulting logical address
+		debug_pmmu_fault_mmusr : out std_logic_vector(15 downto 0);  -- SE/30 PBER: its status, MMUSR-coded
 		-- Format Error debug latch: captures key state when trap_format_error fires
 		debug_trap_format_error : out std_logic;
 		debug_format_error_rte_word : out std_logic_vector(15 downto 0);
@@ -12512,6 +12514,8 @@ debug_pmmu_fault_was_cleared <= pmmu_fault_was_cleared;
 debug_pmmu_fault_rw <= pmmu_fault_rw_out;
 debug_pmmu_fault_is_insn <= pmmu_fault_is_insn_out;
 debug_pmmu_fault_fc <= pmmu_fault_fc_out;
+debug_pmmu_fault_addr  <= pmmu_fault_addr_out;
+debug_pmmu_fault_mmusr <= pmmu_fault_stat(15 downto 0);
 
 -- DEBUG: CHK/Group2 exception frame probes
 debug_make_trace         <= make_trace;
