@@ -8836,7 +8836,10 @@ write) may not, and is measured when it comes.
    Main's file_io.cpp: on the card's FAT/exFAT the DOS read-only
    attribute) and sends `img_readonly`; the disk mounted with the
    Finder's lock icon (/WRTPRT 0), and a Finder copy onto it was refused
-   ("locked"). Still to run: the one-sided erase
+   ("locked"). Afterwards (`Written\SE30\Blank800K_clean_RO.dsk`) the
+   image is byte-identical (MD5 `2a787634...`) to its read-only source of
+   17 Sep, and its MDB still reads created = modified = 2026-09-09 23:23:
+   mounted, browsed and copied to, nothing reached it. Still to run: the one-sided erase
    (needs a System before 7.5), the soak.
 
 # Section 6 - The ADB and the RTC
