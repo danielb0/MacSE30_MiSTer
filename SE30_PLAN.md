@@ -16371,8 +16371,13 @@ Daniel - add to it, move items out when fixed).**
    are write-protected until MFM writing - it goes with it); the copy
    failure reproduces on an independent 68030/SWIM with the same ROM,
    System and PC Exchange - **not our core** (the LC's success: its newer
-   ROM, or its own System/PC Exchange). **Item 9 closed for the core**:
-   the Options hang was ours (fixed, DBP); the rest is the software's.
+   ROM, or its own System/PC Exchange). The Options hang was ours
+   (fixed, DBP). **The open and copy failures: JUDGEMENT RESERVED until
+   MFM writing is built** (Daniel, 2026-10-05): MAME gives the same
+   errors with the disk locked, and the copy failure once with it
+   writable - one MAME run, on a disk MAME showed as unlocked while its
+   writes failed, is not enough to call it the software's. Item 9 stays
+   open, parked; the test is FUTURE BOARD TESTS item 7.
 
 10. **The ~514 bus-error exceptions of a boot (PBER; items 8 and 9 read
     them as "the wrapper's own, CPU-space")** - re-read 2026-10-05
@@ -16460,6 +16465,15 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    should show the SCSI Manager's blind MOVE.L at `$50F06000`/`$50F06060`
    at that PC. If PSTA stays at 0 while PBER rises, the errors are
    internal after all and KNOWN ISSUES 10 reopens.
+
+7. **PC Exchange on a writable DOS disk (KNOWN ISSUES 9)** - once MFM
+   writing is built (Daniel, 2026-10-05: judgement reserved until then):
+   a scratch copy of `C:\temp\Mac\Test disks\DOS\Disk1.img`, mounted
+   writable; TeachText opens `README.TXT`; a Finder copy of several
+   files (small near the start, large far out) to the SCSI disk,
+   host-checked against the image. Both work = item 9's failures were the
+   lock, closed; the copy still "cannot be found" = compare with MAME
+   writable again before calling it the software's.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
