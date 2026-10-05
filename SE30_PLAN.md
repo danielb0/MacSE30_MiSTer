@@ -8525,6 +8525,36 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    layout. Writing MFM (the third step) lifts it. `sim/flpwr` 27
    rerun, `sim/gcrread` compiles; synthesis check passed (9.5 min).
 6. `sim/mfmread`, the seam.
+   **Done 2026-10-05: `sim/mfmread` 22 PASS (~9 min), the first run.**
+   The real SWIM, drive and encoder wired as the machine wires them,
+   driven by the ROM's sequences at the paced kernel's pace (a handshake
+   poll every 13 FCLK, the first-byte wait a VIA1 poll and a handshake
+   poll a turn, the set-up's writes 13 FCLK apart):
+   - **Bring-up through the ISM**: the switch, Setup `$20` and the ROM's
+     parameter table, drive 1 enabled by mode bits 7 and 1, the drive's
+     commands through the phase register (motor on, MFM mode `$6`), `$F`
+     a high-density medium, `$7` MFM mode, /READY after the 600 ms
+     spin-up.
+   - **1.44 MB, cylinder 0, both sides**: for each sector the ROM's
+     address-field read (`$4082E9A6`: A1 A1 A1 FE through the Mark
+     register, a mismatch re-arming on the shared budget, C H R N, the
+     handshake at CRC 2 `and #$22` = 0, the error register 0) until R is
+     the one wanted, then its data-field read (`$4082EA68`): all 36
+     sectors' 512 bytes the image's, CRC zero, no error. The busiest
+     byte took 21 of the ROM's 31 polls; every sector's address field
+     was the first one read after the previous sector (1:1 at the ROM's
+     pace).
+   - **A step** to cylinder 1 and its side 1, the same.
+   - **720K** at 600 rpm with the same parameters (decision A): `$F`
+     double density, 100,000 cells, cylinder 0's nine sectors a side.
+   - **An 800K GCR disk with the drive in MFM mode** (the ROM tries a
+     double-density disk as MFM first, `$4082E872`): the address-field
+     read times out on its 20,000 turns, and the ISM never locks (GCR's
+     cells are 2- and 3-unit cells here, never a 4).
+   Seam mutants, 5/5 caught: the SWIM ignoring the IBM option (each
+   pulse two transitions), the encoder's block one sector on, `$F`
+   blind to the medium, H stuck at 0, the drive spinning MFM at the GCR
+   cell (the last two never read a sector: the bench's time limit).
 7. A synthesis check (`build_only.sh --check`, after any RAM change),
    then a compile when Daniel says, the size measured (decision C).
 8. The board: 1.44 MB, then 720K.
