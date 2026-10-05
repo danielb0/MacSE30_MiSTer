@@ -16261,7 +16261,11 @@ Daniel - add to it, move items out when fixed).**
    fails at once forever. Next: the same on the LC core (another SCSI
    model); a probe of the 53C80's register reads (which, and the value).
    It matters for the CD-ROM: SCSI utilities and CD drivers scan the bus
-   the same way.
+   the same way. **SCSI Probe scans the bus correctly** (Daniel, the same build:
+   both hard disks found, the scan finishes): our SCSI handles a full
+   scan, absent IDs included - the hang is PC Exchange's own search.
+   Left: PC Exchange's Options on the LC core; the register-read probe if
+   it is to be chased.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
