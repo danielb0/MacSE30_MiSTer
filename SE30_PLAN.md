@@ -8682,6 +8682,27 @@ write) may not, and is measured when it comes.
    ports. `sim/swim` 141 PASS, `sim/machine` 17 PASS, Quartus analysis
    0 errors (7,440 warnings, +2: the new unconnected outputs).
 4. `sim/flpdec` and `se30_flp_decoder.v` (decoder + committer).
+   **Done 2026-10-05: `sim/flpdec` 39 PASS (20 s), 9/9 mutants caught**
+   (no checksum test, the last group's B wrong, no duplicate guard, the
+   format byte ignored, no zone bound, no tags, loading ignored, the
+   window 200 cells long, the encoder blind to `hold`). The seam is the
+   real encoder (building cylinders from the image) and the decoder, the
+   bench writing fields into the buffer through the drive's port as the
+   ROM's writer and formatter do. Checked: a whole-revolution arc over
+   the encoder's own track commits all 12 sectors once and leaves the
+   image unchanged (the decoder agrees with the encoder's layout); a
+   ROM-written sector reaches its block, data and tags, nothing else
+   moving (side 0 and side 1); bad checksum, a field cut by the arc,
+   a sector past zone 4's eight, read-only and loading - all refused;
+   back-pressure holds the commit and `hold` keeps the encoder idle; a
+   one-sided format of cylinder 1 (84,096 cells, overrunning its start)
+   commits 12 zero sectors to the 400K layout's blocks 12-23 with
+   `ds_eff` falling at once; a tagless image's tag region untouched; the
+   disk port's handshake clean throughout. The mutant hunt found one
+   weak check (the hold test watched `trk_cyl`, which changes only when a
+   rebuild finishes; it now watches the encoder leave idle). The parse
+   takes two clocks a cell (address, then bit): a sector arc ~11,500
+   clocks, a format ~162,000 (5 ms) - inside the step's settle.
 5. `sim/flpwr` and `se30_flp_sdwriter.v`; the loader's header store.
 6. The mux, the machine and top wiring, `PFLP`'s counters; `sim/flpmux`,
    `sim/machine`.
