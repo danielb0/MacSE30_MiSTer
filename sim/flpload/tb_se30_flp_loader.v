@@ -15,7 +15,11 @@
 //        400K volume is single-sided (img_800k still 1, for the tags); a
 //        400K file is single-sided whatever its MDB says
 //     4. the medium sniff on MacPlus phase 7's eleven images
-//     5. rung 2 is GCR: a 1440K image loads but is not a disk
+//     5. MFM (plan 5.13.6): raw 1.44 MB and 720K, DiskCopy 4.2 with
+//        format byte 3 and 2: resident, in, img_mfm, img_hd for 1.44 MB
+//        only, no tags; not a disk: a 1.44 MB-sized DC42 whose format
+//        byte says GCR, a file a block short; a GCR image after an MFM
+//        one clears img_mfm and img_hd
 //     6. the disk counts as in only when its last word is written; a
 //        mount during a load takes the new image (between sectors), the
 //        old disk out from the pulse; unmount; the drive's eject;
@@ -59,7 +63,7 @@ module tb_se30_flp_loader;
   wire [15:0] mem_wdata;
   reg         mem_ack = 0;
   reg         eject = 0;
-  wire        disk_in, img_ds, img_800k, img_tags, readonly, loading;
+  wire        disk_in, img_ds, img_800k, img_tags, img_mfm, img_hd, readonly, loading;
   wire [15:0] dbg;
 
   se30_flp_loader #(.BASE(BASE)) dut (
@@ -70,6 +74,7 @@ module tb_se30_flp_loader;
     .mem_req(mem_req), .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_ack(mem_ack),
     .eject(eject),
     .disk_in(disk_in), .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags),
+    .img_mfm(img_mfm), .img_hd(img_hd),
     .readonly(readonly), .loading(loading), .dbg(dbg));
 
   integer cyc = 0;
@@ -236,6 +241,7 @@ module tb_se30_flp_loader;
     compare(0, 819200, 0);
     check(mism == 0, "raw 800K: every word at BASE + k as {byte 2k, 2k+1}", mism, 0);
     check(disk_in && img_ds && img_800k && !img_tags, "  in, double-sided, 800K, no tags", {disk_in, img_ds, img_800k, img_tags}, 4'b1110);
+    check(!img_mfm && !img_hd, "  GCR: not MFM, not high density", {img_mfm, img_hd}, 0);
     check(xfers - x0 == 1600, "  1600 sectors transferred", xfers - x0, 1600);
     check(rise_at > last_write, "  the disk in only after its last word", rise_at - last_write, 1);
     clear_file(409600); put_mdb(0, 16'hD2D7, 16'd391, 32'd1024);
@@ -299,14 +305,31 @@ module tb_se30_flp_loader;
     load(1024, 0);
     check(!disk_in, "a file too short to have a sector 2: no disk", disk_in, 0);
 
-    // ---- 5. GCR only
-    $display("---- 5. rung 2 is GCR");
-    clear_file(1474560);
-    load(1474560, 0);
-    check(!disk_in, "a 1440K image loads but is not a disk", disk_in, 0);
+    // ---- 5. MFM
+    $display("---- 5. MFM: 1.44 MB and 720K, raw and DiskCopy 4.2");
+    clear_file(1474560); x0 = xfers;
+    load(1474560, 0); compare(0, 1474560, 0);
+    check(mism == 0, "raw 1.44 MB: every word at BASE + k", mism, 0);
+    check(disk_in && img_mfm && img_hd && !img_800k && !img_tags, "  in, MFM, high density, no tags", {disk_in, img_mfm, img_hd, img_800k, img_tags}, 5'b11100);
+    check(xfers - x0 == 2880, "  2880 sectors transferred", xfers - x0, 2880);
+    clear_file(737280);
+    load(737280, 0); compare(0, 737280, 0);
+    check(mism == 0 && disk_in && img_mfm && !img_hd, "raw 720K: resident, in, MFM, double density", {mism == 0, disk_in, img_mfm, img_hd}, 4'b1110);
+    clear_file(84 + 1474560); put_dc42(1474560, 0, 8'd3);
+    load(84 + 1474560, 0); compare(84, 84 + 1474560, 0);
+    check(mism == 0 && disk_in && img_mfm && img_hd && !img_tags, "DC42 1440K (format 3): the header stripped, in, MFM, HD", {mism == 0, disk_in, img_mfm, img_hd, img_tags}, 5'b11110);
     clear_file(84 + 737280); put_dc42(737280, 0, 8'd2);
-    load(84 + 737280, 0);
-    check(!disk_in, "a 720K DC42 is not a disk either", disk_in, 0);
+    load(84 + 737280, 0); compare(84, 84 + 737280, 0);
+    check(mism == 0 && disk_in && img_mfm && !img_hd, "DC42 720K (format 2): in, MFM, double density", {mism == 0, disk_in, img_mfm, img_hd}, 4'b1110);
+    clear_file(84 + 1474560); put_dc42(1474560, 0, 8'd1);
+    load(84 + 1474560, 0);
+    check(!disk_in, "a 1.44 MB-sized DC42 whose format byte says 800K: not a disk", disk_in, 0);
+    clear_file(1474560 - 512);
+    load(1474560 - 512, 0);
+    check(!disk_in && !img_mfm, "a raw file a block short of 1.44 MB: not a disk", {disk_in, img_mfm}, 0);
+    clear_file(1474560); load(1474560, 0);
+    clear_file(819200); load(819200, 0);
+    check(disk_in && img_800k && !img_mfm && !img_hd, "800K after 1.44 MB: GCR again, img_mfm and img_hd clear", {disk_in, img_800k, img_mfm, img_hd}, 4'b1100);
 
     // ---- 6. mounts, unmount, eject, readonly
     $display("---- 6. a mount during a load, unmount, eject, readonly");

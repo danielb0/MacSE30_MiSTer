@@ -8504,6 +8504,26 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    measures the read path.
 5. `sim/flpload`, then the loader's geometries; the machine and top
    wiring.
+   **Done 2026-10-05: `sim/flpload` 53 PASS (~16 min; 45 as before less
+   section 5's two "not a disk" checks, plus 10).** The loader takes a
+   file whose data is 1,474,560 bytes (1.44 MB) or 737,280 (720K) - raw,
+   or DiskCopy 4.2 with format byte `$50` = 3 or 2 - as an MFM disk:
+   `disk_in`, `img_mfm`, and `img_hd` for 1.44 MB only; no tags, not
+   `img_800k`. Not a disk: a 1.44 MB-sized DC42 whose format byte says
+   GCR, a raw file a block short. The bench: both sizes raw and DC42
+   resident word for word (the header stripped), 2,880 sectors
+   transferred; the two refusals; an 800K image after a 1.44 MB one
+   clearing `img_mfm`/`img_hd`; the GCR cases now also see both low.
+   **The wiring** (`MacSE30.sv`): the loaders' `img_mfm`/`img_hd` to the
+   encoders and to the drives' `hd` (the machine's `disk_hd` and
+   `disk2_hd`, tied 0 until now), so `$F` reads a high-density medium
+   for a 1.44 MB image and the encoder lays the MFM track. **An MFM disk
+   is write-protected until MFM writing is built** (`disk_wprot =
+   readonly || img_mfm`, and the decoder's and SD writer's `write_ok`
+   follow it): the Finder could otherwise erase a 720K disk as 800K, and
+   the IWM's GCR track would be committed into the 720K file as a 400K
+   layout. Writing MFM (the third step) lifts it. `sim/flpwr` 27
+   rerun, `sim/gcrread` compiles; synthesis check passed (9.5 min).
 6. `sim/mfmread`, the seam.
 7. A synthesis check (`build_only.sh --check`, after any RAM change),
    then a compile when Daniel says, the size measured (decision C).
