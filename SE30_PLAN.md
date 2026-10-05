@@ -16374,6 +16374,49 @@ Daniel - add to it, move items out when fixed).**
    ROM, or its own System/PC Exchange). **Item 9 closed for the core**:
    the Options hang was ours (fixed, DBP); the rest is the software's.
 
+10. **The ~514 bus-error exceptions of a boot (PBER; items 8 and 9 read
+    them as "the wrapper's own, CPU-space")** - re-read 2026-10-05
+    (Daniel: "we need to know if it's dangerous or not"). **Not our
+    core's fault by this evidence: they are the SE/30's designed SCSI
+    handshake timeouts (GLUE's UI6 bus error on a blind transfer whose
+    first byte waits for DRQ past 18-63 us, 2.11.3 row 5 / 9.3), handled
+    by the ROM's SCSI Manager handler `$40826B26` and its RAM copy.** The
+    earlier reading rested on two probe artefacts:
+    - **PSTA's "BERR never asserted" was a blind spot.** GLUE (c16_en =
+      phi1) raises BERR after a phi1 edge; the wrapper's bus FSM runs on
+      phi2 and negates AS* at the next edge; the line is high for one
+      clock, and PSTA sampled it on phi1 only. Proven in `sim/system`
+      berrtest (new counters: 2 assertions seen at every clock, 0 at
+      phi1). **Fixed in `rtl/dbg_probes.sv`** (every clock; parsed with
+      vlog, no bench instantiates the deck) - in the next compile.
+    - **PBER's "a NOP" is the kernel's exception bubble**, not the
+      faulting instruction: on `setinterrupt` (the path `make_berr`
+      takes) the kernel loads `opcode <= $4E71`; A-line traps dispatch
+      through `trapmake` and keep theirs, which is why PTRP shows `A815`.
+      `opcode_pc` is not touched by the bubble, so PBER's PC
+      (`$000A4596`, RAM) is the faulting instruction's.
+    Ruled out by reading: the wrapper's CPU-space bus errors reach the
+    kernel only on a coprocessor dialog's initiating access, which the
+    kernel turns into the F-line exception (UM 10.5.2.8, 8.9 B5), never
+    vector 2; the IACK address is sign-extended to `$FFFFFFFx`; the
+    PMMU latch (`debug_pmmu_fault` = `pmmu_fault`) never fired, and an
+    invalid-page fault would have shown as PBER's `bus=1 mmu=0` with the
+    fault fields filled. What fits every fact is an external BERR: `bus=1
+    mmu=0`, fault fields empty, a RAM PC in the System heap (the patched
+    SCSI Manager lives there: MAME's copy at `$11898` saves the vector
+    exactly as the ROM at `$40826A36`), the count static across a
+    TeachText open from the floppy (no SCSI traffic), and PSCT's GLUE
+    DRQ wait of 1.75 s over 6,153 commands (10.4). MAME is no census:
+    its SE/30 takes **no** bus-error exception in 20 s of this System's
+    boot (its map acknowledges everything; the 9,304 reads of `$8` were
+    the Memory Manager's handle checks at `$4080E5AA`/`$4080E5F2` and the
+    SCSI Manager saving the vector), and its heap layout differs (its
+    `$A4596` is a BNE). **Board confirmation (FUTURE BOARD TESTS 6):**
+    compile 45's PSTA count against PBER's, and a peek at PBER's PC.
+    Headless MAME recipe (`-video none -sound none -debugger none`, a Lua
+    `autoboot_script` that issues debugger commands) is in the memory
+    note `reference-mame-se30`.
+
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
 1. ~~**32-bit mode with MODE32**~~ **DONE 2026-10-05 on the mode32-berr compile** (Daniel, 2026-10-04): install MODE32 with
@@ -16408,6 +16451,15 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    independent machine (an emulator such as Basilisk II, or the MacLC
    core) - leftovers there = 7.5.5's own behaviour; clean there = our
    core's fault, then localise it (the ROM's delete path, a PC probe).
+
+6. **The boot's bus errors are the SCSI handshake timeouts (KNOWN ISSUES
+   10)** - on the compile carrying the PSTA fix: read PSTA and PBER after
+   the boot and again after a minute of disk traffic (copy a folder on
+   the SCSI disk): PSTA's BERR count should be nonzero and both counts
+   should rise together; `read_probes.tcl peek <PBER's PC - $10> 16`
+   should show the SCSI Manager's blind MOVE.L at `$50F06000`/`$50F06060`
+   at that PC. If PSTA stays at 0 while PBER rises, the errors are
+   internal after all and KNOWN ISSUES 10 reopens.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`

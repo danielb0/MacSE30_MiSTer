@@ -212,6 +212,12 @@ module dbg_probes #(
 			if (cpu_fc == 3'd7 && cpu_addr[3:1] == 3'd2) irq2_cnt <= irq2_cnt + 1'd1;
 		end
 		if (!cpu_as_n && dsack_n != 2'b11) dsack_r <= dsack_n;
+	end
+	// BERR at every clock, not on phi1: GLUE's timeout raises it after a phi1
+	// edge and the wrapper ends the cycle at the next phi2 edge, so it lasts
+	// one clock and a phi1 sampler never saw one (KNOWN ISSUES 10, 2026-10-05;
+	// sim/system berrtest counts both ways)
+	always @(posedge clk) begin
 		if (berr) berr_seen <= 1;
 		if (berr && !berr_q) berr_cnt <= berr_cnt + 1'd1;   // once per assertion
 		berr_q <= berr;

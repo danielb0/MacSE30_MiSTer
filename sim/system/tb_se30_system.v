@@ -246,7 +246,16 @@ module tb_se30_system;
     dg2 = dg2 + 1; $display("t=%0t busstate=%b s=%0d as=%b clkena=%b hit=%b ipl_nr=%b", $time, cpu.k_busstate, cpu.s, cpu_as_n, cpu.k_clkena, cpu.kernel.fetch_hit, cpu.kernel.IPL_nr);
   end
 `endif
-  reg cachetest = 0, cacheon = 0, berrtest = 0;   // the run (plusargs, read at the start)
+  reg cachetest = 0, cacheon = 0, berrtest = 0;
+  // KNOWN ISSUES 10's question (2026-10-05): can the probe deck's PSTA, which
+  // samples BERR only at phi1, see a GLUE timeout?  Two samplers: PSTA's own
+  // (phi1 only) and one at every clock.  Reported by berrtest.
+  integer berr_phi1 = 0, berr_any = 0;  reg berr_q = 0;
+  always @(posedge clk) begin
+    if (phi1 && berr && !berr_q) berr_phi1 = berr_phi1 + 1;
+    if (berr && !berr_q) berr_any = berr_any + 1;
+    berr_q <= berr;
+  end   // the run (plusargs, read at the start)
 
   // ---------------------------------------------------- the loop markers
   // the cache program's writes to $3088/$308C (cache on) and $3090/$3094
@@ -400,6 +409,7 @@ module tb_se30_system;
       else begin fails = fails + 1; $display("FAIL: a data read fault builds the long frame, format $B, vector 2 (UM 8.2.2)"); end
       if ((want[31:28] == 4'hA || want[31:28] == 4'hB) && want[27:16] == 12'h008) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL: the write's fault is not a bus-error frame"); end
+      $display("---- BERR assertions: %0d seen at every clock, %0d seen at phi1 only (the probe deck's PSTA sampler)", berr_any, berr_phi1);
       if (fails == 0) $display("==== PASS: %0d checks - both handshake timeouts bus-error, the frames recorded", pass);
       else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
       $finish;
