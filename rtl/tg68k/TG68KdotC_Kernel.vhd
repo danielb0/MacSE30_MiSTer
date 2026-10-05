@@ -180,6 +180,7 @@ entity TG68KdotC_Kernel is
 		pmmu_cache_inhibit		: out std_logic;
 		rmc_out					: out std_logic;  -- a locked TAS/CAS/CAS2 data cycle (pmmu_rmw): the 68030 data cache forces its read to miss (SE30_PLAN.md 1.16.2)
 		wronly_rd_out			: out std_logic;  -- the destination read of CLR, Scc, MOVE from SR/CCR: a 68030 runs none (SE30_PLAN.md 1.17.2)
+		dib_sub_out				: out std_logic;  -- this data beat is one a bus-error handler completed in software (UM 8.2.2): answered without a bus cycle (SE30_PLAN.md 1.18)
 -- Cache operation address (68030)
 		cache_op_addr			: out std_logic_vector(31 downto 0);
 -- PMMU walker memory interface (68030) - connects to real memory via cpu_wrapper
@@ -620,6 +621,8 @@ architecture logic of TG68KdotC_Kernel is
 	signal dib_sub_addr		: std_logic_vector(31 downto 0) := (others => '0');
 	signal dib_sub_data		: std_logic_vector(31 downto 0) := (others => '0');
 	signal dib_sub_hit		: std_logic;
+	signal dib_sub_rw		: std_logic := '1';  -- the completed cycle's RW: 1 a read (the DIB is its data), 0 a write (the handler did it)
+	signal dib_sub_pre		: std_logic;         -- the re-executed instruction is at the completed beat: no bus cycle (1.18)
 	signal rte_format_b_version_error : std_logic := '0';
 	signal rte_fmt_a_capture_active : std_logic := '0';
 	signal rte_fmt_a_long_index : integer range 0 to 7 := 0;
@@ -674,6 +677,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal berr_external_rw       : std_logic;                       -- BUG #431 FIX: RW latched at external BERR first-fire (state="11")
 	signal berr_external_fc       : std_logic_vector(2 downto 0);   -- BUG #431 FIX: FC latched at external BERR first-fire
 	signal berr_external_datatype : std_logic_vector(1 downto 0);   -- BUG #433b FIX: datatype latched at external BERR first-fire for SSW.SIZE
+	signal berr_external_siz      : std_logic_vector(1 downto 0);   -- SSW.SIZE: the bytes remaining at the faulted beat, as SIZ showed them (UM 8.2.1, 5.2.4; 1.18)
 	signal berr_external_rmw      : std_logic;                       -- Locked RMW state latched at external BERR first-fire
 	signal berr_pmmu_datatype     : std_logic_vector(1 downto 0);   -- PMMU datatype latched at first-fire for SSW.SIZE
 	signal berr_pmmu_fault_addr   : std_logic_vector(31 downto 0);  -- PMMU fault address latched at first-fire
@@ -1996,7 +2000,12 @@ ALU: TG68K_ALU
 	       "00" WHEN fetch_bus = '1' ELSE					-- the long's bytes still to come
 	       "01" WHEN beat_rem = 1 ELSE "10" WHEN beat_rem = 2 ELSE "11" WHEN beat_rem = 3 ELSE "00";
 	memmaskmux(2 downto 0) <= memmask(2 downto 0) WHEN addr(0)='1' ELSE memmask(1 downto 0) & '1';
-	memmaskmux(3) <= '1' WHEN beat_n = beat_rem ELSE '0';
+	-- A beat the bus terminates with BERR ends the operand: the 68030 runs no
+	-- further cycle for it (UM 8.1.2: the faulted cycle's address and size are
+	-- what the frame holds), so a split operand's later beats never go out
+	-- (1.18; the board ran a misaligned long's second word after its first
+	-- had faulted, and stacked the second word's address).
+	memmaskmux(3) <= '1' WHEN beat_n = beat_rem OR (berr_k = '1' AND state(1) = '1') ELSE '0';
 	-- the strobe pair as a 16-bit bus would show it - nUDS/nLDS in the 16-bit
 	-- shape, and memread's record of "a single byte at an odd/even address"
 	-- in both (the sign extension and the first-beat test read it)
@@ -2245,11 +2254,29 @@ ALU: TG68K_ALU
 	                               rte_mmu_fix_opcode(2 downto 0) = "001") else
 	                   "100";
 	rte_mmu_fix_commit <= rte_mmu_fix_write AND clkena_lw;
-	-- The armed substitution matches the re-executed read's live fault.
-	dib_sub_hit <= '1' when dib_sub_valid = '1' AND pmmu_fault = '1' AND
+	-- The armed substitution matches the re-executed access (1.18). The MC68030
+	-- runs no bus cycle for a data access its handler completed in software
+	-- (UM 8.2.1: with DF clear "it assumes that the data input buffer value on
+	-- the stack is valid for a read or that the data has been correctly written
+	-- to memory for a write"), whatever the instruction: the Mac's Memory
+	-- Manager completes CMP.L (d16,A6),D6 this way (MODE32's zone check, RAM
+	-- $22F0 on the board; the ROM's own at $4080E606 is a MOVE), and an empty
+	-- slot or super slot bus-errors a re-run forever.  So the match is made
+	-- on the beat's address before any cycle goes out - dib_sub_pre, which the
+	-- wrapper answers as a hit (tg68k.v s_hit) - and, for a translation that
+	-- faults again (an MMU library's page still invalid), on the live fault as
+	-- before.  A split operand's later beat matches at +2.
+	dib_sub_pre <= '1' when dib_sub_valid = '1' AND state(1) = '1' AND pmmu_fault = '0' AND
+	                         pmmu_rw = dib_sub_rw AND
+	                         (addr(31 downto 1) = dib_sub_addr(31 downto 1) OR
+	                          addr(31 downto 1) = dib_sub_addr(31 downto 1) + 1)
+	               else '0';
+	dib_sub_out <= dib_sub_pre;
+	dib_sub_hit <= '1' when (dib_sub_pre = '1' AND dib_sub_rw = '1') OR
+	                        (dib_sub_valid = '1' AND pmmu_fault = '1' AND
 	                         pmmu_fault_rw_out = '1' AND
 	                         (pmmu_fault_addr_out(31 downto 1) = dib_sub_addr(31 downto 1) OR
-	                          pmmu_fault_addr_out(31 downto 1) = dib_sub_addr(31 downto 1) + 1)
+	                          pmmu_fault_addr_out(31 downto 1) = dib_sub_addr(31 downto 1) + 1))
 	               else '0';
 	rte_mmu_fix_ccr_update <= '1' when rte_mmu_fix_commit = '1' AND
 		(rte_mmu_fix_opcode(8 downto 6) = "000" OR rte_mmu_fix_is_tst = '1') else '0';
@@ -4806,6 +4833,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					berr_external_rw <= '1';
 					berr_external_fc <= (others => '0');
 					berr_external_datatype <= "10";
+					berr_external_siz <= "10";
 					berr_external_rmw <= '0';
 					berr_pmmu_datatype <= "10";
 					berr_pmmu_fault_addr <= (others => '0');
@@ -5209,6 +5237,10 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							berr_external_datatype <= datatype;  -- BUG #433b FIX: latch at BERR first-fire
 							berr_external_rmw <= pmmu_rmw;
 							berr_external_addr <= addr;          -- BUG #434 FIX: latch fault addr at BERR first-fire (state="11")
+							if beat_rem = 1 then berr_external_siz <= "01";      -- SIZ at the faulted beat (1.18)
+							elsif beat_rem = 2 then berr_external_siz <= "10";
+							elsif beat_rem = 3 then berr_external_siz <= "11";
+							else berr_external_siz <= "00"; end if;
 						end if;
 					else
 						-- MC68030 Double bus fault detection: bus error/fault during bus error processing
@@ -5624,11 +5656,9 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 										berr_ssw(8) <= '0';   -- DF=0: not data fault
 											berr_ssw(9) <= '0';   -- Reserved
 									end if;
-									case berr_external_datatype is  -- BUG #433b FIX: use value latched at BERR first-fire
-										when "00" => berr_ssw(5 downto 4) <= "01";
-										when "01" => berr_ssw(5 downto 4) <= "10";
-										when others => berr_ssw(5 downto 4) <= "00";
-									end case;
+									-- SIZE is the faulted cycle's: the bytes remaining at that beat,
+									-- latched at first-fire (1.18; was the operand's datatype)
+									berr_ssw(5 downto 4) <= berr_external_siz;
 									berr_ssw(11 downto 10) <= "00"; -- Reserved (bit 9 preserved for software-fix)
 									berr_ssw(7) <= berr_external_rmw;
 									berr_ssw(3) <= '0';
@@ -5747,10 +5777,12 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					   rte_mmu_fix_ssw(15) = '0' AND rte_mmu_fix_ssw(14) = '0' AND
 					   rte_mmu_fix_ssw(13) = '0' AND rte_mmu_fix_ssw(12) = '0' AND
 					   rte_mmu_fix_ssw(8) = '0' AND
-					   rte_mmu_fix_ssw(7) = '0' AND
-					   rte_mmu_fix_ssw(6) = '1' THEN
+					   rte_mmu_fix_ssw(7) = '0' THEN
+						-- a read or a write (1.18): a write the handler completed is
+						-- not run again either (UM 8.2.1)
 						dib_sub_valid <= '1';
 						dib_sub_fresh <= '1';
+						dib_sub_rw    <= rte_mmu_fix_ssw(6);
 						dib_sub_addr  <= rte_mmu_fix_faddr;
 						dib_sub_data  <= rte_mmu_fix_input_buffer;
 					END IF;
