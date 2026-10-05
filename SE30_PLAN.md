@@ -16178,6 +16178,11 @@ Daniel - add to it, move items out when fixed).**
    before and after 1.18). Pre-existing; the Mac's software completes
    reads only (the ROM's and MODE32's Memory Manager checks). Found
    2026-10-05 while fixing the read side (1.18.4).
+8. **The game Operation Intercept gives a bus error** (Daniel, board,
+   2026-10-05; the build and System not recorded). Open, not yet
+   investigated: Daniel is running it on the other cores first (MacPlus,
+   LC) to tell a core fault from the game's own behaviour on this
+   machine, before any debugging here.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
