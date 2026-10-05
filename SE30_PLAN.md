@@ -8746,7 +8746,14 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    PC Exchange or the Finder writing to the source during a copy - our
    hypothesis, not a document. To separate it: open a file from an
    application instead of copying; the same image read-only on the LC
-   core; a small file near the start against a large one far out.
+   core; a small file near the start against a large one far out. **Then**: TeachText cannot open `README.TXT` from the DOS disk either
+   ("may be in use by someone else" - an open refused, before any data
+   is read); **a text file on the locked HFS 1.44 MB disk opens in
+   TeachText** - so a locked MFM disk is presented correctly and the
+   fault is PC Exchange with a locked DOS volume. Left: the same image
+   on the LC core, writable and read-only (the LC failing read-only
+   only would make it PC Exchange's own behaviour, gone with MFM
+   writing), and PC Exchange's version.
 
 ## 5.14 The external drive (Daniel, 2026-10-02)
 
