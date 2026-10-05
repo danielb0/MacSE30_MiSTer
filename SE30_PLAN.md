@@ -8803,9 +8803,20 @@ write) may not, and is measured when it comes.
    to the 512x342 screen (the window's right edge $35F -> $154, every
    item moved by the same amount, the item texts unchanged), STR 15992
    the saved name "System 7.5.5 80MB" (was "I-Sys9500", the previous
-   owner's), STR 15991 "1073" (was "18"). Still to run: a DiskCopy 4.2
-   image (the checksums after a Mac eject), the Finder erase, the
-   one-sided erase, read-only, the soak.
+   owner's), STR 15991 "1073" (was "18").
+   **Board, gate 2 (Finder erase of the same raw 800K image), Daniel
+   2026-10-05 ~14:00: PASS** (`Blank800K_clean_formatted.dsk`).
+   `hfs_check`: volume "Formatted" consistent, one file (Desktop, rsrc 286
+   bytes), the bitmap's 25 used blocks agreeing. The census: 1,593 of
+   1,600 sectors zero - all 1,569 free allocation blocks and both boot
+   blocks; the seven others are exactly a fresh volume's (the MDB at 2,
+   the bitmap at 3, the extents tree's header at 4, the catalog's header
+   and leaf at 16-17, the Desktop fork at 28, the alternate MDB at 1598).
+   No sector of the copied files survives; the one sector equal before
+   and after (4) is the empty extents tree's header, the same on any
+   fresh 800K volume. So every track of both sides was formatted and
+   decoded. Still to run: a DiskCopy 4.2 image (the checksums after a Mac
+   eject), the one-sided erase, read-only, the soak.
 
 # Section 6 - The ADB and the RTC
 
