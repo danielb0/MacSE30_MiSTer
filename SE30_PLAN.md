@@ -8815,8 +8815,22 @@ write) may not, and is measured when it comes.
    No sector of the copied files survives; the one sector equal before
    and after (4) is the empty extents tree's header, the same on any
    fresh 800K volume. So every track of both sides was formatted and
-   decoded. Still to run: a DiskCopy 4.2 image (the checksums after a Mac
-   eject), the one-sided erase, read-only, the soak.
+   decoded.
+   **Board, gate 3 (DiskCopy 4.2 800K with tags), Daniel 2026-10-05
+   ~14:05: PASS** (`Blank800K (DC42).baseline.dsk`, 838,484 bytes; the
+   same files copied, ejected from the Mac). The header: data size
+   819,200, tag size 19,200, format $22, magic $0100; **both checksums
+   recomputed on the PC match the header** (data $565A3056, tags
+   $84EF2B37, the tags past the first 12 bytes) - with new files on the
+   disk the header can only match if the eject flush rewrote it. The
+   payload: `hfs_check` consistent (4 files); Disk First Aid identical to
+   its source; TattleTech the same 250-identical / 4-settings picture as
+   gate 1 (against the raw disk's copy only its window rectangle differs,
+   by 3 and 1 pixels - it saved its window again). **The tags reached the
+   image**: 965 of 1,600 blocks carry non-zero tags, against 967 blocks of
+   non-zero data (the File Manager's tags: file number, fork and logical
+   block, e.g. block 16 `00000004 00000000 00000036`). Still to run: the
+   one-sided erase, read-only, the soak.
 
 # Section 6 - The ADB and the RTC
 
