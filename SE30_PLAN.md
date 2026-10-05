@@ -8789,6 +8789,23 @@ write) may not, and is measured when it comes.
    Headroom under the ~38.3k ceiling: about 500. Synthesis 0 errors,
    7,504 warnings (compile 41's count was not kept, so no comparison).
    **Next: the board gates of 5.15.10 (Daniel).**
+   **Board, gate 1 (raw 800K), Daniel 2026-10-05 ~13:55: PASS.** Compile
+   42; TattleTech 2.17 and Disk First Aid 7.2.2 copied in the Finder to a
+   blank raw 800K image (`C:\temp\Mac\Test disks\Written\SE30\
+   Blank800K_clean.dsk`), the disk unmounted and remounted, TattleTech
+   run from it (it wrote a report onto the disk). On the PC, from a copy:
+   `hfs_check` - volume consistent, 4 files, every fork readable;
+   `hfs_fork_diff` - Disk First Aid identical to its source on the SCSI
+   boot disk (`boo_.vhd`, the header's $30-$7D directory copy aside);
+   TattleTech's resource fork differs from `tattletech2.17.dsk` by
+   design: resource by resource 250 identical, and the 4 that differ are
+   TattleTech saving its own settings when run - DLOG/DITL 15989 refitted
+   to the 512x342 screen (the window's right edge $35F -> $154, every
+   item moved by the same amount, the item texts unchanged), STR 15992
+   the saved name "System 7.5.5 80MB" (was "I-Sys9500", the previous
+   owner's), STR 15991 "1073" (was "18"). Still to run: a DiskCopy 4.2
+   image (the checksums after a Mac eject), the Finder erase, the
+   one-sided erase, read-only, the soak.
 
 # Section 6 - The ADB and the RTC
 
