@@ -47,6 +47,21 @@
 //        groups locking the shifter onto D5 AA 96 DE AA from any bit
 //        offset; the fast 8M and slow 7M bands
 //
+//   and, since rung 3 (plan 5.15.2, 5.15.9 item 1), the IWM's write path:
+//
+//    16. the write state entered the ROM's way (L6 set, then L7 set with
+//        the first byte, $4082E52E-$4082E536): /WRREQ low, the buffer
+//        full until the first load 7 CLK after entry (sheet 52), then a
+//        load every 8 cells (256 FCLK in mode $17); WRDATA toggling on the
+//        ones at the cell boundaries, MSB first, every edge on the 32-FCLK
+//        grid, the ROM's sector bytes recovered whole from the edges; the
+//        handshake's bit 7 rising at each load and falling at a write;
+//        the last write before a load winning; writes ignored for 9 FCLK
+//        after a load (IWM undocumented features, 1984); an underrun
+//        clearing bit 6 and raising /WRREQ, L7's clear resetting it;
+//        /WRREQ high with L7 set and the motor off (IWM Spec p. 7); the
+//        28-FCLK cell in 7M slow and the 16-FCLK cell in 8M fast
+//
 //   Rung 2's bytes are read the ROM's way: the data register at $1800
 //   (L6 cleared by the access, L7 and MotorOn as they are), polled until
 //   its MSB is set ($40831C2E: move.b (a4),d5 / bpl).  The flux reaches
@@ -296,6 +311,58 @@ module tb_se30_swim;
       check(tail == 40'hD5AA96DEAA, "self-sync locks: D5 AA 96 DE AA after the sync groups", tail[31:0], 32'hAA96DEAA);
     end
   endtask
+
+  // ------------------------------------------------ rung 3: the write path
+  // every WRDATA transition, by clock, while logging is on
+  integer ed [0:8191];
+  integer ned = 0;
+  reg     wlog = 0, wrdata_q = 0;
+  always @(posedge clk) begin
+    wrdata_q <= wrdata;
+    if (wlog && wrdata !== wrdata_q && ned < 8192) begin ed[ned] = cyc; ned = ned + 1; end
+  end
+  // the ROM's entry ($4082E52E-$4082E536): L6 set (the sense state), then
+  // L7 set with the first byte; MotorOn is already on
+  integer t_enter;
+  task wr_enter(input [7:0] b0);
+    begin rd(16'h1A00); wr(16'h1E00, b0); t_enter = t_latch; end
+  endtask
+  // the ROM's byte loop: the handshake polled at $1800 (L6 cleared), the
+  // byte written at $1A00 (L6 set, with L7 already set: the data register).
+  // At the ROM's pace: the bench's accesses are 5 FCLK apart, but the
+  // machine's shortest SWIM strobe-to-strobe gap is 15 FCLK (plan 1.17.5's
+  // measurement), so the write's strobe comes 15 after the poll's
+  task wr_byte(input [7:0] b);
+    integer t;
+    begin
+      t = cyc; rd(16'h1800);
+      while (!q[7] && cyc - t < 4000) rd(16'h1800);
+      repeat (10) @(posedge clk);
+      wr(16'h1A00, b);
+    end
+  endtask
+  // the bits on WRDATA from edge `e0` on, cell `cw` FCLK: bit k is 1 when
+  // an edge falls at ed[e0] + k*cw; `wbad` counts edges off that grid
+  reg [7:0] wbits [0:255];
+  integer wbad;
+  task wr_decode(input integer e0, input integer cw, input integer nbytes);
+    integer k, d;
+    begin
+      wbad = 0;
+      for (k = 0; k < nbytes; k = k + 1) wbits[k] = 8'h00;
+      for (k = e0; k < ned; k = k + 1) begin
+        d = ed[k] - ed[e0];
+        if (d % cw != 0) wbad = wbad + 1;
+        else if (d / cw < nbytes * 8) wbits[(d / cw) / 8] = wbits[(d / cw) / 8] | (8'h80 >> ((d / cw) % 8));
+      end
+    end
+  endtask
+  // a sector's opening as the ROM writes it ($4082E4FA, $4082E65E): the
+  // entry byte FF, five sync bytes, the data mark, a sector code, a few
+  // data codes, the closing bytes
+  reg [7:0] wexp [0:31];
+  integer nexp;
+  integer t1, t2;
 
   initial begin
     repeat (10) @(posedge clk); #1 reset_n = 1;
@@ -644,6 +711,115 @@ module tb_se30_swim;
     rd(16'h1200); drv_addr(4'h1); rd(16'h1C00); rd(16'h1800);
     band(2*20, 28, 8'hFF, "slow 7M: Nclks 20 a 1 (the 28-FCLK cell)");
     band(2*21, 28, 8'hBF, "slow 7M: Nclks 21 a 01");
+    rd(16'h1000);
+
+    $display("---- 16. the IWM write path: the state, the loads, WRDATA, the handshake (5.15.2)");
+    reset_n = 0; repeat (3) @(posedge clk); #1 reset_n = 1; @(posedge clk);
+    set_mode(8'h17);                                     // slow, 8M: the ROM's mode
+    rd(16'h1200);                                        // MotorOn
+    check(wrreq_n == 1, "/WRREQ high before the write state", wrreq_n, 1);
+    ned = 0; #1 wlog = 1;
+    wr_enter(8'hFF);
+    @(posedge clk); #1;
+    check(wrreq_n == 0, "/WRREQ low once L7 is set with MotorOn (IWM Spec p. 7)", wrreq_n, 0);
+    rd(16'h1800);                                        // the handshake, before the first load
+    check(q[7] == 0 && q[6] == 1 && q[5:0] == 6'h3F,
+          "the handshake at entry: buffer full (the entry's byte), no underrun, bits 5-0 read 1", q, 8'h7F);
+    // the ROM's sector opening, written at the ROM's pace
+    nexp = 0;
+    wexp[nexp] = 8'hFF; nexp = nexp + 1;
+    for (i = 0; i < 5; i = i + 1) begin wexp[nexp] = (i == 0) ? 8'h3F : (i == 1) ? 8'hCF : (i == 2) ? 8'hF3 : (i == 3) ? 8'hFC : 8'hFF; nexp = nexp + 1; end
+    wexp[nexp] = 8'hD5; nexp = nexp + 1; wexp[nexp] = 8'hAA; nexp = nexp + 1; wexp[nexp] = 8'hAD; nexp = nexp + 1;
+    wexp[nexp] = 8'h9A; nexp = nexp + 1;                 // a sector code
+    for (i = 0; i < 6; i = i + 1) begin wexp[nexp] = 8'h96 + i; nexp = nexp + 1; end
+    wexp[nexp] = 8'hDE; nexp = nexp + 1; wexp[nexp] = 8'hAA; nexp = nexp + 1;
+    wexp[nexp] = 8'hFF; nexp = nexp + 1; wexp[nexp] = 8'hFF; nexp = nexp + 1;
+    for (i = 1; i < nexp; i = i + 1) wr_byte(wexp[i]);
+    rd(16'h1800);
+    while (!q[7]) rd(16'h1800);                          // the last byte loaded
+    b = q;
+    repeat (300) @(posedge clk);                         // and shifted out
+    rd(16'h1C00);                                        // L7 cleared: out of the write state ($4082E656)
+    #1 wlog = 0;
+    check(b[6] == 1, "no underrun at the ROM's pace (handshake bit 6)", b, 8'hFF);
+    // (the log sees an edge a clock after it happens)
+    check(ned > 0 && ed[0] - t_enter >= 14 && ed[0] - t_enter <= 16,
+          "the first transition (FF's MSB) 7 CLK after entry: 14 FCLK in slow mode", ed[0] - t_enter, 15);
+    wr_decode(0, 32, nexp);
+    check(wbad == 0, "every transition on the 32-FCLK cell grid (mode $17)", wbad, 0);
+    bad = 0;
+    for (i = 0; i < nexp; i = i + 1) if (wbits[i] !== wexp[i]) bad = bad + 1;
+    check(bad == 0, "the ROM's bytes recovered whole from WRDATA, MSB first, a one a transition", bad, 0);
+    check(wrreq_n == 1, "/WRREQ high again with L7 clear", wrreq_n, 1);
+
+    // the loads every 8 cells, and the handshake's bit 7 with them
+    wr_enter(8'hFF);
+    @(posedge swim.wload); t1 = cyc;
+    @(posedge swim.wload); t2 = cyc;
+    check(t2 - t1 == 256, "a load every 8 cells: 256 FCLK in mode $17", t2 - t1, 256);
+    rd(16'h1800);
+    check(q[7] == 1, "bit 7 set after a load with nothing written: buffer empty", q, 8'hFF);
+    repeat (10) @(posedge clk);
+    wr(16'h1A00, 8'h96);
+    rd(16'h1800);
+    check(q[7] == 0, "a write clears bit 7", q, 8'h7F);
+    // the last write before a load is the one used
+    @(posedge swim.wload);
+    repeat (20) @(posedge clk);
+    ned = 0; #1 wlog = 1;
+    wr(16'h1A00, 8'hAA); wr(16'h1A00, 8'hD5);           // two writes in one buffer window
+    @(posedge swim.wload); repeat (2) @(posedge clk);
+    check(swim.wsr_last == 8'hD5, "the last write before the load is the byte shifted (User's Ref p. 12)", swim.wsr_last, 8'hD5);
+    // the 9-FCLK lock: a write whose strobe lands within 9 FCLK of a load
+    // is ignored, one after it is taken
+    #1 wlog = 0;
+    @(posedge swim.wload);                               // the strobe 4 FCLK after this load
+    wr(16'h1A00, 8'hB5);
+    rd(16'h1800);
+    check(q[7] == 1, "a write 4 FCLK after a load is ignored (the 9-FCLK lock)", q, 8'hFF);
+    @(posedge swim.wload);
+    repeat (8) @(posedge clk);                           // the strobe 12 FCLK after the load
+    wr(16'h1A00, 8'hB5);
+    rd(16'h1800);
+    check(q[7] == 0, "a write 12 FCLK after a load is taken", q, 8'h7F);
+    // the underrun: no write before the next load
+    @(posedge swim.wload);                               // B5 loaded; the buffer is empty
+    @(posedge swim.wload);                               // nothing written: the underrun
+    @(posedge clk); #1;
+    check(wrreq_n == 1, "an underrun raises /WRREQ (sheet 52)", wrreq_n, 1);
+    rd(16'h1800);
+    check(q[6] == 0, "and clears the handshake's bit 6", q, 8'h80);
+    wr(16'h1A00, 8'h96);
+    @(posedge clk); #1;
+    check(wrreq_n == 1, "a later write does not lower /WRREQ again", wrreq_n, 1);
+    rd(16'h1C00);                                        // L7 cleared
+    rd(16'h1E00);                                        // L7 set again from L6 = 0: the handshake, before any load
+    check(q[6] == 1 && q[7] == 1, "clearing L7 resets the underrun and empties the buffer (handshake $FF)", q, 8'hFF);
+    rd(16'h1C00);
+    wr_enter(8'hFF);
+    @(posedge clk); #1;
+    check(wrreq_n == 0, "the next write state lowers /WRREQ again", wrreq_n, 0);
+    rd(16'h1C00);
+    // /WRREQ needs MotorOn: L7 set with MotorOn off and the timer disabled
+    rd(16'h1000); rd(16'h1800); rd(16'h1E00);            // MotorOn off, L6 clear, L7 set: the handshake state
+    @(posedge clk); #1;
+    check(wrreq_n == 1, "/WRREQ high with L7 set and MotorOn off", wrreq_n, 1);
+    rd(16'h1C00);
+
+    // the cell in the other modes: 7M slow (28 FCLK) and 8M fast (16)
+    set_mode(8'h07); rd(16'h1200);
+    ned = 0; #1 wlog = 1;
+    wr_enter(8'hFF); wr_byte(8'hFF);
+    @(posedge swim.wload); repeat (40) @(posedge clk);
+    #1 wlog = 0; rd(16'h1C00);
+    check(ned >= 9 && ed[1] - ed[0] == 28 && ed[8] - ed[7] == 28, "7M slow: the 28-FCLK cell", ed[1] - ed[0], 28);
+    set_mode(8'h1F); rd(16'h1200);
+    ned = 0; #1 wlog = 1;
+    wr_enter(8'hFF); wr_byte(8'hFF);
+    @(posedge swim.wload); repeat (40) @(posedge clk);
+    #1 wlog = 0; rd(16'h1C00);
+    check(ned >= 9 && ed[1] - ed[0] == 16 && ed[8] - ed[7] == 16, "8M fast: the 16-FCLK cell", ed[1] - ed[0], 16);
+    check(ned >= 1 && ed[0] - t_enter == 8, "8M fast: the first load 7 CLK (7 FCLK) after entry (+1 for the log)", ed[0] - t_enter, 8);
     rd(16'h1000);
 
     // ---- verdict

@@ -8643,6 +8643,22 @@ write) may not, and is measured when it comes.
 1. ~~Write this section.~~ **Done 2026-10-05.**
 2. `sim/swim` write checks (5.15.9 item 1), failing, then the IWM write
    path in `se30_swim.v`.
+   **Done 2026-10-05: 141 checks PASS (~2.5 min), 4/4 mutants caught**
+   (no lock, 7 bits a load, /WRREQ blind to the underrun, the first load
+   at 8 CLK). Item 16 failed first as expected (no /WRREQ, no
+   transitions). Two findings on the way:
+   - **The bench must write at the machine's pace.** Its accesses are 5
+     FCLK apart; a write straight after the poll that saw the empty bit
+     landed inside the 9-FCLK lock and was dropped. The kernel's
+     shortest SWIM strobe-to-strobe gap is 15 FCLK (1.17.5), so the ROM
+     always clears the lock; `wr_byte` now waits that long.
+   - **Our reading: clearing L7 empties the buffer** as well as resetting
+     /underrun (sheet 52 names only the latter). Without it, rung 1's
+     idle handshake (`$FF`) read `$7F` after item 3's brief write states,
+     which never reached a load. The documents are silent; the ROM always
+     enters with a write, so it never sees the difference.
+   The write state is L7 with the delayed MotorOn, taken combinationally
+   so the first load is exactly 7 CLK after the access.
 3. `sim/fdhd` recording checks, then `se30_fdhd.v`'s recording, /WRTPRT
    and the arc; the buffer's port uses in the encoder.
 4. `sim/flpdec` and `se30_flp_decoder.v` (decoder + committer).

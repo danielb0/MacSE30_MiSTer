@@ -1,7 +1,7 @@
 // se30_swim.v - Apple's SWIM (343S0061-A) at UJ11, to the contract of
-// SE30_PLAN.md 5.2 and 5.12 - both register sets, and the IWM's read path
-// (rung 2, GCR).  The ISM's data path (5.13) and writing (rung 3) are to
-// come.
+// SE30_PLAN.md 5.2, 5.12 and 5.15 - both register sets, the IWM's read
+// path (rung 2, GCR) and its write path (rung 3).  The ISM's data path
+// (5.13) is to come.
 //
 // WHAT IT IS
 //   An IWM and an ISM in one package, one register set selected at a time
@@ -16,8 +16,25 @@
 //   pp. 20-26).  The switch between them and the three extra IWM bits
 //   (chip spec).  Held to sim/swim/tb_se30_swim.v.
 //
-//   The ISM's FIFO stays empty with ACTION never set; the write side idles
-//   (/WRREQ high, the handshake "empty, no underrun").
+//   The ISM's FIFO stays empty with ACTION never set.
+//
+// THE IWM WRITE PATH (plan 5.15.2; the SWIM drawing sheet 52, the IWM
+// Spec Rev 19 pp. 2-3 and 7, the 1984 undocumented-features note)
+//   "The combination of L7 and Motor-On and /underrun enables /WRREQ
+//   low."  The write state begins when L7 is set with MotorOn (the ROM
+//   sets it from the sense state with the first byte); "the write shift
+//   register is loaded every 8 bit cell times starting seven CLK periods
+//   after the write state begins", the cell being 32 FCLK in 8M slow, 28
+//   in 7M slow, 16 in 8M fast.  At a load the buffer's byte moves to the
+//   shift register and the handshake's bit 7 (buffer empty) rises; a
+//   processor write fills the buffer and clears it, the last write before
+//   a load being the one used - except within 9 FCLK of a load, when
+//   writes are ignored.  A load with nothing written is an underrun:
+//   /underrun (bit 6) falls and /WRREQ goes high until L7 is cleared.
+//   "A one is written as a transition on the WRDATA output at a bit cell
+//   boundary", MSB first.  Synchronous-mode writing is timed from Q3,
+//   which is AS* on this board (plan 5.3), and is not built: a write
+//   behaves as in asynchronous mode whatever mode bit 1 holds.
 //
 // THE IWM READ PATH (plan 5.12.2)
 //   In the read state (L6 = L7 = 0) RDDATA - SENSE on this board - is
@@ -122,6 +139,18 @@ module se30_swim (
   reg  [3:0] pidx;
   reg        corr_sel;                 // which correction byte a data read gives with ACTION low
 
+  // the IWM write path (rung 3, below)
+  reg  [7:0] wbuf;                     // the buffer register
+  reg        wempty;                   // handshake bit 7: the buffer is empty
+  reg        unr_n;                    // handshake bit 6: /underrun
+  reg  [7:0] wsr;                      // the shift register, MSB out first
+  reg  [7:0] wsr_last;                 // the byte the last load took (the bench's view)
+  reg  [2:0] wbits;                    // bits still to go before the next load
+  reg  [4:0] wcnt;                     // CLK periods to the next cell boundary
+  reg  [3:0] wlock;                    // FCLK the buffer is locked after a load
+  reg        wload;                    // one clock: a load
+  reg        wrd;                      // WRDATA
+
   // GLUE's strobe is one C16M - two clk in the machine, where clk is
   // clk_sys - so the access is taken on the C16M edge alone, as the VIA
   // takes it.  Without c16_en every access acted twice: the ISM switch's
@@ -157,7 +186,7 @@ module se30_swim (
     case ({l7_n, l6_n})
       2'b00: iwm_q = motor_dn ? rd_val : 8'hFF;                     // read data / read all ones
       2'b01: iwm_q = {sense, 1'b0, motor_dn, iwm_mode};             // status: bit 6 is MZ, reads 0
-      2'b10: iwm_q = 8'hFF;                                         // write-handshake: empty, no underrun, bits 5-0 read 1
+      2'b10: iwm_q = {wempty, unr_n, 6'h3F};                        // write-handshake: bits 5-0 read 1
       2'b11: iwm_q = 8'hFF;                                         // a write state: no register is read
     endcase
   end
@@ -219,6 +248,61 @@ module se30_swim (
         else if (c16_en && clr_cnt != 0) begin
           clr_cnt <= clr_cnt - 1'b1;
           if (clr_cnt == 4'd1) rd_latch <= 8'h00;
+        end
+      end
+    end
+  end
+
+  // ------------------------------------------------ the IWM write path
+  // The write state is L7 set with the delayed MotorOn (the ROM enters it
+  // from the sense state, L6 set, by setting L7 with the first byte - an
+  // access that is also a data-register write).  The first load comes 7
+  // CLK after it begins, then one every 8 cells; a cell is 16 CLK at 8M
+  // (32 FCLK slow, 16 fast) and 14 at 7M (28, 14).  A load moves the
+  // buffer to the shift register and empties the buffer; with nothing
+  // written since the last load it is an underrun, and the shift register
+  // takes zeros.  Each cell boundary sends the shift register's MSB: a
+  // one toggles WRDATA.  For 9 FCLK after a load the buffer ignores
+  // writes.  Clearing L7 ends the state, resets /underrun and empties
+  // the buffer.
+  wire [4:0] wcell = m8 ? 5'd16 : 5'd14;
+  wire       wdreg = hit && !ism && iwm_wr && motor_dn;     // a data-register write
+  wire       wact  = !ism && l7 && motor_d;                // the write state
+  wire       wload_now = wact && clk_en && wcnt == 5'd1 && wbits == 0;
+
+  always @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+      wbuf <= 0; wempty <= 1; unr_n <= 1; wsr <= 0; wsr_last <= 0;
+      wbits <= 0; wcnt <= 0; wlock <= 0; wload <= 0; wrd <= 0;
+    end else begin
+      wload <= 0;
+      if (c16_en && wlock != 0) wlock <= wlock - 1'b1;
+      // OUR READING: clearing L7 "will reset the /underrun flag" (sheet
+      // 52); it empties the buffer too, so the handshake idles at $FF and
+      // a write state left before its first load leaves nothing behind
+      if (!l7) begin unr_n <= 1; if (!wdreg) wempty <= 1; end
+
+      // a write in the load's own clock is inside the lock
+      if (wdreg && wlock == 0 && !wload_now) begin wbuf <= wdata; wempty <= 0; end
+
+      if (!wact) begin
+        wcnt <= 5'd7; wbits <= 0;                           // the first load, 7 CLK in
+      end else if (clk_en) begin
+        if (wcnt != 5'd1) wcnt <= wcnt - 1'b1;
+        else begin                                          // a cell boundary
+          wcnt <= wcell;
+          if (wbits == 0) begin                             // a load, and its byte's MSB
+            wload <= 1; wlock <= 4'd9; wempty <= 1; wbits <= 3'd7;
+            if (wempty) begin unr_n <= 0; wsr <= 8'h00; wsr_last <= 8'h00; end
+            else begin
+              wsr <= {wbuf[6:0], 1'b0}; wsr_last <= wbuf;
+              if (wbuf[7]) wrd <= !wrd;
+            end
+          end else begin
+            wbits <= wbits - 1'b1;
+            wsr <= {wsr[6:0], 1'b0};
+            if (wsr[7]) wrd <= !wrd;
+          end
         end
       end
     end
@@ -301,8 +385,8 @@ module se30_swim (
   assign ph_oe   = ph_dir;
   assign enbl1_n = ism ? !(ism_mode[7] && ism_mode[1]) : !(motor_d && !drvsel);
   assign enbl2_n = ism ? !(ism_mode[7] && ism_mode[2]) : !(motor_d &&  drvsel);
-  assign wrdata  = 1'b0;
-  assign wrreq_n = 1'b1;
+  assign wrdata  = wrd;
+  assign wrreq_n = !(wact && unr_n);
   assign hdsel   = ism_setup[0] && ism_mode[5];
 
   assign dbg_vread = vread;
