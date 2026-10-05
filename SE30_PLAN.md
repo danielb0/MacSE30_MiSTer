@@ -16332,7 +16332,19 @@ Daniel - add to it, move items out when fixed).**
    opens nothing, works; the Options search waits the same way per ID.
    A second difference, held in reserve: the LC sets register 5's END OF
    DMA whenever the bus is not in a data phase (a Snow convention, not a
-   document); ours never sets it (no EOP on the SE/30, SP-1051 6.7).
+   document); ours never sets it (no EOP on the SE/30, SP-1051 6.7). **Compile 44 on the board** (Daniel): **PC Exchange's Options no
+   longer hang - the DBP fix was it.** The copy and open failures remain:
+   a separate cause. PBER read before and after a TeachText open: the
+   bus-error count unchanged (514), so the open does not bus-error. (The
+   514 themselves: all four newest at PC `$000A4596` (a NOP), no PMMU
+   fault latched since power-on and BERR never asserted - the wrapper's
+   own bus errors for CPU-space cycles other than an interrupt
+   acknowledge or the 68882 (a coprocessor ID with no chip, a breakpoint
+   acknowledge, a MOVES to FC 7); boot alone takes 255 or more. Their
+   source is open; the earlier "PMMU-raised" reading of item 8 assumed
+   it, and is withdrawn - PBER now shows no PMMU fault at all.) Next for
+   the open failure: PC Exchange in MAME's SE/30 with the same DOS image
+   (`-flop1`), to see its driver calls on an open.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
