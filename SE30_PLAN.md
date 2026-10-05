@@ -8303,12 +8303,13 @@ HD medium, the rest DD).
   (`MISTER_DISABLE_ALSA`, `MISTER_DOWNSCALE_NN`, `MISTER_DISABLE_ADAPTIVE`,
   several hundred to ~1,000). Daniel's call.
 
-### 5.13.8 Open, for Daniel
+### 5.13.8 Daniel's decisions (2026-10-05)
 
-- **(A)** 720K's data rate (5.13.4): build 1.44 MB first, 720K at the
-  ROM-implied 600 rpm after, and let the board decide?
-- **(B)** interval recording for the medium (5.13.5)?
-- **(C)** which lever makes room (5.13.7)?
+- **(A) 1.44 MB first, 720K after**, at the ROM-implied 600 rpm; a 720K
+  image on the board decides (5.13.4).
+- **(B) Interval recording** for the medium (5.13.5) - in both modes.
+- **(C) Measure first**: build MFM reading with the probe deck in,
+  compile, and choose the lever from the real number (5.13.7).
 
 ## 5.14 The external drive (Daniel, 2026-10-02)
 
