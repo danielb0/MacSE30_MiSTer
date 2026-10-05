@@ -3,6 +3,7 @@ blank round images, and a host checker that judges every copy against the
 SEED, never against another copy.
 
     python soak.py make   <dir> [--rounds N]   source + blank round images
+          [--ext]                               two per round (the SE30_EXT_DRIVE build)
     python soak.py check  <image> [<image> ...] audit + compare every soak set
           [--sets-only]                         volume problems reported, not failed
                                                 (a used SCSI disk has its own)
@@ -310,21 +311,24 @@ def source_volume():
         (soak[folder] if folder else soak)[nm] = f
     return v.write(size=819200, align=512, desktopdb=False, bootable=False)
 
-def make(out, rounds):
+def make(out, rounds, ext=False):
     os.makedirs(out, exist_ok=True)
     vol = source_volume()
     open(os.path.join(out, "soak_source.dsk"), "wb").write(vol)
     payload = sum(len(d) + len(r) for d, r in expected().values())
     free = be16(vol, 1024 + 34) * be32(vol, 1024 + 20)
     print("soak_source.dsk: %d files, %d payload bytes, %d bytes free on the source" % (len(manifest()), payload, free))
-    for r in range(1, rounds + 1):
-        for drive, dc in (("int", r % 2 == 0), ("ext", r % 2 == 1)):
-            nm = "soak_r%d_%s.%s" % (r, drive, "image" if dc else "dsk")
-            blank = bytes(819200)
-            open(os.path.join(out, nm), "wb").write(dc42_wrap(blank, bytes(1600 * 12), nm) if dc else blank)
-            print(nm, "(blank, %s)" % ("DiskCopy 4.2 with tags" if dc else "raw"))
-    open(os.path.join(out, "soak_final_int.dsk"), "wb").write(bytes(819200))
-    print("soak_final_int.dsk (blank, raw): takes the last round's SCSI copy")
+    def blank(nm, dc):
+        b = bytes(819200)
+        open(os.path.join(out, nm), "wb").write(dc42_wrap(b, bytes(1600 * 12), nm) if dc else b)
+        print(nm, "(blank, %s)" % ("DiskCopy 4.2 with tags" if dc else "raw"))
+    for r in range(1, rounds + 1):           # raw and DC42 alternate by round
+        if ext:                               # and by drive (the SE30_EXT_DRIVE build)
+            blank("soak_r%d_int.%s" % (r, "image" if r % 2 == 0 else "dsk"), r % 2 == 0)
+            blank("soak_r%d_ext.%s" % (r, "image" if r % 2 == 1 else "dsk"), r % 2 == 1)
+        else:
+            blank("soak_r%d.%s" % (r, "image" if r % 2 == 0 else "dsk"), r % 2 == 0)
+    blank("soak_final.dsk", False)            # takes the last round's SCSI copy
 
 # ---------------------------------------------------------------- selftest
 def selftest():
@@ -367,7 +371,7 @@ if __name__ == "__main__":
     a = sys.argv[1:]
     if not a: sys.exit(__doc__)
     if a[0] == "make" and len(a) >= 2:
-        make(a[1], int(a[a.index("--rounds") + 1]) if "--rounds" in a else 3)
+        make(a[1], int(a[a.index("--rounds") + 1]) if "--rounds" in a else 5, "--ext" in a)
     elif a[0] == "check" and len(a) >= 2:
         exp = expected()
         oks = [check_image(p, exp, sets_only="--sets-only" in a) for p in a[1:] if not p.startswith("--")]
