@@ -8839,7 +8839,17 @@ write) may not, and is measured when it comes.
    ("locked"). Afterwards (`Written\SE30\Blank800K_clean_RO.dsk`) the
    image is byte-identical (MD5 `2a787634...`) to its read-only source of
    17 Sep, and its MDB still reads created = modified = 2026-09-09 23:23:
-   mounted, browsed and copied to, nothing reached it. Still to run: the one-sided erase
+   mounted, browsed and copied to, nothing reached it.
+   **Board, gate 5a (a larger copy), Daniel 2026-10-05 ~14:25: PASS** -
+   PowerPoint's Presentation Library (21 files in 4 folders, ~330 KB on
+   the floppy) copied from the SCSI boot disk onto the formatted raw 800K
+   image (`Blank800K_clean_powerpoint.dsk`): `hfs_check` consistent (22
+   files, 4 folders, the catalog agreeing with the MDB); `hfs_fork_diff`
+   **21 of 21 identical** to their sources. (Over 700 KB on the hard disk
+   against ~330 KB here is the boot volume's 24,064-byte allocation
+   block - 65,358 blocks, HFS's 16-bit block count - against the
+   floppy's 512.) Still to run: a delete-and-recopy round (the soak
+   proper), and the one-sided erase (needs a System before 7.5). Still to run: the one-sided erase
    (needs a System before 7.5), the soak.
 
 # Section 6 - The ADB and the RTC
