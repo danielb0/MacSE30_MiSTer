@@ -3349,7 +3349,14 @@ the slow corners (1.62 / 1.34) and on B at the fast ones (1.99 / 1.85),
 the SDRAM outputs +2.3 setup / +2.5 hold or better. 7,523 warnings, the
 same count as the floppy-write compile of 12:31, including the same two
 pre-existing combinational-loop notes on the kernel's `Selector195`
-(line 8761). Next: the board.
+(line 8761).
+
+**ON THE BOARD (Daniel, 2026-10-05 ~15:30): booted 24-bit, switched 32-Bit
+Addressing on, restarted - BOOTS IN 32-BIT MODE, TattleTech "32-bit mode
+active". FUTURE BOARD TESTS item 1 MET on this compile.** Still to do from
+the item's list at Daniel's convenience: a few applications and Speedometer
+in 32-bit mode, back to 24-bit and a clean restart. Then the merge with
+floppy-write once that branch's own board test is done.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
@@ -15149,10 +15156,10 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    it brings no other benefit (Daniel asked; answered 2026-10-04).
    **RUN 2026-10-05 on compile 41: HUNG at the System's grey screen** -
    the kernel looping on MODE32's software-completed bus error; found and
-   fixed on branch `mode32-berr` (plan 1.18), awaiting its own compile
-   (Daniel's order: after floppy-write's, then merge). **Rerun this item on
-   that compile**; recovery meanwhile: ESC held during boot (MODE32's own
-   switch to 24-bit for one boot) or a core reload.
+   fixed on branch `mode32-berr` (plan 1.18). **RERUN on the mode32-berr
+   compile (`MacSE30_b9003c88_mode32.rbf`, 15:30): BOOTS IN 32-BIT MODE,
+   TattleTech confirms - MET.** Remaining from the list: applications and
+   Speedometer in 32-bit mode, back to 24-bit and a clean restart.
 2. **The 128 MB clean-ROM option** (when built): a IIsi/IIfx ROM file,
    the System edited per "Gamba's page"; PRAM reset first; watch for the
    68kMLA poster's Sad Mac and unreadable drive after a Memory control
