@@ -16295,7 +16295,12 @@ Daniel - add to it, move items out when fixed).**
    a 68030). The most likely cause, not proven instruction by
    instruction; **to confirm: longer play and a rerun after a restart**
    (PBER catches the PC if it recurs). Anything using GWorlds in 24-bit
-   mode could have met it.
+   mode could have met it. **Stable over a longer play** (Daniel,
+   2026-10-05: "the kind of random but deterministic errors that we had
+   on the LC, that were due to timing errors in the core"). **Closed.**
+   Lesson, added to the build ritual: after the STA corners, grep
+   `MacSE30.sta.rpt` for "combinational loop" - a loop in our logic is a
+   defect, not a warning (this one sat in the reports unread).
 9. **PC Exchange's Options button never finishes "searching for SCSI
    devices"** (Daniel, board, compile 43, 2026-10-05). The probes: the
    CPU alive in the ROM's SCSI Manager, every A-line trap `A815`
