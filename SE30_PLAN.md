@@ -9150,7 +9150,7 @@ write) may not, and is measured when it comes.
    7.5; not blocking). Next per Daniel's order: 5.13, the ISM's MFM read
    (1.44 MB and 720K) - about 500 ALMs of headroom left. Still to run: the one-sided erase
    (needs a System before 7.5), the soak.
-   **Board, gate 3 (the one-sided erase), Daniel 2026-10-05 ~16:25:
+   **Board, gate 3 (the one-sided erase, under System 7.1), Daniel 2026-10-05 ~16:25:
    PASS** (`Written\SE30\Formatted\`; host-checked with an MFS checker
    written for it - the volumes are MFS, signature `$D2D7`, which the
    Finder makes of a 400K disk, so `hfs_check` does not apply).
