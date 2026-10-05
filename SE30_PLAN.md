@@ -8732,6 +8732,25 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    kernel, so it is the fit moving. The remedy is Daniel's call (no seed
    lottery: an RTL fix - register the PMMU read before the write, PMOVE
    to Dn being rare).
+   **The fix (2026-10-05, Daniel: "go ahead with the timing fix")**: the
+   worst path, cell by cell, ran `exec[pmmu_rd]` -> a cell STA marks as
+   part of a **combinational loop** (4.7 ns: `Selector195`/`exec~6`, the
+   six-node loop STA reports at the microcode CASE, line 8761) ->
+   `pmmu_reg_sel_int` -> the PMMU's read mux -> `OP2out` -> the ALU's
+   bit-field shifter -> `regin` -> the register file. The loop: in
+   `pmmu_dn_read_wait` the microcode process read `set_exec(pmmu_rd)`,
+   its own output, to carry the previous state's request (BUG #388) - a
+   combinational latch. Now `pmmu_rd_carry`, a flip-flop holding
+   `set_exec(pmmu_rd)` of one clock ago, is read instead (the value the
+   simulation always read). Gate: `sim/busfault` 14, `sim/kernel_bus`
+   ports 16 (338) and 32 (237), `sim/cpfpu` mmu 11, b5c 26, b5d 19,
+   `sim/system` all eight (18 min), upstream's PMMU suite identical to
+   the baseline (58, the same five fail), its general suite identical to
+   `ours.txt` (14, the same three), `sim/busfault_dib` 18 - all PASS.
+   (Synthesis also listed eight cells of `se30_flp_decoder`'s `Add2` as
+   loop cells; their inputs are all registers and post-fit STA reports
+   only the kernel's loop - a synthesis-time listing.) The fit decides at
+   the next compile.
 8. The board: 1.44 MB, then 720K.
    **Compile 43 on the board, 2026-10-05 (Daniel)**: PBLD `7d5900aa`.
    **A 1.44 MB HFS image (DC42) mounts and its folders read; files copy
@@ -16246,7 +16265,17 @@ Daniel - add to it, move items out when fixed).**
    cores (the game on SE/30 hardware, or another core fault). **And the counter is not the game's**: compile 43 just booted, no
    game run, already shows bus-error exceptions saturated at 255 with
    BERR never asserted - the ROM's start-up probing (PMMU-raised) fills
-   it, so PEXC's count says nothing about the game.
+   it, so PEXC's count says nothing about the game. **It runs on the LC core** (Daniel, 2026-10-05) - but the LC is a
+   68020 without a PMMU and another memory map, so it cannot take a
+   PMMU-raised bus error at all: not yet proof that a real SE/30 runs it.
+   Next: MAME's `macse30` (the real ROM, a 68030 with its PMMU - a
+   software cross-check, not evidence) to tell the game's own SE/30
+   behaviour from ours; and a probe of the last bus error's PC and fault
+   address (the 68030 stacks both) in the next compile. **It runs in MAME's SE/30** (Daniel, 2026-10-05: 0.289, the real ROM,
+   8 MB, the same disk - a copy of `Mister MacLC backup\boot.vhd`, as
+   `C:\temp\Mac\mame\opint\opint.chd`; a software cross-check): the
+   game works with the SE/30's memory map and PMMU tables, so **the bus
+   error is our core's**. Next: the bus-error probe.
 9. **PC Exchange's Options button never finishes "searching for SCSI
    devices"** (Daniel, board, compile 43, 2026-10-05). The probes: the
    CPU alive in the ROM's SCSI Manager, every A-line trap `A815`
@@ -16282,7 +16311,18 @@ Daniel - add to it, move items out when fixed).**
    PASS (a new check: register 4 on a free bus reads `$00`; the old
    parity fails it), `sim/scsi_seam` 97, `sim/machine` 17. **Whether it
    is PC Exchange's loop the board decides** - our best candidate, not a
-   proven cause.
+   proven cause. **The LC core** (Daniel, the same PC Exchange): copies from a locked
+   DOS disk, and its Options do not hang - so both PC Exchange faults are
+   ours. The LC's `ncr5380.sv` returns 0 for register 4's bit 0 ("we
+   don't do parity"): a free bus reads `$00` there, as ours now does.
+   **One reading covers both faults**: the stuck loop polls `SCSIStat`
+   and reads `Ticks` - a wait with a timeout; if PC Exchange waits for an
+   all-clear bus when it opens a file, the open times out on the old
+   model ("cannot be found", TeachText's "in use") while listing, which
+   opens nothing, works; the Options search waits the same way per ID.
+   A second difference, held in reserve: the LC sets register 5's END OF
+   DMA whenever the bus is not in a data phase (a Snow convention, not a
+   document); ours never sets it (no EOP on the SE/30, SP-1051 6.7).
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
