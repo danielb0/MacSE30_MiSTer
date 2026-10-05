@@ -8297,6 +8297,363 @@ running a test over two days").**
   and never caught a regression. `gcrread`'s quick mode stays available
   for that job. SWIM rung 3 (writing) is to be gated this way.
 
+## 5.15 Rung 3: writing and formatting - GCR first (2026-10-05)
+
+Opened 2026-10-05 on branch `floppy-write` (cut from `dev` at `ad21445`),
+documentation first: the SWIM drawing, the IWM specification, the 800K
+drive's ERS and the ROM's own writer and formatter were read before the
+design, the LC's floppy-write plan after it, for its bug list. Daniel
+asked for writing and for 1.44 MB disks together, and pointed at the LC
+core, which has the whole suite.
+
+**Daniel's decisions, 2026-10-05.**
+
+- **The order: GCR writing and formatting first** (800K and 400K, the IWM's
+  write path; the write-back chain is built here, once), **then MFM reading**
+  (1.44 MB and 720K, the ISM's read path - 5.13), **then MFM writing and
+  formatting.** Each goes to the board on its own.
+- **The ISM is built to what the ROM drives.** The ROM writes the Setup
+  register as `$20` (`$4082E7A8`): the correction machine off, the
+  trans-space logic on. So 5.13 builds the cell classifier from the
+  parameter RAM, the FIFO, marks, CRC, the error and handshake registers,
+  the trans-space encoder and the TIME0/TIME1 write timing; the correction
+  machine, post-compensation and pre-compensation only as far as their
+  registers show (on a medium with exact cell times they have no effect).
+- **Write-through to the card**, as Daniel's LC PR #7 does it: each sector
+  decoded from a written track goes into the image in SDRAM and is queued
+  straight to the SD card; a DiskCopy 4.2 image's checksums are rewritten
+  on eject.
+
+### 5.15.1 Sources, and their standing
+
+| source | what | standing |
+|---|---|---|
+| The SWIM drawing 343S0061-A, **sheet 52** (6.6; read from the page image, the OCR garbles it) | the IWM's write state, the asynchronous buffer and handshake, **the cell time by mode** ("in 7M and slow mode ... 28 FCLK ... in 8M and slow mode ... 32 periods, and in 8M and fast mode ... 16"), **"the write shift register is loaded every 8 bit cell times starting seven CLK periods after the write state begins"**, the underrun | **primary** |
+| `IWM_Spec_Rev19_1982.pdf` pp. 2-3 and 6-7 (page images) | the same paragraphs (the drawing copies them), the pins (**"WRDATA: a transition occurs on this output for each one bit"**), the state table and **"the combination of L7 and Motor-On and /underrun enables /WRREQ low"** | primary; the drawing outranks it where they differ (they do not, here) |
+| `IWM_undoco_features.txt` (Apple, April 1984) | **"for 9 FCLK periods after the shift register load, writes to the write latch are disabled"** | primary (an Apple engineering note) |
+| `SWIM_Chip_Users_Ref_198801` pp. 10-12 | the IWM register table as software sees it: write-handshake bit 7 "buffer empty", bit 6 "write state/underrun", bits 5-0 read 1; "the last byte written to the chip when the buffer is emptied is the one that will be used" | primary for behaviour as software sees it |
+| `669-0452-A_800K_Double-Sided_ERS_Sep86` 3.2.4.9, 3.2.5, 3.4.5, sheets 40-42 | **/WRTPRT** (0 with a protected disk or none), **/WRTGATE** ("when /WRTGATE is a zero, when /ENBL is a zero and if the inserted disk is not write protected, data on WRTDATA are recorded"), the write timing (T1-T7, the erase head's 480-590 us), the sector format and the 2:1 interleave | primary for the drive |
+| The ROM: **the sector writer** `$4082E518`-`$4082E65A` and **the track formatter** `$408320BC`-`$40832196` (disassembled with MAME's `unidasm -arch m68030`) | what the machine does: 5.15.4 | documentation tier (1.11) |
+| MacLC `floppy-write` `docs/floppy_write_plan.md`; `rtl/floppy_sd.v` (`floppy_write_committer`, `floppy_sd_writer`), `floppy_track_decoder.v` | Daniel's own write chain, gated on the board (PR #7) | donor for the image half - the committer, the SD writer, the DC42 rules; its capture is byte-level and is not lifted; its bug list becomes checks (5.15.7) |
+| MacPlus `FLOPPY_WRITE_PLAN.md` phase 5 review (the six inherited defects, carried in the LC plan's section 7) | defects found once already | test cases |
+
+### 5.15.2 The IWM's write path
+
+The documents, in order of the write:
+
+1. **The state** (IWM Spec p. 7; User's Ref p. 10). L7 L6 MotorOn: `10x`
+   reads the write-handshake register ("Write"), `111` writes the data
+   register ("Write Load"). "**The IWM is put into the write state by a
+   transition from the write protect sense state [`01x`] to the write load
+   state.**" The write state lasts until L7 is cleared.
+2. **/WRREQ**: "the combination of L7 and Motor-On and /underrun enables
+   /WRREQ low" - low exactly while L7 is set, the motor is on and no
+   underrun has happened. (Motor-On here is the delayed MotorOn the
+   register selection already uses: the latch, or the timer running.)
+3. **The cell** (asynchronous mode, CLK = FCLK in fast mode, FCLK/2 in
+   slow): 28 FCLK in 7M slow, **32 in 8M slow (the ROM's mode `$17`)**, 16
+   in 8M fast; 14 in 7M fast by the same rule. "A bit is transferred every
+   bit cell time"; MSB first; "a one is written as a transition on the
+   WRDATA output at a bit cell boundary time and zero is written as no
+   transition."
+4. **The buffer and the loads**: "the write shift register is buffered";
+   "**loaded every 8 bit cell times starting seven CLK periods after the
+   write state begins**" - 14 FCLK in slow mode, then every 256 FCLK at 8M
+   slow. At a load the buffer moves to the shift register and the
+   handshake's bit 7 (buffer empty) rises; a processor write to the data
+   register fills the buffer and clears bit 7; "only the data last written
+   into the buffer register, before the contents of the buffer register is
+   transferred to the write shift-register, is used." The access that
+   enters the write state is itself a data-register write (A0 = 1 with L6
+   and L7 both being set), so the buffer holds a byte from the first
+   clock.
+5. **The reload lock** (undocumented-features note): for 9 FCLK after a
+   load, writes to the buffer are ignored.
+6. **The underrun**: "when data has not been written to the buffer register
+   between the time the write-handshake bit indicates an empty buffer and
+   the time the buffer is transferred to the write shift-register. If an
+   underrun occurs in asynchronous mode /WRREQ will be disabled (set to a
+   TTL high state) and the /underrun flag will be set to zero ... Clearing
+   state bit L7 will reset the /underrun flag." The shift register goes on
+   shifting what it holds; with /WRREQ high the drive records nothing of
+   it.
+7. **The handshake register** (User's Ref p. 11): bit 7 buffer empty, bit 6
+   /underrun (1 while writing without an underrun), bits 5-0 read 1.
+
+**Not built: synchronous-mode writing.** Its write windows are timed from
+Q3, and on this board Q3 is AS* (5.3), not a clock; no software on the
+SE/30 can use it. The mode bit is stored as now; a write in synchronous
+mode behaves as the asynchronous one.
+
+### 5.15.3 The drive's write side (ERS 3.2.4.9, 3.2.5, 3.4.5)
+
+- **/WRTPRT** reads 0 with a protected disk or with none: now **0 when
+  the image was mounted read-only** (hps_io's `img_readonly`) or no disk is
+  in, 1 otherwise. Rung 2's constant 0 goes.
+- **Recording**: while /ENBL is low, /WRTGATE (the SWIM's /WRREQ) is low and
+  the disk is not protected, WRTDATA's transitions are recorded. The model
+  records them **into the track buffer the head is over**, at the cell
+  grid the drive already turns (32 FCLK a cell, 5.12.3): a cell under the
+  head while the gate is low is written - 1 if WRTDATA changed during it,
+  0 if not. That is the medium: what is read back is what was written,
+  and the buffer holds it until the head leaves the cylinder. The SWIM's
+  cell and the drive's are both 32 FCLK, so each written transition lands
+  in a cell of its own.
+- **The erase head** (T7, 480-590 us after the gate rises) trims the track
+  edges; it does not change what the read head sees, and is not modelled.
+- **The write arc**: the drive reports each recording - the side, the
+  cell where the gate fell and the cell where it rose, and whether it ran
+  a whole revolution or more - to the decoder (5.15.5).
+
+### 5.15.4 What the ROM does to write
+
+- **A sector** (`$4082E518`): having read the sector's address field
+  (5.12.6), it enters the write state from the sense state (`tst.b
+  $1A00` sets L6, then `move.b (a2)+,$1E00` sets L7 with the first byte
+  `$FF`), then per byte polls the handshake (`tst.b (a4); bpl`) and writes
+  the data register (`move.b d1,(a3)`, `a3` = base + `$1A00`): five more
+  sync bytes `3F CF F3 FC FF`, the data mark `D5 AA AD`, the sector's
+  code, 699 codes nibbled on the fly (the ERS's steps 1-9 in registers),
+  four checksum codes, then `DE AA FF FF` from `$4082E65E`. At the end it
+  reads the handshake's bit 6 (`moveq #-$4A` = `wrUnderrun` if clear) and
+  leaves with `tst.b $200(a3)` (base + `$1C00`: L7 cleared). Between some
+  polls it checks another device (`tst.b (a5); bmi; move.b (a6),-(a7)`),
+  so the byte loop is not uniform - the handshake absorbs it.
+- **A track** (`$408320BC`): **one continuous write per side** - 200 x 6
+  sync bytes, then for each sector its sync groups, the 27 bytes of
+  address field, sync and data mark built at `$40832198`, **703 codes of
+  `$96`** (a sector of zeros: 524 zero bytes nibble to `$96`, and their
+  checksum is zero) and the four closing bytes; then bit 6, then L7
+  cleared. On zone 1 that is about 10,500 bytes, **about 84,000 cells
+  against a revolution's 74,558**: the write overruns its own start, and
+  the lead-in sync is overwritten by the end of the track - the "overrun
+  lead-in" the encoder already lays out (5.12.5b).
+- Neither waits for an index (GCR has none): the write starts wherever the
+  disk is.
+
+### 5.15.5 The design
+
+**The chain.** SWIM (IWM write) -> drive (records into the track buffer)
+-> **decoder** (the written cells back into sectors) -> **committer** (the
+sector into the image in SDRAM) -> **SD writer** (the image's blocks to the
+card). Bit-level up to the buffer, as the read side is (5.12); the image
+half is the LC's, adapted.
+
+1. **`se30_swim.v` - the IWM write path** of 5.15.2: the write state, the
+   buffer and its lock, the load timer (7 CLK, then every 8 cells), the
+   shift register, WRDATA toggling on ones, /underrun and /WRREQ, the
+   handshake register.
+2. **`se30_fdhd.v` - recording** (5.15.3): the gate (enabled, /WRREQ low,
+   the motor on, the buffers valid for the head's cylinder, not
+   protected), a per-cell "changed" flag from WRDATA's edges, the cell
+   written into the buffer at its end; /WRTPRT from `wprot`; the arc
+   reported at the gate's rise: `{side, start cell, end cell, whole}`.
+3. **The track buffer** (`se30_flp_encoder.v`): its port A, which the
+   drive reads, gains the drive's write (a cell is read or written, never
+   both - the read head's output is not used while writing); its port B,
+   which the encoder writes, gains the decoder's read while the encoder is
+   idle. **The encoder does not rebuild while the decoder is busy** - a
+   seek waits for the written cylinder to be decoded and committed, so the
+   new cylinder is read from an image that already holds it. The step's
+   settle (36 ms) dwarfs the decode (about 75,000 clocks, ~2.4 ms).
+4. **`se30_flp_decoder.v` (new) - the written cells back into sectors.**
+   On an arc it parses the side's cells **from the arc's start to its
+   end**, or, for an arc of a revolution or more, the **whole revolution
+   starting at the arc's end** (everything on the side is then new). The
+   parse is the IWM's own byte framing (shift until a one reaches the MSB),
+   looking for `D5 AA AD`, the sector code, 703 codes de-nibbled through
+   the GCR table and the ERS's inverse steps, the checksum, `DE AA`; and
+   for `D5 AA 96` address fields, whose format byte it keeps (the
+   sidedness, item 7). **A data field wholly inside the written cells and
+   with a good checksum is committed** under the head's cylinder, the
+   arc's side and the field's own sector number; anything else is not.
+   Its sector buffer (524 bytes) is block RAM.
+5. **The committer** (in the decoder, after the LC's
+   `floppy_write_committer`): the 512 data bytes to the image at the
+   sector's block (the encoder's own block formula, 5.12.5b, inverted
+   nowhere - the same expression), **and the 12 tag bytes to the tag
+   region when the image has tags** (the LC dropped tags; this machine's
+   ROM writes them and the encoder reads them back, so a written tag must
+   survive a seek). **Bounds and the address are checked in the state that
+   issues the first word** (MacPlus defect 4). Writes are refused while
+   the loader is loading or the disk is out (defect 3).
+6. **`se30_flp_sdwriter.v` (new, after the LC's `floppy_sd_writer`)**: a
+   queue of **file block numbers** (the LC queued sectors); a sector's
+   commit pushes the blocks it touched - one raw, two in a DC42 (the
+   84-byte header shifts every sector across a block boundary), one or two
+   more for its tags - skipping a block equal to the last pushed. Each
+   block is filled from SDRAM (block 0's first 42 words from the loader's
+   header store) and handed to hps_io (`sd_wr`, `sd_buff_din`); **a timeout
+   re-presents the block, never retires it** (defect 2). **Back-pressure,
+   not loss**: a full queue holds the committer, which holds the decoder,
+   which holds the next seek's rebuild; the drive's /READY waits, and the
+   ROM with it. **On eject** (and before the loader takes a new image), a
+   DC42 that was written has its data checksum and its tag checksum
+   recomputed from SDRAM (DiskCopy's sum: add the word, rotate right; the
+   tag sum skipping the first 12 tag bytes) and header block 0 rewritten.
+   **The partial last block** (every DC42 ends mid-block) is written whole;
+   Main clips it to the file (the LC's 6D, read from Main's
+   `user_io.cpp`).
+7. **The sidedness** (the LC's 6B, MacPlus defect 2): a one-sided format of
+   an 819,200-byte image writes side 0 only, with format byte `$02`; the
+   encoder's `img_ds` then follows the format byte the decoder last saw in
+   a written address field, until the next mount, whose MDB sniff (the
+   loader's) sees the 400K volume. Side 1 keeps whatever it held, as a
+   real disk's does.
+8. **`se30_flp_loader.v`**: a 42-word header store (file block 0's first
+   84 bytes, for the writer), and `dc42`, the file's block count and its
+   partial tail, the tag size, out to the writer.
+9. **The disk port**: the committer writes and the writer reads, two
+   requesters more per drive; `se30_flp_dkmux.v` widens (its round robin
+   and quiet-port rule unchanged).
+10. **The top**: slot 0's `sd_wr` and `sd_buff_din` from the writer
+    (slot 1's from the external drive's, when `SE30_EXT_DRIVE` is defined);
+    the drive's `wprot` from the loader's `readonly`.
+
+### 5.15.6 What the image can hold
+
+The image file has a fixed size and layout; a real disk does not. So:
+- **A format in the image's own layout** (800K on an 800K image, 400K on
+  either) lands whole.
+- **A written field the layout cannot place** (a sector number past the
+  zone's count, a cylinder past the image) is dropped and counted (probe);
+  the track buffer keeps it until the head leaves, then the image's
+  content returns. Likewise **a data field with a bad checksum** (an
+  underrun mid-field): the buffer shows the damage, the image keeps the
+  old sector, and after a seek the old sector reads back. A real disk
+  would keep the damage. **Accepted deviation**, to go in KNOWN ISSUES
+  when built.
+- **A remount with writes still queued** loses them (hps_io's slot then
+  names the new file); a guest eject drains the queue first. The LC's
+  rule, kept.
+
+### 5.15.7 The donors' bugs, carried as checks
+
+From the MacPlus phase 5 review and the LC's 6B/6D (its plan's sections 6
+and 7):
+1. An async reset fed from a live signal (a glitch abandons a field
+   silently): every reset here is the module's own; **diff Quartus's
+   warning count against the last compile's**.
+2. The SD writer retiring a block on an ack timeout: re-present.
+3. Writes accepted across an image reload: refused while loading or out.
+4. A bounds check a state apart from the address it protects: one state.
+5. No bound against the image's size: the committer and the writer both.
+6. One wire as an async reset here and a sync reset there.
+7. The sidedness ceiling (item 7 above) - and its return on remount.
+8. The DC42 partial last block (item 6).
+9. Benches: inputs driven at `#1` after the edge, never at it; `ready`-style
+   strobes pulsed sparsely, not held.
+
+### 5.15.8 The RTL
+
+`se30_swim.v` (the write path), `se30_fdhd.v` (recording, /WRTPRT, the
+arc), `se30_flp_encoder.v` (the buffer's two new port uses, the rebuild
+held for the decoder, `img_ds` from the format byte), **`se30_flp_decoder.v`
+(new: decoder + committer)**, **`se30_flp_sdwriter.v` (new)**,
+`se30_flp_loader.v` (header store, file facts), `se30_flp_dkmux.v`
+(two more requesters per drive), `se30_machine.v` and `MacSE30.sv` (the
+wiring); `PFLP` gains the write counters (arcs, sectors committed,
+refused, blocks written, queue depth) - counters and status, since a
+peek resets the machine.
+
+### 5.15.9 The benches (the standing method: seam benches, then the board)
+
+1. **`sim/swim`** gains the write path: entry only from the sense state;
+   the first load 7 CLK after entry and every 256 FCLK after; WRDATA's
+   transitions on the ones at the cell boundaries, MSB first, at 32, 28
+   and 16 FCLK cells; bit 7 rising at a load and falling at a write; the
+   last write before a load wins; the 9-FCLK lock; an underrun clearing
+   bit 6 and raising /WRREQ, L7's clear resetting it; /WRREQ following L7,
+   the motor and /underrun.
+2. **`sim/fdhd`**: recording only with all of the gate's terms; the cells
+   written at the head's position on SEL's side; /WRTPRT; the arc's report
+   including a wrap and a whole revolution.
+3. **`sim/flpdec` (new)**: the decoder against tracks the encoder builds
+   (every sector of a synthetic self-identifying image recovered from a
+   whole-revolution arc) and against bitstreams written by a bench model
+   of the ROM's writer - a one-sector arc between two old sectors, a
+   format arc over 1.13 revolutions, a bad checksum (not committed), a
+   field cut by the arc's end (not committed), a sector number past the
+   zone (refused); tags committed only when the image has them; the
+   format byte's sidedness.
+4. **`sim/flpwr` (new)**: the SD writer against a model of hps_io - raw and
+   DC42 blocks byte for byte against a Python reference (block 0 with the
+   header store, the two-block spill, the tag blocks, the partial tail),
+   the checksums recomputed on eject, a delayed ack re-presented and never
+   lost, the queue's back-pressure.
+5. **`sim/flpmux`**: the wider mux, its existing checks.
+6. **The write seam (new, `sim/gcrwrite`)**: SWIM + drive + encoder +
+   decoder + committer + SDRAM model, driven at the register level by the
+   ROM's own sequences (5.15.4's sector write and track format, at its
+   polling pace) - the image in SDRAM afterwards byte-exact against the
+   expected. Minutes, not hours: a few sectors and one formatted side.
+7. `sim/flpenc`, `sim/flpload`, `sim/sdram`, `sim/machine`: rerun.
+
+### 5.15.10 The board (host-checked gates, scratch copies of every image)
+
+1. **Copy files to an 800K image** in the Finder; eject; on the PC
+   `hfs_check` (consistent) and `hfs_fork_diff` (byte-exact against the
+   source files) - raw and DC42 (the DC42's checksums recomputed on the
+   host and matching the header).
+2. **Erase an 800K image** in the Finder (a format of every track): the
+   volume mounts, `hfs_check` is consistent, and **the free sectors are
+   zeros** (the format's own data fields) - the census that tells a format
+   that reached the surface from a directory written over stale data
+   (the LC's `0xF6` check, GCR's filler being zero).
+3. **A one-sided erase** of an 800K image (needs a System before 7.5 - the
+   LC found 7.5.5 does not offer it): a 400K volume, side 1 untouched,
+   and still 400K after a remount.
+4. **A write-protected image** (mounted read-only): the Finder says the
+   disk is locked; nothing reaches the card.
+5. A soak: a folder copied back and forth, byte-identical.
+
+### 5.15.11 The budget
+
+10.4's estimate for GCR writing and formatting is 800-1,200 ALMs. By part
+(estimates, to be measured): the IWM write path ~100, recording ~60, the
+decoder and committer ~400-500 (its 524-byte buffer in M10K), the SD
+writer ~400 (its queue and block buffer in M10K), the loader's header
+store and the mux ~80. The headroom: compile 41 was 38,758 ALMs; the
+measurement probes now out cost PFPU +374 (compile 40) and PPRF +805
+(compile 41), measured, and PSCT (compile 38) unmeasured - so the
+development build is about 37,300, **about 1,000 under the ~38.3k
+ceiling**. This step should fit with the probe deck in; MFM (5.13 and its
+write) may not, and is measured when it comes.
+
+### 5.15.12 Risks and open items
+
+- **The write splice**: where a sector write's first cell meets the old
+  track the IWM's framing may slip a byte of sync; the sync groups exist to
+  absorb that, and the decoder frames as the IWM does.
+- **The format's track length** depends on the zone's exact cell count
+  (5.12.3); the overrun means the formatter never needs it to match, but
+  the decoder's whole-revolution parse does - it uses the drive's own
+  `cells`.
+- **Decode latency before a seek**: ~2.4 ms per side, inside the step's
+  settle.
+- **The write-through traffic during a format**: about 3 blocks a sector,
+  4,800 for a disk, at the format's own pace (~1.5 s a cylinder) - well
+  inside the card's rate; back-pressure covers a slow card.
+- **The 9-FCLK lock** comes from a 6502-era note about the IWM; the SWIM's
+  IWM is the same design (the drawing reproduces the specification), so
+  it is built - the ROM never writes within 9 FCLK of a load.
+
+### 5.15.13 The work
+
+1. ~~Write this section.~~ **Done 2026-10-05.**
+2. `sim/swim` write checks (5.15.9 item 1), failing, then the IWM write
+   path in `se30_swim.v`.
+3. `sim/fdhd` recording checks, then `se30_fdhd.v`'s recording, /WRTPRT
+   and the arc; the buffer's port uses in the encoder.
+4. `sim/flpdec` and `se30_flp_decoder.v` (decoder + committer).
+5. `sim/flpwr` and `se30_flp_sdwriter.v`; the loader's header store.
+6. The mux, the machine and top wiring, `PFLP`'s counters; `sim/flpmux`,
+   `sim/machine`.
+7. `sim/gcrwrite`, the write seam.
+8. Quartus analysis; the warning count against compile 41's; then a
+   compile (measured against compile 40 for the probes' and this step's
+   costs, kept apart) and the board gates of 5.15.10.
+
 # Section 6 - The ADB and the RTC
 
 Opened 2026-09-28, after 5.11 item 6: compile 16 drew the grey desktop and
