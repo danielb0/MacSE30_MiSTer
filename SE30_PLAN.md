@@ -8715,6 +8715,23 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    cell (the last two never read a sector: the bench's time limit).
 7. A synthesis check (`build_only.sh --check`, after any RAM change),
    then a compile when Daniel says, the size measured (decision C).
+   **Compile 43, 2026-10-05** (Daniel: "merge dev first, then compile";
+   `dev`'s 1.18 bus-error fix merged at 7d5900a): tag `7d5900aa`,
+   `output_files/MacSE30_7d5900aa_mfmread.rbf`, 40.7 min. **37,744 ALMs
+   (90 %) - 25 fewer than compile 42** (the fitter's packing moves a few
+   hundred; MFM reading costs no measurable logic in the total); **343 of
+   553 M10K** (314 before: the 400,000-bit track buffer). **Timing NOT
+   met**: `sta_corners.tcl` - the SDRAM capture met at every corner by one
+   of A and B; the framework's `ascal` (`o_h_lum_pix` -> `o_poly_lum`)
+   -0.169 ns at slow -40C (KNOWN ISSUES 6, the accepted precedent) and
+   -0.008 at slow 100C; **ours: four paths in the CPU kernel at slow
+   100C, worst -0.086 ns**, from `exec[pmmu_rd]` (89, PMOVE <MMU>,Dn) into
+   the register file's write muxes (`regfile[9][24]`) on `clk_sys` - the
+   PMMU register's value reaching the register file in one clock. Not
+   floppy logic; the mode32-berr compile (b9003c88) met timing with this
+   kernel, so it is the fit moving. The remedy is Daniel's call (no seed
+   lottery: an RTL fix - register the PMMU read before the write, PMOVE
+   to Dn being rare).
 8. The board: 1.44 MB, then 720K.
 
 ## 5.14 The external drive (Daniel, 2026-10-02)
