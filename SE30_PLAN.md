@@ -16051,8 +16051,10 @@ board regression list on that build.
   **CD audio**; second **DiskCopy 4.2 support** (10.4.1 item 6: -150 to
   -250 - the loader's header parse and strip, the SD writer's checksum
   rewrite, and the tags in the encoder, decoder and writer, which only
-  DC42 files carry; images would have to be raw; Daniel: "I don't
-  believe that will gain us much space"); third **floppy writing** (GCR
+  DC42 files carry; images would have to be raw, as the MacPlus core
+  has always had them - its loader, our loader's ancestor, has no DC42
+  strip; the LC added it; Daniel: "I don't believe that will gain us
+  much space"); third **floppy writing** (GCR
   and MFM - the read-only switch of 10.4.1 item 4); **CD-ROM is never
   dropped** - it is how software is installed.
 
