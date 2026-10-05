@@ -3204,6 +3204,164 @@ PR 0.25 / 0.25 (compile 36 first). Graphics is back on Low End Mac's
 and the fast set, timing met by design. 1.17.7's open decision is
 closed by this. Next: compile 37, the second floppy drive out (10.4).
 
+## 1.18 The bus error a handler completes in software (MODE32, 2026-10-05)
+
+Opened on FUTURE BOARD TESTS item 1. Daniel installed MODE32 7.5 from his
+MacPack disk, switched 32-Bit Addressing on in the Memory control panel and
+restarted: a grey screen for ever, on compile 41. Shift at startup made no
+difference; a core reload (our PRAM is volatile, plan 6) boots 24-bit again.
+MODE32's own release notes on that disk: ESC held during boot makes it
+start in 24-bit mode for that boot. Branch `mode32-berr`, worktree
+`C:\Git\MacSE30_mode32`, cut from `dev` at `ad21445` while the floppy-write
+branch had a compile in progress; **Daniel: no compile of this branch
+until he says, then its own compile, both tested on the board, then the
+merge.**
+
+### 1.18.1 What the board said
+
+The passive deck, ten samples half a second apart (`read_probes.tcl 10
+0.5`): PACT advancing, PIFA frozen at `$4080E59C`, PLAS alternating
+`$BF7F1386` / `$BF7F1388` (once a stack address), PEXC climbing ~5,800 a
+half-second, every one vector 2, the interrupt counters frozen (the loop
+runs masked), PTRP frozen with `A01F A055 A05D A06E` then twelve `A71E`
+newest first (DisposePtr, StripAddress, SwapMMUMode, SlotManager,
+NewPtrSysClear). PREG D6 = `$007F134E`.
+
+The ROM at `$4080E590`-`$4080E5A8` holds two bus-error handlers, used by the
+Memory Manager's pointer checks (`$4080E5AA`: vector 2 := `$4080E59C`, deref
+`(a1)`; `$4080E5F2`: vector 2 := `$4080E590`, `move.l $38(a6),d0`): each
+does `andi.w #$FEFF,$A(a7)` (DF := 0 in the SSW) and writes the frame's
+Data Input Buffer at `$2C(a7)` (`clr.l`, or `moveq #-1,d0; move.l d0,$2C
+(a7)`), then `rte` - the MC68030 UM 3ed 8.2.2 protocol, "Using Software To
+Complete the Bus Cycles": the processor finishes the instruction with the
+DIB as the read's data and runs no further cycle (8.2.1: "if the DF bit is
+set when the processor reads the stack frame, it reruns the faulted data
+access; otherwise, it assumes that the data input buffer value on the stack
+is valid for a read or that the data has been correctly written to memory
+for a write"). Both routines mask the pointer with Lo3Bytes (`$31A`), and
+**the ROM's only write to Lo3Bytes is `$00FFFFFF` (`$40800E04`)**: so the
+ROM's own checks can never issue `$BF7F1386`, and the machine was past the
+ROM. Two JTAG peeks (`peeks`, one session each, the machine held in reset
+and restarted after; the flag survives the restart so the hang recurs by
+itself):
+
+- `$CB2` = 1 (32-bit mode); `$CB4` = `$38E8`, `$CB8` = `$38FC`, both rows
+  in RAM and **both the ROM's 32-bit row** (CRP `$7FFF0002:$4083F5A0`, TC
+  `$80F04D00`): MODE32 makes `_SwapMMUMode` a no-op (`$DBC` -> `$40DE`:
+  `moveq #1,d0; rts`). Lo3Bytes `$00FFFFFF`, vector 2 `$4080E590`, TheZone
+  = SysZone = ApplZone = `$2000`, WarmStart `WLSC`.
+- The supervisor stack at `$3FFAxx`: **the long frame at `$3FFABA`: SR
+  `$2700`, PC `$000022F0`, format `$B008`, SSW `$0045` (DF already cleared
+  by the handler, RW read, SIZE long, FC 5), fault address `$BF7F1388`,
+  opcode word `$BCAE`, DIB 0.** `$22F0` is in the System heap: MODE32's
+  32-bit Memory Manager zone check, RAM `$22BE`-`$231C` (peeked and
+  disassembled): `movea.l $8.w,a2; move.l #$4080E590,$8.w; ...; movea.l
+  a1,a6; suba.l -4(a0),a6; move.l a6,d6; bfextu d6{8:24},d6;` **`cmp.l
+  $38(a6),d6`**`; movea.l d6,a6; ... beq; moveq #$8F,d0; movem.l a2,$8.w;
+  rts` - the 32-bit-clean form of the ROM's check: the pointer stripped
+  into D6 by BFEXTU, the raw one in A6, the ROM's handler reused, and the
+  read through the raw pointer `$BF7F134E` goes to super-slot `$B`. No card:
+  GLUE's UI6 bus-errors it exactly as the real PALs do (2.x), and the
+  software expects that - the handler supplies 0, the compare fails,
+  memAZErr, on. **This is the 32-bit mode a real SE/30 runs under MODE32,
+  and the grey screen is the System's, after the happy Mac, before the
+  Welcome box.**
+
+### 1.18.2 Why ours looped, and the second deviation
+
+The kernel's software completion (`rte_mmu_fix_*`, inherited with the
+Amiga MMU-library work) *commits* the completed instruction only for a
+whitelist - MOVE/MOVEA to a register, TST - and for every other opcode
+re-executes the instruction, substituting the DIB (`dib_sub_*`) **only when
+the re-executed read faults in the PMMU again** (`dib_sub_hit` required
+`pmmu_fault`). The page is valid here; the re-run went out on the bus,
+bus-errored after UI6's timeout, the handler ran again: ~11,600 exceptions
+a second for ever. The ROM's own check is a MOVE, so 24-bit mode never
+met the gap; MODE32's is a CMP.
+
+The bench found a second deviation on the way: a BERR on the **first** beat
+of a misaligned long (`$...86`, a word on the 32-bit port) was ignored, the
+second beat (`$...88`) went out and faulted, and the frame stacked the
+second beat's address with SIZE long - the board's frame says the same
+(`$BF7F1388`). The 68030 takes the fault at the faulted cycle (8.1.2), with
+SIZE the bytes remaining (5.2.4).
+
+### 1.18.3 The fix (rtl/tg68k/TG68KdotC_Kernel.vhd, tg68k.v)
+
+Built to the manual, for any instruction:
+
+- `dib_sub_pre`: while the substitution is armed (a format `$B` RTE with DF
+  cleared, RM clear - a read or a write), a data beat whose address matches
+  the frame's fault address (or +2, a split operand's later word) is
+  flagged before any cycle goes out; the wrapper answers it as a hit
+  (`s_hit`, beside the cache hits and 1.17.2's `z_hit`: no AS*), the kernel
+  takes the DIB as the read's data (`dib_sub_hit`, now `dib_sub_pre` OR the
+  old live-fault match) or drops the write. `dib_sub_rw` records which.
+- A BERR'd beat ends the operand (`memmaskmux(3)`), so no later beat goes
+  out; `berr_external_siz` latches SIZ at the faulted beat for the SSW.
+
+### 1.18.4 The bench and the gate
+
+`sim/busfault_dib` (ModelSim, beside `sim/busfault`, which proves the
+DF-set rerun): the kernel, wrapper and GLUE with UI6's timeout; the program
+MODE32's routine (INSTR=cmp, the default) or the ROM's (INSTR=move), the
+ROM's handler with `clr.l` (HANDLER=zero) or `moveq #-1` (ones), the
+board's misaligned pointer or an aligned one (VARIANT), the ROM's 32-bit
+MMU row loaded first (MMU=1, the table copied to RAM - three descriptor
+reads prove it ran), CACR `$2101` (CACHE=1), the initial SSP (SP=), a
+masked level-2 interrupt pending (PLUSARGS=+ipl). 18 checks: the run ends
+on the software's path; one handler entry, one bus error, one exception,
+**one bus cycle at the operand in all**; the register after the
+instruction (the DIB for MOVE, D6 untouched for CMP); the long frame, PC
+the instruction's, SSW DF/RW/SIZE/FC, the fault address the first cycle's;
+the SP unwound; vector 2 restored and the verdict memAZErr.
+
+- Before the fix: cmp looped (936 bus errors when the run was stopped);
+  move completed but with the second beat's address stacked.
+- After: cmp and move PASS in every combination tried (MMU/CACHE on and
+  off, SP `$8000`/`$7FFE`, both handlers, both alignments, +ipl).
+- **Open (pre-existing, both kernels):** INSTR=write - a handler that
+  completes a *write* (DF cleared, no DIB). Our frame for an external BERR
+  on a write stacks the continuation PC plus 2 (`last_opc_pc` over
+  `insn_next_pc`), so the RTE resumes inside the next instruction and runs
+  garbage (a read of `$FFFFFF8F`). The Mac's software completes reads
+  only. Not in the default run; listed in KNOWN ISSUES.
+
+Gate on the fixed kernel (2026-10-05, all ModelSim, no compile): `sim/
+busfault` 14 PASS; `sim/kernel_bus` port 16 and 32 PASS; `sim/cpfpu` b5c
+26, b5d 19, mmu 11 PASS; `sim/system` all eight PASS (timetest's windows
+unchanged: 30 GCR 87.19/87.00, 31-33 within 1.02; the chime 1.04 s; SCSI
+read 2.98 / write 2.89 MB/s); `sim/kernel_upstream` suite.txt the same
+verdicts as `ours.txt` (14 pass, the same three fail), pmmu_suite.txt
+**identical verdicts to the baseline** (58 pass, the same five fail:
+badfeed_fault_frame, pmmu_030, pmmu_walker_comprehensive,
+pmove_crp_a7_postinc, pmove_pc_all_regs). Not run: the cputest corpus
+(tier 3). **Next: Daniel's go for a compile of this branch, then FUTURE
+BOARD TESTS item 1 again on it (MODE32 on: boots, TattleTech "Booted in
+32-Bit mode = Yes"), then the merge with floppy-write.**
+
+**Compiled 2026-10-05 15:05 (Daniel's go after the floppy-write compile):
+`output_files/MacSE30_b9003c88_mode32.rbf`**, 33m58s, 36,905 ALMs (88 %),
+35,130 registers, 2,291,417 block memory bits; the flow's STA met (+0.022
+ns); `sta_corners.tcl` **met at every corner**, worst +0.022 ns (the slow
+-40C corner, a register-to-register path), the SDRAM capture met on A at
+the slow corners (1.62 / 1.34) and on B at the fast ones (1.99 / 1.85),
+the SDRAM outputs +2.3 setup / +2.5 hold or better. 7,523 warnings, the
+same count as the floppy-write compile of 12:31, including the same two
+pre-existing combinational-loop notes on the kernel's `Selector195`
+(line 8761).
+
+**ON THE BOARD (Daniel, 2026-10-05 ~15:30): booted 24-bit, switched 32-Bit
+Addressing on, restarted - BOOTS IN 32-BIT MODE, TattleTech "32-bit mode
+active". FUTURE BOARD TESTS item 1 MET on this compile.** Speedometer
+4.02 in 32-bit mode (Daniel, 15:20, `C:	emp\Mac\Screenshots20261005_152029-screen.png`): CPU 0.267, Graphics 0.160, Disk 1.147, Math
+1.123, PR 0.275 - compile 41's 24-bit figures (0.27 / 0.16 / 1.09-1.13 /
+1.13) within the spread; 32-bit mode costs nothing and, with 8 MB, gains
+nothing, as answered 2026-10-04. QuarkXPress and Microsoft Word 5.1 run
+in 32-bit mode; 32-Bit Addressing off, restart: back in 24-bit mode
+cleanly (Daniel, ~15:45). **The item's whole list is done.** Then the merge with
+floppy-write once that branch's own board test is done.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
@@ -15966,10 +16124,17 @@ Daniel - add to it, move items out when fixed).**
 6. **The framework's HDMI scaler** (`ascal`) misses timing by tens of ps
    to -0.313 ns at slow -40C on some fits (compiles 18, 20, 25, 37, 39,
    40); not our logic, accepted as precedent. Compile 41 met everywhere.
+7. **A bus error on a WRITE that the handler completes in software** (DF
+   cleared, format $B, RTE): the kernel stacks the continuation PC + 2 for
+   an external BERR on a write, so the RTE resumes inside the next
+   instruction (`sim/busfault_dib` INSTR=write, 5 failures on the kernel
+   before and after 1.18). Pre-existing; the Mac's software completes
+   reads only (the ROM's and MODE32's Memory Manager checks). Found
+   2026-10-05 while fixing the read side (1.18.4).
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
-1. **32-bit mode with MODE32** (Daniel, 2026-10-04): install MODE32 with
+1. ~~**32-bit mode with MODE32**~~ **DONE 2026-10-05 on the mode32-berr compile** (Daniel, 2026-10-04): install MODE32 with
    its own installer (copying the extension does not work - 68kMLA,
    plan 1.5 addendum; **the installer is on Daniel's MacPack disk**), switch 32-Bit Addressing on in the Memory control
    panel, restart. Exercises the ROM's and MODE32's 32-bit translation
@@ -15978,6 +16143,13 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    boots, TattleTech reads "Booted in 32-Bit mode = Yes", Speedometer and
    a few applications run, back to 24-bit and restart cleanly. With 8 MB
    it brings no other benefit (Daniel asked; answered 2026-10-04).
+   **RUN 2026-10-05 on compile 41: HUNG at the System's grey screen** -
+   the kernel looping on MODE32's software-completed bus error; found and
+   fixed on branch `mode32-berr` (plan 1.18). **RERUN on the mode32-berr
+   compile (`MacSE30_b9003c88_mode32.rbf`, 15:30): BOOTS IN 32-BIT MODE,
+   TattleTech confirms - MET; Speedometer 4.02 in 32-bit mode = the 24-bit
+   figures (CPU 0.267, Graphics 0.160, Disk 1.147, Math 1.123); QuarkXPress
+   and Word 5.1 run; back to 24-bit and a clean restart. DONE.**
 2. **The 128 MB clean-ROM option** (when built): a IIsi/IIfx ROM file,
    the System edited per "Gamba's page"; PRAM reset first; watch for the
    68kMLA poster's Sad Mac and unreadable drive after a Memory control
