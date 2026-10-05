@@ -117,6 +117,10 @@
 //         probe reads the row selected. Probe {row[7:0], the four
 //         counters, clocks enabled[39:0], enabled, clearing}. read_probes
 //         .tcl profile start | stop | read
+//   PSCT, PFPU and PPRF are measurement probes, their questions answered
+//   (plan 10.4 items 3 and 4); they are built only with PERF_PROBES = 1
+//   (MacSE30.sv's SE30_PERF_PROBES), to leave their logic to the features
+//   still to build.  Without them the reader says the bitstream has none.
 // and, since plan 11.3 (the ASC):
 //   PASC  32 bits, registered here on clk: se30_asc's dbg {mode[1:0], $804
 //         [3:0], FIFO A's count [10:0], FIFO B's count [10:0], interrupts
@@ -143,7 +147,9 @@
 //         address[31:0]} each, newest in [47:0]: which FPU instructions the
 //         software issues with no 68882 to answer them (plan 5.12.12 item 8)
 
-module dbg_probes (
+module dbg_probes #(
+	parameter PERF_PROBES = 0             // PSCT, PFPU, PPRF: MacSE30.sv's SE30_PERF_PROBES (plan 10.4)
+) (
 	input  wire        clk,
 	input  wire        phi1,
 	input  wire        reset_n,
@@ -329,6 +335,7 @@ module dbg_probes (
 
 	// the SCSI disk's time (the header's PSCT): one probe, so one read is
 	// one moment's counters
+	generate if (PERF_PROBES) begin : g_psct
 	reg [463:0] psct_r = 0;
 	always @(posedge clk) psct_r <= scsi_meter;
 
@@ -336,6 +343,7 @@ module dbg_probes (
 		.instance_id ("PSCT"), .probe_width (464), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_psct (.probe(psct_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the ASC (the header's PASC)
 	reg [31:0] pasc_r = 0;
@@ -359,6 +367,7 @@ module dbg_probes (
 	// (CPU space, A19-A13 = 0010 001, the CIRs at A4-A0), the 68882's busy
 	// time, the SANE packages' traps, and the instruction fetches that went
 	// to the bus beside the I-cache's hits (PCCH's 24-bit count, accumulated)
+	generate if (PERF_PROBES) begin : g_pfpu_pprf
 	reg         pf_as_q = 1'b1;
 	wire        pf_fpu  = !cpu_as_n && (cpu_fc == 3'd7) && (cpu_addr[19:13] == 7'b0010_001);
 	wire        pf_as_f = !cpu_as_n && pf_as_q;                     // AS* asserted this clock
@@ -449,6 +458,7 @@ module dbg_probes (
 		.instance_id ("PPRF"), .probe_width (194), .source_width (10),
 		.sld_auto_instance_index ("YES")
 	) cp_pprf (.probe(pprf_r), .source(pr_src), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the caches (the header's PCCH)
 	reg [63:0] pcch_r = 0;

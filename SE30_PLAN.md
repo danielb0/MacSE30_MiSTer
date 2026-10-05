@@ -14845,7 +14845,16 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    merged into the release build.** Before that: this week's measurement
    probes (PSCT, PFPU, PPRF - ~1,500 ALMs, their questions answered) leave
    the development builds, to give each branch room; they can return if
-   Disk or Math needs another look. The release recipe's other levers,
+   Disk or Math needs another look. **DONE 2026-10-05 (Daniel: those
+   three only; PCCH, PEXC, PTRP, PFLN and the rest of the deck stay):
+   behind `SE30_PERF_PROBES` in `MacSE30.sv`, off (commented out), as
+   `SE30_EXT_DRIVE` - the define gates PSCT's meter in the top and passes
+   `PERF_PROBES` to `dbg_probes`, whose PSCT and PFPU + PPRF sections are
+   generate blocks. Quartus Analysis & Elaboration: 0 errors both ways;
+   off builds 26 probe instances and none of the three, on builds all
+   three. The saving is measured at the next compile (PPRF alone was
+   +805 at compile 41). The reader says "this bitstream has no PSCT/
+   PFPU/PPRF ... or without SE30_PERF_PROBES".** The release recipe's other levers,
    measured when the merge needs them (the Quadra 800 core's precedent:
    it keeps CD-ROM and pays with them): the probe deck out (~1,600), the
    framework's ALSA mix and scaler refinements off (`MISTER_DISABLE_ALSA`,

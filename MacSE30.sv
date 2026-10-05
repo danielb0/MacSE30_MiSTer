@@ -80,6 +80,19 @@ localparam EXT_DRIVE = 1;
 localparam EXT_DRIVE = 0;
 `endif
 
+// The measurement probes PSCT (the Disk figure, plan 10.4 item 3), PFPU and
+// PPRF (the Math figure, item 4) are a build option: define
+// SE30_PERF_PROBES to build them and their counters.  Their questions are
+// answered, so they are left out and their logic goes to the features
+// still to build; define this again if Disk or Math needs another look.
+// The rest of the deck (USE_DBG_PROBES in MacSE30.qsf) is unaffected.
+// `define SE30_PERF_PROBES
+`ifdef SE30_PERF_PROBES
+localparam PERF_PROBES = 1;
+`else
+localparam PERF_PROBES = 0;
+`endif
+
 localparam CONF_STR = {
 	"MACSE30;;",
 	"-;",
@@ -529,6 +542,8 @@ end
 // hold-off (a data phase waiting on the HPS), dbg_scsi[0] GLUE holding the
 // CPU at $50006000 for DRQ.  Since multi-block writes (compile 39) a write
 // request carries sd_blk_cnt + 1 sectors; st_wr_sec counts them.
+// Built with SE30_PERF_PROBES only (above).
+`ifdef SE30_PERF_PROBES
 reg  [39:0] st_clk = 0, st_bsy = 0, st_hold = 0, st_hsw = 0;
 reg  [23:0] st_cmd = 0;
 reg  [23:0] st_rd_n = 0, st_rd_max = 0, st_wr_n = 0, st_wr_max = 0;
@@ -573,6 +588,12 @@ always @(posedge clk_sys) begin
 		end
 	end
 end
+wire [463:0] scsi_meter = {st_clk, st_bsy, st_hold, st_hsw, st_cmd,
+                           st_rd_n, st_rd_sum, st_rd_ack, st_rd_max,
+                           st_wr_n, st_wr_sum, st_wr_ack, st_wr_max, st_wr_sec};
+`else
+wire [463:0] scsi_meter = 464'd0;
+`endif
 
 // The peek and poke.  PPEK's source word is {go, hold, we, raw, 5'b0,
 // longword address[22:0]}; PPOK's is {26'b0, DQM force, odd, byte enables
@@ -621,7 +642,7 @@ always @(posedge clk_sys) begin
 	if (!pk_hold) begin pk_req_r <= 0; raw_req_r <= 0; pk_st <= 0; end
 end
 
-dbg_probes probes
+dbg_probes #(.PERF_PROBES(PERF_PROBES)) probes
 (
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
@@ -639,9 +660,7 @@ dbg_probes probes
 	.exc_state(dbg_exc),
 	.cache_state(dbg_cache),
 	.scsi_state({dbg_scsi, scsi_io_rd, scsi_io_wr, sd_ack[3:2], scsi_sectors}),
-	.scsi_meter({st_clk, st_bsy, st_hold, st_hsw, st_cmd,
-	             st_rd_n, st_rd_sum, st_rd_ack, st_rd_max,
-	             st_wr_n, st_wr_sum, st_wr_ack, st_wr_max, st_wr_sec}),
+	.scsi_meter(scsi_meter),
 	.scc_state(dbg_scc),
 	.asc_state(dbg_asc),
 	.fpu_state(dbg_fpu),

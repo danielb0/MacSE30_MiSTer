@@ -153,7 +153,7 @@ if {$op eq "scsitime"} {
 	# wait (40 bits each), commands (24), then reads and writes, each
 	# {requests 24, round trips summed 40, sd_ack high 40, longest 24}, and
 	# since compile 39 (464 bits) the sectors the write requests carried (24)
-	if {![have PSCT]} { puts "ERROR: this bitstream has no PSCT (built before plan 10.4 item 3's meter)"; end_insystem_source_probe; exit 1 }
+	if {![have PSCT]} { puts "ERROR: this bitstream has no PSCT (built before plan 10.4 item 3's meter, or without SE30_PERF_PROBES in MacSE30.sv)"; end_insystem_source_probe; exit 1 }
 	set v [rd PSCT]
 	set names {clk bsy hold hsw cmd rd_n rd_sum rd_ack rd_max wr_n wr_sum wr_ack wr_max}
 	set widths {40 40 40 40 24 24 40 40 24 24 40 40 24}
@@ -215,7 +215,7 @@ if {$op eq "scsitime"} {
 
 if {$op eq "fputime"} {
 	# rtl/dbg_probes.sv's PFPU, MSB first
-	if {![have PFPU]} { puts "ERROR: this bitstream has no PFPU (built before plan 10.4 item 4's probe)"; end_insystem_source_probe; exit 1 }
+	if {![have PFPU]} { puts "ERROR: this bitstream has no PFPU (built before plan 10.4 item 4's probe, or without SE30_PERF_PROBES in MacSE30.sv)"; end_insystem_source_probe; exit 1 }
 	set v [rd PFPU]
 	set names  {clk fclk cir cmd cond busy apu fp68k elems aline fetch ihit}
 	set widths {40 40 32 32 24 40 40 24 24 32 40 40}
@@ -259,7 +259,7 @@ if {$op eq "profile"} {
 	# rtl/dbg_probes.sv's PPRF: source {enable, clear toggle, row[7:0]};
 	# probe {row[7:0], count[31:0], clocks[39:0], budget[39:0], fetch wait
 	# states[31:0], clocks enabled[39:0], enabled, clearing}
-	if {![have PPRF]} { puts "ERROR: this bitstream has no PPRF (built before plan 10.4 item 4's profile)"; end_insystem_source_probe; exit 1 }
+	if {![have PPRF]} { puts "ERROR: this bitstream has no PPRF (built before plan 10.4 item 4's profile, or without SE30_PERF_PROBES in MacSE30.sv)"; end_insystem_source_probe; exit 1 }
 	set sub [lindex $opargs 0]
 	set cur [expr 0x[read_source_data -instance_index $idx(PPRF) -value_in_hex]]
 	proc pr_src {v} { global idx; write_source_data -instance_index $idx(PPRF) -value_in_hex -value [format %03X $v] }
