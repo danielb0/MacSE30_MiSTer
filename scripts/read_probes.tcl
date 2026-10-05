@@ -716,6 +716,15 @@ for {set n 0} {$n < $samples} {incr n} {
 			[expr {($en >> 15) & 1}] [expr {($en >> 14) & 1}] [expr {($en >> 10) & 0xF}] [expr {($en >> 6) & 0xF}] \
 			[expr {$en & 0x3F}] [expr {($pflp >> 16) & 0xFFFF}] [expr {$pflp & 0xFFFF}]]
 	}
+	if {[have PFWR]} {
+		# plan 5.15: the internal drive's writing -- the decoder's and the
+		# SD writer's counters (all wrapping); see rtl/dbg_probes.sv
+		set pfwr [rd PFWR]
+		puts [format "  PFWR  %016llX   decoder: sectors committed=%d refused=%d arcs=%d" $pfwr \
+			[expr {($pfwr >> 48) & 0xFFFF}] [expr {($pfwr >> 40) & 0xFF}] [expr {($pfwr >> 32) & 0xFF}]]
+		puts [format "        SD writer: blocks written=%d eject flushes=%d retries=%d queue=%d" \
+			[expr {($pfwr >> 16) & 0xFFFF}] [expr {($pfwr >> 8) & 0xFF}] [expr {($pfwr >> 4) & 0xF}] [expr {$pfwr & 0xF}]]
+	}
 	if {[have PFL2]} {
 		# plan 5.14: the external drive's loader, encoder and drive, the
 		# disk-port words they moved -- see rtl/dbg_probes.sv for the layout

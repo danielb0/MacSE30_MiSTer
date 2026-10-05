@@ -8704,9 +8704,69 @@ write) may not, and is measured when it comes.
    takes two clocks a cell (address, then bit): a sector arc ~11,500
    clocks, a format ~162,000 (5 ms) - inside the step's settle.
 5. `sim/flpwr` and `se30_flp_sdwriter.v`; the loader's header store.
+   **Done 2026-10-05: `sim/flpwr` 27 PASS (~5 min), 7/7 mutants caught**
+   (a timeout retiring the block, the tag sum over all 12 first bytes, no
+   header words, no room check, a mount keeping the queue, no DC42 spill
+   block, and the mount bug below put back). The writer follows
+   the LC's state for state; the queue holds file blocks, so a commit
+   pushes its data (one block raw, two DC42) and its tag block(s); the
+   eject flush recomputes the data and the tag checksum (the tags past
+   the first 12 bytes - DiskCopy's quirk, secondary sources). The loader
+   keeps file block 0's first 42 words and gives `is_dc42` and
+   `file_blks` (the partial last block counted). The bench: the real
+   loader loading an 800K DC42 with tags and a raw 800K image through an
+   hps_io model that clips writes at the file's end as Main does; a
+   sector's data across blocks 600/601 and its tags in block 1614; the
+   eject flush (block 0 only, then nothing on a second eject); the last
+   sector's tags in the partial block 1637; a late acknowledge
+   re-presented; back-pressure through a 16-deep queue with the card
+   stalled; read-only; a mount emptying the queue; raw blocks in place.
+   **It found a real bug: a mount on the clock the writer's disk-port
+   request rose left the request up** (the abort sent the state to idle
+   while the same clock's `mem_req <= 1` still landed); the memory held
+   its acknowledge, and the next block's first word took the stale
+   acknowledge's data - one word wrong on the card, in the raw image's
+   block 123 after a remount. And by review, the same window: a block
+   being presented (`sd_wr` up, not acknowledged) stayed presented across
+   a mount, where hps_io could write it into the new file, or the
+   loader's read acknowledge be taken for it. Fixed: a mount cancels a
+   request about to rise and withdraws an unacknowledged block at once;
+   a word in flight finishes first (`abort`, taken at the next quiet
+   clock); a block hps_io has acknowledged runs to its end without
+   marking the new file written. The bench now checks the writer idle
+   with no request up after the mount. Two bench faults on the way: a
+   deadlock of its own (waiting for room with the card it had stalled -
+   the card now returns from a parallel branch, every wait bounded) and
+   a debug field read from the wrong bits.
 6. The mux, the machine and top wiring, `PFLP`'s counters; `sim/flpmux`,
    `sim/machine`.
+   **Done 2026-10-05.** `se30_flp_dkmux` serves eight requesters,
+   numbered so the even ones write (the loaders, the decoders) and the
+   odd ones read (the encoders, the SD writers): `dk_we = !owner[0]` as
+   before, a generic round robin. `sim/flpmux` (now eight requesters,
+   eleven phases) 13 PASS in 29 s, 3/3 mutants (the new requesters'
+   direction, the decoder's data, a fixed priority that starves). The
+   machine passes the drives' recording, arcs and `trk_cells` out and
+   takes `disk_wprot` (the loader's `readonly`); the top builds a decoder
+   and an SD writer per drive (the external one's inside
+   `SE30_EXT_DRIVE`), the encoder lays out by `ds_eff`, slot 0's `sd_wr`,
+   `sd_buff_din` and - while the writer presents - `sd_lba` are the
+   writer's; `files.qip` lists the two new files. A new probe **`PFWR`**
+   (64 bits: the decoder's commits, refusals and arcs, the writer's
+   blocks, flushes, retries and queue depth; `read_probes.tcl` decodes
+   it) - PFLP was full. `sim/machine` 17 PASS; Quartus analysis 0 errors,
+   7,439 warnings, none from the floppy files.
 7. `sim/gcrwrite`, the write seam.
+   **Done 2026-10-05: 9 PASS (164 s), 2/2 seam mutants** (the SWIM
+   shifting LSB first, the drive losing an early toggle). The real SWIM,
+   drive, encoder and decoder wired as the machine and top wire them,
+   driven at the register level by the ROM's sequences at its pace (the
+   write strobe 15 FCLK after the poll): the drive spun up and cylinder 0
+   built; sector 5 written from just after its address field ($FF, the
+   sync, D5 AA AD, 703 codes, DE AA FF FF, L7 cleared at once so the last
+   FF is cut) - no underrun, committed to block 5 with its tags, nothing
+   else changed; side 0 formatted (1,200 sync bytes and twelve zero
+   sectors, more than a revolution) - all twelve committed once as zeros.
 8. Quartus analysis; the warning count against compile 41's; then a
    compile (measured against compile 40 for the probes' and this step's
    costs, kept apart) and the board gates of 5.15.10.

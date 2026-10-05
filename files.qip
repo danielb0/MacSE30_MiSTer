@@ -12,6 +12,8 @@ set_global_assignment -name VERILOG_FILE rtl/se30_swim.v
 set_global_assignment -name VERILOG_FILE rtl/se30_fdhd.v
 set_global_assignment -name VERILOG_FILE rtl/se30_flp_loader.v
 set_global_assignment -name VERILOG_FILE rtl/se30_flp_encoder.v
+set_global_assignment -name VERILOG_FILE rtl/se30_flp_decoder.v
+set_global_assignment -name VERILOG_FILE rtl/se30_flp_sdwriter.v
 set_global_assignment -name VERILOG_FILE rtl/se30_flp_dkmux.v
 set_global_assignment -name VERILOG_FILE rtl/se30_asc.v
 set_global_assignment -name VERILOG_FILE rtl/se30_pic1654.v

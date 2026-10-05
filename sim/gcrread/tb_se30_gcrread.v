@@ -242,7 +242,7 @@ module tb_se30_gcrread;
     .mem_req(ld_req), .mem_addr(ld_addr), .mem_wdata(ld_wdata), .mem_ack(ld_ack),
     .eject(fdhd_eject),
     .disk_in(disk_in), .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags),
-    .readonly(readonly), .loading(loading), .dbg());
+    .readonly(readonly), .loading(loading), .hdr_addr(6'd0), .hdr_data(), .is_dc42(), .file_blks(), .dbg());
 
   se30_flp_encoder #(.BASE(BASE)) encoder (
     .clk(clk), .reset_n(reset_n),
@@ -261,7 +261,7 @@ module tb_se30_gcrread;
     .mem_req(ld2_req), .mem_addr(ld2_addr), .mem_wdata(ld2_wdata), .mem_ack(ld2_ack),
     .eject(fdhd2_eject),
     .disk_in(disk2_in), .img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags),
-    .readonly(readonly2), .loading(loading2), .dbg());
+    .readonly(readonly2), .loading(loading2), .hdr_addr(6'd0), .hdr_data(), .is_dc42(), .file_blks(), .dbg());
 
   se30_flp_encoder #(.BASE(BASE2)) encoder2 (
     .clk(clk), .reset_n(reset_n),
@@ -278,6 +278,10 @@ module tb_se30_gcrread;
     .en0_req(en_req), .en0_addr(en_addr), .en0_rdata(en_rdata), .en0_ack(en_ack),
     .ld1_req(ld2_req), .ld1_addr(ld2_addr), .ld1_wdata(ld2_wdata), .ld1_ack(ld2_ack),
     .en1_req(en2_req), .en1_addr(en2_addr), .en1_rdata(en2_rdata), .en1_ack(en2_ack),
+    .de0_req(1'b0), .de0_addr(24'd0), .de0_wdata(16'd0), .de0_ack(),   // reading only (plan 5.15 has its own benches)
+    .wr0_req(1'b0), .wr0_addr(24'd0), .wr0_rdata(), .wr0_ack(),
+    .de1_req(1'b0), .de1_addr(24'd0), .de1_wdata(16'd0), .de1_ack(),
+    .wr1_req(1'b0), .wr1_addr(24'd0), .wr1_rdata(), .wr1_ack(),
     .dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack));
 
   // ------------------------------------------------------------ the SDRAM, as the machine drives it

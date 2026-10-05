@@ -29,6 +29,14 @@
 //   img_tags  a DC42 whose tag size ($44) is 12 bytes a block
 //   disk_in   also needs a GCR geometry: 400K or 800K.  720K and 1440K
 //             images load but are not a disk on rung 2 (plan 5.13).
+//
+// FOR THE WRITER (rung 3, plan 5.15.5 item 8)
+//   The first 42 words of file block 0 are kept in a small store (every
+//   mount rewrites it; for a raw image they are only its first 84 bytes,
+//   which the writer never asks for): a DiskCopy image's header is the one
+//   part of the file the image in SDRAM does not hold.  is_dc42 and
+//   file_blks (the file's 512-byte blocks, the partial last one counted)
+//   go to the writer too.
 
 `timescale 1ns/1ps
 
@@ -64,6 +72,12 @@ module se30_flp_loader #(
   output reg        img_tags,
   output reg        readonly,
   output reg        loading,
+
+  input       [5:0] hdr_addr,          // the header store, for the writer
+  output reg [15:0] hdr_data,          // registered
+  output            is_dc42,
+  output     [12:0] file_blks,
+
   output     [15:0] dbg
 );
 
@@ -106,6 +120,15 @@ module se30_flp_loader #(
   reg        mount_pending;
   reg [63:0] pend_size;
   reg        pend_ro;
+
+  // file block 0's first 42 words, as they stream in (byte-swapped like
+  // the payload: file byte 2k in the high half)
+  reg [15:0] hdr_ram [0:63];
+  always @(posedge clk) begin
+    if (state == S_RD && sd_buff_wr && sd_ack && sd_lba == 32'd0 && sd_buff_addr < 8'd42)
+      hdr_ram[sd_buff_addr[5:0]] <= sw_data;
+    hdr_data <= hdr_ram[hdr_addr];
+  end
 
   // DC42 header words, sampled as sector 0 streams past. Tested on the RAW
   // delivered word, not the swapped one:
@@ -308,6 +331,8 @@ module se30_flp_loader #(
     end
   end
 
+  assign is_dc42   = dc42;
+  assign file_blks = sec_total[12:0];
   assign dbg = {disk_in, loading, img_ds, img_800k, img_tags, dc42, state, sd_lba[6:0]};
 
 endmodule

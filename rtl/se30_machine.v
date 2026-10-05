@@ -129,6 +129,15 @@ module se30_machine #(
   output [16:0] trk_addr,              // the cell under the head
   output        trk_side,
   input         trk_bit,               // its bit, a clock after trk_addr
+  input         disk_wprot,            // the image is read-only: /WRTPRT (plan 5.15.3)
+  output        trk_we,                // the drive records trk_wbit at trk_addr (5.15.3)
+  output        trk_wbit,
+  output [16:0] trk_cells,             // the head's revolution, in cells
+  output        arc_done,              // a recording ended: its side, cells, whole revolution
+  output        arc_side,
+  output [16:0] arc_start,
+  output [16:0] arc_end,
+  output        arc_whole,
 
   // the external drive's disk: the same interface (plan 5.14)
   input         disk2_in,
@@ -139,6 +148,15 @@ module se30_machine #(
   output [16:0] trk2_addr,
   output        trk2_side,
   input         trk2_bit,
+  input         disk2_wprot,
+  output        trk2_we,
+  output        trk2_wbit,
+  output [16:0] trk2_cells,
+  output        arc2_done,
+  output        arc2_side,
+  output [16:0] arc2_start,
+  output [16:0] arc2_end,
+  output        arc2_whole,
 
   // the SCSI disks' images: hps_io slots, one per disk (plan 9.5)
   input   [1:0] scsi_img_mounted,
@@ -405,9 +423,9 @@ module se30_machine #(
     .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
     .sense(fdhd_sense), .disk_in(disk_in), .eject(disk_eject),
     .cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
-    .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata),   // read-only until the write-back is wired (5.15.13 item 6)
-    .trk_we(), .trk_wbit(), .trk_cells(),
-    .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
+    .wprot(disk_wprot), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata),
+    .trk_we(trk_we), .trk_wbit(trk_wbit), .trk_cells(trk_cells),
+    .arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end), .arc_whole(arc_whole),
     .dbg(fdhd_dbg));
 
   // the external drive is a build option (plan 10.4 item 3, compile 37):
@@ -420,9 +438,9 @@ module se30_machine #(
       .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
       .sense(fdhd2_sense), .disk_in(disk2_in), .eject(disk2_eject),
       .cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
-      .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata),
-      .trk_we(), .trk_wbit(), .trk_cells(),
-      .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
+      .wprot(disk2_wprot), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata),
+      .trk_we(trk2_we), .trk_wbit(trk2_wbit), .trk_cells(trk2_cells),
+      .arc_done(arc2_done), .arc_side(arc2_side), .arc_start(arc2_start), .arc_end(arc2_end), .arc_whole(arc2_whole),
       .dbg(dbg_fdhd2));
   end else begin : noext
     assign fdhd2_sense = 1'b1;
@@ -431,6 +449,14 @@ module se30_machine #(
     assign trk2_addr   = 17'd0;
     assign trk2_side   = 1'b0;
     assign dbg_fdhd2   = 16'd0;
+    assign trk2_we     = 1'b0;
+    assign trk2_wbit   = 1'b0;
+    assign trk2_cells  = 17'd0;
+    assign arc2_done   = 1'b0;
+    assign arc2_side   = 1'b0;
+    assign arc2_start  = 17'd0;
+    assign arc2_end    = 17'd0;
+    assign arc2_whole  = 1'b0;
   end endgenerate
 
   // ------------------------------------------------------------ video

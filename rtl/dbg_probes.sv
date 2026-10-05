@@ -78,6 +78,12 @@
 //   PFL2  64 bits, registered here on clk: the external drive's loader
 //         and encoder as PFLP's, the drive's 16 bits as PSWM's low word,
 //         and the disk-port words its loader and encoder have moved[15:0]
+// and, since plan 5.15 (writing):
+//   PFWR  64 bits, registered here on clk: the internal drive's decoder
+//         {sectors committed[15:0], fields refused[7:0], arcs[7:0]} and
+//         SD writer {blocks written[15:0], eject flushes[7:0], retries
+//         [3:0], queue depth[3:0]} (all wrapping): did the writes reach
+//         the image, and the card
 // and, since plan 9.8 (SCSI):
 //   PSCS  32 bits, registered here on clk: se30_scsi's dbg {target BSY
 //         [1:0], target REQ, bus REQ, ACK, SEL, RST, ATN, MSG, C/D, I/O,
@@ -177,6 +183,7 @@ module dbg_probes #(
 	input  wire [31:0] rtc_state,         // PRTC: se30_machine's dbg_rtc (plan 6.6)
 	input  wire [63:0] flp_state,         // PFLP: the floppy's (plan 5.12.12 item 7)
 	input  wire [63:0] flp2_state,        // PFL2: the external drive's (plan 5.14)
+	input  wire [63:0] fwr_state,         // PFWR: the internal drive's writing (plan 5.15)
 	input  wire [56:0] exc_state,         // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
 	input  wire [63:0] cache_state,       // PCCH: the 68030's caches (plan 1.16.3)
 	input  wire [31:0] scsi_state,        // PSCS: the SCSI bus and the disks' slots (plan 9.8)
@@ -468,6 +475,15 @@ module dbg_probes #(
 		.instance_id ("PCCH"), .probe_width (64), .source_width (1),
 		.sld_auto_instance_index ("YES")
 	) cp_pcch (.probe(pcch_r), .source(), .source_clk(clk), .source_ena(1'b1));
+
+	// the internal drive's writing (the header's PFWR)
+	reg [63:0] pfwr_r = 0;
+	always @(posedge clk) pfwr_r <= fwr_state;
+
+	altsource_probe #(
+		.instance_id ("PFWR"), .probe_width (64), .source_width (1),
+		.sld_auto_instance_index ("YES")
+	) cp_pfwr (.probe(pfwr_r), .source(), .source_clk(clk), .source_ena(1'b1));
 
 	// the external drive (the header's PFL2)
 	reg [63:0] pfl2_r = 0;

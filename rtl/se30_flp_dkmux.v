@@ -1,23 +1,25 @@
 // se30_flp_dkmux.v - the SDRAM disk port shared by the two drives' image
-// loaders and track encoders (SE30_PLAN.md 5.12.5, 5.14).
+// loaders, track encoders, written-track decoders and SD writers
+// (SE30_PLAN.md 5.12.5, 5.14, 5.15.5 item 9).
 //
 // WHAT IT DOES
-//   One owner at a time, of four requesters: the internal drive's loader
-//   (0) and encoder (1), the external drive's loader (2) and encoder (3).
-//   The owner changes only while the port is quiet - the owner's request
-//   down and the controller's acknowledge down - so a request is never
-//   taken from under its requester and an acknowledge never lands on
-//   another; it then passes round robin to the next requester with a
-//   request up, after the owner, or stays if none has one.  A requester
-//   that does not own the port sees no acknowledge and keeps its request
-//   up: every requester holds request, address and data until acknowledged
-//   and raises the next only after the acknowledge falls, so a quiet clock
-//   comes between any two words and none can hold the port.  With one
-//   drive the owner could follow the loader's `loading` (its loader and
-//   encoder never want the port at once); with two, one drive's encoder
-//   streams while the other's image loads (5.14).  The loaders only write
-//   and the encoders only read, so the direction is the owner's kind.
-//   Held to sim/flpmux and sim/gcrread.
+//   One owner at a time, of eight requesters, numbered so that the even
+//   ones write and the odd ones read: the internal drive's loader (0) and
+//   encoder (1), the external drive's loader (2) and encoder (3), the
+//   internal drive's decoder (4) and SD writer (5), the external drive's
+//   decoder (6) and SD writer (7).  The owner changes only while the port
+//   is quiet - the owner's request down and the controller's acknowledge
+//   down - so a request is never taken from under its requester and an
+//   acknowledge never lands on another; it then passes round robin to the
+//   next requester with a request up, after the owner, or stays if none
+//   has one.  A requester that does not own the port sees no acknowledge
+//   and keeps its request up: every requester holds request, address and
+//   data until acknowledged and raises the next only after the acknowledge
+//   falls, so a quiet clock comes between any two words and none can hold
+//   the port.  One drive's encoder streams while the other's image loads
+//   (5.14); a decoder commits and a writer reads the image back for the
+//   card while the encoders build (5.15).  The direction is the owner's
+//   kind: even writes, odd reads.  Held to sim/flpmux and sim/gcrread.
 
 `timescale 1ns/1ps
 
@@ -45,6 +47,26 @@ module se30_flp_dkmux (
   output     [15:0] en1_rdata,
   output            en1_ack,
 
+  input             de0_req,           // the internal drive's decoder: writes (5.15)
+  input      [23:0] de0_addr,
+  input      [15:0] de0_wdata,
+  output            de0_ack,
+
+  input             wr0_req,           // the internal drive's SD writer: reads (5.15)
+  input      [23:0] wr0_addr,
+  output     [15:0] wr0_rdata,
+  output            wr0_ack,
+
+  input             de1_req,           // the external drive's decoder
+  input      [23:0] de1_addr,
+  input      [15:0] de1_wdata,
+  output            de1_ack,
+
+  input             wr1_req,           // the external drive's SD writer
+  input      [23:0] wr1_addr,
+  output     [15:0] wr1_rdata,
+  output            wr1_ack,
+
   output            dk_req,            // se30_sdram's dk_* port
   output            dk_we,
   output     [23:0] dk_addr,
@@ -53,34 +75,50 @@ module se30_flp_dkmux (
   input             dk_ack
 );
 
-  reg  [1:0] owner;                    // 0 ld0, 1 en0, 2 ld1, 3 en1
-  wire [3:0] req = {en1_req, ld1_req, en0_req, ld0_req};
+  reg  [2:0] owner;                    // 0 ld0, 1 en0, 2 ld1, 3 en1, 4 de0, 5 wr0, 6 de1, 7 wr1
+  wire [7:0] req = {wr1_req, de1_req, wr0_req, de0_req, en1_req, ld1_req, en0_req, ld0_req};
 
-  // the next owner: the first request after the current owner, round
-  // robin - rot[i] is requester owner + 1 + i
-  reg  [3:0] rot;
-  always @*
-    case (owner)
-      2'd0:    rot = {req[0], req[3], req[2], req[1]};
-      2'd1:    rot = {req[1], req[0], req[3], req[2]};
-      2'd2:    rot = {req[2], req[1], req[0], req[3]};
-      default: rot = {req[3], req[2], req[1], req[0]};
-    endcase
-  wire [1:0] step = rot[0] ? 2'd1 : rot[1] ? 2'd2 : 2'd3;   // owner + step (rot[2:0] has a request)
+  // the next owner: the first request after the current owner, round robin
+  reg  [2:0] nxt;
+  reg        found;
+  integer    i;
+  always @* begin
+    nxt = owner; found = 1'b0;
+    for (i = 1; i < 8; i = i + 1)
+      if (!found && req[(owner + i) & 7]) begin nxt = owner + i[2:0]; found = 1'b1; end
+  end
 
   always @(posedge clk or negedge reset_n)
-    if (!reset_n)                              owner <= 2'd1;
-    else if (!dk_req && !dk_ack && |rot[2:0])  owner <= owner + step;
+    if (!reset_n)                       owner <= 3'd1;
+    else if (!dk_req && !dk_ack && found) owner <= nxt;
+
+  reg [23:0] a;
+  reg [15:0] d;
+  always @* begin
+    case (owner)
+      3'd0: a = ld0_addr; 3'd1: a = en0_addr; 3'd2: a = ld1_addr; 3'd3: a = en1_addr;
+      3'd4: a = de0_addr; 3'd5: a = wr0_addr; 3'd6: a = de1_addr; default: a = wr1_addr;
+    endcase
+    case (owner[2:1])
+      2'd0: d = ld0_wdata; 2'd1: d = ld1_wdata; 2'd2: d = de0_wdata; default: d = de1_wdata;
+    endcase
+  end
 
   assign dk_req   = req[owner];
   assign dk_we    = !owner[0];
-  assign dk_addr  = owner == 2'd0 ? ld0_addr : owner == 2'd1 ? en0_addr : owner == 2'd2 ? ld1_addr : en1_addr;
-  assign dk_wdata = owner[1] ? ld1_wdata : ld0_wdata;
-  assign ld0_ack  = owner == 2'd0 && dk_ack;
-  assign en0_ack  = owner == 2'd1 && dk_ack;
-  assign ld1_ack  = owner == 2'd2 && dk_ack;
-  assign en1_ack  = owner == 2'd3 && dk_ack;
+  assign dk_addr  = a;
+  assign dk_wdata = d;
+  assign ld0_ack  = owner == 3'd0 && dk_ack;
+  assign en0_ack  = owner == 3'd1 && dk_ack;
+  assign ld1_ack  = owner == 3'd2 && dk_ack;
+  assign en1_ack  = owner == 3'd3 && dk_ack;
+  assign de0_ack  = owner == 3'd4 && dk_ack;
+  assign wr0_ack  = owner == 3'd5 && dk_ack;
+  assign de1_ack  = owner == 3'd6 && dk_ack;
+  assign wr1_ack  = owner == 3'd7 && dk_ack;
   assign en0_rdata = dk_rdata;
   assign en1_rdata = dk_rdata;
+  assign wr0_rdata = dk_rdata;
+  assign wr1_rdata = dk_rdata;
 
 endmodule
