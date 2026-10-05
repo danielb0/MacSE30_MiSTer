@@ -16359,7 +16359,20 @@ Daniel - add to it, move items out when fixed).**
    source is open; the earlier "PMMU-raised" reading of item 8 assumed
    it, and is withdrawn - PBER now shows no PMMU fault at all.) Next for
    the open failure: PC Exchange in MAME's SE/30 with the same DOS image
-   (`-flop1`), to see its driver calls on an open.
+   (`-flop1`), to see its driver calls on an open. **MAME's SE/30** (Daniel,
+   2026-10-05 late: 0.289, the real ROM, booted from a copy of `MiSTer
+   SE30 Backup\mac_80mb-restored.vhd` - the System and PC Exchange
+   Daniel uses - with a copy of `Disk1.img` in the internal SuperDrive):
+   mounted read-only (MAME showed no lock icon - the Mac saw a writable
+   disk whose writes failed), the open fails as on our core; mounted
+   **read-write, the TeachText open gets through** (a genuine "too large"
+   for the 60 KB `README.TXT`), **but a Finder copy still fails, "cannot
+   be found"**. So: the open failure on our core is the lock (MFM disks
+   are write-protected until MFM writing - it goes with it); the copy
+   failure reproduces on an independent 68030/SWIM with the same ROM,
+   System and PC Exchange - **not our core** (the LC's success: its newer
+   ROM, or its own System/PC Exchange). **Item 9 closed for the core**:
+   the Options hang was ours (fixed, DBP); the rest is the software's.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
