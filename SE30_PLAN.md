@@ -3357,9 +3357,9 @@ active". FUTURE BOARD TESTS item 1 MET on this compile.** Speedometer
 4.02 in 32-bit mode (Daniel, 15:20, `C:	emp\Mac\Screenshots20261005_152029-screen.png`): CPU 0.267, Graphics 0.160, Disk 1.147, Math
 1.123, PR 0.275 - compile 41's 24-bit figures (0.27 / 0.16 / 1.09-1.13 /
 1.13) within the spread; 32-bit mode costs nothing and, with 8 MB, gains
-nothing, as answered 2026-10-04. Still to do from the item's list at
-Daniel's convenience: a few applications, back to 24-bit and a clean
-restart. Then the merge with
+nothing, as answered 2026-10-04. QuarkXPress and Microsoft Word 5.1 run
+in 32-bit mode; 32-Bit Addressing off, restart: back in 24-bit mode
+cleanly (Daniel, ~15:45). **The item's whole list is done.** Then the merge with
 floppy-write once that branch's own board test is done.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
@@ -15149,7 +15149,7 @@ Daniel - add to it, move items out when fixed).**
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
-1. **32-bit mode with MODE32** (Daniel, 2026-10-04): install MODE32 with
+1. ~~**32-bit mode with MODE32**~~ **DONE 2026-10-05 on the mode32-berr compile** (Daniel, 2026-10-04): install MODE32 with
    its own installer (copying the extension does not work - 68kMLA,
    plan 1.5 addendum; **the installer is on Daniel's MacPack disk**), switch 32-Bit Addressing on in the Memory control
    panel, restart. Exercises the ROM's and MODE32's 32-bit translation
@@ -15163,8 +15163,8 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    fixed on branch `mode32-berr` (plan 1.18). **RERUN on the mode32-berr
    compile (`MacSE30_b9003c88_mode32.rbf`, 15:30): BOOTS IN 32-BIT MODE,
    TattleTech confirms - MET; Speedometer 4.02 in 32-bit mode = the 24-bit
-   figures (CPU 0.267, Graphics 0.160, Disk 1.147, Math 1.123).** Remaining
-   from the list: applications, back to 24-bit and a clean restart.
+   figures (CPU 0.267, Graphics 0.160, Disk 1.147, Math 1.123); QuarkXPress
+   and Word 5.1 run; back to 24-bit and a clean restart. DONE.**
 2. **The 128 MB clean-ROM option** (when built): a IIsi/IIfx ROM file,
    the System edited per "Gamba's page"; PRAM reset first; watch for the
    68kMLA poster's Sad Mac and unreadable drive after a Memory control
