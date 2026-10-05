@@ -60,8 +60,21 @@
 //   SuperDrive's latch the ROM resets ($4082E4E2), not the 800K drive's
 //   self-clearing EJECT (plan 5.12.3).
 //
-// Every rung-2 disk is write-protected (/WRTPRT 0, as with no disk); the
-// drive is not on RESET* (sheet 6): reset_n is the power-up only.
+// RECORDING (rung 3, plan 5.15.3)
+//   "When /WRTGATE is a zero, when /ENBL is a zero and if the inserted
+//   disk is not write protected, data on WRTDATA are recorded on the
+//   disk" (3.2.5) - and here the motor must be on and the track buffers
+//   the head's, as for reading.  Each cell under the head while the gate
+//   holds is written into the buffer at its end (trk_we, at trk_addr on
+//   trk_side): 1 if WRTDATA changed during it, 0 if not.  The SWIM's
+//   cell and the drive's are both 32 FCLK, so each transition has a cell
+//   of its own.  When the gate ends (or SEL changes side) the recording is
+//   reported as an arc - its side, first and last cells, and whether it
+//   covered a whole revolution - for the decoder.  /WRTPRT reads 0 with
+//   no disk or a disk mounted read-only (wprot), 1 otherwise (3.2.4.9).
+//   The erase head (3.4.5 T7) trims the track's edges and is not modelled.
+//
+// The drive is not on RESET* (sheet 6): reset_n is the power-up only.
 
 `timescale 1ns/1ps
 
@@ -84,6 +97,18 @@ module se30_fdhd (
   output [16:0] trk_addr,              // the cell under the head
   output        trk_side,
   input         trk_bit,               // its bit, a clock after trk_addr
+
+  input         wprot,                 // the disk is write-protected (mounted read-only)
+  input         wrreq_n,               // /WRTGATE: the SWIM's /WRREQ
+  input         wrdata,                // WRTDATA
+  output        trk_we,                // write trk_wbit at trk_addr on trk_side
+  output        trk_wbit,
+  output [16:0] trk_cells,             // the head's revolution, in cells
+  output reg    arc_done,              // one clock: a recording ended
+  output reg    arc_side,
+  output reg [16:0] arc_start,         // its first cell
+  output reg [16:0] arc_end,           // its last cell
+  output reg    arc_whole,             // it covered a whole revolution
 
   output [15:0] dbg
 );
@@ -127,6 +152,18 @@ module se30_fdhd (
   wire ready   = data_ok && spin == 0 && settle == 0;
   wire rd_data = !(data_ok && pulse != 0);
 
+  // ------------------------------------------------------ recording
+  wire        gate    = !enbl_n && !wrreq_n && data_ok && !wprot;
+  wire        bound   = c16_en && motor_on && phase == 5'd31;        // the cell under the head ends
+  reg         wr_q;                    // WRTDATA a clock ago
+  reg         chg;                     // WRTDATA changed in this cell
+  reg         rec;                     // a recording is open
+  reg  [16:0] wcount;                  // cells it has written, saturating at a revolution
+  wire        chg_now = chg || (wrdata != wr_q);
+  wire        side_moved = rec && arc_side != sel;
+  assign trk_we   = bound && gate && !side_moved;
+  assign trk_wbit = chg_now;
+
   reg        bit_q;
   always @* begin
     case ({sel, ph[2], ph[1], ph[0]})             // ROM number {CA1,CA0,SEL,CA2}
@@ -139,7 +176,7 @@ module se30_fdhd (
       4'h6: bit_q = 1'b1;                         // $9 /SINGLE SIDE: 1, double-sided
       4'h7: bit_q = 1'b0;                         // $D /DRVIN: present
       4'h8: bit_q = !disk_in;                     // $2 /CSTIN
-      4'h9: bit_q = 1'b0;                         // $6 /WRTPRT: protected, or no disk
+      4'h9: bit_q = disk_in && !wprot;            // $6 /WRTPRT: 0 protected, or no disk
       4'hA: bit_q = (track != 0);                 // $A /TK0
       4'hB: bit_q = motor_on ? tach : 1'b1;       // $E /TACH
       4'hC: bit_q = rd_data;                      // $3 RDDATA, side 1
@@ -162,10 +199,27 @@ module se30_fdhd (
       step_n <= 1; step_t <= 0; settle <= 0; spin <= 0;
       lstrb_d <= 0; disk_d <= 0; eject <= 0;
       phase <= 0; pos <= 0; tacc <= 0; tach <= 1; pulse <= 0;
+      wr_q <= 0; chg <= 0; rec <= 0; wcount <= 0;
+      arc_done <= 0; arc_side <= 0; arc_start <= 0; arc_end <= 0; arc_whole <= 0;
     end else begin
       lstrb_d <= ph[3];
       disk_d  <= disk_in;
       eject   <= 0;
+
+      // recording: a cell is written at its end while the gate holds; the
+      // arc closes as soon as the gate drops or SEL moves to the other side
+      wr_q     <= wrdata;
+      arc_done <= 0;
+      if (bound) chg <= 0;
+      else if (wrdata != wr_q) chg <= 1;
+      if (rec && (!gate || side_moved)) begin
+        rec <= 0; arc_done <= 1;
+        arc_whole <= (wcount + 1'b1 >= cells);
+      end else if (trk_we) begin
+        if (!rec) begin rec <= 1; arc_side <= sel; arc_start <= pos; wcount <= 0; end
+        else if (wcount != cells) wcount <= wcount + 1'b1;
+        arc_end <= pos;
+      end
 
       if (c16_en) begin
         if (step_t != 0) begin step_t <= step_t - 1'b1; if (step_t == 1) step_n <= 1; end
@@ -212,7 +266,8 @@ module se30_fdhd (
     end
   end
 
-  assign cyl      = track;
+  assign cyl       = track;
+  assign trk_cells = cells;
   assign trk_addr = pos;
   assign trk_side = sel;
 

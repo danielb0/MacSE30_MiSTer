@@ -29,6 +29,17 @@
 //    10. eject: the command sets the latch at $C and asks for the disk
 //        out; $3 resets the latch; $7 follows $6/$7 (MacLC F4)
 //
+//   and, since rung 3 (plan 5.15.3, 5.15.9 item 2), recording:
+//
+//    11. /WRTPRT 1 only with a disk in that is not write-protected
+//        (3.2.4.9); with /ENBL low, /WRTGATE (the SWIM's /WRREQ) low and
+//        the disk writable (3.2.5) - and the motor on and the buffers the
+//        head's - each cell under the head is written, 1 where WRTDATA
+//        changed in it: the cells consecutive from the head's position,
+//        on SEL's side, the bits the pattern's; nothing written with any
+//        one term missing; the arc reported (side, first and last cell,
+//        and whether it covered a whole revolution)
+//
 // THE BENCH
 //   clk is FCLK (c16_en tied high).  The encoder is modelled: two track
 //   buffers whose bit at cell a is 1 when a is a multiple of 7 (side 0)
@@ -63,6 +74,12 @@ module tb_se30_fdhd;
   wire [16:0] trk_addr;
   wire       trk_side;
   reg        trk_bit = 0;
+  reg        wprot = 1;                // mounted read-only: the default
+  reg        wrreq_n = 1, wrdata = 0;
+  wire       trk_we, trk_wbit;
+  wire [16:0] trk_cells;
+  wire       arc_done, arc_side, arc_whole;
+  wire [16:0] arc_start, arc_end;
   wire [15:0] dbg;
 
   se30_fdhd dut (
@@ -71,6 +88,9 @@ module tb_se30_fdhd;
     .disk_in(disk_in), .eject(eject),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+    .wprot(wprot), .wrreq_n(wrreq_n), .wrdata(wrdata),
+    .trk_we(trk_we), .trk_wbit(trk_wbit), .trk_cells(trk_cells),
+    .arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end), .arc_whole(arc_whole),
     .dbg(dbg));
 
   integer cyc = 0;
@@ -88,6 +108,54 @@ module tb_se30_fdhd;
       if (enc_cnt == ENC_T) begin trk_cyl <= cyl; trk_valid <= 1; enc_cnt <= 0; end
     end else trk_valid <= 1;
   end
+
+  // ------------------------------------------------ the recorded cells
+  integer nw = 0, wa0 = -1, wlast = -1, wside0 = -1, wbad_addr = 0, wbad_side = 0;
+  reg     wbits_r [0:131071];
+  integer narc = 0;
+  reg     a_side, a_whole;
+  integer a_start, a_end;
+  always @(posedge clk) begin
+    if (trk_we) begin
+      if (nw == 0) begin wa0 = trk_addr; wside0 = trk_side; end
+      else begin
+        if (trk_addr != ((wlast + 1 == trk_cells) ? 0 : wlast + 1)) wbad_addr = wbad_addr + 1;
+        if (trk_side != wside0) wbad_side = wbad_side + 1;
+      end
+      if (nw < 131072) wbits_r[nw] = trk_wbit;
+      wlast = trk_addr; nw = nw + 1;
+    end
+    if (arc_done) begin narc = narc + 1; a_side = arc_side; a_whole = arc_whole; a_start = arc_start; a_end = arc_end; end
+  end
+  // a pattern written as the SWIM writes it: a transition at each 1, one
+  // bit every 32 FCLK, the gate low `lead` FCLK before the first bit and
+  // raised `tail` FCLK after the last
+  reg [0:63] wpat;
+  task write_pattern(input integer nbits, input integer lead, input integer tail);
+    integer k;
+    begin
+      #1 wrreq_n = 0;
+      repeat (lead) @(posedge clk);
+      for (k = 0; k < nbits; k = k + 1) begin
+        if (wpat[k]) #1 wrdata = !wrdata;
+        repeat (32) @(posedge clk);
+      end
+      repeat (tail) @(posedge clk);
+      #1 wrreq_n = 1;
+      repeat (64) @(posedge clk);
+    end
+  endtask
+  // the recorded bits from the first 1, against the pattern
+  integer lead0, pbad;
+  task check_pattern(input integer nbits);
+    integer k;
+    begin
+      lead0 = 0;
+      while (lead0 < nw && !wbits_r[lead0]) lead0 = lead0 + 1;
+      pbad = 0;
+      for (k = 0; k < nbits; k = k + 1) if (lead0 + k >= nw || wbits_r[lead0 + k] !== wpat[k]) pbad = pbad + 1;
+    end
+  endtask
 
   // ------------------------------------------------ the eject request
   integer ejects = 0;
@@ -205,7 +273,7 @@ module tb_se30_fdhd;
     #1 disk_in = 1;
     repeat (4) @(posedge clk);
     rd(4'h2); check(sns == 0, "$2 /CSTIN: 0, a disk in", sns, 0);
-    rd(4'h6); check(sns == 0, "$6 /WRTPRT: 0, protected (rung 2)", sns, 0);
+    rd(4'h6); check(sns == 0, "$6 /WRTPRT: 0, the disk mounted read-only", sns, 0);
     rd(4'hF); check(sns == 1, "$F: 1, a double-density medium (MacLC F3)", sns, 1);
     rd(4'h8); check(sns == 1, "$8 /MOTORON: 1, off", sns, 1);
     addr(4'h1); watch_rd(40); check(n_fall == 0, "$1 RD with the motor off: 1 (MacLC F12)", n_fall, 0);
@@ -323,6 +391,57 @@ module tb_se30_fdhd;
     rd(4'h5); check(sns == 1, "$5: 1, a SuperDrive", sns, 1);
     cmd(4'h6); rd(4'h7); check(sns == 1, "command $6: $7 reads 1, MFM", sns, 1);
     cmd(4'h7); rd(4'h7); check(sns == 0, "command $7: $7 reads 0, GCR", sns, 0);
+
+    // ---- 11. recording
+    $display("---- 11. recording: /WRTPRT, the gate, the cells, the arc (5.15.3)");
+    #1 wprot = 0;
+    rd(4'h6); check(sns == 1, "$6 /WRTPRT: 1, a writable disk in", sns, 1);
+    #1 disk_in = 0; repeat (2) @(posedge clk);
+    rd(4'h6); check(sns == 0, "$6 /WRTPRT: 0 with no disk, writable or not", sns, 0);
+    #1 disk_in = 1; t_cmd = cyc;
+    until(4'hB, 0, T_DIN + 1000);
+    seek(5); until(4'hB, 0, T_GRP + 1000);              // track 5, group 0: 74,558 cells
+    check(trk_cells == 74558, "trk_cells: the head's revolution (group 0)", trk_cells, 74558);
+    addr(4'h1);                                         // side 0 (SEL low)
+    wpat = 64'hD5AA_AD96_FF3F_CFF3;
+    nw = 0; narc = 0; wbad_addr = 0; wbad_side = 0;
+    repeat (13) @(posedge clk);                         // an arbitrary phase against the drive's cells
+    write_pattern(64, 40, 40);
+    check_pattern(64);
+    check(pbad == 0, "the cells written hold the pattern, a 1 where WRTDATA changed", pbad, 0);
+    check(lead0 >= 1 && lead0 <= 2, "the gate's lead: one or two 0 cells before the first 1", lead0, 1);
+    check(wbad_addr == 0, "the cells consecutive from the head's position", wbad_addr, 0);
+    check(wside0 == 0 && wbad_side == 0, "all on side 0 (SEL low)", wside0, 0);
+    check(nw >= 64 + 2 && nw <= 64 + 4, "as many cells as the gate was low", nw, 66);
+    check(narc == 1, "one arc reported", narc, 1);
+    check(a_side == 0 && a_start == wa0 && a_end == wlast && a_whole == 0,
+          "the arc: side 0, its first and last cells, not a whole revolution", a_end - a_start, wlast - wa0);
+    // side 1
+    addr(4'h3);
+    nw = 0; narc = 0; wbad_addr = 0; wbad_side = 0;
+    write_pattern(64, 40, 40);
+    check(nw > 0 && wside0 == 1 && wbad_side == 0 && a_side == 1, "SEL high: side 1", wside0, 1);
+    // each term of the gate
+    addr(4'h1);
+    nw = 0; #1 wprot = 1; write_pattern(32, 40, 40); #1 wprot = 0;
+    check(nw == 0, "nothing written to a read-only disk", nw, 0);
+    nw = 0; #1 enbl_n = 1; write_pattern(32, 40, 40); #1 enbl_n = 0;
+    check(nw == 0, "nothing written with /ENBL high", nw, 0);
+    cmd(4'h8);                                          // (the deselection stopped the motor)
+    nw = 0; #1 enc_on = 0; repeat (4) @(posedge clk); write_pattern(32, 40, 40); #1 enc_on = 1;
+    check(nw == 0, "nothing written while the buffers are not the head's", nw, 0);
+    cmd(4'h9);
+    nw = 0; write_pattern(32, 40, 40);
+    check(nw == 0, "nothing written with the motor off", nw, 0);
+    cmd(4'h8); t_cmd = cyc; until(4'hB, 0, T_SPIN + 1000);
+    // a whole revolution and more (the formatter's write, 5.15.4)
+    nw = 0; narc = 0; wbad_addr = 0;
+    #1 wrreq_n = 0;
+    repeat (32 * (74558 + 500)) @(posedge clk);
+    #1 wrreq_n = 1; repeat (64) @(posedge clk);
+    check(nw >= 74558 + 499 && nw <= 74558 + 501, "a write of a revolution and 500 cells: every cell written", nw, 74558 + 500);
+    check(wbad_addr == 0, "the cells consecutive, through the wrap", wbad_addr, 0);
+    check(narc == 1 && a_whole == 1, "the arc: a whole revolution", a_whole, 1);
 
     if (fails == 0) $display("==== PASS: %0d checks, the drive holds to plan 5.12.3", checks);
     else            $display("==== FAIL: %0d of %0d checks", fails, checks);

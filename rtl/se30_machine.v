@@ -385,6 +385,7 @@ module se30_machine #(
   // ------------------------------------------------------------ SWIM
   wire  [3:0] swim_ph, swim_ph_oe;
   wire        enbl1_n, enbl2_n, fdhd_sense, fdhd2_sense;
+  wire        swim_wrdata, swim_wrreq_n;                          // WR and /WRREQ, to both drives (5.15)
   wire [47:0] swim_dbg;
   wire [15:0] fdhd_dbg;
   wire  [3:0] swim_ph_pin = (swim_ph_oe & swim_ph) | ~swim_ph_oe;   // a line the ISM makes an input reads its pull-up
@@ -396,7 +397,7 @@ module se30_machine #(
     .sel(swim_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .wdata(dev_wdata), .rdata(swim_rdata),
     .ph_out(swim_ph), .ph_oe(swim_ph_oe), .ph_in(swim_ph_pin),
     .enbl1_n(enbl1_n), .enbl2_n(enbl2_n), .sense(swim_sense),
-    .wrdata(), .wrreq_n(), .hdsel(),                                // HEDSEL goes to TP3 only
+    .wrdata(swim_wrdata), .wrreq_n(swim_wrreq_n), .hdsel(),        // HEDSEL goes to TP3 only
     .dbg(swim_dbg), .dbg_vread(dbg_swim_vread));
 
   se30_fdhd fdhd_int (
@@ -404,6 +405,9 @@ module se30_machine #(
     .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
     .sense(fdhd_sense), .disk_in(disk_in), .eject(disk_eject),
     .cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+    .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata),   // read-only until the write-back is wired (5.15.13 item 6)
+    .trk_we(), .trk_wbit(), .trk_cells(),
+    .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
     .dbg(fdhd_dbg));
 
   // the external drive is a build option (plan 10.4 item 3, compile 37):
@@ -416,6 +420,9 @@ module se30_machine #(
       .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
       .sense(fdhd2_sense), .disk_in(disk2_in), .eject(disk2_eject),
       .cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+      .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata),
+      .trk_we(), .trk_wbit(), .trk_cells(),
+      .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
       .dbg(dbg_fdhd2));
   end else begin : noext
     assign fdhd2_sense = 1'b1;

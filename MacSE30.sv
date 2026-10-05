@@ -337,6 +337,7 @@ se30_flp_encoder flp_encoder
 	.disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_800k),
 	.cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
 	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+	.trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(18'd0), .dec_bit(), .enc_idle(),   // writing: 5.15.13 item 6
 	.mem_req(en_req), .mem_addr(en_addr), .mem_rdata(en_rdata), .mem_ack(en_ack),
 	.dbg(en_dbg)
 );
@@ -360,6 +361,7 @@ se30_flp_encoder #(.BASE(24'h900000)) flp2_encoder
 	.disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k),
 	.cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid),
 	.trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+	.trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(18'd0), .dec_bit(), .enc_idle(),   // writing: 5.15.13 item 6
 	.mem_req(en2_req), .mem_addr(en2_addr), .mem_rdata(en2_rdata), .mem_ack(en2_ack),
 	.dbg(en2_dbg)
 );

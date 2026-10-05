@@ -39,6 +39,15 @@
 //   1600, else 800), not the volume's.  Cylinder c, side s, sector k is
 //   block sides x (sectors before c) + s x spt + k.
 //
+// WRITING (rung 3, plan 5.15.5 item 3)
+//   The buffer is the medium: the drive's recording writes cells through
+//   the same port it reads (trk_we, a cell read or written, never both),
+//   and the decoder reads the written cells through the encoder's port
+//   (dec_addr, dec_bit a clock later) while the encoder is idle.  A
+//   rebuild waits while `hold` is up - the decoder is turning a written
+//   cylinder into sectors, and the new cylinder must be read from an image
+//   that already holds them.
+//
 // THE DISK PORT
 //   A level request, its address held, until a level acknowledge that
 //   carries the word; the request drops, and the next is not raised until
@@ -61,9 +70,16 @@ module se30_flp_encoder #(
   input       [6:0] cyl,               // the drive's head
   output reg  [6:0] trk_cyl,           // what the buffers hold
   output reg        trk_valid,
-  input      [16:0] trk_addr,          // the drive's read port
+  input      [16:0] trk_addr,          // the drive's port
   input             trk_side,
   output reg        trk_bit,
+  input             trk_we,            // the drive records trk_wbit there
+  input             trk_wbit,
+
+  input             hold,              // the decoder is busy: no rebuild
+  input      [17:0] dec_addr,          // the decoder's read: side 1 at SIDE1 + cell
+  output reg        dec_bit,           // a clock later, while the encoder is idle
+  output            enc_idle,
 
   output reg        mem_req,           // the disk port
   output reg [23:0] mem_addr,
@@ -143,7 +159,12 @@ module se30_flp_encoder #(
   reg [15:0] sbuf [0:261];                       // a sector: 6 tag words, 256 data words
   reg  [7:0] cbuf [0:702];                       // its 703 data-field codes
 
-  always @(posedge clk) trk_bit <= tbuf[trk_side ? SIDE1 + {1'b0, trk_addr} : {1'b0, trk_addr}];
+  // port A, the drive: a cell read, or written by the recording
+  wire [17:0] pa = trk_side ? SIDE1 + {1'b0, trk_addr} : {1'b0, trk_addr};
+  always @(posedge clk) begin
+    if (trk_we) tbuf[pa] <= trk_wbit;
+    trk_bit <= tbuf[pa];
+  end
 
   // ------------------------------------------------------------ the build
   localparam S_IDLE = 4'd0, S_SIDE = 4'd1, S_FILL = 4'd2, S_LEAD = 4'd3, S_FETCH = 4'd4,
@@ -203,9 +224,16 @@ module se30_flp_encoder #(
     else                   nbyte = 8'hFF;
   end
 
+  // port B: the build's writes, or the decoder's reads while idle
   reg        tb_we, tb_d;
   reg [17:0] tb_a;
-  always @(posedge clk) if (tb_we) tbuf[tb_a] <= tb_d;
+  // (by the write, not the state: a build abandoned on a seek can leave its
+  // last write for the first idle clock)
+  wire [17:0] pb = tb_we ? tb_a : dec_addr;
+  always @(posedge clk) begin
+    if (tb_we) tbuf[pb] <= tb_d;
+    dec_bit <= tbuf[pb];
+  end
 
   reg        sb_we;
   reg  [8:0] sb_a;
@@ -241,7 +269,7 @@ module se30_flp_encoder #(
       if (st != S_IDLE && !mem_req && leave) st <= S_IDLE;
       else case (st)
         S_IDLE:
-          if (disk_in && !(trk_valid && trk_cyl == cyl)) begin
+          if (disk_in && !hold && !(trk_valid && trk_cyl == cyl)) begin
             trk_valid <= 0; c <= cyl; bside <= 0; st <= S_SIDE;
           end
 
@@ -350,6 +378,7 @@ module se30_flp_encoder #(
     end
   end
 
+  assign enc_idle = (st == S_IDLE);
   assign dbg = {trk_valid, bside, st, slot, c[5:0]};
 
 endmodule

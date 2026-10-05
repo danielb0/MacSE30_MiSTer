@@ -8661,6 +8661,26 @@ write) may not, and is measured when it comes.
    so the first load is exactly 7 CLK after the access.
 3. `sim/fdhd` recording checks, then `se30_fdhd.v`'s recording, /WRTPRT
    and the arc; the buffer's port uses in the encoder.
+   **Done 2026-10-05: `sim/fdhd` 81 PASS (~6.5 min), 5/5 mutants caught**
+   (a toggle early in a cell lost, the protect term dropped, no whole
+   arc, the buffer-valid term dropped, /WRTPRT blind to the disk). Item
+   11: /WRTPRT by disk and protection; a 64-bit pattern written at an
+   arbitrary phase against the drive's cells and read back from the
+   written cells; consecutive cells on SEL's side; each gate term alone
+   blocking; the arc; a revolution and 500 cells written, through the
+   wrap, reported whole. The bench and the drive went in together (the
+   old drive has no write ports to fail against), so the mutants carry
+   the proof. The arc closes the clock the gate drops, so a cell is
+   written only if the gate holds at its end. **The encoder**: port A
+   now a cell read or written (the drive), port B the build's writes or
+   the decoder's reads, chosen by the pending write (a build abandoned
+   on a seek can leave its last write for the first idle clock); a
+   rebuild waits for `hold`. `sim/flpenc` 26 PASS with them tied off.
+   The machine wires the SWIM's WR and /WRREQ to both drives, **with
+   `wprot` held at 1 until item 6 wires the write-back**; every other
+   instance (the top's encoders, `sim/swim`, `sim/gcrread`) ties the new
+   ports. `sim/swim` 141 PASS, `sim/machine` 17 PASS, Quartus analysis
+   0 errors (7,440 warnings, +2: the new unconnected outputs).
 4. `sim/flpdec` and `se30_flp_decoder.v` (decoder + committer).
 5. `sim/flpwr` and `se30_flp_sdwriter.v`; the loader's header store.
 6. The mux, the machine and top wiring, `PFLP`'s counters; `sim/flpmux`,
