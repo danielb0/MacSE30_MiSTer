@@ -8848,8 +8848,20 @@ write) may not, and is measured when it comes.
    **21 of 21 identical** to their sources. (Over 700 KB on the hard disk
    against ~330 KB here is the boot volume's 24,064-byte allocation
    block - 65,358 blocks, HFS's 16-bit block count - against the
-   floppy's 512.) Still to run: a delete-and-recopy round (the soak
-   proper), and the one-sided erase (needs a System before 7.5). Still to run: the one-sided erase
+   floppy's 512.)
+   **Board, gate 5b (delete and recopy), Daniel 2026-10-05 ~14:35: PASS**
+   (`Blank800K_clean_delete.dsk`): the Sample Presentations folder (7
+   files) deleted and the Trash emptied, the Presentation Templates'
+   two layout files copied in. `hfs_check` consistent (17 files); 16 of
+   16 identical to their sources; the new files went into the freed
+   space (blocks 25 and 33, where the deleted "(MacII) Presenting
+   PowerPoint" began); the volume bitmap's 170 set blocks are exactly the
+   forks' and trees' extents (none set unused, none used unset) and the
+   MDB's free count (1,424) agrees; the catalog's second extent (blocks
+   600-611, from gate 5a's growth) reads back. **800K/400K GCR writing is
+   done on the board** except the one-sided erase (needs a System before
+   7.5; not blocking). Next per Daniel's order: 5.13, the ISM's MFM read
+   (1.44 MB and 720K) - about 500 ALMs of headroom left. Still to run: the one-sided erase
    (needs a System before 7.5), the soak.
 
 # Section 6 - The ADB and the RTC
