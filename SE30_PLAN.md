@@ -16048,9 +16048,13 @@ board regression list on that build.
 - **Not yet decided:** the second floppy drive (built, out of builds since
   compile 37).
 - **If there is no room, the drop order (Daniel, 2026-10-05):** first
-  **CD audio**; second **floppy writing** (GCR and MFM - the read-only
-  switch of 10.4.1 item 4); **CD-ROM is never dropped** - it is how
-  software is installed.
+  **CD audio**; second **DiskCopy 4.2 support** (10.4.1 item 6: -150 to
+  -250 - the loader's header parse and strip, the SD writer's checksum
+  rewrite, and the tags in the encoder, decoder and writer, which only
+  DC42 files carry; images would have to be raw; Daniel: "I don't
+  believe that will gain us much space"); third **floppy writing** (GCR
+  and MFM - the read-only switch of 10.4.1 item 4); **CD-ROM is never
+  dropped** - it is how software is installed.
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
