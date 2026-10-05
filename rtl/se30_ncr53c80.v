@@ -85,6 +85,7 @@ module se30_ncr53c80 #(
 
   // the SCSI bus, as seen (everyone's drive OR'd, this chip's included)
   input      [7:0] b_db,
+  input            b_dbp,              // the parity line: driven (odd) only with the data bus, else released (0)
   input            b_bsy, b_sel, b_rst, b_atn, b_ack,
   input            b_req, b_msg, b_cd, b_io,
   input            b_sel_other,        // SEL asserted by a device other than this chip (lost arbitration)
@@ -117,7 +118,11 @@ module se30_ncr53c80 #(
 
   // ------------------------------------------------------------ bus views
   wire       phase_match = ({b_msg, b_cd, b_io} == tcr[2:0]);     // 6.7 bit 3, continuous
-  wire       dbp = ~^b_db;                                        // odd parity (4.2)
+  // DBP is the bus's parity line as it is (6.5: register 4 monitors "the
+  // data bus parity bit"): whoever drives the data bus drives odd parity
+  // with it (6.2 bit 0, 4.2), and an undriven bus leaves it released - a
+  // free bus reads $00 here, not $01
+  wire       dbp = b_dbp;
 
   // the filters: 400 ns of bus free (7), 400 ns of BSY false (8.6), 400 ns
   // of a selection condition (8.1)

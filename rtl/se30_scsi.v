@@ -82,11 +82,14 @@ module se30_scsi #(
 
   wire       b_bsy = c_bsy | (|t_bsy);
   wire [7:0] b_db  = (c_db_en ? c_db : 8'h00) | ((t0 || t1) && t_io_b ? t_db_b : 8'h00);
+  // the parity line: odd parity from whoever drives the data bus, released
+  // (0) when no one does (the 53C80 manual 4.2, 6.5)
+  wire       b_dbp = (c_db_en || ((t0 || t1) && t_io_b)) && ~^b_db;
 
   se30_ncr53c80 chip (
     .clk(clk), .reset_n(reset_n),
     .cs(cs), .dack(dack), .rd(rd), .wr(wr), .rs(rs), .wdata(wdata), .rdata(rdata), .drq(drq), .irq(irq),
-    .b_db(b_db), .b_bsy(b_bsy), .b_sel(c_sel), .b_rst(c_rst), .b_atn(c_atn), .b_ack(c_ack),
+    .b_db(b_db), .b_dbp(b_dbp), .b_bsy(b_bsy), .b_sel(c_sel), .b_rst(c_rst), .b_atn(c_atn), .b_ack(c_ack),
     .b_req(b_req), .b_msg(t_msg_b), .b_cd(t_cd_b), .b_io(t_io_b), .b_sel_other(1'b0),
     .o_db(c_db), .o_db_en(c_db_en), .o_bsy(c_bsy), .o_sel(c_sel), .o_rst(c_rst), .o_atn(c_atn), .o_ack(c_ack));
 

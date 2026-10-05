@@ -57,12 +57,13 @@ module tb_se30_ncr53c80;
   wire [7:0] o_db;
   wire       o_db_en, o_bsy, o_sel, o_rst, o_atn, o_ack;
   wire [7:0] b_db  = (o_db_en ? o_db : 8'h00) | (t_dben ? t_db : 8'h00);
+  wire       b_dbp = (o_db_en || t_dben) && ~^b_db;          // driven with the data, else released
   wire       b_bsy = o_bsy | t_bsy, b_sel = o_sel | t_sel, b_rst = o_rst | t_rst;
 
   se30_ncr53c80 dut (
     .clk(clk), .reset_n(reset_n),
     .cs(cs), .dack(dack), .rd(rd), .wr(wr), .rs(rs), .wdata(wdata), .rdata(rdata), .drq(drq), .irq(irq),
-    .b_db(b_db), .b_bsy(b_bsy), .b_sel(b_sel), .b_rst(b_rst), .b_atn(o_atn), .b_ack(o_ack),
+    .b_db(b_db), .b_dbp(b_dbp), .b_bsy(b_bsy), .b_sel(b_sel), .b_rst(b_rst), .b_atn(o_atn), .b_ack(o_ack),
     .b_req(t_req), .b_msg(t_msg), .b_cd(t_cd), .b_io(t_io), .b_sel_other(t_sel),
     .o_db(o_db), .o_db_en(o_db_en), .o_bsy(o_bsy), .o_sel(o_sel), .o_rst(o_rst), .o_atn(o_atn), .o_ack(o_ack));
 
@@ -123,6 +124,7 @@ module tb_se30_ncr53c80;
     reg_rd(2); check(rv == 8'h00, "1. Mode Register clear");
     reg_rd(3); check(rv == 8'h00, "1. TCR clear");
     reg_rd(5); check(rv == 8'h08, "1. BSR: only PHASE MATCH (bus phase 000 = TCR 000)");
+    reg_rd(4); check(rv == 8'h00, "1. CSR on a free bus: $00 - no one drives DBP (6.5, 4.2)");
     check(!irq && !drq, "1. no IRQ, no DRQ");
 
     // 2. read back
