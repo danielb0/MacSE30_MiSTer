@@ -16179,10 +16179,21 @@ Daniel - add to it, move items out when fixed).**
    reads only (the ROM's and MODE32's Memory Manager checks). Found
    2026-10-05 while fixing the read side (1.18.4).
 8. **The game Operation Intercept gives a bus error** (Daniel, board,
-   2026-10-05; the build and System not recorded). Open, not yet
-   investigated: Daniel is running it on the other cores first (MacPlus,
-   LC) to tell a core fault from the game's own behaviour on this
-   machine, before any debugging here.
+   2026-10-05). Open, not yet investigated: Daniel is running it on the
+   other cores first (MacPlus, LC) to tell a core fault from the game's
+   own behaviour on this machine, before any debugging here. **The probe
+   deck afterwards**: PBLD `a1d606aa` (compile 42 - before the 1.18 bus
+   error fix, merged into `floppy-write` for compile 43); PSTA: the BERR
+   line never asserted since power-on (`berr_seen` 0, count 0); PEXC:
+   bus-error exceptions saturated at 255, the last eight non-interrupt,
+   non-A-line vectors all 2. So the CPU raised them itself - the PMMU, an
+   access the ROM's 24-bit table does not map - not GLUE; how many are
+   the game's and how many the boot's (slot probing) the counters cannot
+   say, and the deck keeps no bus-error PC. Two readings: the game
+   touches a Plus/SE address that an SE/30 does not map (it would fail
+   on a real SE/30 too, and likely run on the MacPlus core), or our
+   kernel (1.18 concerned bus errors completed in software) - worth one
+   try on compile 43.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
