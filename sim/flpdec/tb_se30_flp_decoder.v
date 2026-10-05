@@ -91,7 +91,7 @@ module tb_se30_flp_decoder;
 
   se30_flp_encoder #(.BASE(BASE)) enc (
     .clk(clk), .reset_n(reset_n),
-    .disk_in(disk_in), .img_ds(ds_eff), .img_tags(img_tags), .img_800k(img_800k),
+    .disk_in(disk_in), .img_ds(ds_eff), .img_tags(img_tags), .img_800k(img_800k), .img_mfm(1'b0), .img_hd(1'b0),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .trk_we(trk_we), .trk_wbit(trk_wbit), .hold(hold), .dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle),

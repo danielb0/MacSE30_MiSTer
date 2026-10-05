@@ -367,6 +367,7 @@ se30_flp_encoder flp_encoder
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
 	.disk_in(disk_in), .img_ds(ds_eff), .img_tags(img_tags), .img_800k(img_800k),
+	.img_mfm(1'b0), .img_hd(1'b0),          // the loader's MFM geometries: plan 5.13.12 item 5
 	.cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
 	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
 	.trk_we(trk_we), .trk_wbit(trk_wbit), .hold(enc_hold), .dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle),
@@ -421,6 +422,7 @@ se30_flp_encoder #(.BASE(24'h900000)) flp2_encoder
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
 	.disk_in(disk2_in), .img_ds(ds2_eff), .img_tags(img2_tags), .img_800k(img2_800k),
+	.img_mfm(1'b0), .img_hd(1'b0),
 	.cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid),
 	.trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
 	.trk_we(trk2_we), .trk_wbit(trk2_wbit), .hold(enc2_hold), .dec_addr(dec2_addr), .dec_bit(dec2_bit), .enc_idle(enc2_idle),

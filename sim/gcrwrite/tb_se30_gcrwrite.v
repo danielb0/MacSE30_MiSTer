@@ -95,7 +95,7 @@ module tb_se30_gcrwrite;
 
   se30_flp_encoder #(.BASE(BASE)) enc (
     .clk(clk), .reset_n(reset_n),
-    .disk_in(1'b1), .img_ds(ds_eff), .img_tags(1'b1), .img_800k(1'b1),
+    .disk_in(1'b1), .img_ds(ds_eff), .img_tags(1'b1), .img_800k(1'b1), .img_mfm(1'b0), .img_hd(1'b0),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .trk_we(trk_we), .trk_wbit(trk_wbit), .hold(hold), .dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle),

@@ -8397,7 +8397,47 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    recorded by intervals, decoded as before), `sim/swim` 141,
    `sim/machine` 17. **The synthesis check for the larger buffer is
    still to run** (deferred while Daniel's 32-bit compile ran).
+   **Run 2026-10-05: passed** (`build_only.sh --check`, 9.6 min): the
+   buffer is one 400,000-bit altsyncram in M10K, with 150 ALMs of
+   address decode and output mux around it.
 3. `sim/flpenc` MFM checks, then the encoder's MFM track.
+   **Done 2026-10-05: `sim/flpenc` 53 PASS (~18 min; 26 GCR as before, 27 MFM;
+   the MFM half alone `+MFM_ONLY`, ~11 min), 8/8 mutants caught.** The
+   encoder lays out, when `img_mfm`, the ROM formatter's track (5.13.2
+   item 6) from the index: 32 x `4E`; per sector R = 1..18 (9), 1:1,
+   12 x `00`, `A1 A1 A1 FE` C H R `02` CRC, 22 x `4E`, 12 x `00`, `A1 A1
+   A1 FB`, the 512 bytes, CRC, gap 3 of 108 (80); `4E` to the end (192
+   bytes HD, 332 DD - whole bytes, so every byte sits on a 16-cell
+   boundary from the index). Two cells a data bit, the clock cell first;
+   the marks drop bit 2's clock (the User's Reference p. 7: "the middle
+   clock pulse in a run of four zeroes"); the CRC bit-serial as the cells
+   go out, preset at each field's first `A1`, running on through its own
+   two bytes (which shifts them out). Block (2c + s) x spt + R - 1; the
+   cells 200,000 (`img_hd`) or 100,000 a side. A cylinder builds in
+   538,177 clocks (17.2 ms, HD) or 265,253 (DD), inside the 36 ms settle.
+   **The bench**: its own MFM encoder (the User's Reference's rules, the
+   mark by the TSM's "1000" rule - it gives `$4489`) and its own CRC (the
+   p. 9 pseudo-code as written - `$CDB4` over three `A1`s) build the
+   expected side; a reference decoder finds marks at every cell offset
+   and reads fields by their data cells. **1.44 MB, every cylinder, both
+   sides**: all 2,880 address fields and data fields right (C H R N,
+   both CRCs, the data byte for byte); every transition interval 2, 3 or
+   4 cells, around the wrap too; the mark only at the 108 places a side's
+   18 sectors put it; 1:1 order; the first mark at cell 704 (32 x `4E`
+   and the sync), gap 2, gap 3 of 108, the 300-byte tail of `4E`; every
+   cell the formatter's layout; the drive's port reads the buffer
+   (cylinders 0, 41, 79, side 1 at 200,000). **720K** on 8 cylinders:
+   the same at 9 sectors, gap 3 of 80, 100,000 cells. **Second opinion**:
+   MacLC's `mfm_track_encoder.v` (byte-level, an IBM layout with an index
+   field) gives identical address and data fields - marks, C H R N, data,
+   CRCs - on 144 sectors. Negative cases (a flipped data cell fails that
+   sector's CRC alone; a header cell that header), a restart mid-build,
+   and a GCR image after the MFM ones. Mutants: no dropped clock, one CRC
+   preset a sector, gap 3 of 107, H stuck at 0, R 0-based, the HD block
+   formula for 720K, the CRC byte a bit early (`crc` for `crc_nx`), the
+   last bit forgotten across a byte. `img_mfm`/`img_hd` are tied 0 in
+   the top until item 5; `sim/flpdec` 39 and `sim/gcrwrite` 9 rerun
+   (pass), `sim/gcrread` compiles.
 4. `sim/swim` ISM read checks, then the ISM's read chain.
 5. `sim/flpload`, then the loader's geometries; the machine and top
    wiring.

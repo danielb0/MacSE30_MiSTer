@@ -1,6 +1,6 @@
 // se30_flp_encoder.v - the internal drive's track buffers: a cylinder of a
-// disk image, laid out as the SE/30 ROM's GCR formatter lays a track, a
-// bit a cell (SE30_PLAN.md 5.12.4 and 5.12.5b).
+// disk image, laid out as the SE/30 ROM's GCR or MFM formatter lays a
+// track, a bit a cell (SE30_PLAN.md 5.12.4, 5.12.5b and 5.13.9 item 3).
 //
 // WHAT IT IS
 //   When a disk is in and the drive's head is on a cylinder the buffers do
@@ -24,6 +24,26 @@
 //   both give.  A sector is 6,208 cells; groups 1-5 leave 62, 188, 157,
 //   82 and 126 cells over.  A single-sided image's side 1 has no flux.
 //
+// THE MFM TRACK (img_mfm: the ROM's MFM formatter, $4082EC5E, plan 5.13.2
+// item 6)
+//   A cell is the drive's 1-us MFM cell, two to a data bit (the clock cell,
+//   then the data cell): 200,000 a side for 1.44 MB (300 rpm), 100,000 for
+//   720K (600 rpm, 5.13.8 decision A).  From the index (cell 0):
+//     32 x 4E
+//     per sector R = 1..18 (or 9), 1:1:
+//       12 x 00, A1 A1 A1 FE C H R 02 CRC, 22 x 4E,
+//       12 x 00, A1 A1 A1 FB, 512 bytes, CRC, gap 3: 108 x 4E (80 for 720K)
+//     4E to the end of the revolution (192 bytes; 332 for 720K)
+//   No index mark - the formatter writes none.  The User's Reference's MFM
+//   (pp. 6-7): a data 1 is a transition in its data cell, a 0 after a 0 a
+//   transition in its clock cell; the marks' A1 drops "the middle clock
+//   pulse in a run of four zeroes" (bit 2's).  The CRC (p. 9) is
+//   CCITT-16, preset to all ones at each field's first A1 and run over
+//   the A1s and the field, its high byte first; it runs on through its
+//   own two bytes and so shifts them out.  The data come from the image
+//   (no tags on an MFM disk); C is the cylinder, H the side, 02 = 512
+//   bytes.  Every byte starts on a 16-cell boundary from the index.
+//
 // THE NIBBLING (the ERS's steps 1-9; the ROM's writer, $4082E566)
 //   For each group of three bytes A B C: rotate CSUMC left (its bit 7 the
 //   carry), CSUMA += A + carry, A ^= CSUMC; CSUMB += B + carry, B ^= CSUMA;
@@ -37,7 +57,8 @@
 //   stripped: block n's data at BASE + 256n, its tag - when the image has
 //   tags - at BASE + 256 x blocks + 6n, blocks being the FILE's (img_800k:
 //   1600, else 800), not the volume's.  Cylinder c, side s, sector k is
-//   block sides x (sectors before c) + s x spt + k.
+//   block sides x (sectors before c) + s x spt + k; on an MFM disk
+//   (2c + s) x spt + R - 1, spt 18 or 9.
 //
 // WRITING (rung 3, plan 5.15.5 item 3)
 //   The buffer is the medium: the drive's recording writes cells through
@@ -66,6 +87,8 @@ module se30_flp_encoder #(
   input             img_ds,            // 1 = double-sided (1600 blocks), 0 = 800
   input             img_tags,          // the image carries 12 tag bytes a block
   input             img_800k,          // the FILE's data region is 1600 blocks (its tags follow it)
+  input             img_mfm,           // an MFM disk: the MFM formatter's track
+  input             img_hd,            // ... 1.44 MB (18 sectors, 200,000 cells); else 720K (9, 100,000)
 
   input       [6:0] cyl,               // the drive's head
   output reg  [6:0] trk_cyl,           // what the buffers hold
@@ -126,22 +149,23 @@ module se30_flp_encoder #(
   reg        bside;
   wire [2:0] grp  = c[6:4];
   wire [3:0] spt  = 4'd12 - {1'b0, grp};
-  reg [16:0] cells;                              // a revolution of this group
+  reg [17:0] cells;                              // a revolution of this group (or MFM's)
   reg  [7:0] lead;                               // its leftover
   reg  [3:0] lead_m;                             // (leftover - 1) mod 10: the pattern's phase
   reg  [9:0] gstart;                             // sectors on one side before the group
   always @* begin
     case (grp)
-      3'd0:    begin cells = 17'd74558; lead = 8'd62;  lead_m = 4'd1; gstart = 10'd0;   end
-      3'd1:    begin cells = 17'd68476; lead = 8'd188; lead_m = 4'd7; gstart = 10'd192; end
-      3'd2:    begin cells = 17'd62237; lead = 8'd157; lead_m = 4'd6; gstart = 10'd368; end
-      3'd3:    begin cells = 17'd55954; lead = 8'd82;  lead_m = 4'd1; gstart = 10'd528; end
-      default: begin cells = 17'd49790; lead = 8'd126; lead_m = 4'd5; gstart = 10'd672; end
+      3'd0:    begin cells = 18'd74558; lead = 8'd62;  lead_m = 4'd1; gstart = 10'd0;   end
+      3'd1:    begin cells = 18'd68476; lead = 8'd188; lead_m = 4'd7; gstart = 10'd192; end
+      3'd2:    begin cells = 18'd62237; lead = 8'd157; lead_m = 4'd6; gstart = 10'd368; end
+      3'd3:    begin cells = 18'd55954; lead = 8'd82;  lead_m = 4'd1; gstart = 10'd528; end
+      default: begin cells = 18'd49790; lead = 8'd126; lead_m = 4'd5; gstart = 10'd672; end
     endcase
+    if (img_mfm) cells = img_hd ? 18'd200000 : 18'd100000;
   end
   wire [10:0] before_c = {1'b0, gstart} + c[3:0] * spt;        // sectors on one side before c
 
-  reg  [3:0] slot;                               // the sector's place on the track
+  reg  [4:0] slot;                               // the sector's place on the track
   wire [3:0] half = (spt - 4'd1) / 2 + 4'd1;
   wire [3:0] sector = slot[0] ? half + (slot >> 1) : (slot >> 1);   // $408321CA
   wire [10:0] blk = (img_ds ? {before_c[9:0], 1'b0} : before_c) + (bside ? {7'd0, spt} : 11'd0) + {7'd0, sector};
@@ -155,6 +179,14 @@ module se30_flp_encoder #(
   wire [5:0] h_sd  = {bside, 4'b0000, c[6]};
   wire [5:0] h_fmt = img_ds ? 6'h22 : 6'h02;
   wire [5:0] h_chk = h_trk ^ h_sec ^ h_sd ^ h_fmt;
+
+  // an MFM disk's block: (2c + s) x spt + slot, spt 18 (x16 + x2) or 9 (x8 + x1)
+  wire  [7:0] ts    = {c, bside};
+  wire [11:0] mblk  = (img_hd ? {ts, 4'b0000} + {3'b000, ts, 1'b0} : {1'b0, ts, 3'b000} + {4'd0, ts})
+                      + {7'd0, slot};
+  wire [11:0] fblk  = img_mfm ? mblk : {1'b0, blk};
+  wire  [4:0] mspt  = img_hd ? 5'd18 : 5'd9;
+  wire  [9:0] mlast = img_hd ? 10'd681 : 10'd653;  // a sector's last byte: gap 3 of 108 or 80
 
   // ------------------------------------------------------------ buffers
   reg        tbuf [0:399999];                    // both sides' bitstreams
@@ -173,9 +205,9 @@ module se30_flp_encoder #(
 
   // ------------------------------------------------------------ the build
   localparam S_IDLE = 4'd0, S_SIDE = 4'd1, S_FILL = 4'd2, S_LEAD = 4'd3, S_FETCH = 4'd4,
-             S_NIB = 4'd5, S_SUM = 4'd6, S_EMIT = 4'd7, S_DONE = 4'd8;
+             S_NIB = 4'd5, S_SUM = 4'd6, S_EMIT = 4'd7, S_DONE = 4'd8, S_MFM = 4'd9;
   reg  [3:0] st;
-  reg [16:0] wptr;                               // the cell being written
+  reg [17:0] wptr;                               // the cell being written
   reg  [8:0] widx;                               // FETCH: the sector buffer's word
   reg  [7:0] lcnt;                               // LEAD: cells left
   reg  [3:0] lm;                                 // LEAD: the pattern's phase
@@ -193,6 +225,14 @@ module se30_flp_encoder #(
   reg  [7:0] cur;
   reg  [7:0] cbuf_q;
   reg  [9:0] cbuf_ra;
+  // MFM (S_MFM): the part of the side, the cell's half, the last data bit,
+  // a mark byte, the CRC
+  reg  [1:0] mm;                                 // 0 the 32 x 4E, 1 a sector, 2 4E to the end
+  reg        ph;                                 // 0 the clock cell, 1 the data cell
+  reg        pd;
+  reg        mk;
+  reg [15:0] crc;
+  wire [15:0] crc_nx = {crc[14:0], 1'b0} ^ ((crc[15] ^ cur[7]) ? 16'h1021 : 16'h0000);
 
   wire [7:0] sbyte = bsel_q ? sbuf_q[7:0] : sbuf_q[15:8];
   wire       last  = (g == 8'd174);
@@ -229,6 +269,29 @@ module se30_flp_encoder #(
     else                   nbyte = 8'hFF;
   end
 
+  // the MFM sector's byte jn, and whether it is a mark (the CRC's bytes
+  // from crc_nx: the field's last bit goes into the CRC on this clock)
+  reg  [7:0] mbyte;
+  reg        mbmark;
+  always @* begin
+    mbmark = 1'b0;
+    if (jn < 10'd12)                       mbyte = 8'h00;
+    else if (jn < 10'd15) begin            mbyte = 8'hA1; mbmark = 1'b1; end
+    else if (jn == 10'd15)                 mbyte = 8'hFE;
+    else if (jn == 10'd16)                 mbyte = {1'b0, c};
+    else if (jn == 10'd17)                 mbyte = {7'd0, bside};
+    else if (jn == 10'd18)                 mbyte = {3'd0, slot} + 8'd1;
+    else if (jn == 10'd19)                 mbyte = 8'h02;
+    else if (jn < 10'd22)                  mbyte = crc_nx[15:8];
+    else if (jn < 10'd44)                  mbyte = 8'h4E;
+    else if (jn < 10'd56)                  mbyte = 8'h00;
+    else if (jn < 10'd59) begin            mbyte = 8'hA1; mbmark = 1'b1; end
+    else if (jn == 10'd59)                 mbyte = 8'hFB;
+    else if (jn < 10'd572)                 mbyte = sbyte;
+    else if (jn < 10'd574)                 mbyte = crc_nx[15:8];
+    else                                   mbyte = 8'h4E;
+  end
+
   // port B: the build's writes, or the decoder's reads while idle
   reg        tb_we, tb_d;
   reg [18:0] tb_a;
@@ -258,6 +321,7 @@ module se30_flp_encoder #(
   end
 
   wire [18:0] wbase = bside ? SIDE1 : 19'd0;
+  wire        mlastcell = (wptr + 1'b1 == cells);
   wire        leave = !disk_in || cyl != c;     // abandon the build (no request out)
 
   always @(posedge clk or negedge reset_n) begin
@@ -266,6 +330,7 @@ module se30_flp_encoder #(
       c <= 0; bside <= 0; slot <= 0; wptr <= 0; widx <= 0; lcnt <= 0; lm <= 0; g <= 0; ns <= 0;
       bidx <= 0; A <= 0; B <= 0; ca <= 0; cb <= 0; cc <= 0; Ap <= 0; Bp <= 0; Cp <= 0;
       ci <= 0; j <= 0; bk <= 0; j6 <= 0; cur <= 0; cbuf_ra <= 0;
+      mm <= 0; ph <= 0; pd <= 0; mk <= 0; crc <= 16'hFFFF;
       tb_we <= 0; tb_a <= 0; tb_d <= 0; sb_we <= 0; sb_a <= 0; sb_d <= 0; cb_we <= 0; cb_a <= 0; cb_d <= 0;
     end else begin
       tb_we <= 0; sb_we <= 0; cb_we <= 0;
@@ -280,17 +345,18 @@ module se30_flp_encoder #(
 
         S_SIDE: begin                            // a side begins
           wptr <= 0; slot <= 0; lcnt <= lead; lm <= lead_m;
-          st <= (bside && !img_ds) ? S_FILL : S_LEAD;
+          j <= 0; bk <= 0; ph <= 0; pd <= 0; mm <= 0; cur <= 8'h4E; mk <= 0;
+          st <= img_mfm ? S_MFM : (bside && !img_ds) ? S_FILL : S_LEAD;
         end
 
         S_FILL: begin                            // side 1 of a single-sided disk: no flux
-          tb_we <= 1; tb_a <= wbase + {2'b00, wptr}; tb_d <= 0;
+          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= 0;
           wptr <= wptr + 1'b1;
           if (wptr + 1'b1 == cells) st <= S_DONE;        // FILL is only ever side 1
         end
 
         S_LEAD: begin                            // the leftover: groups ending in 00
-          tb_we <= 1; tb_a <= wbase + {2'b00, wptr}; tb_d <= (lm >= 4'd2);
+          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= (lm >= 4'd2);
           wptr <= wptr + 1'b1;
           lm <= (lm == 0) ? 4'd9 : lm - 1'b1;
           lcnt <= lcnt - 1'b1;
@@ -301,7 +367,9 @@ module se30_flp_encoder #(
           if (widx < 9'd6 && !img_tags) begin
             sb_we <= 1; sb_a <= widx; sb_d <= 16'h0000; widx <= widx + 1'b1;
           end else if (widx == 9'd262) begin
-            g <= 0; ns <= 0; ci <= 0; ca <= 0; cb <= 0; cc <= 0; st <= S_NIB;
+            g <= 0; ns <= 0; ci <= 0; ca <= 0; cb <= 0; cc <= 0;
+            j <= 0; cur <= 8'h00; mk <= 0; mm <= 2'd1;          // (MFM: the sector's first 00)
+            st <= img_mfm ? S_MFM : S_NIB;
           end else if (mem_req) begin
             if (mem_ack) begin
               mem_req <= 0; sb_we <= 1; sb_a <= widx; sb_d <= mem_rdata; widx <= widx + 1'b1;
@@ -309,7 +377,7 @@ module se30_flp_encoder #(
           end else if (!mem_ack) begin
             mem_req  <= 1;
             mem_addr <= (widx < 9'd6) ? tag_base + {15'd0, widx}
-                                       : BASE + {5'd0, blk, 8'd0} + {15'd0, widx - 9'd6};
+                                       : BASE + {4'd0, fblk, 8'd0} + {15'd0, widx - 9'd6};
           end
         end
 
@@ -356,7 +424,7 @@ module se30_flp_encoder #(
         end
 
         S_EMIT: begin                            // the sector's 776 bytes, a bit a clock
-          tb_we <= 1; tb_a <= wbase + {2'b00, wptr}; tb_d <= cur[7];
+          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= cur[7];
           wptr <= wptr + 1'b1;
           cur <= {cur[6:0], 1'b0};
           bk <= bk + 1'b1;
@@ -374,6 +442,39 @@ module se30_flp_encoder #(
           end
         end
 
+        S_MFM: begin                             // a cell a clock: the clock cell, then the data cell
+          tb_we <= 1; tb_a <= wbase + {1'b0, wptr};
+          wptr <= wptr + 1'b1;
+          ph <= !ph;
+          bidx <= jn - 10'd48;                   // the next data byte, read ahead (sector byte 12 + jn - 60)
+          if (!ph)
+            tb_d <= !pd && !cur[7] && !(mk && bk == 3'd5);  // a mark: no clock before bit 2
+          else begin
+            tb_d <= cur[7]; pd <= cur[7]; crc <= crc_nx;
+            cur <= {cur[6:0], 1'b0};
+            bk <= bk + 1'b1;
+            if (bk == 3'd7)                      // the byte's last cell
+              case (mm)
+                2'd0:                            // the 32 x 4E from the index
+                  if (j == 10'd31) begin widx <= 9'd6; st <= S_FETCH; end
+                  else begin j <= jn; cur <= 8'h4E; end
+                2'd1:                            // a sector
+                  if (j == mlast) begin
+                    if (slot + 1'b1 == mspt) begin mm <= 2'd2; cur <= 8'h4E; mk <= 0; end
+                    else begin slot <= slot + 1'b1; widx <= 9'd6; st <= S_FETCH; end
+                  end else begin
+                    j <= jn; cur <= mbyte; mk <= mbmark;
+                    if (jn == 10'd12 || jn == 10'd56) crc <= 16'hFFFF;   // a field's first A1
+                  end
+                default:                         // 4E to the end of the revolution
+                  if (mlastcell) begin
+                    if (bside) st <= S_DONE;
+                    else begin bside <= 1; st <= S_SIDE; end
+                  end else cur <= 8'h4E;
+              endcase
+          end
+        end
+
         S_DONE: begin                            // the last bit is in: valid
           trk_valid <= 1; trk_cyl <= c; st <= S_IDLE;
         end
@@ -384,6 +485,6 @@ module se30_flp_encoder #(
   end
 
   assign enc_idle = (st == S_IDLE);
-  assign dbg = {trk_valid, bside, st, slot, c[5:0]};
+  assign dbg = {trk_valid, bside, st, slot[3:0], c[5:0]};
 
 endmodule

@@ -33,6 +33,32 @@
 //        its acknowledge - restarts the build; trk_valid only for
 //        the cylinder asked for; disk out drops it; the build time
 //
+//   and, for an MFM image (plan 5.13.9 item 3, 5.13.10 item 3), the track
+//   the ROM's MFM formatter would have written ($4082EC5E):
+//
+//     8. a 1.44 MB image, every cylinder, both sides: 200,000 cells a
+//        side; every interval between transitions 2, 3 or 4 cells (MFM's
+//        rule, around the wrap too); the mark - an A1 with its clock
+//        dropped as the User's Reference describes - nowhere but in the
+//        36 places a side's 18 sectors put it; all 2,880 sectors found
+//        by a reference decoder in this bench - the address field's C H
+//        R N, both CRCs (the User's Reference's pseudo-code, from all
+//        ones over the three A1s and the field), the data byte for byte -
+//        in 1:1 order; the gaps (32 x 4E after the index, 22, gap 3 of
+//        108, 4E to the end); and every cell the formatter's layout bit
+//        for bit; the port reads what the buffer holds (side 1 at
+//        200,000); the build time
+//     9. a 720K image: 100,000 cells, 9 sectors, gap 3 of 80, on a set of
+//        cylinders
+//    10. a second opinion: MacLC's mfm_track_encoder.v (byte-level, an
+//        IBM layout of its own) gives the same address fields and data
+//        fields - marks, C H R N, data, CRCs - sector for sector
+//    11. negative cases (a flipped cell fails its sector's CRC alone, or
+//        its header); a new cylinder mid-build; a GCR image after the
+//        MFM ones still builds GCR
+//
+//   +MFM_ONLY skips sections 1-7 (the GCR half, ~6.5 min).
+//
 // THE BENCH
 //   clk is clk_sys (31.3344 MHz).  The image sits in a word memory as the
 //   loader will leave it (5.12.5b: base + k holds bytes 2k and 2k+1; the
@@ -52,7 +78,7 @@ module tb_se30_flp_encoder;
   always #16 clk = ~clk;
   reg reset_n = 0;
 
-  reg        disk_in = 0, img_ds = 1, img_tags = 1;
+  reg        disk_in = 0, img_ds = 1, img_tags = 1, img_mfm = 0, img_hd = 0;
   reg  [6:0] cyl = 0;
   wire [6:0] trk_cyl;
   wire       trk_valid;
@@ -68,6 +94,7 @@ module tb_se30_flp_encoder;
   se30_flp_encoder #(.BASE(BASE)) dut (
     .clk(clk), .reset_n(reset_n),
     .disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_ds),
+    .img_mfm(img_mfm), .img_hd(img_hd),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(19'd0), .dec_bit(), .enc_idle(),
@@ -131,9 +158,9 @@ module tb_se30_flp_encoder;
     tbyte = img_tags ? ((n * 5 + j * 31 + 1) & 8'hFF) : 8'h00;
   endfunction
 
-  reg [15:0] mem [0:1600*256 + 1600*6 - 1];
+  reg [15:0] mem [0:2880*256 - 1];               // the larger of 1600 x 262 (GCR) and 2880 x 256 (1.44 MB)
   reg  [7:0] exp_sec [0:1599*524 + 523];         // the 524 bytes each block should decode to
-  reg  [7:0] mem8 [0:819199];                    // MacPlus's view: the data, bytes
+  reg  [7:0] mem8 [0:1474559];                   // MacPlus's and MacLC's view: the data, bytes
   task build_image;
     integer n, i, j;
     reg [7:0] d [0:511];
@@ -167,7 +194,7 @@ module tb_se30_flp_encoder;
       if (lat == 0) lat <= 3 + (cyc % 10);
       else if (lat == 1) begin
         mem_ack <= 1; lat <= 0; reqs <= reqs + 1;
-        mem_rdata <= (mem_addr >= BASE && mem_addr - BASE < 1600*256 + 1600*6) ? mem[mem_addr - BASE] : 16'hBAD0;
+        mem_rdata <= (mem_addr >= BASE && mem_addr - BASE < 2880*256) ? mem[mem_addr - BASE] : 16'hBAD0;
       end else lat <= lat - 1;
     end
     if (mem_ack && !mem_req) begin
@@ -400,13 +427,300 @@ module tb_se30_flp_encoder;
     end
   endtask
 
+  // ------------------------------------------------------------ MFM (plan 5.13)
+  integer mspt, mcells, mgap3;                   // 18, 200,000, 108 (1.44 MB); 9, 100,000, 80 (720K)
+  task mfm_geometry(input hd);
+    begin mspt = hd ? 18 : 9; mcells = hd ? 200000 : 100000; mgap3 = hd ? 108 : 80; end
+  endtask
+  // block n's data byte i: bytes 0-2 its cylinder, side and sector (1-based)
+  function [7:0] mdbyte(input integer n, input integer i);
+    case (i)
+      0: mdbyte = n / (2 * mspt); 1: mdbyte = (n / mspt) % 2; 2: mdbyte = n % mspt + 1;
+      default: mdbyte = (n * 7 + i * 13 + (i >> 5)) & 8'hFF;
+    endcase
+  endfunction
+  task build_mfm_image;
+    integer n, i;
+    begin
+      for (n = 0; n < 160 * mspt; n = n + 1)
+        for (i = 0; i < 512; i = i + 1) mem8[n * 512 + i] = mdbyte(n, i);
+      for (n = 0; n < 160 * mspt * 256; n = n + 1) mem[n] = {mem8[2 * n], mem8[2 * n + 1]};
+    end
+  endtask
+
+  // the User's Reference's CRC (p. 9) as its pseudo-code reads: xorBit =
+  // CRC15 ^ DATA7, CRC4 and CRC11 ^= xorBit, rotate left with xorBit into
+  // CRC0; all ones to begin
+  function [15:0] ucrc(input [15:0] cin, input [7:0] d);
+    integer b;
+    reg [15:0] r;
+    reg  [7:0] dd;
+    reg        x;
+    begin
+      r = cin; dd = d;
+      for (b = 0; b < 8; b = b + 1) begin
+        x = r[15] ^ dd[7];
+        r[4] = r[4] ^ x; r[11] = r[11] ^ x;
+        r = {r[14:0], x};
+        dd = {dd[6:0], 1'b0};
+      end
+      ucrc = r;
+    end
+  endfunction
+
+  // a byte's 16 cells, the clock cell first (the User's Reference p. 7: a
+  // data 1 a transition in its cell, a clock transition between two 0s; a
+  // mark byte drops "the middle clock pulse in a run of four zeroes" - the
+  // TSM's "1000", the clock before the last zero, p. 18); p0 the last bit
+  function [15:0] menc(input [7:0] v, input mark, input p0);
+    integer b;
+    reg p, d, ck;
+    reg [3:0] h;
+    begin
+      p = p0; h = {3'b000, p0};
+      for (b = 7; b >= 0; b = b - 1) begin
+        d = v[b];
+        ck = !p && !d;
+        h = {h[2:0], d};
+        if (mark && h == 4'b1000) ck = 1'b0;
+        menc[2 * b + 1] = ck; menc[2 * b] = d;
+        p = d;
+      end
+    end
+  endfunction
+
+  // the formatter's side ($4082EC5E): 32 x 4E from the index, then per
+  // sector R = 1.. (1:1) 12 x 00, A1 A1 A1 (marks) FE C H R 02 CRC, 22 x
+  // 4E, 12 x 00, A1 A1 A1 FB, the 512 bytes, CRC, gap 3; 4E to the end
+  reg  [7:0] xb [0:12499];
+  reg        xm [0:12499];
+  integer    xn;
+  task mfm_expect(input integer c, input integer s);
+    integer k, r, i, n;
+    reg [15:0] cr;
+    begin
+      xn = mcells / 16;
+      for (i = 0; i < xn; i = i + 1) begin xb[i] = 8'h4E; xm[i] = 0; end
+      k = 32;
+      for (r = 1; r <= mspt; r = r + 1) begin
+        n = (2 * c + s) * mspt + r - 1;
+        for (i = 0; i < 12; i = i + 1) begin xb[k] = 8'h00; k = k + 1; end
+        cr = 16'hFFFF;
+        for (i = 0; i < 3; i = i + 1) begin xb[k] = 8'hA1; xm[k] = 1; cr = ucrc(cr, 8'hA1); k = k + 1; end
+        xb[k] = 8'hFE; cr = ucrc(cr, xb[k]); k = k + 1;
+        xb[k] = c;     cr = ucrc(cr, xb[k]); k = k + 1;
+        xb[k] = s;     cr = ucrc(cr, xb[k]); k = k + 1;
+        xb[k] = r;     cr = ucrc(cr, xb[k]); k = k + 1;
+        xb[k] = 8'h02; cr = ucrc(cr, xb[k]); k = k + 1;
+        xb[k] = cr[15:8]; xb[k + 1] = cr[7:0]; k = k + 2;
+        k = k + 22;
+        for (i = 0; i < 12; i = i + 1) begin xb[k] = 8'h00; k = k + 1; end
+        cr = 16'hFFFF;
+        for (i = 0; i < 3; i = i + 1) begin xb[k] = 8'hA1; xm[k] = 1; cr = ucrc(cr, 8'hA1); k = k + 1; end
+        xb[k] = 8'hFB; cr = ucrc(cr, xb[k]); k = k + 1;
+        for (i = 0; i < 512; i = i + 1) begin xb[k] = mem8[n * 512 + i]; cr = ucrc(cr, xb[k]); k = k + 1; end
+        xb[k] = cr[15:8]; xb[k + 1] = cr[7:0]; k = k + 2;
+        k = k + mgap3;
+      end
+    end
+  endtask
+
+  // a side's cells: the buffer itself, or through the drive's port
+  reg mrev [0:199999];
+  task mfm_peek(input integer s);
+    integer a;
+    for (a = 0; a < mcells; a = a + 1) mrev[a] = dut.tbuf[s ? 200000 + a : a];
+  endtask
+  task mfm_port(input integer s, output integer diff);
+    integer a;
+    begin
+      diff = 0;
+      for (a = 0; a < mcells; a = a + 1) begin
+        #1 trk_addr = a; trk_side = s;
+        @(posedge clk); #1 mrev[a] = trk_bit;
+        if (trk_bit !== dut.tbuf[s ? 200000 + a : a]) diff = diff + 1;
+      end
+    end
+  endtask
+
+  // every cell against the formatter's side, encoded by menc
+  task mfm_layout(output integer bad);
+    integer k, b;
+    reg p;
+    reg [15:0] w;
+    begin
+      bad = 0; p = 0;
+      for (k = 0; k < xn; k = k + 1) begin
+        w = menc(xb[k], xm[k], p); p = xb[k][0];
+        for (b = 0; b < 16; b = b + 1) if (mrev[16 * k + b] !== w[15 - b]) bad = bad + 1;
+      end
+    end
+  endtask
+
+  // the reference decoder
+  reg [15:0] mark_cells;                         // menc(A1, mark): what a mark's cells are
+  function [7:0] mdata(input integer pos);       // the byte whose cells begin at pos: its data cells
+    integer b;
+    for (b = 0; b < 8; b = b + 1) mdata[7 - b] = (pos + 2 * b + 1 < mcells) ? mrev[pos + 2 * b + 1] : 1'b0;
+  endfunction
+  integer mkp [0:199];                           // every mark's first cell
+  integer id_pos [0:17], da_pos [0:17];          // sector R's address and data marks
+  integer m_illegal, m_marks, m_stray, m_ids, m_hdr_ok, m_data_ok, m_order_bad;
+  integer m_gap1, m_gap2_bad, m_gap3_bad, m_tail, m_tail_bad, cur_r;
+  task mfm_decode(input integer c, input integer s);
+    integer i, f1, run, k, p, r, n, nm, nid, mism, last_end;
+    reg [15:0] w, cr;
+    reg  [7:0] v;
+    begin
+      // MFM's rule: transitions 2, 3 or 4 cells apart, around the wrap too
+      m_illegal = 0;
+      f1 = 0; while (f1 < mcells && mrev[f1] !== 1'b1) f1 = f1 + 1;
+      run = 0;
+      for (i = 1; i <= mcells; i = i + 1) begin
+        run = run + 1;
+        if (mrev[(f1 + i) % mcells] === 1'b1) begin
+          if (run < 2 || run > 4) m_illegal = m_illegal + 1;
+          run = 0;
+        end
+      end
+      // the marks, looked for at every cell
+      nm = 0; w = 0;
+      for (i = 0; i < mcells; i = i + 1) begin
+        w = {w[14:0], mrev[i] === 1'b1};
+        if (i >= 15 && w == mark_cells) begin if (nm < 200) mkp[nm] = i - 15; nm = nm + 1; end
+      end
+      m_marks = nm;
+      // the fields: three marks, then FE (an address field) or FB (data)
+      m_ids = 0; m_hdr_ok = 0; m_data_ok = 0; m_order_bad = 0; m_stray = 0;
+      m_gap2_bad = 0; m_gap3_bad = 0; m_tail_bad = 0; m_tail = 0;
+      for (r = 0; r < 18; r = r + 1) begin id_pos[r] = -1; da_pos[r] = -1; end
+      nid = 0; cur_r = -1; i = 0;
+      while (i < nm && i < 200) begin
+        if (i + 2 < nm && mkp[i + 1] == mkp[i] + 16 && mkp[i + 2] == mkp[i] + 32) begin
+          p = mkp[i] + 48; v = mdata(p);
+          cr = ucrc(ucrc(ucrc(16'hFFFF, 8'hA1), 8'hA1), 8'hA1);
+          if (v == 8'hFE) begin
+            m_ids = m_ids + 1;
+            for (k = 0; k < 7; k = k + 1) cr = ucrc(cr, mdata(p + 16 * k));   // FE C H R N, the CRC
+            r = mdata(p + 48); cur_r = -1;
+            if (cr == 0 && mdata(p + 16) == c && mdata(p + 32) == s && mdata(p + 64) == 8'h02 && r >= 1 && r <= mspt) begin
+              m_hdr_ok = m_hdr_ok + 1; id_pos[r - 1] = mkp[i]; cur_r = r;
+              if (r != nid + 1) m_order_bad = m_order_bad + 1;
+              nid = r;
+              // gap 2: 22 x 4E and 12 x 00 to the data field's marks
+              for (k = 10; k < 44; k = k + 1) if (mdata(mkp[i] + 16 * k) != (k < 32 ? 8'h4E : 8'h00)) m_gap2_bad = m_gap2_bad + 1;
+            end
+          end else if (v == 8'hFB) begin
+            // the data field belongs to the address field just read, if it is near
+            for (k = 0; k < 515; k = k + 1) cr = ucrc(cr, mdata(p + 16 * k));  // FB, 512, the CRC
+            if (cur_r > 0 && mkp[i] - id_pos[cur_r - 1] < 16 * 60 && cr == 0) begin
+              n = (2 * c + s) * mspt + cur_r - 1; mism = 0;
+              for (k = 0; k < 512; k = k + 1) if (mdata(p + 16 + 16 * k) != mem8[n * 512 + k]) mism = mism + 1;
+              if (mism == 0) begin m_data_ok = m_data_ok + 1; da_pos[cur_r - 1] = mkp[i]; end
+            end
+            cur_r = -1;
+          end else m_stray = m_stray + 3;
+          i = i + 3;
+        end else begin m_stray = m_stray + 1; i = i + 1; end
+      end
+      // gap 1, gap 3, the tail (4E to the index)
+      m_gap1 = id_pos[0];
+      for (k = 0; k < 32; k = k + 1) if (mdata(16 * k) != 8'h4E) m_gap2_bad = m_gap2_bad + 1;
+      for (r = 0; r + 1 < mspt; r = r + 1)
+        if (da_pos[r] < 0 || id_pos[r + 1] < 0) m_gap3_bad = m_gap3_bad + 1;
+        else begin
+          last_end = da_pos[r] + 16 * 518;
+          if ((id_pos[r + 1] - last_end) / 16 - 12 != mgap3) m_gap3_bad = m_gap3_bad + 1;
+          for (k = last_end; k < id_pos[r + 1] - 16 * 12; k = k + 16) if (mdata(k) != 8'h4E) m_gap3_bad = m_gap3_bad + 1;
+        end
+      if (da_pos[mspt - 1] >= 0) begin
+        last_end = da_pos[mspt - 1] + 16 * 518;
+        m_tail = (mcells - last_end) / 16;
+        for (k = last_end; k < mcells; k = k + 16) if (mdata(k) != 8'h4E) m_tail_bad = m_tail_bad + 1;
+      end else m_tail_bad = 1;
+    end
+  endtask
+
+  // ------------------------------------------------------------ MacLC's MFM encoder
+  reg        lc_ready = 0, lc_rst = 1, lc_side = 0, lc_hd = 1;
+  reg  [6:0] lc_track = 0;
+  wire [21:0] lc_addr;
+  wire  [7:0] lc_odata;
+  wire        lc_omark;
+  wire  [7:0] lc_idata = mem8[lc_addr];
+  mfm_track_encoder lc (
+    .clk(clk), .ready(lc_ready), .rst(lc_rst), .side(lc_side), .track(lc_track), .hd(lc_hd),
+    .addr(lc_addr), .idata(lc_idata), .odata(lc_odata), .omark(lc_omark),
+    .ocrc0(), .oneeds(), .oindex(), .osector());
+  reg  [7:0] lcb [0:12499];
+  reg        lcm [0:12499];
+  integer    lcn, lc_mism = 0, lc_secs = 0;
+  task run_lc(input integer c, input integer s);
+    integer i;
+    begin
+      lc_track = c; lc_side = s; lc_hd = (mspt == 18); lc_rst = 1;
+      @(posedge clk); @(negedge clk) lc_rst = 0; #1;
+      lcn = 146 + mspt * 682;                    // its track: an index field, gap 3 of 108
+      for (i = 0; i < lcn; i = i + 1) begin
+        lcb[i] = lc_odata; lcm[i] = lc_omark;
+        @(negedge clk) lc_ready = 1;
+        @(negedge clk) lc_ready = 0; #1;
+      end
+    end
+  endtask
+  // the side just decoded (mrev, id_pos, da_pos) against MacLC's stream
+  task lc_compare(input integer c, input integer s);
+    integer r, p, q, i;
+    begin
+      run_lc(c, s);
+      for (r = 1; r <= mspt; r = r + 1) begin
+        lc_secs = lc_secs + 1;
+        p = 0;
+        while (p + 9 < lcn && !(lcm[p] && lcm[p + 1] && lcm[p + 2] && lcb[p] == 8'hA1 && lcb[p + 3] == 8'hFE && lcb[p + 6] == r)) p = p + 1;
+        if (p + 9 >= lcn || id_pos[r - 1] < 0 || da_pos[r - 1] < 0) lc_mism = lc_mism + 1000;
+        else begin
+          for (i = 0; i < 10; i = i + 1)
+            if (lcb[p + i] != mdata(id_pos[r - 1] + 16 * i) || lcm[p + i] != (i < 3)) lc_mism = lc_mism + 1;
+          q = p + 10; while (q + 3 < lcn && !(lcm[q] && lcb[q + 3] == 8'hFB)) q = q + 1;
+          for (i = 0; i < 518; i = i + 1)
+            if (lcb[q + i] != mdata(da_pos[r - 1] + 16 * i) || lcm[q + i] != (i < 3)) lc_mism = lc_mism + 1;
+        end
+      end
+    end
+  endtask
+
   // ------------------------------------------------------------ the run
   integer c, s, took, maxtook, all_good, all_hdr, all_found, bad_order, bad_fmt, bad_sync, bad_lead, bad_layout;
   integer side1_bytes, a, i, k, nsec;
+  integer m_all_ids, m_all_hdr, m_all_data, m_bad_rule, m_bad_marks, m_bad_order, m_bad_gaps, m_bad_layout, port_diff;
+  reg [15:0] crc0;
+  // a side of an MFM disk through the reference decoder, its layout, and
+  // (port) the drive's port; the sums for the checks
+  task mfm_side(input integer c, input integer s, input port, input lc);
+    integer d;
+    begin
+      if (port) begin mfm_port(s, d); port_diff = port_diff + d; end else mfm_peek(s);
+      mfm_decode(c, s);
+      m_all_ids = m_all_ids + m_ids; m_all_hdr = m_all_hdr + m_hdr_ok; m_all_data = m_all_data + m_data_ok;
+      if (m_illegal != 0) m_bad_rule = m_bad_rule + 1;
+      if (m_marks != 6 * mspt || m_stray != 0) m_bad_marks = m_bad_marks + 1;
+      if (m_order_bad != 0) m_bad_order = m_bad_order + 1;
+      if (m_gap1 != 16 * 44 || m_gap2_bad != 0 || m_gap3_bad != 0 || m_tail_bad != 0) m_bad_gaps = m_bad_gaps + 1;
+      mfm_expect(c, s); mfm_layout(d); if (d != 0) m_bad_layout = m_bad_layout + 1;
+      if (lc) lc_compare(c, s);
+    end
+  endtask
+  task mfm_sums_clear;
+    begin
+      m_all_ids = 0; m_all_hdr = 0; m_all_data = 0; m_bad_rule = 0; m_bad_marks = 0; m_bad_order = 0;
+      m_bad_gaps = 0; m_bad_layout = 0; port_diff = 0; maxtook = 0;
+    end
+  endtask
 
   initial begin
     repeat (10) @(posedge clk); #1 reset_n = 1;
 
+    if (!$test$plusargs("MFM_ONLY")) begin
     // ---- 1 and 2: the whole double-sided disk with tags
     $display("---- 1. every cylinder, both sides, tags: one revolution each, the reference decoder");
     img_ds = 1; img_tags = 1; build_image;
@@ -523,8 +837,102 @@ module tb_se30_flp_encoder;
     rev0[k] = !rev0[k];
     frame(0, cells(10)); decode(10, 0, 1);
     check(good_hdr == 11 && bad_hdr >= 1, "a flipped header bit fails that header", good_hdr, 11);
+    end   // the GCR half
 
-    if (fails == 0) $display("==== PASS: %0d checks, the encoder holds to plan 5.12.4 and 5.12.5b", checks);
+    // ---- 8. a 1.44 MB image
+    $display("---- 8. a 1.44 MB image: every cylinder, both sides, the reference decoder");
+    #1 disk_in = 0; repeat (4) @(posedge clk);
+    mfm_geometry(1); build_mfm_image;
+    #1 img_mfm = 1; img_hd = 1; img_ds = 1; img_tags = 0;
+    mark_cells = menc(8'hA1, 1'b1, 1'b0);
+    check(mark_cells == 16'h4489, "(the bench's mark: A1, its middle clock dropped, cells $4489)", mark_cells, 16'h4489);
+    crc0 = ucrc(ucrc(ucrc(16'hFFFF, 8'hA1), 8'hA1), 8'hA1);
+    check(crc0 == 16'hCDB4, "(the bench's CRC over A1 A1 A1 from all ones: $CDB4)", crc0, 16'hCDB4);
+    #1 disk_in = 1;
+    mfm_sums_clear;
+    for (c = 0; c < 80; c = c + 1) begin
+      #1 cyl = c;
+      wait_valid(c, took); if (took > maxtook) maxtook = took;
+      for (s = 0; s < 2; s = s + 1) begin
+        mfm_side(c, s, c == 0 || c == 41 || c == 79, c == 0 || c == 37 || c == 79);
+        if (c == 0 && s == 0)
+          $display("     cylinder 0 side 0: first address mark at cell %0d, %0d marks, gap 3 %0d bytes, the tail %0d bytes of 4E",
+                   m_gap1, m_marks, (id_pos[1] - da_pos[0]) / 16 - 518 - 12, m_tail);
+      end
+    end
+    check(m_all_ids == 2880, "address fields found, one revolution a side", m_all_ids, 2880);
+    check(m_all_hdr == 2880, "  C H R N and their CRC right", m_all_hdr, 2880);
+    check(m_all_data == 2880, "data fields: the CRC right, the data byte for byte", m_all_data, 2880);
+    check(m_bad_rule == 0, "every interval 2, 3 or 4 cells, all 160 sides (and the wrap)", m_bad_rule, 0);
+    check(m_bad_marks == 0, "the mark only where the 18 sectors put it (108 a side)", m_bad_marks, 0);
+    check(m_bad_order == 0, "sectors 1..18 in order (1:1)", m_bad_order, 0);
+    check(m_bad_gaps == 0, "32 x 4E from the index, gap 2, gap 3 of 108, 4E to the end", m_bad_gaps, 0);
+    check(m_bad_layout == 0, "every cell the formatter's layout, all 160 sides", m_bad_layout, 0);
+    check(port_diff == 0, "the drive's port reads the buffer (cylinders 0, 41, 79, both sides)", port_diff, 0);
+    $display("     longest build: %0d clocks (%0d us at clk_sys)", maxtook, maxtook * 32 / 1000);
+    check(maxtook < 1128038, "each cylinder built inside the drive's 36 ms settle", maxtook, 1128038);
+    check(torn == 0 && moved == 0 && early == 0, "the disk port's handshake clean", torn + moved + early, 0);
+
+    // ---- 11 (first part). negative cases, on cylinder 79 side 1 just read
+    $display("---- 11. negative cases, a restart, GCR after MFM");
+    k = da_pos[3] + 16 * 100 + 2 * 3 + 1;        // a data cell in sector 4's data
+    mrev[k] = !mrev[k]; mfm_decode(79, 1);
+    check(m_data_ok == 17 && m_hdr_ok == 18, "a flipped data cell fails that sector's CRC alone", m_data_ok, 17);
+    mrev[k] = !mrev[k];
+    k = id_pos[5] + 16 * 5 + 2 * 6 + 1;          // a data cell in sector 6's H
+    mrev[k] = !mrev[k]; mfm_decode(79, 1);
+    check(m_hdr_ok == 17, "a flipped address-field cell fails that header", m_hdr_ok, 17);
+    mrev[k] = !mrev[k];
+
+    // ---- 9. a 720K image
+    $display("---- 9. a 720K image: cylinders of the whole disk, both sides");
+    #1 disk_in = 0; repeat (4) @(posedge clk);
+    mfm_geometry(0); build_mfm_image;
+    #1 img_hd = 0; disk_in = 1;
+    mfm_sums_clear; nsec = 0;
+    for (k = 0; k < 8; k = k + 1) begin
+      c = (k == 0) ? 0 : (k == 1) ? 1 : (k == 2) ? 17 : (k == 3) ? 33 : (k == 4) ? 40 : (k == 5) ? 63 : (k == 6) ? 78 : 79;
+      #1 cyl = c;
+      wait_valid(c, took); if (took > maxtook) maxtook = took;
+      for (s = 0; s < 2; s = s + 1) begin
+        mfm_side(c, s, c == 79, c == 1 || c == 79);
+        nsec = nsec + mspt;
+      end
+    end
+    check(m_all_ids == nsec && m_all_hdr == nsec, "address fields found and right, 16 sides", m_all_hdr, nsec);
+    check(m_all_data == nsec, "data fields right, byte for byte", m_all_data, nsec);
+    check(m_bad_rule == 0 && m_bad_marks == 0 && m_bad_order == 0, "MFM's rule, the marks, sectors 1..9 in order", m_bad_rule + m_bad_marks + m_bad_order, 0);
+    check(m_bad_gaps == 0, "gaps: 32, 22, gap 3 of 80, 4E to the end of 100,000 cells", m_bad_gaps, 0);
+    check(m_bad_layout == 0, "every cell the formatter's layout", m_bad_layout, 0);
+    check(port_diff == 0, "the drive's port reads the buffer (cylinder 79)", port_diff, 0);
+    $display("     longest build: %0d clocks", maxtook);
+
+    // ---- 10. MacLC's encoder
+    $display("---- 10. MacLC's mfm_track_encoder.v on the same images");
+    $display("     %0d sectors compared (1.44 MB cylinders 0, 37, 79; 720K 1, 79; both sides)", lc_secs);
+    check(lc_secs == 6 * 18 + 4 * 9, "(sectors compared)", lc_secs, 6 * 18 + 4 * 9);
+    check(lc_mism == 0, "address and data fields identical to MacLC's, marks and CRCs", lc_mism, 0);
+
+    // ---- 11. a restart; GCR after MFM
+    $display("---- 11 (cont.)");
+    #1 cyl = 20;
+    repeat (2000) @(posedge clk);
+    @(posedge clk); #1;
+    while (!(mem_req && !req_d)) begin @(posedge clk); #1; end
+    cyl = 45;
+    wait_valid(45, took);
+    check(trk_valid && trk_cyl == 45, "a new cylinder mid-build: restarted, valid for 45", trk_cyl, 45);
+    mfm_peek(1); mfm_decode(45, 1);
+    check(m_data_ok == 9 && m_hdr_ok == 9, "  its nine sectors of side 1", m_data_ok, 9);
+    #1 disk_in = 0; repeat (4) @(posedge clk);
+    img_mfm = 0; img_ds = 1; img_tags = 1; build_image;
+    #1 cyl = 3; disk_in = 1;
+    wait_valid(3, took); read_track(3);
+    frame(1, cells(3)); decode(3, 1, 1);
+    check(good_data == 12, "a GCR image after the MFM ones: GCR again", good_data, 12);
+    check(torn == 0 && moved == 0 && early == 0, "the handshake still clean", torn + moved + early, 0);
+
+    if (fails == 0) $display("==== PASS: %0d checks, the encoder holds to plan 5.12.4, 5.12.5b and 5.13.9", checks);
     else            $display("==== FAIL: %0d of %0d checks", fails, checks);
     $finish;
   end

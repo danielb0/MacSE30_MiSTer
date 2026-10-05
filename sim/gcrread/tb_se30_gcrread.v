@@ -246,7 +246,7 @@ module tb_se30_gcrread;
 
   se30_flp_encoder #(.BASE(BASE)) encoder (
     .clk(clk), .reset_n(reset_n),
-    .disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_800k),
+    .disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_800k), .img_mfm(1'b0), .img_hd(1'b0),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(19'd0), .dec_bit(), .enc_idle(),
@@ -265,7 +265,7 @@ module tb_se30_gcrread;
 
   se30_flp_encoder #(.BASE(BASE2)) encoder2 (
     .clk(clk), .reset_n(reset_n),
-    .disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k),
+    .disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k), .img_mfm(1'b0), .img_hd(1'b0),
     .cyl(cyl2), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid),
     .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
     .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(19'd0), .dec_bit(), .enc_idle(),
