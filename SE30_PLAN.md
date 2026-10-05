@@ -8783,6 +8783,17 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    on the LC core, writable and read-only (the LC failing read-only
    only would make it PC Exchange's own behaviour, gone with MFM
    writing), and PC Exchange's version.
+   **Host check of an MFM read, 2026-10-06** (Daniel, compile 44): the
+   System 7.5.5 Update's disk 1 (`C:\temp\Mac\System 7.5.5 Update\System
+   7.5.5 Update - 1.dsk`, a 1.44 MB DC42, checksum verified) copied in
+   the Finder to the SCSI disk's folder `Test MFM`
+   (`Test disks\Soak\Results\mac_80mb-restored.vhd`):
+   `tools/hfs/fork_cmp.py` - **24 of 24 files identical**, both forks,
+   type and creator, the nested language folders included (the
+   Installer's 551,271-byte resource fork and `Tome1`'s 279,655-byte data
+   fork among them); 8 differ only at the resource headers' $30-$7D (the
+   File Manager's). The 1.44 MB read gate's host check is met; 720K is
+   still to test.
 
 ## 5.14 The external drive (Daniel, 2026-10-02)
 
@@ -9280,6 +9291,18 @@ peek resets the machine.
      ~1.5 min, two ~700 KB copies ~2.5 min, mounting and ejecting ~1-2
      min), so ~30-35 min for 5 rounds + the source and final steps -
      Daniel's board time; 4 rounds ~27 min.
+   - **RUN 2026-10-06 on compile 44 (Daniel): 3 rounds - enough (Daniel).
+     PASS.** Results in `C:\temp\Mac\Test disks\Soak\Results\`:
+     `soak_r1.dsk`, `soak_r2.img` (DC42: data and tag checksums match
+     the header), `soak_r3.dsk` - each a consistent volume (1,468 blocks
+     owned, 126 free, bitmap and MDB agreeing), its `Soak` 33 of 33 files
+     exact against the seed. The SCSI disk (`mac_80mb-restored.vhd`,
+     folders `soak:1`-`soak:4`, the last being round 3's return copy, so
+     no final floppy was needed): all four sets exact, and the volume
+     itself audits clean (801 files, 112 folders, 0 problems). The only
+     differences anywhere are the 11 resource forks' header bytes
+     $30-$7D (the File Manager's directory copy, as predicted). **Gate 5
+     met: 800K/400K GCR writing is finished on the board** (gates 1-5).
 
 ### 5.15.11 The budget
 

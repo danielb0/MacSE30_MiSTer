@@ -27,6 +27,7 @@ bitmap and the MDB (as hfs_vol.py). Then every folder holding 'Big 1' is a
 soak set: each manifest file present, type/creator right, both forks exact.
 Run it on CLEANLY EJECTED images (the DC42 checksums are written on eject)."""
 import hashlib, os, struct, sys
+sys.stdout.reconfigure(errors="replace")
 
 def be16(b, o): return struct.unpack_from(">H", b, o)[0]
 def be32(b, o): return struct.unpack_from(">I", b, o)[0]
