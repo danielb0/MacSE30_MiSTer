@@ -8829,8 +8829,14 @@ write) may not, and is measured when it comes.
    by 3 and 1 pixels - it saved its window again). **The tags reached the
    image**: 965 of 1,600 blocks carry non-zero tags, against 967 blocks of
    non-zero data (the File Manager's tags: file number, fork and logical
-   block, e.g. block 16 `00000004 00000000 00000036`). Still to run: the
-   one-sided erase, read-only, the soak.
+   block, e.g. block 16 `00000004 00000000 00000036`).
+   **Board, gate 4 (read-only), Daniel 2026-10-05: PASS** - the core has
+   no write switch of its own; Main mounts an image read-only when it is
+   inside a zip or its file lacks the owner-write bit (`FileCanWrite()`,
+   Main's file_io.cpp: on the card's FAT/exFAT the DOS read-only
+   attribute) and sends `img_readonly`; the disk mounted with the
+   Finder's lock icon (/WRTPRT 0). Still to run: the one-sided erase
+   (needs a System before 7.5), the soak.
 
 # Section 6 - The ADB and the RTC
 
