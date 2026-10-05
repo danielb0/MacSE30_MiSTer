@@ -16018,6 +16018,36 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    room before anything is given up. (Daniel will not mention space in his
    forum post: "we simply don't know yet".)
 
+**FIRST RELEASE (MVP) AND UPGRADES (Daniel, 2026-10-05).** The first
+release is a complete stock SE/30, built as the `release` profile (10.4.2:
+no probes, timing met at every corner on its own fit) and gated by the
+board regression list on that build.
+- **In the MVP:**
+  - the machine as it stands: the 68030 (PMMU, caches, paced to the
+    manual), the 68882, video, ADB, the RTC, the SCC, the ASC, SCSI hard
+    disks at IDs 0 and 1, MODE32 32-bit mode;
+  - floppies: GCR read, write and format (board-proven, the soak left);
+    MFM read (compile 43 on the board); **MFM write and format**;
+  - **CD-ROM** (the AppleCD at SCSI ID 3, data; 10.4's "features still
+    to build");
+  - **persistent PRAM** ("one thing we should consider for the first
+    release"): the RTC's 256 bytes kept on the SD card, as the LC core
+    keeps them (`MacLC.sv`: an `SC` save-image slot, `NVR`, one 512-byte
+    sector at LBA 0; loaded at mount with the machine held until it lands
+    or a timeout - a missing image never hangs the boot, and a late load
+    restarts the machine; written back after PRAM settles and when the
+    OSD opens; an OSD "wipe PRAM" item). The real machine keeps PRAM on
+    its battery, so persistence is the authentic behaviour and the
+    volatile PRAM of 6 the deviation; 6.12's later item becomes MVP work.
+    Lift the LC's image handling (the SD side is MiSTer engineering, not
+    SE/30 behaviour); the SE/30 side is our RTC model's 256 bytes.
+- **Upgrades, after the first release:** CD audio (an option - or not at
+  all if it does not fit); the 128 MB clean-ROM option; the colour card.
+- **Dropped:** the OSD unpaced switch (Daniel: not in the first release,
+  probably never - the pre-pacing timing faults).
+- **Not yet decided:** the second floppy drive (built, out of builds since
+  compile 37).
+
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
 1. **Speedometer 4.02 Math reads ~13-16 % fast** (1.13-1.15 against the
