@@ -3340,6 +3340,17 @@ pmove_crp_a7_postinc, pmove_pc_all_regs). Not run: the cputest corpus
 BOARD TESTS item 1 again on it (MODE32 on: boots, TattleTech "Booted in
 32-Bit mode = Yes"), then the merge with floppy-write.**
 
+**Compiled 2026-10-05 15:05 (Daniel's go after the floppy-write compile):
+`output_files/MacSE30_b9003c88_mode32.rbf`**, 33m58s, 36,905 ALMs (88 %),
+35,130 registers, 2,291,417 block memory bits; the flow's STA met (+0.022
+ns); `sta_corners.tcl` **met at every corner**, worst +0.022 ns (the slow
+-40C corner, a register-to-register path), the SDRAM capture met on A at
+the slow corners (1.62 / 1.34) and on B at the fast ones (1.99 / 1.85),
+the SDRAM outputs +2.3 setup / +2.5 hold or better. 7,523 warnings, the
+same count as the floppy-write compile of 12:31, including the same two
+pre-existing combinational-loop notes on the kernel's `Selector195`
+(line 8761). Next: the board.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
