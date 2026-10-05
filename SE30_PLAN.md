@@ -8311,6 +8311,78 @@ HD medium, the rest DD).
 - **(C) Measure first**: build MFM reading with the probe deck in,
   compile, and choose the lever from the real number (5.13.7).
 
+### 5.13.9 The design
+
+1. **`se30_fdhd.v`, MFM mode** (command `$6`): a constant speed - 300 rpm
+   for an HD medium, 600 rpm for DD (decision A) - and a 1-us cell
+   (15.6672 FCLK by a fractional accumulator: cells of 15 or 16 FCLK,
+   exact on average), so a revolution is 200,000 cells (HD) or 100,000
+   (DD); `$B` the index, high for a short pulse at cell 0 each revolution
+   (its width an open item: no drive document; the ROM only waits for the
+   rising edge); `$F` 0 for an HD medium; RD as IBM pulses. **Interval
+   recording** in both modes (decision B): a write cursor, each transition
+   placed at the last one's cell plus the interval rounded to whole
+   cells.
+2. **The track buffer** grows to two sides of 200,000 cells (18-bit
+   address a side); GCR uses its first 74,560 a side as now.
+3. **`se30_flp_encoder.v`, an MFM track**: the ROM formatter's layout
+   (5.13.2 item 6) from the index, the sectors' data from the image, MFM
+   cells (a clock cell and a data cell a bit; the clock dropped in the
+   marks' `A1`), the CRC (CCITT-16 from all ones over `A1 A1 A1` and the
+   field). The same module, the same buffer; the image's kind chooses.
+4. **`se30_swim.v`, the ISM's read chain** (5.13.3): the cell classifier
+   on the parameter RAM's counts (half-clock resolution), the CSM's lock
+   on 32 pairs of minimum cells and a mark, the inverse trans-space
+   machine, the shift register, the two-byte FIFO, the CRC, the mark
+   flag; the handshake, error and data/mark registers in read mode;
+   ACTION starting and stopping it. The correction machine and
+   post-compensation to their register-visible behaviour.
+5. **`se30_flp_loader.v`**: 1,474,560 and 737,280-byte raw images and
+   DC42 format 3/2 become disks (`disk_in`), with `img_mfm` and `img_hd`
+   out to the drive and the encoder.
+6. **Writing MFM** (the decoder's MFM parse, the ISM's write chain) is the
+   third step, after this one is on the board.
+
+### 5.13.10 The benches
+
+1. `sim/swim`: the ISM read chain - the classifier's bands at the ROM's
+   parameters (a 2/3/4-us cell at each boundary's either side), the CSM
+   (no lock without 32 pairs; lock on a mark; back to hunting on a
+   non-mark), mark bytes through the Mark register and the mark error
+   through the Data register, the CRC bit, the FIFO's two bytes and its
+   overrun, the ROM's address-field read sequence end to end.
+2. `sim/fdhd`: MFM mode - the revolution at 300 and 600 rpm, the index,
+   `$F`, the cell's average length; interval recording (GCR exact as
+   before; MFM intervals of 31.5/47/62.5 FCLK kept as 2/3/4 cells).
+3. `sim/flpenc`: an MFM track of a synthetic 1.44 MB image decoded by a
+   bench reference - every sector, its address field, the CRCs, the gaps.
+4. `sim/flpload`: the new geometries.
+5. **`sim/mfmread` (new, the seam)**: SWIM + drive + encoder, the ROM's
+   address- and data-field reads (`$4082E9A6`, `$4082EA68`) at its pace -
+   every sector of a cylinder byte for byte.
+6. `sim/machine`, `sim/gcrwrite`, `sim/flpdec`: rerun (the drive and the
+   buffer change under them).
+
+### 5.13.11 The board
+
+A 1.44 MB HFS image: the ROM mounts it; files copied off it to the SCSI
+disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
+(decision A). Writing is the next step's.
+
+### 5.13.12 The work
+
+1. ~~The documentation pass~~ **Done 2026-10-05** (c63edca, 40f57c3).
+2. `sim/fdhd` MFM checks, then the drive's MFM mode and interval
+   recording; the buffer's size.
+3. `sim/flpenc` MFM checks, then the encoder's MFM track.
+4. `sim/swim` ISM read checks, then the ISM's read chain.
+5. `sim/flpload`, then the loader's geometries; the machine and top
+   wiring.
+6. `sim/mfmread`, the seam.
+7. A synthesis check (`build_only.sh --check`, after any RAM change),
+   then a compile when Daniel says, the size measured (decision C).
+8. The board: 1.44 MB, then 720K.
+
 ## 5.14 The external drive (Daniel, 2026-10-02)
 
 **Daniel: a second floppy drive before the next compile** - testing with
