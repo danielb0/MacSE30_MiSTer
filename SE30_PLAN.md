@@ -8159,6 +8159,157 @@ The probes say where it stops.
 9. **5.13 - the ISM's MFM read** (720K, 1.44 MB), from the ISM ASIC spec,
    written when GCR is on the board.
 
+## 5.13 MFM reading - 1.44 MB and 720K (documentation pass, 2026-10-05)
+
+Opened 2026-10-05 after GCR writing passed its board gates (5.15.13 item
+8), the second of Daniel's three steps (5.15: GCR writing, then MFM
+reading, then MFM writing). Written from the ISM ASIC spec, the SWIM
+User's Reference, the SWIM drawing and the ROM's MFM code, before any
+design; Daniel's 32-bit fix was compiling in another worktree, so no
+Quartus run was made for this pass.
+
+### 5.13.1 Sources, and their standing
+
+| source | what | standing |
+|---|---|---|
+| `ISM_ASIC_spec_198707` 3.4, 4.1-4.5, 5.1-5.3 (and the SWIM drawing 6.2-6.4, the same text) | the read chain: Rddata synchronised to the nearest half clock (Half Read), the SCT counter classifying each cell as 2, 3 or 4 units against the parameter RAM, the Correction State Machine's mark search, the inverse trans-space machine, the FIFO; error correction and post-compensation; the drive option (IBM pulses); GCR through the ISM; time-out | **primary** |
+| `SWIM_Chip_Users_Ref_198801` pp. 6-9, 13-25 | the MFM track and sector format, the CRC (CCITT-16 from all ones), the parameter arithmetic and its 15.6672 MHz worked example, the registers, an MFM address-field read in 68000 code | primary for behaviour as software sees it |
+| The ROM: the ISM entry and parameter load (`$4082E712`-`$4082E81C`, the table at `$4082E82E`), **the MFM address-field read** (`$4082E9A6`), **the data-field read** (`$4082EA68`), the sector write (`$4082EB3E`), **the track format** (`$4082EC5E`-`$4082EE40`), the disk-insert format decision (`$4082E872`), block to cylinder (`$4082E970`) | what the machine does | documentation tier (1.11) |
+| The *Guide* 2e, ch. 9 (pp. 329-331) | the FDHD drive's formats: 400K/800K GCR, 720K MFM, 1.4 MB MFM; chip internals disclaimed | primary for what the machine supports |
+| `Apple_drive_command_and_status_codes` | the SuperDrive registers' names: `$F` (0 = high-density medium), `$B` (MFM: the index), `$7` (MFM mode), commands `$6`/`$7` | secondary (reverse-engineered), as in 5.5 |
+| bitsavers `apple/disk/sony/MP-F75W*` (looked at 2026-10-05) | photographs of the SE/30's SuperDrive (MP-F75W-01G) and its board; **no engineering specification** | none for behaviour |
+
+### 5.13.2 What the ROM does
+
+1. **The parameters.** One set, written reversed into the parameter RAM
+   (`$4082E80A`): MIN `$18`, MULT `$41`, SSL/SSS `$2E`, SLL/SLS `$18`,
+   RPT/CSLS `$1B`, LSL/LSS `$2F`, LLL/LLS `$19`, LATE/NORMAL `$97`,
+   TIME0 `$1B`, EARLY/NORMAL `$57`, TIME1 `$3B` - **the User's Reference's
+   2-, 3- and 4-us worked example at 15.6672 MHz** (MULT 65, TIME1 31.5 -
+   2 = 29.5 clocks, TIME0 15.5 - 2 = 13.5, `$97`/`$57`), in half-clocks.
+   The table appears twice (`$4082E82E`, `$4082E83E`), identical; beside
+   it an Easter egg ("SO... WHAT ARE YOU STARING AT?"). **Setup is written
+   once, `$20`** (`$4082E7A8`): an IBM-type drive (pulses), the
+   correction machine off, trans-space on, FCLK not halved.
+2. **The decision on insert** (`$4082E872`): drive register `$F` read; 0
+   (a high-density medium) sets the HD flag. **HD media is MFM (1.44
+   MB); a double-density medium is tried as MFM first** (an address
+   field read) **and taken as GCR when that fails.**
+3. **The address-field read** (`$4082E9A6`): error register read
+   (cleared), mode zeros `$18` (write and ACTION off), ones then zeros
+   `$01` (the FIFO cleared), error read again, ones `$08` (ACTION). Up to
+   20,000 handshake polls for the first byte; then **every byte through
+   the Mark register** (`$1200`, no mark error): `A1 A1 A1 FE`, cylinder,
+   side (non-zero = 1), sector, size; the two CRC bytes; then the
+   handshake (bit 1, CRC error) and the error register: `and.b #$22`.
+   Each later byte has 31 handshake polls (`moveq #$1E` ... `dbmi`) -
+   the budget 1.17.5 measured.
+4. **The data field** (`$4082EA68`): the same set-up, `A1 A1 A1 FB`, 512
+   bytes (or compared, for a verify), the CRC.
+5. **A sector write** (`$4082EB3E`): after the address field, a delay
+   from TimeDBRA (`mulu $D02`), then write mode, `00 00` in the FIFO,
+   ACTION, ten more `00`, `A1 A1 A1` through the Mark register (dropped
+   clock), `FB`, 512 bytes, the CRC (register 2 write), `4E` x 4; the
+   error register's underrun bit.
+6. **A track format** (`$4082EC5E`): write mode, `4E` until **the index
+   edge on SENSE** (the drive addressed to its index register), then 32 x
+   `4E`, then for each sector (1:1, sectors 1..9 or 1..18): 12 x `00`,
+   `A1 A1 A1 FE` C H R `02` CRC, 22 x `4E`, 12 x `00`, `A1 A1 A1 FB`, **512
+   x `F6`**, CRC, then gap 3 **80 x `4E` (9 sectors) or 108 (18)**, and
+   `4E` to the next index. No index mark (`C2 C2 C2 FC`) is written.
+   Per HD track: 32 + 18 x 682 = 12,308 bytes of the revolution's
+   12,500 at 500 kbit/s and 300 rpm.
+7. **Block to cylinder** (`$4082E970`): 9 or 18 sectors a side, two
+   sides; 1440 or 2880 blocks.
+
+### 5.13.3 The ISM's read chain (ISM spec 4.1-4.5)
+
+Rddata is synchronised to the nearest half clock and made one clock wide
+(TranCk). The SCT counter, preset from the parameter RAM at each TranCk
+and SCT, counts boundaries between transitions: **one, two or three SCTs
+make a 2-, 3- or 4-unit cell**, the boundaries chosen per pair of
+neighbouring cells (the xSx/xLx parameters, CSLS when a "long" resolves
+short). The **Correction State Machine** waits for 32 pairs of minimum
+cells (a sync field of zeros), then for the first non-minimum cell; if it
+begins a mark it locks and **the FIFO starts filling with the mark
+byte**, otherwise it goes back to looking for zeros. The inverse
+trans-space machine turns cells back into data bits (the previous data
+bit decides; a 4-unit cell after a data 0 is the dropped clock of a
+mark). Bytes enter the shift register MSB first, then the FIFO (two
+deep); the CRC runs over them (CCITT-16 from all ones, preset at the
+mark); the handshake shows FIFO bytes (bits 7/6), the next byte a mark
+(bit 0), the CRC non-zero (bit 1), an error (bit 5). Error correction
+(speed and asymmetry from the sync field) and post-compensation (peak
+shift) act on the counts; with Setup bit 4 clear (the ROM's) and an ideal
+medium they change nothing - built to their register-visible behaviour
+(5.15's decision). **The IBM drive option** (Setup bit 5, the ROM's):
+write data as pulses; read data valid on the trailing edge.
+
+### 5.13.4 The drive in MFM mode
+
+Command `$6` puts the SuperDrive in MFM mode (`$7` reads 1). In MFM mode
+the spindle runs at a constant speed, `$B` gives **the index** (once a
+revolution) instead of the GCR tach, RD and WR are IBM-style pulses.
+`$F` reads 0 for a high-density medium. **HD**: 300 rpm, 500 kbit/s, a
+1-us MFM cell (15.6672 FCLK), 200,000 cells a side.
+
+**Open (A): the 720K data rate.** A 720K disk is 250 kbit/s at 300 rpm,
+2-us cells; but the ROM has one parameter set, the 1.44 MB one, and never
+halves FCLK (Setup bit 3) - so on this machine a 720K disk must reach the
+ISM at 500 kbit/s, which is a drive spinning double-density media at 600
+rpm in MFM mode. That is an inference from the ROM (documentation tier),
+not a document: no SuperDrive specification is in hand. Proposed: build
+1.44 MB first (unaffected), then 720K at 600 rpm, and let the board say
+(a 720K image read by the ROM's own code) - or a document if one turns up.
+
+### 5.13.5 The medium: recording what the ISM writes (the finding)
+
+The track buffer stores one bit a cell on a fixed grid. For GCR that is
+exact: the IWM writes 32-FCLK cells and the drive's grid is 32 FCLK - the
+same clock count (5.15.3). **The ISM is not**: its write intervals come
+from the parameter RAM - 2 units = TIME1 = 31.5 FCLK, 3 = TIME1 + TIME0
+= 47, 4 = 62.5 - none a whole multiple of a 15.6672-FCLK grid, and the
+ratio differs per interval. Placing each transition in the cell it falls
+in drifts the phase by about a whole cell within one 12-byte sync field
+(96 two-unit intervals at +0.17 FCLK each), and some 2-unit intervals
+would be recorded as 3s - a corrupt medium. **Proposed: interval
+recording** - the drive keeps a write cursor, and puts each written
+transition at the previous one's cell plus the interval since it,
+rounded to whole cells. Every interval keeps its class exactly; the
+cursor drifts from the head by the writer's own rate error (a sector of
+~8,500 cells at under 1 % - tens of cells, inside gap 3; a whole format
+at 98.5 % of a revolution - inside its margin). For GCR (interval =
+exact multiple of 32) it is today's behaviour. This is 5.15's MFM write,
+but it decides the buffer's design, so it is settled now.
+
+### 5.13.6 The images
+
+Raw 1,474,560 (1.44 MB) and 737,280 (720K) bytes; DiskCopy 4.2 with
+format byte `$50` = 3 (1440K) or 2 (720K), no tags. The loader accepts
+them today and leaves `disk_in` low (5.12.5); it gains their geometry.
+In SDRAM, 2 MB a drive holds either. `$F` follows the image (1.44 MB =
+HD medium, the rest DD).
+
+### 5.13.7 The cost, and room for it
+
+- **Track buffer**: an HD cylinder is 2 x 200,000 cells = 400,000 bits
+  (the GCR buffer is 149,120): about 40 M10K against 19 - compile 42 uses
+  314 of 553 blocks, so it fits.
+- **Logic**: 10.4's estimate for the ISM's machinery and an MFM track
+  engine is 800-1,400 ALMs; **compile 42 has about 500 under the ~38.3k
+  ceiling. It does not fit without a lever** (10.4): the probe deck out
+  of the build (~1,450, compile 42), one track engine for the two drives
+  (the external one is already out), the framework's options
+  (`MISTER_DISABLE_ALSA`, `MISTER_DOWNSCALE_NN`, `MISTER_DISABLE_ADAPTIVE`,
+  several hundred to ~1,000). Daniel's call.
+
+### 5.13.8 Open, for Daniel
+
+- **(A)** 720K's data rate (5.13.4): build 1.44 MB first, 720K at the
+  ROM-implied 600 rpm after, and let the board decide?
+- **(B)** interval recording for the medium (5.13.5)?
+- **(C)** which lever makes room (5.13.7)?
+
 ## 5.14 The external drive (Daniel, 2026-10-02)
 
 **Daniel: a second floppy drive before the next compile** - testing with
