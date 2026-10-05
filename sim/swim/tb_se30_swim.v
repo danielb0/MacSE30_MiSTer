@@ -120,7 +120,7 @@ module tb_se30_swim;
     .enbl_n(enbl1_n), .ph(ph_pin), .sel(via_sel),
     .sense(sense_int), .disk_in(1'b0), .eject(),
     .cyl(), .trk_cyl(7'h7F), .trk_valid(1'b0), .trk_addr(), .trk_side(), .trk_bit(1'b0),
-    .wprot(1'b1), .wrreq_n(wrreq_n), .wrdata(wrdata), .trk_we(), .trk_wbit(), .trk_cells(),
+    .hd(1'b0), .wprot(1'b1), .wrreq_n(wrreq_n), .wrdata(wrdata), .trk_we(), .trk_wbit(), .trk_cells(),
     .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
     .dbg(dbg_drive));
 

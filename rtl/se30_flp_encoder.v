@@ -70,14 +70,14 @@ module se30_flp_encoder #(
   input       [6:0] cyl,               // the drive's head
   output reg  [6:0] trk_cyl,           // what the buffers hold
   output reg        trk_valid,
-  input      [16:0] trk_addr,          // the drive's port
+  input      [17:0] trk_addr,          // the drive's port
   input             trk_side,
   output reg        trk_bit,
   input             trk_we,            // the drive records trk_wbit there
   input             trk_wbit,
 
   input             hold,              // the decoder is busy: no rebuild
-  input      [17:0] dec_addr,          // the decoder's read: side 1 at SIDE1 + cell
+  input      [18:0] dec_addr,          // the decoder's read: side 1 at SIDE1 + cell
   output reg        dec_bit,           // a clock later, while the encoder is idle
   output            enc_idle,
 
@@ -89,7 +89,9 @@ module se30_flp_encoder #(
   output     [15:0] dbg
 );
 
-  localparam [17:0] SIDE1 = 18'd74560;           // side 1's half of the buffer
+  // side 1's half of the buffer: a side holds an HD MFM revolution, 200,000
+  // cells (plan 5.13.9 item 2); GCR uses the first 74,560 of each
+  localparam [18:0] SIDE1 = 19'd200000;
 
   // ------------------------------------------------------------ tables
   function [7:0] gcr(input [5:0] v);
@@ -155,7 +157,7 @@ module se30_flp_encoder #(
   wire [5:0] h_chk = h_trk ^ h_sec ^ h_sd ^ h_fmt;
 
   // ------------------------------------------------------------ buffers
-  reg        tbuf [0:149119];                    // both sides' bitstreams
+  reg        tbuf [0:399999];                    // both sides' bitstreams
   reg [15:0] sbuf [0:261];                       // a sector: 6 tag words, 256 data words
   reg  [7:0] cbuf [0:702];                       // its 703 data-field codes
 
@@ -163,7 +165,7 @@ module se30_flp_encoder #(
   // both in one clock (a read while writing would ask the M10K for the
   // old data on the same port, which true dual-port mode cannot give, and
   // Quartus then builds the buffer from registers; trk_bit holds instead)
-  wire [17:0] pa = trk_side ? SIDE1 + {1'b0, trk_addr} : {1'b0, trk_addr};
+  wire [18:0] pa = trk_side ? SIDE1 + {1'b0, trk_addr} : {1'b0, trk_addr};
   always @(posedge clk) begin
     if (trk_we) tbuf[pa] <= trk_wbit;
     else        trk_bit <= tbuf[pa];
@@ -229,10 +231,10 @@ module se30_flp_encoder #(
 
   // port B: the build's writes, or the decoder's reads while idle
   reg        tb_we, tb_d;
-  reg [17:0] tb_a;
+  reg [18:0] tb_a;
   // (by the write, not the state: a build abandoned on a seek can leave its
   // last write for the first idle clock)
-  wire [17:0] pb = tb_we ? tb_a : dec_addr;
+  wire [18:0] pb = tb_we ? tb_a : dec_addr;
   always @(posedge clk) begin
     if (tb_we) tbuf[pb] <= tb_d;
     else       dec_bit <= tbuf[pb];
@@ -255,7 +257,7 @@ module se30_flp_encoder #(
     cbuf_q <= cbuf[cbuf_ra];
   end
 
-  wire [17:0] wbase = bside ? SIDE1 : 18'd0;
+  wire [18:0] wbase = bside ? SIDE1 : 19'd0;
   wire        leave = !disk_in || cyl != c;     // abandon the build (no request out)
 
   always @(posedge clk or negedge reset_n) begin
@@ -282,13 +284,13 @@ module se30_flp_encoder #(
         end
 
         S_FILL: begin                            // side 1 of a single-sided disk: no flux
-          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= 0;
+          tb_we <= 1; tb_a <= wbase + {2'b00, wptr}; tb_d <= 0;
           wptr <= wptr + 1'b1;
           if (wptr + 1'b1 == cells) st <= S_DONE;        // FILL is only ever side 1
         end
 
         S_LEAD: begin                            // the leftover: groups ending in 00
-          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= (lm >= 4'd2);
+          tb_we <= 1; tb_a <= wbase + {2'b00, wptr}; tb_d <= (lm >= 4'd2);
           wptr <= wptr + 1'b1;
           lm <= (lm == 0) ? 4'd9 : lm - 1'b1;
           lcnt <= lcnt - 1'b1;
@@ -354,7 +356,7 @@ module se30_flp_encoder #(
         end
 
         S_EMIT: begin                            // the sector's 776 bytes, a bit a clock
-          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= cur[7];
+          tb_we <= 1; tb_a <= wbase + {2'b00, wptr}; tb_d <= cur[7];
           wptr <= wptr + 1'b1;
           cur <= {cur[6:0], 1'b0};
           bk <= bk + 1'b1;

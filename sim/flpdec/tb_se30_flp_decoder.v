@@ -47,7 +47,7 @@
 module tb_se30_flp_decoder;
 
   localparam [23:0] BASE  = 24'h800000;
-  localparam [17:0] SIDE1 = 18'd74560;
+  localparam [18:0] SIDE1 = 19'd200000;
 
   reg clk = 0;
   always #16 clk = ~clk;
@@ -71,19 +71,19 @@ module tb_se30_flp_decoder;
   reg  [6:0] cyl = 0;
   wire [6:0] trk_cyl;
   wire       trk_valid;
-  reg [16:0] trk_addr = 0;
+  reg [17:0] trk_addr = 0;
   reg        trk_side = 0;
   wire       trk_bit;
   reg        trk_we = 0, trk_wbit = 0;
   wire       hold, dec_bit, enc_idle, ds_eff;
-  wire [17:0] dec_addr;
+  wire [18:0] dec_addr;
   wire       en_req, de_req;
   wire [23:0] en_addr, de_addr;
   wire [15:0] de_wdata;
   reg  [15:0] en_rdata = 0;
   reg        en_ack = 0, de_ack = 0;
   reg        arc_done = 0, arc_side = 0, arc_whole = 0;
-  reg [16:0] arc_start = 0, arc_end = 0, trk_cells = 74558;
+  reg [17:0] arc_start = 0, arc_end = 0, trk_cells = 74558;
   wire       cm_done;
   wire [10:0] cm_blk;
   reg        cm_ready = 1;

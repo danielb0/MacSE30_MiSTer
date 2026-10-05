@@ -305,7 +305,7 @@ wire        flp_reset_n = lock_s[1];
 wire        disk_in, img_ds, img_800k, img_tags, flp_readonly, flp_loading, disk_eject;
 wire  [6:0] disk_cyl, trk_cyl;
 wire        trk_valid, trk_side, trk_bit;
-wire [16:0] trk_addr;
+wire [17:0] trk_addr;
 wire        ld_req, ld_ack, en_req, en_ack;
 wire [23:0] ld_addr, en_addr;
 wire [15:0] ld_wdata, en_rdata;
@@ -316,9 +316,9 @@ wire [15:0] ld_dbg, en_dbg;
 // writing (plan 5.15): the drive's recording and arcs, the decoder and the SD writer
 wire        disk_wprot = flp_readonly;
 wire        trk_we, trk_wbit, arc_done, arc_side, arc_whole;
-wire [16:0] trk_cells, arc_start, arc_end;
+wire [17:0] trk_cells, arc_start, arc_end;
 wire        enc_hold, enc_idle, dec_bit, ds_eff, flp_dc42;
-wire [17:0] dec_addr;
+wire [18:0] dec_addr;
 wire  [5:0] hdr_addr;
 wire [15:0] hdr_data;
 wire [12:0] flp_blks;
@@ -331,19 +331,19 @@ wire [31:0] de_dbg, wr_dbg;
 wire        disk2_in, img2_ds, img2_800k, img2_tags, flp2_readonly, flp2_loading, disk2_eject;
 wire  [6:0] disk2_cyl, trk2_cyl;
 wire        trk2_valid, trk2_side, trk2_bit;
-wire [16:0] trk2_addr;
+wire [17:0] trk2_addr;
 wire        ld2_req, ld2_ack, en2_req, en2_ack;
 wire [23:0] ld2_addr, en2_addr;
 wire [15:0] ld2_wdata, en2_rdata;
 wire [15:0] ld2_dbg, en2_dbg, dbg_fdhd2;
 wire        disk2_wprot = flp2_readonly;
 wire        trk2_we, trk2_wbit, arc2_done, arc2_side, arc2_whole;
-wire [16:0] trk2_cells, arc2_start, arc2_end;
+wire [17:0] trk2_cells, arc2_start, arc2_end;
 wire        de2_req, de2_ack, wr2_req, wr2_ack;
 wire [23:0] de2_addr, wr2_addr;
 wire [15:0] de2_wdata, wr2_rdata;
 wire        enc2_hold, enc2_idle, dec2_bit, ds2_eff, flp2_dc42, cm2_done, cm2_ready;
-wire [17:0] dec2_addr;
+wire [18:0] dec2_addr;
 wire  [5:0] hdr2_addr;
 wire [15:0] hdr2_data;
 wire [12:0] flp2_blks;
@@ -585,11 +585,11 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE)) machine
 	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
 	.disk_in(disk_in), .disk_eject(disk_eject), .disk_cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
 	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
-	.disk_wprot(disk_wprot), .trk_we(trk_we), .trk_wbit(trk_wbit), .trk_cells(trk_cells),
+	.disk_wprot(disk_wprot), .disk_hd(1'b0), .trk_we(trk_we), .trk_wbit(trk_wbit), .trk_cells(trk_cells),
 	.arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end), .arc_whole(arc_whole),
 	.disk2_in(disk2_in), .disk2_eject(disk2_eject), .disk2_cyl(disk2_cyl), .trk2_cyl(trk2_cyl), .trk2_valid(trk2_valid),
 	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
-	.disk2_wprot(disk2_wprot), .trk2_we(trk2_we), .trk2_wbit(trk2_wbit), .trk2_cells(trk2_cells),
+	.disk2_wprot(disk2_wprot), .disk2_hd(1'b0), .trk2_we(trk2_we), .trk2_wbit(trk2_wbit), .trk2_cells(trk2_cells),
 	.arc2_done(arc2_done), .arc2_side(arc2_side), .arc2_start(arc2_start), .arc2_end(arc2_end), .arc2_whole(arc2_whole),
 	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
 	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc), .dbg_asc(dbg_asc), .dbg_fpu(dbg_fpu), .dbg_pace(dbg_pace),

@@ -58,7 +58,7 @@
 
 module se30_flp_decoder #(
   parameter [23:0] BASE  = 24'h800000,
-  parameter [17:0] SIDE1 = 18'd74560   // side 1's half of the track buffer (the encoder's)
+  parameter [18:0] SIDE1 = 19'd200000  // side 1's half of the track buffer (the encoder's)
 ) (
   input             clk,
   input             reset_n,
@@ -73,13 +73,13 @@ module se30_flp_decoder #(
 
   input             arc_done,          // the drive's recording ended
   input             arc_side,
-  input      [16:0] arc_start,
-  input      [16:0] arc_end,
+  input      [17:0] arc_start,
+  input      [17:0] arc_end,
   input             arc_whole,
-  input      [16:0] trk_cells,         // the revolution, in cells
+  input      [17:0] trk_cells,         // the revolution, in cells
   input       [6:0] cyl,               // the head's cylinder
 
-  output reg [17:0] dec_addr,          // the track buffer (the encoder's port B)
+  output reg [18:0] dec_addr,          // the track buffer (the encoder's port B)
   input             dec_bit,
   input             enc_idle,
   output            hold,              // no rebuild while a written cylinder is decoded
@@ -121,21 +121,21 @@ module se30_flp_decoder #(
   endfunction
 
   // ------------------------------------------------------------ the arc
-  localparam [16:0] SECTOR_CELLS = 17'd6400;     // a sector's 6,208 cells, and some
+  localparam [17:0] SECTOR_CELLS = 18'd6400;     // a sector's 6,208 cells, and some
 
   reg        fmt_seen, fmt_ds;
   assign ds_eff = img_800k && (fmt_seen ? fmt_ds : img_ds);
 
   reg        pend;                               // an arc waiting
   reg        p_side, p_whole;
-  reg [16:0] p_start, p_end, p_cells;
+  reg [17:0] p_start, p_end, p_cells;
   reg  [6:0] p_cyl;
 
   reg        a_side;                             // the arc being decoded
-  reg [16:0] a_cells;
+  reg [17:0] a_cells;
   reg  [6:0] a_cyl;
-  reg [16:0] pos;                                // the next cell to read
-  reg [17:0] left;                               // cells still to read
+  reg [17:0] pos;                                // the next cell to read
+  reg [18:0] left;                               // cells still to read
   reg [11:0] seen;                               // sectors committed from this arc
 
   // ------------------------------------------------------------ the parse
@@ -257,12 +257,12 @@ module se30_flp_decoder #(
             pend <= 0;
             a_side <= p_side; a_cells <= p_cells; a_cyl <= p_cyl; seen <= 0;
             if (p_whole) begin
-              pos  <= (p_end + 1'b1 >= p_cells) ? 17'd0 : p_end + 1'b1;
+              pos  <= (p_end + 1'b1 >= p_cells) ? 18'd0 : p_end + 1'b1;
               left <= {1'b0, p_cells} + {1'b0, SECTOR_CELLS};
             end else begin
               pos  <= p_start;
-              left <= (p_end >= p_start) ? {1'b0, p_end - p_start} + 18'd1
-                                         : {1'b0, p_end} + {1'b0, p_cells} - {1'b0, p_start} + 18'd1;
+              left <= (p_end >= p_start) ? {1'b0, p_end - p_start} + 19'd1
+                                         : {1'b0, p_end} + {1'b0, p_cells} - {1'b0, p_start} + 19'd1;
             end
             fs <= F_HUNT; sr <= 0; hist <= 0;
             st <= S_WAIT;
@@ -276,7 +276,7 @@ module se30_flp_decoder #(
           if (left == 0 || !disk_in) st <= S_IDLE;
           else begin
             dec_addr <= a_side ? SIDE1 + {1'b0, pos} : {1'b0, pos};
-            pos  <= (pos + 1'b1 >= a_cells) ? 17'd0 : pos + 1'b1;
+            pos  <= (pos + 1'b1 >= a_cells) ? 18'd0 : pos + 1'b1;
             left <= left - 1'b1;
             st   <= S_BIT;
           end

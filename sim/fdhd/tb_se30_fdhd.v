@@ -40,6 +40,21 @@
 //        one term missing; the arc reported (side, first and last cell,
 //        and whether it covered a whole revolution)
 //
+//   and, since plan 5.13 (MFM reading; 5.13.9 item 1):
+//
+//    12. MFM mode (command $6, $7 reading 1): $F 0 for a high-density
+//        medium, 1 for double density; a speed change taking the speed
+//        group's 152 ms settle; a constant revolution of 200,000 1-us
+//        cells (3,133,440 FCLK, 300 rpm) for HD and 100,000 (1,566,720
+//        FCLK, 600 rpm - decision A) for DD, whatever the track; the
+//        index on $E once a revolution, rising at cell 0; GCR's zones back
+//        with command $7.  Interval recording (decision B): intervals of
+//        31/32, 47 and 62/63 FCLK - the ISM's 31.5, 47 and 62.5 - recorded
+//        as exactly 2, 3 and 4 cells, through a run of 200 two-unit
+//        intervals (the sync field that drifts a fixed grid by a whole
+//        cell); IBM-style write pulses (two edges 4 FCLK apart) counted
+//        once
+//
 // THE BENCH
 //   clk is FCLK (c16_en tied high).  The encoder is modelled: two track
 //   buffers whose bit at cell a is 1 when a is a multiple of 7 (side 0)
@@ -71,15 +86,16 @@ module tb_se30_fdhd;
   wire [6:0] cyl;
   reg  [6:0] trk_cyl = 7'h7F;
   reg        trk_valid = 0;
-  wire [16:0] trk_addr;
+  wire [17:0] trk_addr;
   wire       trk_side;
   reg        trk_bit = 0;
   reg        wprot = 1;                // mounted read-only: the default
+  reg        hd = 0;                   // a high-density medium (plan 5.13)
   reg        wrreq_n = 1, wrdata = 0;
   wire       trk_we, trk_wbit;
-  wire [16:0] trk_cells;
+  wire [17:0] trk_cells;
   wire       arc_done, arc_side, arc_whole;
-  wire [16:0] arc_start, arc_end;
+  wire [17:0] arc_start, arc_end;
   wire [15:0] dbg;
 
   se30_fdhd dut (
@@ -88,7 +104,7 @@ module tb_se30_fdhd;
     .disk_in(disk_in), .eject(eject),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
-    .wprot(wprot), .wrreq_n(wrreq_n), .wrdata(wrdata),
+    .hd(hd), .wprot(wprot), .wrreq_n(wrreq_n), .wrdata(wrdata),
     .trk_we(trk_we), .trk_wbit(trk_wbit), .trk_cells(trk_cells),
     .arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end), .arc_whole(arc_whole),
     .dbg(dbg));
@@ -111,7 +127,7 @@ module tb_se30_fdhd;
 
   // ------------------------------------------------ the recorded cells
   integer nw = 0, wa0 = -1, wlast = -1, wside0 = -1, wbad_addr = 0, wbad_side = 0;
-  reg     wbits_r [0:131071];
+  reg     wbits_r [0:262143];
   integer narc = 0;
   reg     a_side, a_whole;
   integer a_start, a_end;
@@ -122,7 +138,7 @@ module tb_se30_fdhd;
         if (trk_addr != ((wlast + 1 == trk_cells) ? 0 : wlast + 1)) wbad_addr = wbad_addr + 1;
         if (trk_side != wside0) wbad_side = wbad_side + 1;
       end
-      if (nw < 131072) wbits_r[nw] = trk_wbit;
+      if (nw < 262144) wbits_r[nw] = trk_wbit;
       wlast = trk_addr; nw = nw + 1;
     end
     if (arc_done) begin narc = narc + 1; a_side = arc_side; a_whole = arc_whole; a_start = arc_start; a_end = arc_end; end
@@ -248,6 +264,66 @@ module tb_se30_fdhd;
     begin
       if (to > cyl) cmd(4'h0); else cmd(4'h1);
       while (cyl != to) begin cmd(4'h4); until(4'h4, 1, T_STEP + 64); end
+    end
+  endtask
+
+  // MFM (plan 5.13): one revolution measured in clocks between two entries
+  // into cell 0, the highest cell seen, and the index's rising edges on $E
+  integer rev_clk, rev_max, idx_rises;
+  task rev_mfm;
+    integer t0, tl;
+    reg s_d;
+    begin
+      addr(4'hE); tl = cyc;
+      @(posedge clk); while (trk_addr == 0 && cyc - tl < 8000000) @(posedge clk);
+      while (trk_addr != 0 && cyc - tl < 8000000) @(posedge clk);
+      t0 = cyc; rev_max = 0; idx_rises = 0; #1 s_d = sense;
+      while (trk_addr == 0 && cyc - t0 < 4000000) begin @(posedge clk); #1; if (!s_d && sense) idx_rises = idx_rises + 1; s_d = sense; end
+      while (trk_addr != 0 && cyc - t0 < 4000000) begin
+        if (trk_addr > rev_max) rev_max = trk_addr;
+        @(posedge clk); #1; if (!s_d && sense) idx_rises = idx_rises + 1; s_d = sense;
+      end
+      rev_clk = cyc - t0;
+    end
+  endtask
+  // write a list of intervals (in FCLK) as transitions; pulse = 1 makes
+  // each one an IBM-style pulse (two edges 4 FCLK apart)
+  integer ivl [0:1023];
+  integer nivl;
+  task write_intervals(input integer pulse);
+    integer k2;
+    begin
+      #1 wrreq_n = 0;
+      repeat (40) @(posedge clk);
+      for (k2 = 0; k2 < nivl; k2 = k2 + 1) begin
+        // the next transition (a pulse's first edge) ivl[k2] after the last
+        repeat (pulse ? ivl[k2] - 4 : ivl[k2]) @(posedge clk);
+        #1 wrdata = !wrdata;
+        if (pulse) begin repeat (4) @(posedge clk); #1 wrdata = !wrdata; end
+      end
+      repeat (40) @(posedge clk);
+      #1 wrreq_n = 1;
+      repeat (64) @(posedge clk);
+    end
+  endtask
+  // the spacing between successive 1s of the recording, against the units
+  // (unit[0] is the gate's lead to the first transition: the first spacing
+  // is unit[1]'s)
+  integer unit [0:1023];
+  integer ubad, nones;
+  task check_units;
+    integer k2, last1, u;
+    begin
+      ubad = 0; nones = 0; last1 = -1; u = 0;
+      for (k2 = 0; k2 < nw && k2 < 262144; k2 = k2 + 1)
+        if (wbits_r[k2]) begin
+          if (last1 >= 0 && u + 1 < nivl && k2 - last1 != unit[u + 1]) begin
+            if (ubad < 5) $display("     interval %0d: %0d cells, want %0d", u + 1, k2 - last1, unit[u + 1]);
+            ubad = ubad + 1;
+          end
+          if (last1 >= 0) u = u + 1;
+          last1 = k2; nones = nones + 1;
+        end
     end
   endtask
 
@@ -409,10 +485,10 @@ module tb_se30_fdhd;
     write_pattern(64, 40, 40);
     check_pattern(64);
     check(pbad == 0, "the cells written hold the pattern, a 1 where WRTDATA changed", pbad, 0);
-    check(lead0 >= 1 && lead0 <= 2, "the gate's lead: one or two 0 cells before the first 1", lead0, 1);
+    check(lead0 <= 2, "the gate's lead (interval recording): at most two 0 cells before the first 1", lead0, 1);
     check(wbad_addr == 0, "the cells consecutive from the head's position", wbad_addr, 0);
     check(wside0 == 0 && wbad_side == 0, "all on side 0 (SEL low)", wside0, 0);
-    check(nw >= 64 + 2 && nw <= 64 + 4, "as many cells as the gate was low", nw, 66);
+    check(nw >= 64 + 1 && nw <= 64 + 4, "as many cells as the gate was low", nw, 66);
     check(narc == 1, "one arc reported", narc, 1);
     check(a_side == 0 && a_start == wa0 && a_end == wlast && a_whole == 0,
           "the arc: side 0, its first and last cells, not a whole revolution", a_end - a_start, wlast - wa0);
@@ -439,9 +515,56 @@ module tb_se30_fdhd;
     #1 wrreq_n = 0;
     repeat (32 * (74558 + 500)) @(posedge clk);
     #1 wrreq_n = 1; repeat (64) @(posedge clk);
-    check(nw >= 74558 + 499 && nw <= 74558 + 501, "a write of a revolution and 500 cells: every cell written", nw, 74558 + 500);
+    check(nw >= 74558 + 498 && nw <= 74558 + 501, "a write of a revolution and 500 cells: every cell written", nw, 74558 + 500);
     check(wbad_addr == 0, "the cells consecutive, through the wrap", wbad_addr, 0);
     check(narc == 1 && a_whole == 1, "the arc: a whole revolution", a_whole, 1);
+
+    // ---- 12. MFM mode
+    $display("---- 12. MFM mode: the medium, the speed, the index, interval recording (5.13)");
+    #1 hd = 1;
+    rd(4'hF); check(sns == 0, "$F: 0, a high-density medium", sns, 0);
+    #1 hd = 0;
+    rd(4'hF); check(sns == 1, "$F: 1, double density", sns, 1);
+    #1 hd = 1;
+    cmd(4'h6);
+    rd(4'h7); check(sns == 1, "command $6: MFM mode", sns, 1);
+    rd(4'hB); check(sns == 1, "/READY high: the speed changing", sns, 1);
+    until(4'hB, 0, T_GRP + 1000);
+    check(near(n_clk, T_GRP), "/READY low 152 ms after the speed change (the speed group's settle)", n_clk, T_GRP);
+    rev_mfm;
+    check(rev_max + 1 == 200000, "HD MFM: 200,000 cells a revolution", rev_max + 1, 200000);
+    check(rev_clk >= 3133440 - 2 && rev_clk <= 3133440 + 2, "HD MFM: 3,133,440 FCLK a revolution (300 rpm, 1-us cells)", rev_clk, 3133440);
+    check(idx_rises == 1, "the index on $E: once a revolution", idx_rises, 1);
+    #1 hd = 0;
+    rev_mfm; rev_mfm;
+    check(rev_max + 1 == 100000, "DD MFM: 100,000 cells a revolution", rev_max + 1, 100000);
+    check(rev_clk >= 1566720 - 2 && rev_clk <= 1566720 + 2, "DD MFM: 1,566,720 FCLK (600 rpm, decision A)", rev_clk, 1566720);
+    #1 hd = 1;
+    rev_mfm; rev_mfm;
+    // interval recording: the ISM's intervals, a mix and then a sync field
+    nivl = 0;
+    for (i = 0; i < 300; i = i + 1) begin
+      unit[nivl] = (i < 100) ? 2 + (i * 7 % 3) : 2;
+      ivl[nivl]  = (unit[nivl] == 2) ? 31 + (i % 2) : (unit[nivl] == 3) ? 47 : 62 + (i % 2);
+      nivl = nivl + 1;
+    end
+    addr(4'h1);
+    nw = 0; narc = 0;
+    write_intervals(0);
+    check_units;
+    check(nones == nivl, "every transition recorded", nones, nivl);
+    check(ubad == 0, "31/32, 47, 62/63 FCLK recorded as exactly 2, 3, 4 cells, through 200 two-unit intervals", ubad, 0);
+    check(narc == 1 && !a_whole, "one arc", narc, 1);
+    nw = 0;
+    write_intervals(1);
+    check_units;
+    check(nones == nivl && ubad == 0, "IBM pulses (two edges 4 FCLK apart): each counted once", ubad, 0);
+    // back to GCR: the zones again
+    cmd(4'h7);
+    rd(4'h7); check(sns == 0, "command $7: GCR", sns, 0);
+    until(4'hB, 0, T_GRP + 1000);
+    revolution;
+    check(rev_cells == 74558, "GCR again: group 0's 74,558 cells", rev_cells, 74558);
 
     if (fails == 0) $display("==== PASS: %0d checks, the drive holds to plan 5.12.3", checks);
     else            $display("==== FAIL: %0d of %0d checks", fails, checks);

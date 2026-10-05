@@ -188,7 +188,7 @@ module tb_se30_gcrread;
 
   wire  [6:0] cyl, trk_cyl, cyl2, trk2_cyl;
   wire        trk_valid, trk_side, trk_bit, trk2_valid, trk2_side, trk2_bit;
-  wire [16:0] trk_addr, trk2_addr;
+  wire [17:0] trk_addr, trk2_addr;
   wire        disk_in, img_ds, img_800k, img_tags, readonly, loading;
   wire        disk2_in, img2_ds, img2_800k, img2_tags, readonly2, loading2;
 
@@ -205,7 +205,7 @@ module tb_se30_gcrread;
     .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
     .sense(fdhd_sense), .disk_in(disk_in), .eject(fdhd_eject),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
-    .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata), .trk_we(), .trk_wbit(), .trk_cells(),
+    .hd(1'b0), .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata), .trk_we(), .trk_wbit(), .trk_cells(),
     .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
     .dbg(fdhd_dbg));
 
@@ -214,7 +214,7 @@ module tb_se30_gcrread;
     .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
     .sense(fdhd2_sense), .disk_in(disk2_in), .eject(fdhd2_eject),
     .cyl(cyl2), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
-    .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata), .trk_we(), .trk_wbit(), .trk_cells(),
+    .hd(1'b0), .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata), .trk_we(), .trk_wbit(), .trk_cells(),
     .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
     .dbg(fdhd2_dbg));
 
@@ -249,7 +249,7 @@ module tb_se30_gcrread;
     .disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_800k),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
-    .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(18'd0), .dec_bit(), .enc_idle(),
+    .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(19'd0), .dec_bit(), .enc_idle(),
     .mem_req(en_req), .mem_addr(en_addr), .mem_rdata(en_rdata), .mem_ack(en_ack),
     .dbg());
 
@@ -268,7 +268,7 @@ module tb_se30_gcrread;
     .disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k),
     .cyl(cyl2), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid),
     .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
-    .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(18'd0), .dec_bit(), .enc_idle(),
+    .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(19'd0), .dec_bit(), .enc_idle(),
     .mem_req(en2_req), .mem_addr(en2_addr), .mem_rdata(en2_rdata), .mem_ack(en2_ack),
     .dbg());
 

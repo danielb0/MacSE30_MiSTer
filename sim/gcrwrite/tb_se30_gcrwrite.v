@@ -71,10 +71,10 @@ module tb_se30_gcrwrite;
   // ------------------------------------------------------------ the drive and the chain
   wire [6:0] cyl, trk_cyl;
   wire       trk_valid, trk_side, trk_bit, trk_we, trk_wbit;
-  wire [16:0] trk_addr, trk_cells, arc_start, arc_end;
+  wire [17:0] trk_addr, trk_cells, arc_start, arc_end;
   wire       arc_done, arc_side, arc_whole;
   wire       hold, dec_bit, enc_idle, ds_eff;
-  wire [17:0] dec_addr;
+  wire [18:0] dec_addr;
   wire       en_req, de_req, cm_done;
   wire [23:0] en_addr, de_addr;
   wire [15:0] de_wdata;
@@ -88,7 +88,7 @@ module tb_se30_gcrwrite;
     .enbl_n(enbl1_n), .ph(ph_pin), .sel(via_sel), .sense(sense),
     .disk_in(1'b1), .eject(),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
-    .wprot(1'b0), .wrreq_n(wrreq_n), .wrdata(wrdata),
+    .hd(1'b0), .wprot(1'b0), .wrreq_n(wrreq_n), .wrdata(wrdata),
     .trk_we(trk_we), .trk_wbit(trk_wbit), .trk_cells(trk_cells),
     .arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end), .arc_whole(arc_whole),
     .dbg());

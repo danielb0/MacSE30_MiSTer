@@ -131,10 +131,10 @@ module tb_se30_machine;
     .adb_pm_we(1'b0), .adb_pm_waddr(9'd0), .adb_pm_wdata(12'd0),
     .disk_in(1'b0), .disk_eject(), .disk_cyl(), .trk_cyl(7'h7F), .trk_valid(1'b0),   // no disk (sim/gcrread reads one)
     .trk_addr(), .trk_side(), .trk_bit(1'b0),
-    .disk_wprot(1'b1), .trk_we(), .trk_wbit(), .trk_cells(), .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
+    .disk_wprot(1'b1), .disk_hd(1'b0), .trk_we(), .trk_wbit(), .trk_cells(), .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
     .disk2_in(1'b0), .disk2_eject(), .disk2_cyl(), .trk2_cyl(7'h7F), .trk2_valid(1'b0),   // the external drive: no disk
     .trk2_addr(), .trk2_side(), .trk2_bit(1'b0),
-    .disk2_wprot(1'b1), .trk2_we(), .trk2_wbit(), .trk2_cells(), .arc2_done(), .arc2_side(), .arc2_start(), .arc2_end(), .arc2_whole(),
+    .disk2_wprot(1'b1), .disk2_hd(1'b0), .trk2_we(), .trk2_wbit(), .trk2_cells(), .arc2_done(), .arc2_side(), .arc2_start(), .arc2_end(), .arc2_whole(),
     .scsi_img_mounted(2'b00), .scsi_img_blocks(32'd0), .scsi_io_lba(), .scsi_io_rd(), .scsi_io_wr(), .scsi_io_blk_cnt(),   // SCSI: no disks
     .scsi_io_ack(2'b00), .scsi_sd_buff_addr(13'd0), .scsi_sd_buff_dout(16'd0), .scsi_sd_buff_din(), .scsi_sd_buff_wr(1'b0),
     .scc_port_in(6'b110_110), .scc_port_out(),

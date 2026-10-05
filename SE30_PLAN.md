@@ -8374,6 +8374,29 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
 1. ~~The documentation pass~~ **Done 2026-10-05** (c63edca, 40f57c3).
 2. `sim/fdhd` MFM checks, then the drive's MFM mode and interval
    recording; the buffer's size.
+   **Done 2026-10-05: `sim/fdhd` 97 PASS (~10 min), 7/7 mutants caught**
+   (no half-cell merge, the zero threshold at 1 cell, a 16-FCLK MFM cell,
+   the tach for the index, `$F` stuck at 1, no settle on a speed change,
+   and the bug below put back). The drive: a fractional cell clock (units
+   of 1/10000 FCLK - 32 FCLK GCR, 15.6672 MFM, one mechanism); MFM mode
+   200,000 cells at 300 rpm (HD) or 100,000 at 600 rpm (DD), exact to
+   the clock (3,133,440 / 1,566,720 FCLK a revolution); `$E` the index in
+   MFM (2,000 cells wide - ours, no document), `$F` from `hd`; a speed
+   change takes 152 ms. **Interval recording** in both modes. The bench
+   writes the ISM's intervals (31/32, 47, 62/63 FCLK) - a 100-interval
+   mix and a 200-interval sync field - and IBM pulses: every interval
+   recorded as exactly 2, 3 or 4 cells. **It found a real bug**: a
+   transition on the same clock as a due 0 (its 1 owed to the next
+   clock) kept counting its interval from the 0's threshold, not from
+   itself - one cell long. And a bench slip (the first gap compared with
+   the gate's lead). The buffer is two 200,000-cell sides (SIDE1 =
+   200,000, 400,000 bits; GCR uses 74,560 a side); the cell addresses are
+   18 bits through the drive, encoder, decoder, machine and top; the
+   drive's `hd` is tied 0 in the top until item 5. Rerun on the change:
+   `sim/flpenc` 26, `sim/flpdec` 39, `sim/gcrwrite` 9 (GCR writes now
+   recorded by intervals, decoded as before), `sim/swim` 141,
+   `sim/machine` 17. **The synthesis check for the larger buffer is
+   still to run** (deferred while Daniel's 32-bit compile ran).
 3. `sim/flpenc` MFM checks, then the encoder's MFM track.
 4. `sim/swim` ISM read checks, then the ISM's read chain.
 5. `sim/flpload`, then the loader's geometries; the machine and top
