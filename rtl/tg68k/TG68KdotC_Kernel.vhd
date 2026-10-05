@@ -813,6 +813,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal pmove_dn_areg    : std_logic;                      -- '1' when PMOVE CPU-register operand is An, '0' when Dn
 	signal pmove_dn_mode    : std_logic;                      -- Flag: '1' when PMOVE uses CPU-register mode (Dn/An)
 	signal pmove_mmu_read_active : std_logic;                 -- Flag: '1' when PMOVE MMU->memory is active
+	signal pmmu_rd_carry : bit;                               -- set_exec(pmmu_rd) one clock ago (BUG #388's carry, registered)
 	-- F-Line instruction context latch (captures at decode time for stable values)
 	signal fline_opcode_latch  : std_logic_vector(15 downto 0) := (others => '0');
 	signal fline_opcode_pc     : std_logic_vector(31 downto 0) := (others => '0');
@@ -11699,7 +11700,12 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     -- BUG #388 FIX: Check set_exec(pmmu_rd) because set_exec doesn't propagate
                     -- to exec during micro-state transitions (setexecOPC='0'), and set(pmmu_rd)
                     -- doesn't persist across cycles.
-	                    IF exec(pmmu_rd)='1' OR set(pmmu_rd)='1' OR set_exec(pmmu_rd)='1' THEN
+	                    -- SE/30 2026-10-05: the carry is pmmu_rd_carry, a flip-flop.  Reading
+	                    -- set_exec(pmmu_rd) here - this process's own output - made a
+	                    -- combinational latch: the six-node loop STA reported at the CASE
+	                    -- (compile 43), 4.7 ns on the worst clk_sys path.  The previous
+	                    -- clock's value is what the simulation read.
+	                    IF exec(pmmu_rd)='1' OR set(pmmu_rd)='1' OR pmmu_rd_carry='1' THEN
 	                        set_exec(pmmu_rd) <= '1';  -- Persist to idle
 	                        -- PMMU readback writeback is valid only for Dn-mode PMOVE.
 	                        -- Memory-EA PMOVE retires through this state too; writing Regwrena
@@ -11723,7 +11729,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     -- stage shifts the first post-PFLUSHA opcode fetch by half a cycle and
                     -- breaks immediate-long decode on the following instruction.
                     setstate <= "00";
-                    IF exec(pmmu_rd)='1' OR set(pmmu_rd)='1' OR set_exec(pmmu_rd)='1' THEN
+                    IF exec(pmmu_rd)='1' OR set(pmmu_rd)='1' OR pmmu_rd_carry='1' THEN
                         next_micro_state_c <= idle;
                     ELSE
                         next_micro_state_c <= idle;
@@ -12044,6 +12050,19 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 -----------------------------------------------------------------------------
 -- PMMU (68030) PMOVE register moves (Dn + memory read forms)
 -----------------------------------------------------------------------------
+
+  -- BUG #388's carry as a register (SE/30 2026-10-05): set_exec(pmmu_rd) as it
+  -- stood one clock ago, for pmmu_dn_read_wait (see there)
+  process(clk)
+  begin
+    if rising_edge(clk) then
+      if Reset = '1' then
+        pmmu_rd_carry <= '0';
+      else
+        pmmu_rd_carry <= set_exec(pmmu_rd);
+      end if;
+    end if;
+  end process;
 
   -- Drive PMMU register interface during PMOVE execution
   process(clk)
