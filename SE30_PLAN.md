@@ -16047,6 +16047,10 @@ board regression list on that build.
   probably never - the pre-pacing timing faults).
 - **Not yet decided:** the second floppy drive (built, out of builds since
   compile 37).
+- **If there is no room, the drop order (Daniel, 2026-10-05):** first
+  **CD audio**; second **floppy writing** (GCR and MFM - the read-only
+  switch of 10.4.1 item 4); **CD-ROM is never dropped** - it is how
+  software is installed.
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
