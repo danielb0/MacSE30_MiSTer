@@ -16285,7 +16285,17 @@ Daniel - add to it, move items out when fixed).**
    8 MB, the same disk - a copy of `Mister MacLC backup\boot.vhd`, as
    `C:\temp\Mac\mame\opint\opint.chd`; a software cross-check): the
    game works with the SE/30's memory map and PMMU tables, so **the bus
-   error is our core's**. Next: the bus-error probe.
+   error is our core's**. Next: the bus-error probe. **Compile 44 runs it** (Daniel,
+   2026-10-05 evening; compiles 42 and `b9003c88` both crashed). Of
+   compile 44's three changes the kernel's (d2291f6) is the one that
+   bears on it: the combinational latch on BUG #388's carry sat on the
+   PMOVE <MMU>,Dn path that also missed timing - and the crash came just
+   after `_QDExtensions` (32-bit QuickDraw's GWorlds, which in 24-bit
+   mode switch modes with `SwapMMUMode`, PMOVEs to and from the PMMU on
+   a 68030). The most likely cause, not proven instruction by
+   instruction; **to confirm: longer play and a rerun after a restart**
+   (PBER catches the PC if it recurs). Anything using GWorlds in 24-bit
+   mode could have met it.
 9. **PC Exchange's Options button never finishes "searching for SCSI
    devices"** (Daniel, board, compile 43, 2026-10-05). The probes: the
    CPU alive in the ROM's SCSI Manager, every A-line trap `A815`
