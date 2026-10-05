@@ -15873,6 +15873,90 @@ Options (the colour card, the 128 MB clean ROM) are decided when the base
 machine's real numbers are in. Each section's measured cost replaces its
 estimate here.
 
+### 10.4.1 The budget at compile 42, and the options (2026-10-05, discussion only)
+
+Daniel opened the budget again on 2026-10-05: the FPGA is filling, not
+everything will fit. **Nothing has been changed yet; these are the
+options under discussion.** The figures are compile 42's per-entity table
+(`floppy-write`, tag `a1d606aa`, GCR writing, one drive): **37,769 of
+41,910 ALMs (90 %), 314 of 553 M10K; ~530 under the ~38.3k ceiling.**
+
+| Block | ALMs |
+|---|---:|
+| 68030 (`tg68k:cpu`): kernel own 7,467, PMMU 5,011, ALU 1,798, caches 1,049, wrapper 533, pace 221 | 16,078 |
+| MiSTer framework outside `emu` (ascal 2,001, audio_out 929, sys_top 750, OSDs 533 + 484, pll_hdmi_adj 535, ALSA 257, yc_out 238, the rest ~370) | 6,688 |
+| 68882 (`se30_fpu`): APU 4,348, top 1,968, unpack 140 | 6,458 |
+| Debug: the probe deck 1,445 (27 probes) + JTAG hub 339 | 1,784 |
+| Floppy, one drive: encoder 423, decoder 395, SD writer 333, loader 304, drive 178, SWIM 138, mux 20 | 1,789 |
+| SCC (A 501, B 511, top 69) | 1,082 |
+| SCSI: target 0 372, target 1 387, top 88, 53C80 63 | 910 |
+| ADB: keyboard 286, PIC1654 265, mouse 214 | 766 |
+| hps_io | 545 |
+| ASC | 453 |
+| SDRAM controller | 402 |
+| VIA1 + VIA2 | 332 |
+| GLUE 151, RTC 119, video 90, top glue ~125 | ~485 |
+
+Still to build: MFM (800-1,400, read and write), CD-ROM and CD audio
+(600-900). Neither fits in ~530.
+
+**The options (estimates; the fitter's packing moves a few hundred
+between builds, so each is confirmed by the total of a compile):**
+
+1. **The probe deck out of release builds** (Daniel: obviously the first
+   stage): **-1,700 to -2,100**. The deck and hub are 1,784 measured; the
+   logic that exists only to feed them goes too (the cache hit counters,
+   the pace profile, the exception trace, the D6/D7 tap, the SDRAM
+   poke/raw port), perhaps 100-300. A build option, as `SE30_EXT_DRIVE`,
+   so a debug build keeps the deck.
+2. **Audit the CPU: -300 to -1,000, low confidence.** The CPU type is
+   already a constant (`CPU(2'b10)`), so the 68000/010 paths are pruned.
+   The register file stays in flip-flops: it is read directly outside
+   the read ports (PMOVE's Dn, RTE's A7) and has a full second copy
+   (`regfile_shadow`, the bus-fault restart), so moving it to MLABs is a
+   rewrite of the most fragile paths. The ATC keeps the real 030's 22
+   entries (authenticity). Candidates: the ATC's fields the chip does not
+   keep (a cached 16-bit fault status, a `shift` that repeats the page
+   size; ~150-400 over 22 entries), the kernel's inherited duplication
+   (100-500), the caches and wrapper (50-150). Keep clear of the restart
+   and register paths (the bus-fault and MOVEM fixes).
+3. **Audit the 68882: -100 to -400, low confidence.** The Quadra's
+   ~1,500 lever (its register bank into MLABs) is already taken here:
+   the FP registers, the temporaries and the microcode are in M10K. What
+   is left is the datapath (APU 4,348) and the control and bus interface
+   (1,968).
+4. **Read-only floppy, the writing kept behind a switch: ~-800
+   (700-850), measured** (5.15.12 item 8: writing cost ~840 - decoder
+   395, SD writer 333, encoder +33, drive +40, SWIM +15, mux 20, the
+   loader's header store), plus 4 M10K. With it off the drive reports
+   every disk locked, so the ROM and Finder refuse writes cleanly; the
+   SWIM's 15 can stay. **It also takes MFM writing off the list**, so
+   MFM costs only its read half (the low end of 800-1,400). Lost:
+   saving to and formatting floppies, installers that write to their
+   own disk, key disks. The LC core shipped read-only floppies for a
+   long time.
+5. **One hard disk: ~-380 (350-400), plus 16 M10K** (target 1 measured
+   387; the SCSI top's mux and hps_io's slot a few tens). **Alternative,
+   keeping two disks:** one `scsi.v` engine answering IDs 0 and 1 (and
+   3 for the CD later), switching image and personality by the selected
+   ID - only one target is ever on the bus - with a small per-ID store
+   (sense data, unit attention) and an image select toward hps_io. That
+   keeps two disks at about one target's cost, and takes the target
+   engine out of the CD-ROM's 600-900. A change in a part that works
+   (host-checked byte-exact), so it carries risk.
+6. Earlier levers still open: DC42 support (-150 to -250); the
+   framework's options (`MISTER_DISABLE_ALSA` ~257,
+   `MISTER_DOWNSCALE_NN`, `MISTER_DISABLE_ADAPTIVE` ~535), each giving up
+   a framework feature.
+
+**Where they lead** (from ~530 now): probes out ~2,200-2,600, enough
+for MFM read and CD-ROM at the low-middle of their estimates; with the
+read-only floppy ~3,000-3,400; the CPU/FPU audits add 400-1,400 of
+margin, which matters because timing gets harder above ~85-88 % fill,
+not only at the ceiling. The single disk (or the shared engine) is held
+in reserve, for a CD-ROM heavier than estimated. **Daniel's decisions:
+to come.**
+
 ## 10.5 The design (2026-10-03)
 
 The documents are the three extractions in `C:\temp\Mac\SE30\Docs\scc\`:
