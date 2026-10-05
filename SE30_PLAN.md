@@ -16247,6 +16247,21 @@ Daniel - add to it, move items out when fixed).**
    game run, already shows bus-error exceptions saturated at 255 with
    BERR never asserted - the ROM's start-up probing (PMMU-raised) fills
    it, so PEXC's count says nothing about the game.
+9. **PC Exchange's Options button never finishes "searching for SCSI
+   devices"** (Daniel, board, compile 43, 2026-10-05). The probes: the
+   CPU alive in the ROM's SCSI Manager, every A-line trap `A815`
+   (`_SCSIDispatch`, ~30,000 calls a second), the PCs in the dispatcher
+   (`$408266A4`) and selector 10's routine (`$40826706`: `SCSIStat`,
+   reading the 53C80's registers 4 and 5); the bus idle throughout (no
+   SEL, no BSY, no target waiting, no sectors moved). Our idle registers
+   look right (register 4 = `$01`, the parity bit; register 5 phase
+   match only). What it waits for is not visible: the selector mix and
+   the compared value are not probed. One candidate: the SCSI Manager's
+   busy flag (`$61` in its globals) left set, so the ROM's `SCSIGet`
+   fails at once forever. Next: the same on the LC core (another SCSI
+   model); a probe of the 53C80's register reads (which, and the value).
+   It matters for the CD-ROM: SCSI utilities and CD drivers scan the bus
+   the same way.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
