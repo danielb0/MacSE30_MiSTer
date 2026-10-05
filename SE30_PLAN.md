@@ -8738,7 +8738,7 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    from it to the SCSI disk** (not yet host-checked). The probes: the
    ISM selected, Setup `$20`, the drive in MFM mode, the image a DC42,
    nothing written (the temporary write-protect). **A 1.44 MB DOS image
-   under PC Exchange** (`C:	emp\Mac\Test disks\DOS\Disk1.img`, MS-DOS
+   under PC Exchange** (`C:\temp\Mac\Test disks\DOS\Disk1.img`, MS-DOS
    6.22's disk 1 - host-checked: FAT12, 18 x 2, both FATs equal, 41 files
    on sound chains over cylinders 0-66): it mounts and lists, **but a
    Finder copy fails, "cannot be found"**. Sectors are read (the HFS disk
