@@ -16265,7 +16265,24 @@ Daniel - add to it, move items out when fixed).**
    both hard disks found, the scan finishes): our SCSI handles a full
    scan, absent IDs included - the hang is PC Exchange's own search.
    Left: PC Exchange's Options on the LC core; the register-read probe if
-   it is to be chased.
+   it is to be chased. **Stuck again after a restart; probed faster** (400 samples of PIFA
+   and PLAS): a loop in application RAM (`$4D20C`-`$4D22C`) reading
+   `Ticks` (`$16A`) and calling `SCSIStat`, whose reads land at
+   `$50F10040`/`$50F10050` (registers 4 and 5 through the `$50F10000`
+   mirror - decoded). **A deviation found by reading the manual for
+   it**: register 4's bit 0 is "the data bus parity bit" (SP-1051 6.5) -
+   the DBP line, which "is also generated and asserted" only by whoever
+   drives the data bus (6.2 bit 0, 4.2); ours computed it from the data
+   lines always, so **a free bus read `$01`, not `$00`**. A loop waiting
+   for register 4 to read all-clear (a free bus) never ends on our core;
+   SCSI Probe and the ROM never wait for that. **Fixed in the RTL**
+   (2026-10-05, not yet compiled): `se30_scsi.v` drives the parity line
+   only with the data bus (the initiator's `c_db_en`, or a target in an
+   input phase) and the 53C80 reads it (`b_dbp`). `sim/ncr53c80` 107
+   PASS (a new check: register 4 on a free bus reads `$00`; the old
+   parity fails it), `sim/scsi_seam` 97, `sim/machine` 17. **Whether it
+   is PC Exchange's loop the board decides** - our best candidate, not a
+   proven cause.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
