@@ -8751,6 +8751,16 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    loop cells; their inputs are all registers and post-fit STA reports
    only the kernel's loop - a synthesis-time listing.) The fit decides at
    the next compile.
+   **Compile 44, 2026-10-05** (Daniel: "go ahead with the compile"): tag
+   `144c4b8d`, `output_files/MacSE30_144c4b8d_stabilise1.rbf`, 35.9 min -
+   the 53C80 DBP fix (e074dd5), the kernel loop fix (d2291f6), the PBER
+   probe (144c4b8). **39,149 ALMs (93 %), +1,405 on compile 43: the
+   probe's 432-bit capture and its instance** (the cost 10.4.2's release
+   profile removes); 343 M10K. **Our timing met at every corner**: slow
+   100C register-to-register +0.140 ns (was -0.086), no combinational
+   loop reported; the SDRAM capture met at every corner by A or B; the
+   only miss the framework's `ascal` (`o_vcpt_pre3`) -0.085 ns at slow
+   -40C (KNOWN ISSUES 6, the accepted precedent).
 8. The board: 1.44 MB, then 720K.
    **Compile 43 on the board, 2026-10-05 (Daniel)**: PBLD `7d5900aa`.
    **A 1.44 MB HFS image (DC42) mounts and its folders read; files copy
