@@ -8835,7 +8835,8 @@ write) may not, and is measured when it comes.
    inside a zip or its file lacks the owner-write bit (`FileCanWrite()`,
    Main's file_io.cpp: on the card's FAT/exFAT the DOS read-only
    attribute) and sends `img_readonly`; the disk mounted with the
-   Finder's lock icon (/WRTPRT 0). Still to run: the one-sided erase
+   Finder's lock icon (/WRTPRT 0), and a Finder copy onto it was refused
+   ("locked"). Still to run: the one-sided erase
    (needs a System before 7.5), the soak.
 
 # Section 6 - The ADB and the RTC
