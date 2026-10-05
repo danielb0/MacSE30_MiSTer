@@ -9230,7 +9230,56 @@ peek resets the machine.
    and still 400K after a remount.
 4. **A write-protected image** (mounted read-only): the Finder says the
    disk is locked; nothing reaches the card.
-5. A soak: a folder copied back and forth, byte-identical.
+5. A soak: a folder copied back and forth, byte-identical. **Written out
+   2026-10-06 (Daniel: "we still need to do a soak test on the GCR
+   writing", before MFM writing):**
+   - **The tool**: `tools/hfs/soak.py`. `make <dir> --rounds N` writes
+     `soak_source.dsk` (an 800K HFS floppy, folder `Soak` with a nested
+     `Inner`: 33 files, 721,416 payload bytes, 73 KB free - the targets
+     are filled to ~90 %, so the copies reach the inner cylinders) and
+     blank round images; `check <images>` audits each volume (as
+     `hfs_vol.py`: links, threads, overflow extents, bitmap, MDB; DC42
+     data and tag checksums) and compares every folder holding `Big 1`
+     with the SEED, not with another copy. Every 512-byte block of the
+     payload is unique (a header naming file, fork and block, then
+     SHA-256), so a misplaced or stale sector cannot read back as right
+     (MacPlus 2026-08-23: a checker that cannot fail is not a checker);
+     a failure names the block that landed there. Resource forks are real
+     resource files; header bytes $30-$7D are reported, not counted.
+     `selftest` proves it can fail: two swapped sectors, one bit of
+     resource data, a sector from another file, a DC42 changed after its
+     checksum, a block freed in the bitmap - all FAIL; the File Manager's
+     header bytes - PASS. Agrees with `hfs_vol.py` on `mac_80mb.vhd` (its
+     6 unowned blocks are the image's own).
+   - **The images**: `C:\temp\Mac\Test disks\Soak\` (3 rounds made).
+     Round r: `soak_rN_int` and `soak_rN_ext`, raw and DC42 with tags
+     alternating per drive (each drive writes both containers);
+     `soak_final_int.dsk`.
+   - **The rounds** (compile 44, `MacSE30_144c4b8d_stabilise1.rbf` - it
+     carries GCR writing; no compile needed). Keep the **mouse moving
+     during every copy** (the MacPlus HD20 lesson: a still mouse tests the
+     easy path).
+     0. `soak_source.dsk` in the internal drive; drag its `Soak` into a
+        new folder `Soak 0` on the SCSI disk; eject.
+     1. Round r = 1..3: `soak_rN_int` in the internal drive, `soak_rN_ext`
+        in the external; **Initialize** both (two-sided; the unreadable
+        blank is formatted - every track written); drag `Soak r-1:Soak`
+        from the SCSI disk to the internal floppy (SCSI read, floppy
+        write); internal `Soak` to the external floppy (both drives);
+        external `Soak` into a new SCSI folder `Soak r` (floppy read,
+        SCSI write); eject both.
+     2. `soak_final_int.dsk` in the internal drive, Initialize, drag
+        `Soak 3:Soak` to it, eject.
+     Every hop is checked: each SCSI copy is the next round's source, so
+     its faults reach a floppy; the SCSI image never needs pulling (its
+     own audit would fail on old faults - `check --sets-only` if wanted).
+   - **The check**: copy the 7 written images to the PC; `python
+     tools/hfs/soak.py check <the 7 images>` - every image PASS
+     (seconds).
+   - **The estimate**: ~9 min a round on the board (two initializes ~3
+     min, three ~700 KB copies ~5 min, mounting and ejecting ~1 min), so
+     ~35 min for 3 rounds + the source and final steps - Daniel's board
+     time; more rounds by `make --rounds N`, ~9 min each.
 
 ### 5.15.11 The budget
 
