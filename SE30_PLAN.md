@@ -8439,6 +8439,69 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    the top until item 5; `sim/flpdec` 39 and `sim/gcrwrite` 9 rerun
    (pass), `sim/gcrread` compiles.
 4. `sim/swim` ISM read checks, then the ISM's read chain.
+   **Done 2026-10-05: `sim/swim` 175 PASS (~3 min; 141 as before, 34
+   new in section 17), 10/10 mutants caught.** `se30_swim.v` reads MFM
+   as the ROM drives it (Setup `$20`; the ROM's parameter table at
+   `$4082E82E`, written last byte first: MIN `$18`, MULT `$41`, SSL/SSS
+   `$2E`, SLL/SLS `$18`, RPT/CSLS `$1B`, LSL/LSS `$2F`, LLL/LLS `$19`,
+   then the write set):
+   - **The transition**: RD is SENSE; with Setup bit 5 (IBM pulses) a
+     pulse's trailing edge, else every edge. RD is synchronous to FCLK
+     here, so the Half Read's bias (ISM spec 4.1) has nothing to
+     correct: the counter counts FCLK as two half-clocks.
+   - **The cell** (User's Ref pp. 12-14, ISM spec 4.1): boundaries in
+     half-clocks from the last transition, each parameter plus the
+     internal delay the User's Reference takes off it (MIN 3 clocks, the
+     rest 2): B1 = MIN + 6, B2 = B1 + xSx + 4, B3 = B2 + xLx + 4, B4 =
+     B3 + RPT + 4 - with the ROM's table 15, 40, 54 and 69.5 FCLK (after
+     a long cell 15, 40.5, 55, 70.5). Before B1 too narrow (error bit
+     4), then 2, 3, 4 units; none by B4 too wide (bit 5). The previous
+     cell picks the S or L row; the names' third letter (the next cell)
+     and CSLS are stored, not used - the ROM gives each pair one value,
+     and every boundary is 12 half-clocks or more from any interval the
+     drive's cells make (31-32, 46-48, 62-63 FCLK).
+   - **The CSM** (4.2): 64 minimum cells (32 pairs), then the first
+     non-minimum cell begins a byte; a mark - a 4-unit cell after a data
+     0, the dropped clock (4.5) - inside that byte locks; anything else
+     goes back to counting. Locked until ACTION falls. So bytes are
+     framed from the mark byte's first 1 - our reading for A1, the only
+     mark the ROM writes or reads.
+   - **The inverse trans-space** (4.5): after a data 1, 2/3/4 units are
+     1, 00, 01; after a clock (a 0), 0, 1 and the mark's 00. The CRC
+     (CCITT-16) starts at all ones on the byte's first bit, so it covers
+     the three A1s and the field - the User's Reference's "different
+     starting value" for reading is not given as a number; this is our
+     reading that makes the field's CRC come out.
+   - **The FIFO and registers** (User's Ref pp. 19-24): two bytes, each
+     with its mark flag and whether the CRC is zero after it; an
+     overrun loses the byte (error bit 0); Data (with ACTION) and Mark
+     read the head - a mark through Data is error bit 1, an empty read
+     bit 2; the first error bit holds the register until it is read.
+     Handshake in read mode: bit 7 a byte, 6 two, 5 an error, 1 the CRC
+     not zero after the head byte, 0 the head a mark. Clear FIFO empties
+     it while set. The correction counters and post-compensation are not
+     built (Setup bit 4 off); the Correction register reads 0.
+   **The bench** (section 17): the bands at every boundary's two sides
+   in both rows; 63 against 64 minimum cells; a non-mark after a sync
+   back to hunting; the ROM's address-field and data-field reads end to
+   end (its register sequence, every byte through the Mark register,
+   the marks flagged and no other byte, `and #$22` = 0 at CRC 2, the
+   error register 0); a bad CRC; the FIFO's two bytes and overrun; a
+   mark through Data; an empty read; the first error holding; Clear
+   FIFO; ACTION off. The stream is the drive's: 1-us cells at 15.6672
+   FCLK (fractional), an 8-FCLK pulse at each 1. Mutants: MIN's delay,
+   the row ignored, 63 cells for the lock, the mark rule after a 1, the
+   CRC from zero, no overrun, the mark flag from the wrong entry, errors
+   not holding, too wide at B3, a 3-unit cell after a 0 decoded as 0.
+   Two survived the first bench (the mark rule, errors not holding) and
+   made it stronger: the mark flag checked on every non-mark byte, and a
+   second error of another kind. Which edge of the pulse is the
+   transition cannot be told on our drive (its pulses are all 8 FCLK).
+   `sim/machine` 17 (ModelSim - it caught a use before declaration that
+   iverilog let through) and `sim/gcrwrite` 9 rerun, pass. Synthesis
+   check passed (9.9 min): the SWIM is 570 LUTs and 358 registers in
+   synthesis (compile 42 fitted it in 138 ALMs) - the fit at item 7
+   measures the read path.
 5. `sim/flpload`, then the loader's geometries; the machine and top
    wiring.
 6. `sim/mfmread`, the seam.

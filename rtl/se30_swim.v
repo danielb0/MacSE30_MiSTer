@@ -1,7 +1,7 @@
 // se30_swim.v - Apple's SWIM (343S0061-A) at UJ11, to the contract of
-// SE30_PLAN.md 5.2, 5.12 and 5.15 - both register sets, the IWM's read
-// path (rung 2, GCR) and its write path (rung 3).  The ISM's data path
-// (5.13) is to come.
+// SE30_PLAN.md 5.2, 5.12, 5.13 and 5.15 - both register sets, the IWM's
+// read path (rung 2, GCR) and its write path (rung 3), the ISM's MFM
+// read path (5.13).  The ISM's write path is to come.
 //
 // WHAT IT IS
 //   An IWM and an ISM in one package, one register set selected at a time
@@ -16,7 +16,54 @@
 //   pp. 20-26).  The switch between them and the three extra IWM bits
 //   (chip spec).  Held to sim/swim/tb_se30_swim.v.
 //
-//   The ISM's FIFO stays empty with ACTION never set.
+// THE ISM READ PATH (plan 5.13.3, 5.13.9 item 4; the ISM ASIC spec
+// 4.1-4.5, the User's Reference pp. 12-18 and 20-24)
+//   Built to what the ROM drives (5.15's decision): Setup $20, the
+//   correction machine off, FCLK whole.  RDDATA is SENSE on this board;
+//   with Setup bit 5 (the IBM drive option, the ROM's) a transition is a
+//   pulse's trailing edge, else every edge.
+//   The cell: the SCT counter's boundaries from the parameter RAM, in
+//   half-clocks from the last transition, each value plus the chip's
+//   internal delay the User's Reference subtracts (p. 14: MIN 3 clocks,
+//   the rest 2): B1 = MIN + 6, B2 = B1 + xSx + 4, B3 = B2 + xLx + 4,
+//   B4 = B3 + RPT + 4.  A transition before B1 is too narrow (error bit
+//   4), before B2 a 2-unit cell, before B3 a 3, before B4 a 4; none by
+//   B4 is too wide (bit 5).  The previous cell picks the row: after a
+//   2-unit cell SSx/SLx, after a longer one LSx/LLx.  The names' third
+//   letter (the next cell) and CSLS are stored, not used: the ROM's
+//   table gives each pair one value ($2E $2E, $18 $18, $2F $2F, $19
+//   $19), and with it every boundary is 12 half-clocks or more from any
+//   interval the drive's 1-us cells make.  RDDATA here is synchronous to
+//   FCLK, so the Half Read's bias (4.1) has nothing to correct: the
+//   counter counts FCLK, two half-clocks each.
+//   The Correction State Machine (4.2): after a transition it counts
+//   minimum cells; 32 pairs (64) of them, and the first non-minimum cell
+//   starts a byte - after a run of zeros it is the 1 that begins a mark;
+//   a mark - a 4-unit cell after a data 0, the dropped clock (4.5, "a 4
+//   unit cell which begins with a zero") - within that byte locks it;
+//   anything else sends it back to counting.  So the bytes are framed
+//   from the mark's first bit: A1, the mark the ROM writes and reads (a
+//   C2 index mark would frame the same way, from its first 1).
+//   The inverse trans-space machine (4.5): from a data bit's transition,
+//   2, 3, 4 units are 1, 00, 01; from a clock's (a 0), 0, 1, and the
+//   mark's 00.  Bits enter the shift register MSB first; a whole byte goes
+//   to the FIFO with its mark flag (the byte held a mark cell) and
+//   whether the CRC is zero after it.  The CRC (CCITT-16, User's Ref p.
+//   9) starts at all ones with the byte's first bit, so it covers the
+//   three A1s and the field.  Locked, the machine stays locked until
+//   ACTION is cleared (4.2); a cell error there is flagged and adds no
+//   bits.
+//   The FIFO: two bytes.  A byte arriving with both full is an overrun
+//   (error bit 0) and is lost.  The Data register (with ACTION) and the
+//   Mark register read the head: a mark through the Data register is
+//   error bit 1, a read of an empty FIFO bit 2.  Handshake (read mode):
+//   bit 7 a byte, bit 6 two, bit 5 an error, bit 1 the CRC not zero
+//   after the head byte (the running CRC when empty), bit 0 the head a
+//   mark.  The first error bit set holds the register until it is read.
+//   Mode bit 0 (Clear FIFO) empties the FIFO while it is set; ACTION's
+//   fall stops the machine.  The correction counters (4.3) and
+//   post-compensation (4.4) are not built: the Correction register reads
+//   0 (Setup bit 4, the ROM's 0, leaves them without effect).
 //
 // THE IWM WRITE PATH (plan 5.15.2; the SWIM drawing sheet 52, the IWM
 // Spec Rev 19 pp. 2-3 and 7, the 1984 undocumented-features note)
@@ -309,24 +356,175 @@ module se30_swim (
   end
 
   // ------------------------------------------------------ the ISM reads
+  // the read path's FIFO, two entries, head in 0, and its CRC (below)
+  reg   [7:0] f_b0, f_b1;
+  reg         f_m0, f_m1, f_c0, f_c1;
+  reg   [1:0] f_n;
+  reg  [15:0] rcrc;                                           // the read CRC
   wire [3:0] ph_rd  = (ph_dir & ph_lvl) | (~ph_dir & ph_in);
   wire       fifo_w = ism_mode[4];                                   // write mode: the empty FIFO has two places
   reg  [7:0] ism_q;
   always @* begin
     case (rs)
-      4'd8:  ism_q = 8'h00;                                          // FIFO data, or the correction pair: no flux, no measurement
-      4'd9:  ism_q = 8'h00;                                          // mark
+      4'd8:  ism_q = ism_mode[3] ? f_b0 : 8'h00;                    // FIFO data with ACTION, else the correction pair (none)
+      4'd9:  ism_q = f_b0;                                           // mark: the head, no mark error
       4'd10: ism_q = ism_error;
       4'd11: ism_q = param[pidx];
       4'd12: ism_q = {ph_dir, ph_rd};
       4'd13: ism_q = ism_setup;
       4'd14: ism_q = ism_mode | 8'h40;                               // status: the mode, bit 6 reading 1
-      4'd15: ism_q = {fifo_w, fifo_w, |ism_error, ism_mode[7], sense, sense, 1'b0, 1'b0};
+      4'd15: ism_q = fifo_w ? {2'b11, |ism_error, ism_mode[7], sense, sense, 2'b00}
+                            : {f_n != 0, f_n == 2'd2, |ism_error, ism_mode[7], sense, sense,
+                               (f_n != 0) ? !f_c0 : (rcrc != 16'h0000), (f_n != 0) && f_m0};
       default: ism_q = 8'hFF;                                        // a write address: the chip does not drive the lanes
     endcase
   end
 
   assign rdata = ism ? ism_q : iwm_q;
+
+  // ------------------------------------------------- the ISM read path
+  wire        ism_rd   = ism && !ism_mode[4];                 // read mode
+  wire        ism_act  = ism_rd && ism_mode[3];               // ... and ACTION
+  reg         rdd_s;                                          // RDDATA at the last FCLK
+  wire        ism_tr     = c16_en && (ism_setup[5] ? (sense && !rdd_s) : (sense != rdd_s));
+  reg  [11:0] tc;                                             // half-clocks since the last transition
+  reg         have_t;                                         // a transition since ACTION
+  reg         prev_l;                                         // the last cell was 3 or 4 units
+  reg         wide_done;                                      // too wide already flagged
+  wire [11:0] ivl = tc + 12'd2;                                // this FCLK's transition's interval
+  wire [11:0] bnd1 = {4'd0, param[0]} + 12'd6;
+  wire [11:0] bnd2 = bnd1 + {4'd0, prev_l ? param[8]  : param[2]} + 12'd4;
+  wire [11:0] bnd3 = bnd2 + {4'd0, prev_l ? param[10] : param[4]} + 12'd4;
+  wire [11:0] bnd4 = bnd3 + {4'd0, param[6]} + 12'd4;
+  // the cell: 0 too narrow, 2, 3, 4 units (or too wide, before it ends)
+  wire  [2:0] ccls = (ivl < bnd1) ? 3'd0 : (ivl < bnd2) ? 3'd2 : (ivl < bnd3) ? 3'd3 : 3'd4;
+  wire        cell_ok  = ism_act && have_t && ism_tr && !wide_done && ivl < bnd4;
+  wire        wide_now = ism_act && have_t && !wide_done && c16_en && ivl >= bnd4;
+
+  // the CSM
+  localparam [2:0] C_IDLE = 3'd0, C_SYNC = 3'd1, C_WAIT = 3'd2, C_MARK = 3'd3, C_LOCK = 3'd4;
+  reg   [2:0] csm;
+  reg   [5:0] nmin;                                           // minimum cells counted, less one
+  reg         ref_d;                                          // the last transition a data bit's (a 1)
+  reg   [7:0] asr;                                            // the shift register
+  reg   [3:0] acnt;                                           // its bits
+  reg         amark;                                          // the byte holds a mark
+
+  // the cell's bits (inverse trans-space): 1 or 2, MSB first in dbits[1]
+  wire        is_mark = (ccls == 3'd4) && !ref_d;
+  wire  [1:0] dbits   = (ccls == 3'd2) ? {ref_d, 1'b0} :
+                        (ccls == 3'd3) ? (ref_d ? 2'b00 : {1'b1, 1'b0}) :
+                                         (ref_d ? 2'b01 : 2'b00);
+  wire        dtwo    = (ccls == 3'd2) ? 1'b0 : (ccls == 3'd3) ? ref_d : 1'b1;
+  wire        ref_n   = (ccls == 3'd2) ? ref_d : (ccls == 3'd3) ? !ref_d : ref_d;
+
+  // the FIFO (declared with the ISM's registers, above)
+  wire        rd_data  = hit && ism && rs == 4'd8 && ism_mode[3] && !ism_mode[4];
+  wire        rd_mark  = hit && ism && rs == 4'd9 && !ism_mode[4];
+  wire        f_pop    = (rd_data || rd_mark) && f_n != 0;
+
+  function [15:0] crc1(input [15:0] c, input d);
+    crc1 = {c[14:0], 1'b0} ^ ((c[15] ^ d) ? 16'h1021 : 16'h0000);
+  endfunction
+
+  // one cell's bits into the shift register: the byte completed (if any)
+  reg   [7:0] n_asr, done_b;
+  reg   [3:0] n_acnt;
+  reg  [15:0] n_crc;
+  reg         n_amark, done, done_m, done_c;
+  integer     bi;
+  always @* begin
+    n_asr = asr; n_acnt = acnt; n_crc = rcrc; n_amark = amark || is_mark;
+    done = 1'b0; done_b = 8'h00; done_m = 1'b0; done_c = 1'b0;
+    for (bi = 1; bi >= 0; bi = bi - 1)
+      if (bi == 1 || dtwo) begin
+        n_asr = {n_asr[6:0], dbits[bi]};
+        n_crc = crc1(n_crc, dbits[bi]);
+        n_acnt = n_acnt + 1'b1;
+        if (n_acnt == 4'd8) begin
+          done = 1'b1; done_b = n_asr; done_m = n_amark; done_c = (n_crc == 16'h0000);
+          n_acnt = 4'd0; n_amark = 1'b0;
+        end
+      end
+  end
+
+  // a byte to the FIFO: locked, or the mark cell that locks completing it
+  wire        f_push  = cell_ok && ccls != 3'd0 && done && !ism_mode[0] &&
+                        (csm == C_LOCK || (csm == C_MARK && is_mark));
+  // the error bits raised this clock (User's Ref p. 23)
+  wire  [7:0] rc_err  = {2'b00,
+                         wide_now,                                            // 5 too wide
+                         cell_ok && ccls == 3'd0,                             // 4 too narrow
+                         1'b0,
+                         (rd_data || rd_mark) && f_n == 0,                    // 2 nothing to read
+                         rd_data && f_n != 0 && f_m0,                         // 1 a mark through Data
+                         f_push && f_n == 2'd2 && !f_pop};                    // 0 overrun
+
+  always @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+      rdd_s <= 1; tc <= 0; have_t <= 0; prev_l <= 0; wide_done <= 0;
+      csm <= C_IDLE; nmin <= 0; ref_d <= 0; asr <= 0; acnt <= 0; amark <= 0; rcrc <= 16'hFFFF;
+      f_b0 <= 0; f_b1 <= 0; f_m0 <= 0; f_m1 <= 0; f_c0 <= 0; f_c1 <= 0; f_n <= 0;
+    end else begin
+      if (c16_en) rdd_s <= sense;
+      if (c16_en) tc <= ism_tr ? 12'd0 : (tc[11] ? tc : tc + 12'd2);
+
+      if (!ism_act) begin
+        csm <= C_IDLE; have_t <= 0; wide_done <= 0; acnt <= 0; amark <= 0;
+      end else begin
+        if (wide_now) begin                                       // too wide: back to counting
+          wide_done <= 1;
+          if (csm != C_LOCK) begin csm <= C_SYNC; nmin <= 0; end
+        end
+        if (ism_tr) begin
+          have_t <= 1; wide_done <= 0;
+          if (csm == C_IDLE) begin csm <= C_SYNC; nmin <= 0; ref_d <= 0; prev_l <= 0; end
+        end
+        if (cell_ok) begin
+          prev_l <= (ccls != 3'd2);
+          if (ccls == 3'd0) begin                                 // too narrow
+            if (csm != C_LOCK) begin csm <= C_SYNC; nmin <= 0; end
+          end else case (csm)
+            C_SYNC:                                               // the run of minimum cells
+              if (ccls == 3'd2) begin
+                if (nmin == 6'd63) csm <= C_WAIT; else nmin <= nmin + 1'b1;
+              end else nmin <= 0;
+            C_WAIT:                                               // the first non-minimum cell
+              if (ccls == 3'd3) begin                             // a 1 after the zeros: a byte begins
+                asr <= 8'h01; acnt <= 4'd1; amark <= 0; rcrc <= crc1(16'hFFFF, 1'b1);
+                ref_d <= 1; csm <= C_MARK;
+              end else if (ccls != 3'd2) begin csm <= C_SYNC; nmin <= 0; end
+            C_MARK: begin                                         // the mark within this byte, or back
+              asr <= n_asr; acnt <= n_acnt; amark <= n_amark; rcrc <= n_crc; ref_d <= ref_n;
+              if (is_mark) csm <= C_LOCK;
+              else if (done) begin csm <= C_SYNC; nmin <= 0; end
+            end
+            C_LOCK: begin                                         // bytes to the FIFO
+              asr <= n_asr; acnt <= n_acnt; amark <= n_amark; rcrc <= n_crc; ref_d <= ref_n;
+            end
+            default: ;
+          endcase
+        end
+      end
+
+      // the FIFO: a pop, a push of a completed byte, Clear FIFO
+      if (ism_mode[0]) begin
+        f_n <= 0; rcrc <= 16'hFFFF;
+      end else begin
+        if (f_pop) begin f_b0 <= f_b1; f_m0 <= f_m1; f_c0 <= f_c1; end
+        if (f_push) begin
+          if (f_n == 2'd2 && !f_pop) ;                            // overrun: the byte is lost
+          else if ((f_n == 2'd0) || (f_n == 2'd1 && f_pop)) begin
+            f_b0 <= done_b; f_m0 <= done_m; f_c0 <= done_c;
+            f_n <= f_pop ? f_n : f_n + 1'b1;
+          end else begin
+            f_b1 <= done_b; f_m1 <= done_m; f_c1 <= done_c;
+            f_n <= f_pop ? f_n : f_n + 1'b1;
+          end
+        end else if (f_pop) f_n <= f_n - 1'b1;
+      end
+    end
+  end
 
   // --------------------------------------------------------- the state
   integer i;
@@ -338,6 +536,8 @@ module se30_swim (
       ism_mode <= 0; ism_setup <= 0; ism_error <= 0; pidx <= 0; corr_sel <= 0;
     end else begin
       if (c16_en && timer != 0) timer <= timer - 1'b1;
+      // the read path's errors: the first one holds the register until it is read
+      if (rc_err != 0 && ism_error == 0) ism_error <= rc_err;
 
       if (hit && !ism) begin
         ph_lvl <= ph_n; motor <= motor_n; drvsel <= drvsel_n; l6 <= l6_n; l7 <= l7_n;
@@ -372,7 +572,7 @@ module se30_swim (
         endcase
         else case (rs[2:0])
           3'd0: if (!ism_mode[3]) corr_sel <= !corr_sel;
-          3'd2: ism_error <= 0;
+          3'd2: ism_error <= rc_err;                                 // read: cleared (an error this clock stays)
           3'd3: pidx <= pidx + 1'b1;
           default: ;
         endcase

@@ -62,6 +62,26 @@
 //        /WRREQ high with L7 set and the motor off (IWM Spec p. 7); the
 //        28-FCLK cell in 7M slow and the 16-FCLK cell in 8M fast
 //
+//   and, for MFM (plan 5.13.3, 5.13.10 item 1), the ISM's read path:
+//
+//    17. with the ROM's parameter RAM ($4082E82E, reversed) and Setup $20,
+//        RD as IBM pulses: the cell bands at each boundary's either side -
+//        14 FCLK too narrow (error bit 4), 15 and 39 a 2-unit cell, 40
+//        and 53 a 3, 54 and 69 a 4, 70 too wide (bit 5); after a 3-unit
+//        cell the LSx/LLx row (40 a 2, 41 and 54 a 3, 55 and 70 a 4, 71
+//        too wide); the CSM: 63 minimum cells before an A1 no lock, 64 a
+//        lock, a non-mark byte after a sync back to hunting; the ROM's
+//        address-field read ($4082E9A6) and data-field read ($4082EA68)
+//        on a sector laid as its formatter lays one, every byte through
+//        the Mark register, the marks flagged (handshake bit 0) and no
+//        other byte, the handshake at CRC 2 and #$22 = 0, the error
+//        register 0; a bad CRC (handshake bit 1); two bytes held (bits 7,
+//        6) and an overrun (error bit 0); a mark through the Data register
+//        (bit 1); an empty read (bit 2); the first error holding the
+//        register; Clear FIFO; ACTION off.  The stream is cells of the
+//        drive's 1 us (15.6672 FCLK, fractional), an 8-FCLK pulse at each
+//        1.
+//
 //   Rung 2's bytes are read the ROM's way: the data register at $1800
 //   (L6 cleared by the access, L7 and MotorOn as they are), polled until
 //   its MSB is set ($40831C2E: move.b (a4),d5 / bpl).  The flux reaches
@@ -188,6 +208,102 @@ module tb_se30_swim;
       while (!sns && w < 1000) begin drv_read(4'h4); w = w + 1; end
     end
   endtask
+
+  // ------------------------------------------- the ISM's read path (5.13)
+  // MFM as the User's Reference (pp. 6-7) and the ISM spec (3.4) give it:
+  // a bit is a clock cell and a data cell; a 1 a transition in its data
+  // cell, a 0 after a 0 one in its clock cell; a mark drops the clock
+  // before the last 0 of "1000" (an A1's bit 2).  The bench's stream is a
+  // list of bits, each with its clock dropped or not.
+  reg        mb [0:8191];                    // the bits
+  reg        md [0:8191];                    // ... their clock dropped
+  integer    mn;                             // how many
+  task m_clear;  begin mn = 0; end endtask
+  task m_byte(input [7:0] v, input mark);
+    integer b;
+    for (b = 7; b >= 0; b = b - 1) begin mb[mn] = v[b]; md[mn] = mark && b == 2; mn = mn + 1; end
+  endtask
+  task m_zeros(input integer n);             // n 0 bits
+    integer b;
+    for (b = 0; b < n; b = b + 1) begin mb[mn] = 0; md[mn] = 0; mn = mn + 1; end
+  endtask
+  // the stream on the RD line as the drive gives it (se30_fdhd.v): cell k
+  // of 1 us begins at FCLK floor(k x 15.6672), a 1 cell an 8-FCLK low
+  // pulse there; its trailing edge is the transition (the IBM option)
+  task m_play;
+    integer i, t0, half;
+    reg prev, cbit;
+    begin
+      prev = 0; t0 = cyc;
+      for (i = 0; i < 2 * mn; i = i + 1) begin
+        half = i % 2;
+        cbit = half ? mb[i / 2] : (!prev && !mb[i / 2] && !md[i / 2]);
+        if (half) prev = mb[i / 2];
+        while (cyc < t0 + (i * 156672) / 10000) @(posedge clk);
+        if (cbit) begin #1 flux_n = 0; repeat (8) @(posedge clk); #1 flux_n = 1; end
+      end
+    end
+  endtask
+  // CCITT-16 from all ones (User's Ref p. 9), for the bench's CRC bytes
+  function [15:0] crc_b(input [15:0] c, input [7:0] d);
+    integer k;
+    reg [15:0] r;
+    begin
+      r = c;
+      for (k = 7; k >= 0; k = k - 1) r = {r[14:0], 1'b0} ^ ((r[15] ^ d[k]) ? 16'h1021 : 16'h0000);
+      crc_b = r;
+    end
+  endfunction
+  // a field: 12 x 00, A1 A1 A1 (marks), then the bytes and their CRC
+  reg  [7:0] fb [0:599];
+  task m_field(input integer n, input crc_bad);
+    integer k;
+    reg [15:0] c;
+    begin
+      m_zeros(96);
+      c = 16'hFFFF;
+      for (k = 0; k < 3; k = k + 1) begin m_byte(8'hA1, 1); c = crc_b(c, 8'hA1); end
+      for (k = 0; k < n; k = k + 1) begin m_byte(fb[k], 0); c = crc_b(c, fb[k]); end
+      m_byte(c[15:8], 0); m_byte(c[7:0] ^ (crc_bad ? 8'h01 : 8'h00), 0);
+    end
+  endtask
+  // the ROM's set-up for a field ($4082E9C6): the error register read,
+  // write and ACTION off, Clear FIFO on and off, the error read, ACTION
+  task ism_arm;
+    begin rd(16'h1400); wr(16'h0C00, 8'h18); wr(16'h0E00, 8'h01); wr(16'h0C00, 8'h01); rd(16'h1400); wr(16'h0E00, 8'h08); end
+  endtask
+  // the handshake polled until a byte is in (bit 7), then the Mark
+  // register read: hs is the handshake that saw the byte (the ROM's D5)
+  reg [7:0] hs, mv;
+  task ism_get(input integer limit);
+    integer t;
+    begin
+      t = cyc; hs = 8'h00;
+      while (!hs[7] && cyc - t < limit) begin rd(16'h1E00); hs = q; end
+      rd(16'h1200); mv = q;
+    end
+  endtask
+  // the cells the chip classified: the last, and a count
+  reg  [2:0] last_cls = 0;
+  integer    ncls = 0;
+  always @(posedge clk) if (swim.cell_ok) begin last_cls <= swim.ccls; ncls <= ncls + 1; end
+  // a band: a first transition, a cell of `pre` FCLK (31 a 2-unit, 47 a 3),
+  // then the interval under test; its class (0 too narrow, 2, 3, 4) and the
+  // error register (read, so cleared)
+  reg [7:0] er;
+  task ism_band(input integer pre, input integer x, output integer cls);
+    begin
+      wr(16'h0C00, 8'h08); rd(16'h1400); wr(16'h0E00, 8'h08);
+      repeat (20) @(posedge clk);
+      ncls = 0;
+      edge_now; gap_then_edge(pre); gap_then_edge(x);
+      repeat (3) @(posedge clk);
+      cls = (ncls == 2) ? last_cls : 7;                  // (7: the cell under test not classified)
+      rd(16'h1400); er = q;                              // at once: the quiet line after it is too wide in time
+      wr(16'h0C00, 8'h08);
+    end
+  endtask
+  integer cls, k2;
 
   // --------------------------------------------------- timing helpers
   // clocks from the latch edge at t0 until /ENBL1 is seen high (limit clocks)
@@ -823,6 +939,155 @@ module tb_se30_swim;
     check(ned >= 9 && ed[1] - ed[0] == 16 && ed[8] - ed[7] == 16, "8M fast: the 16-FCLK cell", ed[1] - ed[0], 16);
     check(ned >= 1 && ed[0] - t_enter == 8, "8M fast: the first load 7 CLK (7 FCLK) after entry (+1 for the log)", ed[0] - t_enter, 8);
     rd(16'h1000);
+
+    // ---- 17. the ISM's read path
+    $display("---- 17. the ISM read path: the bands, the CSM, the ROM's field reads, the FIFO (5.13.3)");
+    reset_n = 0; repeat (3) @(posedge clk); #1 reset_n = 1; @(posedge clk);
+    rd(16'h1A00); wr(16'h1E00, 8'h57); wr(16'h1E00, 8'h17); wr(16'h1E00, 8'h57); wr(16'h1E00, 8'h57);
+    check(ism == 1, "(the ISM)", ism, 1);
+    // the ROM's parameters ($4082E80A: its table at $4082E82E, written
+    // last byte first) and Setup $20 ($4082E7A8); MotorOn stays off, so
+    // the drive leaves the line at 1 and the bench's pulses are RD
+    wr(16'h0C00, 8'h00);
+    begin : params
+      reg [127:0] t;
+      t = 128'h3B571B97_19192F2F_1B1B1818_2E2E4118;
+      for (i = 0; i < 16; i = i + 1) wr(16'h0600, t[8 * i +: 8]);
+    end
+    wr(16'h0C00, 8'h00); rd(16'h1600);
+    check(q == 8'h18, "(MIN $18 first: the table reversed)", q, 8'h18);
+    wr(16'h0A00, 8'h20);
+
+    // the bands: B1 = MIN + 6 = 30 half-clocks (15 FCLK), B2 = B1 + SSx
+    // + 4 = 80 (40), B3 = B2 + SLx + 4 = 108 (54), B4 = B3 + RPT + 4 = 139
+    // (69.5); after a 3-unit cell LSx, LLx: B2 81 (40.5), B3 110 (55),
+    // B4 141 (70.5).  The drive's intervals are 31-32, 46-48, 62-63 FCLK.
+    bad = 0;
+    ism_band(31, 14, cls); if (cls != 0 || er != 8'h10) bad = bad + 1;
+    check(bad == 0, "14 FCLK: too narrow (error bit 4)", er, 8'h10);
+    ism_band(31, 15, cls); check(cls == 2 && er == 0, "15 FCLK: a 2-unit cell (B1)", cls, 2);
+    ism_band(31, 39, cls); check(cls == 2 && er == 0, "39: 2 units", cls, 2);
+    ism_band(31, 40, cls); check(cls == 3 && er == 0, "40: 3 units (B2 after a 2-unit cell)", cls, 3);
+    ism_band(31, 53, cls); check(cls == 3, "53: 3 units", cls, 3);
+    ism_band(31, 54, cls); check(cls == 4, "54: 4 units (B3)", cls, 4);
+    ism_band(31, 69, cls); check(cls == 4 && er == 0, "69: 4 units", cls, 4);
+    ism_band(31, 70, cls); check(cls == 7 && er == 8'h20, "70: too wide (error bit 5, B4)", er, 8'h20);
+    ism_band(47, 40, cls); check(cls == 2, "after a 3-unit cell: 40 is 2 units (B2 81)", cls, 2);
+    ism_band(47, 41, cls); check(cls == 3, "  41: 3 units", cls, 3);
+    ism_band(47, 54, cls); check(cls == 3, "  54: 3 units (B3 110)", cls, 3);
+    ism_band(47, 55, cls); check(cls == 4, "  55: 4 units", cls, 4);
+    ism_band(47, 70, cls); check(cls == 4 && er == 0, "  70: 4 units (B4 141)", cls, 4);
+    ism_band(47, 71, cls); check(er == 8'h20, "  71: too wide", er, 8'h20);
+
+    // the CSM: 63 minimum cells before the mark do not lock, 64 do.  After
+    // a 4E (whose last 1 ends a cell) n zero bits make n - 1 minimum cells
+    // before the 3-unit cell that ends the last zero's clock... and the A1
+    $display("     (the CSM)");
+    m_clear; m_byte(8'h4E, 0); m_zeros(64); m_byte(8'hA1, 1); m_byte(8'hA1, 1); m_byte(8'hFE, 0); m_byte(8'h4E, 0); m_byte(8'h4E, 0);
+    ism_arm; m_play; repeat (40) @(posedge clk);
+    rd(16'h1E00);
+    check(q[7] == 0, "63 minimum cells, then A1: no lock, the FIFO empty", q, 8'h00);
+    m_clear; m_byte(8'h4E, 0); m_zeros(65); m_byte(8'hA1, 1); m_byte(8'hA1, 1); m_byte(8'hFE, 0); m_byte(8'h4E, 0); m_byte(8'h4E, 0);
+    ism_arm; m_play; repeat (40) @(posedge clk);
+    rd(16'h1E00); hs = q;
+    rd(16'h1200); mv = q;
+    check(hs[7] && hs[6] && hs[0] && mv == 8'hA1, "64: locked - two bytes in, the head a mark, A1", {hs, mv}, 16'hC1A1);
+    // not a mark after the zeros: back to hunting, and a later sync locks
+    m_clear; m_zeros(96); m_byte(8'h80, 0); m_byte(8'h4E, 0); m_byte(8'h4E, 0);
+    m_zeros(96); m_byte(8'hA1, 1); m_byte(8'hFE, 0); m_byte(8'h4E, 0);
+    ism_arm; m_play; repeat (40) @(posedge clk);
+    rd(16'h1200); mv = q; rd(16'h1200);
+    check(mv == 8'hA1 && q == 8'hFE, "a non-mark byte after a sync: back to hunting; the next sync's A1 FE", {mv, q}, 16'hA1FE);
+
+    // the ROM's address-field read ($4082E9A6) and data-field read
+    // ($4082EA68) on a sector as the formatter lays it ($4082EC5E)
+    $display("     (the ROM's field reads)");
+    m_clear;
+    for (k2 = 0; k2 < 4; k2 = k2 + 1) m_byte(8'h4E, 0);
+    fb[0] = 8'hFE; fb[1] = 8'd37; fb[2] = 8'd1; fb[3] = 8'd11; fb[4] = 8'h02;
+    m_field(5, 0);
+    for (k2 = 0; k2 < 22; k2 = k2 + 1) m_byte(8'h4E, 0);
+    fb[0] = 8'hFB;
+    for (k2 = 1; k2 <= 512; k2 = k2 + 1) fb[k2] = (k2 * 7 + 3) & 8'hFF;
+    m_field(513, 0);
+    for (k2 = 0; k2 < 8; k2 = k2 + 1) m_byte(8'h4E, 0);
+    bad = 0; b = 0;
+    fork
+      m_play;
+      begin
+        ism_arm;
+        for (k2 = 0; k2 < 4; k2 = k2 + 1) begin
+          ism_get(20000);
+          if (mv != ((k2 < 3) ? 8'hA1 : 8'hFE) || hs[0] != (k2 < 3)) bad = bad + 1;
+        end
+        for (k2 = 1; k2 < 5; k2 = k2 + 1) begin                // (fb holds the data field by now)
+          ism_get(2000);
+          if (mv != ((k2 == 1) ? 8'd37 : (k2 == 2) ? 8'd1 : (k2 == 3) ? 8'd11 : 8'h02) || hs[0]) bad = bad + 1;
+        end
+        ism_get(2000);                                    // CRC 1
+        ism_get(2000); b = hs;                            // CRC 2: the handshake that saw it
+        rd(16'h1400); er = q;
+        check(bad == 0, "address field: A1 A1 A1 (marks) FE 25 01 0B 02 (not marks) through the Mark register", bad, 0);
+        check((b & 8'h22) == 0, "  the handshake at CRC 2: and #$22 = 0 (CRC zero, no error)", b, 8'h00);
+        check(er == 0, "  the error register 0", er, 0);
+        // the data field: armed again while gap 2 passes
+        ism_arm; bad = 0;
+        for (k2 = 0; k2 < 4; k2 = k2 + 1) begin ism_get(20000); if (mv != ((k2 < 3) ? 8'hA1 : 8'hFB)) bad = bad + 1; end
+        for (k2 = 1; k2 <= 512; k2 = k2 + 1) begin ism_get(2000); if (mv != fb[k2] || hs[0]) bad = bad + 1; end
+        ism_get(2000); ism_get(2000); b = hs;
+        rd(16'h1400); er = q;
+        check(bad == 0, "data field: A1 A1 A1 FB and 512 bytes, none of them a mark", bad, 0);
+        check((b & 8'h22) == 0 && er == 0, "  CRC zero at CRC 2, no error", b, 8'h00);
+      end
+    join
+    wr(16'h0C00, 8'h18);
+
+    // a bad CRC; a mark through the Data register; the FIFO's depth and
+    // overrun; an empty read; the first error held; Clear FIFO; ACTION off
+    $display("     (CRC, errors, the FIFO)");
+    m_clear; m_byte(8'h4E, 0);
+    fb[0] = 8'hFE; fb[1] = 8'd2; fb[2] = 8'd0; fb[3] = 8'd5; fb[4] = 8'h02;
+    m_field(5, 1); m_byte(8'h4E, 0); m_byte(8'h4E, 0);
+    fork
+      m_play;
+      begin
+        ism_arm;
+        for (k2 = 0; k2 < 9; k2 = k2 + 1) ism_get(20000);
+        ism_get(2000); b = hs;
+        check(b[1] == 1, "a wrong CRC byte: handshake bit 1 at CRC 2", b, 8'h02);
+      end
+    join
+    rd(16'h1400);
+    m_clear; m_zeros(96); m_byte(8'hA1, 1); m_byte(8'hA1, 1); m_byte(8'hA1, 1); m_byte(8'hFE, 0); m_byte(8'h4E, 0);
+    ism_arm; m_play;
+    rd(16'h1E00); hs = q;
+    check(hs[7:6] == 2'b11 && hs[0], "unread: two bytes held (bits 7, 6), the head a mark (bit 0)", hs, 8'hC1);
+    rd(16'h1400); er = q;
+    check(er[0] == 1, "  and the bytes after them overran (error bit 0)", er, 8'h01);
+    rd(16'h1000); mv = q; rd(16'h1400); er = q;
+    check(mv == 8'hA1 && er == 8'h02, "a mark read through the Data register: error bit 1", {mv, er}, 16'hA102);
+    rd(16'h1200); rd(16'h1E00); hs = q;
+    check(hs[7] == 0, "  (the FIFO empty)", hs, 8'h00);
+    rd(16'h1200);                                       // an empty read
+    rd(16'h1400); er = q;
+    check(er == 8'h04, "an empty read: error bit 2", er, 8'h04);
+    // the first error holds: a mark through the Data register (bit 1),
+    // then the quiet line after the stream (too wide, bit 5)
+    m_clear; m_zeros(96); m_byte(8'hA1, 1); m_byte(8'hFE, 0);
+    ism_arm; m_play;
+    rd(16'h1000); repeat (200) @(posedge clk);
+    rd(16'h1400); er = q;
+    check(er == 8'h02, "the first error holds the register (bit 1, not the too-wide after it)", er, 8'h02);
+    rd(16'h1400); er = q;
+    check(er == 0, "  the read cleared it", er, 0);
+    m_clear; m_zeros(96); m_byte(8'hA1, 1); m_byte(8'hFE, 0); m_byte(8'h4E, 0);
+    ism_arm; m_play;
+    wr(16'h0E00, 8'h01); rd(16'h1E00); hs = q;
+    check(hs[7] == 0, "Clear FIFO set: empty", hs, 8'h00);
+    wr(16'h0C00, 8'h09);
+    m_clear; m_zeros(96); m_byte(8'hA1, 1); m_byte(8'hFE, 0); m_byte(8'h4E, 0);
+    m_play; rd(16'h1E00); hs = q;
+    check(hs[7] == 0, "ACTION off: nothing read", hs, 8'h00);
 
     // ---- verdict
     if (fails == 0) $display("==== PASS: %0d checks, the SWIM holds to plan 5.2 and 5.5", checks);
