@@ -16116,8 +16116,11 @@ Daniel - add to it, move items out when fixed).**
    SE/30 ROM and System 7.5.5 leaves the same orphans; the MacLC's newer
    ROM removes them. Test image `tools/hfs/make_fidtest.py`; harmless to
    data: Disk First Aid removes the orphans.
-4. **Floppy writing and formatting are not built** - the drives read only
-   (10.4: next after the open items).
+4. ~~**Floppy writing and formatting are not built**~~ **GCR writing and
+   formatting built and board-proven 2026-10-05** (5.15, compile 42;
+   only the soak is left). **MFM disks (720K, 1.44 MB) are
+   write-protected** until MFM writing is built (5.13.12 item 5); MFM
+   reading is on the board with compile 43.
 5. **The 68882's atypical operands** (special values, denormals, rare
    rounding cases) may run up to ~13 clocks over the 68881's per-case
    figures: no document gives the 68882's own (8.9.7).
