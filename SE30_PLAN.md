@@ -8785,7 +8785,10 @@ disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
    writing), and PC Exchange's version.
    **Host check of an MFM read, 2026-10-06** (Daniel, compile 44): the
    System 7.5.5 Update's disk 1 (`C:\temp\Mac\System 7.5.5 Update\System
-   7.5.5 Update - 1.dsk`, a 1.44 MB DC42, checksum verified) copied in
+   7.5.5 Update - 1.dsk`, a 1.44 MB DC42, checksum verified; the copy
+   Daniel mounted, `Mister MacLC backup 4.10.2026\System 7.5.5 Update -
+   1.dsk`, is byte-identical to it, and the comparison against it also
+   passes) copied in
    the Finder to the SCSI disk's folder `Test MFM`
    (`Test disks\Soak\Results\mac_80mb-restored.vhd`):
    `tools/hfs/fork_cmp.py` - **24 of 24 files identical**, both forks,
