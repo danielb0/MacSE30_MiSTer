@@ -16300,6 +16300,90 @@ not only at the ceiling. The single disk (or the shared engine) is held
 in reserve, for a CD-ROM heavier than estimated. **Daniel's decisions:
 to come.**
 
+### 10.4.2 Build profiles: features tested with the probes, released without (2026-10-05, proposed)
+
+Daniel, 2026-10-05: "we need a modular approach, so that we can test
+features with the probes working, and then merge everything together
+with no probes." The probe deck (1,784 ALMs at compile 42, more with the
+logic that only feeds it) is the largest lever in 10.4.1, but it is also
+how every board fault so far has been found. So: one tree, two kinds of
+build, chosen at build time - not branches.
+
+**What exists.** Three switches, in three places: `USE_DBG_PROBES` (a
+`VERILOG_MACRO` in `MacSE30.qsf`, on: the deck and the JTAG hub),
+`SE30_PERF_PROBES` (a `define` in `MacSE30.sv`, off: PSCT, PFPU, PPRF),
+`SE30_EXT_DRIVE` (a `define` in `MacSE30.sv`, off since compile 37: the
+second drive's chain; its `noext` block ties the outputs to "no drive").
+Changing a build means editing a source or the qsf, and
+`stamp_build_tag.ps1` refuses a dirty tree, so today a debug or release
+choice needs a commit.
+
+**Proposed:**
+
+1. **The switches in one file**, `rtl/se30_build_cfg.vh`, included by
+   `MacSE30.sv` as `build_id.v` is; `USE_DBG_PROBES` moves there from the
+   qsf. One switch per optional block:
+
+   | switch | what it builds | ALMs (measured or estimated) |
+   |---|---|---:|
+   | `SE30_PROBES` | the deck, the JTAG hub, PBLD, PPEK/PRAW (the SDRAM poke and raw port), and the logic that only feeds them (cache counters, pace profile, exception trace, taps) | 1,784 + ~100-300 |
+   | `SE30_PERF_PROBES` | PSCT, PFPU, PPRF (under `SE30_PROBES`) | measured at compile 41 |
+   | `SE30_EXT_DRIVE` | the second floppy chain | 577 |
+   | `SE30_FLOPPY_WRITE` | the decoder, the SD writer, the drive's recording (off: every disk write-protected) | ~800 |
+   | `SE30_FLOPPY_MFM` | the ISM's read path, the encoder's MFM track, the loader's MFM geometries (off: MFM images load but are not a disk) | compile 43 measures |
+   | later: `SE30_CDROM`, `SE30_COLOUR` | | |
+
+2. **Profiles**: `profiles/<name>.vh`, one set of switches each;
+   `build_only.sh --profile <name>` copies it over `se30_build_cfg.vh`
+   before Quartus runs, and the ritual restores the committed file
+   afterwards, as it does `build_tag.v` (the stamp's dirty check skips
+   the profile file the way it skips the tag). The archive is labelled
+   with the profile (`MacSE30_<sha>_<profile>.rbf`).
+   - **`release`**: every built and board-proven feature, no probes.
+     The build that ships, and the one the ~38.3k ceiling applies to.
+   - **`debug-<feature>`**: the probes, the feature under test, and only
+     what it needs - free to drop other features to make room.
+
+3. **Every switch has a stub**, the `noext` pattern: a feature that is
+   off ties its outputs to the state of absent hardware (no disk, no
+   request, write-protected), so the rest of the machine behaves as if
+   it were not fitted. Probes are read-only observers, so taking them out
+   cannot change the machine - except PPEK/PRAW, which write SDRAM and
+   go under the same switch. The benches instantiate modules directly
+   and are unaffected; a module with a feature switch takes it as a
+   parameter, and its bench runs both settings.
+
+4. **The workflow**:
+   - develop: benches; the board on `debug-<feature>`;
+   - integrate: a `release` compile on `dev`, **timing met at every
+     corner on its own** - each profile is its own fit, and one
+     profile's closure says nothing of another's (no seed lottery, per
+     profile); then the board regression list on that build;
+   - a fault in `release`: build the `debug` profile with the features
+     involved and probe it there.
+
+5. **The budget**: plan 10.4's table gets a column per profile in use.
+   The ceiling binds `release`; a debug profile must fit and close too,
+   by dropping what it does not need.
+
+**For Daniel to decide:**
+- which features a debug profile may drop: the second drive (577) and
+  floppy writing (~800) are cheap; **the 68882 (6,458) is the big one,
+  but without it the ROM and System see no FPU** - a different machine,
+  acceptable for a floppy or SCSI debug build, never for anything near
+  Math;
+- what `release` holds today: GCR writing (board-proven), MFM reading
+  (after its board gates, 5.13.11), the second drive (built, off since
+  compile 37 - the LC has one drive);
+- whether the committed `se30_build_cfg.vh` is `release` or the current
+  debug set.
+
+**The work** (after compile 43's figures): the switch file and the
+profiles, `build_only.sh --profile`, the stamp and archive changes, the
+stubs for the floppy switches (`SE30_PROBES` and `SE30_EXT_DRIVE`
+mostly exist), the benches of the switched modules in both settings;
+then a `release` compile, which measures the probe deck's true cost.
+
 ## 10.5 The design (2026-10-03)
 
 The documents are the three extractions in `C:\temp\Mac\SE30\Docs\scc\`:
