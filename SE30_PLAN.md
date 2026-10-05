@@ -16203,7 +16203,9 @@ Daniel - add to it, move items out when fixed).**
    came at or just after a `_QDExtensions` call, on an access the PMMU
    refused. The deck keeps no bus-error PC or fault address; if the
    other cores do not settle it, a probe for the last bus error's PC
-   and access address is the next step (a compile, with 10.4.2's work).
+   and access address is the next step (a compile, with 10.4.2's work). **It crashes on the MODE32-fix build too** (`b9003c88`, Daniel,
+   2026-10-05): the 1.18 kernel fix is not the answer. Left: the other
+   cores (the game on SE/30 hardware, or another core fault).
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
