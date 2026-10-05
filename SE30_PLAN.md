@@ -16193,7 +16193,17 @@ Daniel - add to it, move items out when fixed).**
    touches a Plus/SE address that an SE/30 does not map (it would fail
    on a real SE/30 too, and likely run on the MacPlus core), or our
    kernel (1.18 concerned bus errors completed in software) - worth one
-   try on compile 43.
+   try on compile 43. **A rerun, probed** (compile 42): the machine alive in ROM code
+   (the alert), BERR still never asserted, the last vectors bus errors;
+   the last 16 A-line traps, newest first, `A853 A851 A8B0 A853 A855
+   AB1D A868 A868 A869 A869 A868 A868 A869 A869 A869 A836` - the newest
+   five the System Error alert's drawing (ShowCursor, SetCursor,
+   FrameRoundRect, ShieldCursor), before them `_QDExtensions` (`AB1D`)
+   and a run of `_FixMul`/`_FixRatio` (the game's maths). So the fault
+   came at or just after a `_QDExtensions` call, on an access the PMMU
+   refused. The deck keeps no bus-error PC or fault address; if the
+   other cores do not settle it, a probe for the last bus error's PC
+   and access address is the next step (a compile, with 10.4.2's work).
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
