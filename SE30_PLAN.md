@@ -16030,7 +16030,36 @@ the CD's `io_wr` is 0.
   disk measured 372-387 ALMs at fit, so the CD is probably 700-800 ALMs.
   The fit gives the figure.
 
-**Next:** a compile on Daniel's go-ahead, then the board (12.4 item 4):
+**Compile 48 (Daniel's go-ahead), 2026-10-06:**
+- tag `3301c24d`, `output_files/MacSE30_3301c24d_cdrom.rbf`, 32.6 min;
+- **37,985 ALMs (91 %)**, 325 M10K;
+- **the CD target measured 776 ALMs** (a disk target 391);
+- no combinational loop.
+- **Our timing met at every corner** (`sta_corners.tcl`):
+  - the tightest is `clk_mem`, +0.915 ns at slow 100C;
+  - the SDRAM capture is met at every corner by A or B;
+  - every failing path is the framework's `ascal` (`o_v_poly_t` ->
+    `o_v_poly_pix`): -0.153 ns at slow 100C, -0.402 at slow -40C (KNOWN
+    ISSUES 6, the accepted precedent).
+
+**The merged release build, estimated from compile 48 (for Daniel,
+2026-10-06):**
+- **Floppy writing:** the read-only floppy here measured 948 ALMs (encoder
+  380, loader 311, drive 136, SWIM 121). `floppy-write` measured about
+  2,060 (compile 42's 1,789 plus MFM writing's +270, compile 45). So
+  floppy writing adds about **+1,110**.
+- **The probes:** the deck 1,387 plus the JTAG hub 343, so **-1,730**.
+- **Result: 37,985 + 1,110 - 1,730 = ~37,365 ALMs (89 %)**, about 950
+  under the ~38.3k practical ceiling.
+- **Cross-check from totals, not entities:** compile 47 (`floppy-write`,
+  38,825) minus its PBER probe (+1,405) and the deck, plus this CD, gives
+  ~36,500.
+- The two methods disagree by ~900. Totals move by hundreds between fits
+  (compile 45: the CPU -223 and the FPU -142 on the same RTL), so the
+  entity figure is taken as the conservative one.
+- Only a release-profile compile of the merged tree settles it.
+
+**Next:** the board (12.4 item 4):
 - an ISO and a Toast image under System 7.5.5 with Apple CD-ROM;
 - a boot with a disc in;
 - eject and remount;
