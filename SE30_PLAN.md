@@ -9819,8 +9819,19 @@ byte loop is not uniform.
    catalog is 26 nodes in seven extents, four of them in the extents
    overflow file, so the audit reported missing threads, no files and
    2,747 unowned blocks. Fixed to follow the catalog's overflow records;
-   `soak.py selftest` passes. Still to run: the remount and Disk First
-   Aid.
+   `soak.py selftest` passes. **Disk First Aid** (7.3.5) then reported
+   "Invalid thread record length, 2, 4" and could not repair it - **a
+   fault of the blank image, not of the core**: the root folder's thread
+   (CNID 2) has 26 data bytes and the Desktop file's (CNID 16) 22, where
+   HFS's thread records are 46 (*Inside Macintosh: Files* 2-88); every
+   thread the Mac wrote during the copy is 46, and the untouched starting
+   image `Test disks\MFM\Blank1440K.dsk` and its `.baseline` (2026-09-18)
+   carry the same two short threads. A host tool minted them
+   (compact threads; the LC's `mint_phase6_images.py` uses `machfs` - not
+   confirmed as this image's maker). The DC42 blank beside them has the
+   same; the 720K blanks there hold no volume. Next (Daniel): the
+   Finder's Erase of the same disk, the same copy, Disk First Aid
+   (gate 2, which also rebuilds the catalog with the Mac's own records).
 2. The Finder's Erase of a 1.44 MB disk (a format: both sides of every
    cylinder), then a copy onto it; host-check the volume (`hfs_check`).
 3. A 1.44 MB DiskCopy 4.2 image written: both checksums right after the
