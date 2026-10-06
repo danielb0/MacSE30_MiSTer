@@ -17236,8 +17236,22 @@ Daniel - add to it, move items out when fixed).**
      registering the two paths (since_start -> cmd; the 17-level OP1out
      cone), kernel surgery with its benches; (c) not a seed. `scripts/
      build_stages.sh` (new) runs map/fit/asm/sta one at a time so a
-     stopped fitter does not cost the synthesis again. **On the board the
-     DOSTest floppy decides** -
+     stopped fitter does not cost the synthesis again. **Daniel (18:45):
+     (a) - flash compile 47 and test the DOS disks; the timing afterwards.
+     The two paths, read for that work: (1) clk_sys -0.323 = the
+     same-clock ATC hit of 1.17.3/1.17.8 - `memaddr_delta` -> Add45/Add47
+     (X31/X51) -> PMMU `debug_pending_flags[0]` -> PMMU `busy` (X50-51)
+     -> `fetch_hit~2` (X30) -> `lane_in[18]` -> `Mux138` -> `data_read[2]`
+     (X23) -> `ea_data[2]~45` (X15) -> 9.8 ns -> `ea_data[2]~46` (X40) ->
+     `OP1out[2]~31` (X33): 17 levels, 7.3 ns of cells, placed across 36
+     columns; a register in that chain (the hit a clock later) or a
+     tighter cone is the structural remedy. (2) clk_mem -0.203 =
+     `since_start` -> the window compares (WIN_LO/WIN_HI/DK_HI, lines
+     606-613) -> the idle arbitration -> `cmd[2]` (an I/O register at the
+     pin, X60_Y0): 4 levels, 2.3 ns of cells, a 5.7 ns wire into the pin -
+     registering the two window flags a clock ahead (since_start counts by
+     one; start_rise clears them) takes the comparators out of the path,
+     sim/sdram 193 the bench. On the board the DOSTest floppy decides** -
      `DT R 0000 0000 0000 0000`, `DT S 0029 0000 FFD5`, then TeachText's
      open and a Finder copy from the DOS disk (720K gate 4 follows).
 
