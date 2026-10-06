@@ -9890,6 +9890,16 @@ byte loop is not uniform.
    combinational loop. Next: gate 3 again on a fresh copy of the DC42
    blank (Disk First Aid will report the machfs blank's short threads
    again) - judged by the file contents on the card.
+   **PASS on compile 46, 2026-10-06 (Daniel)**: a fresh copy of the DC42
+   blank, the same files copied, ejected -
+   `Test disks\Written\SE30\MFM\Blank1440K (DC42).baseline.dsk` (Daniel's
+   name for the run's output). **The data sum the eject wrote
+   (`52E9CD07`) matches the file's data; the tag sum 0**; only header
+   bytes 72-75 differ from the blank's. All 24 files identical in both
+   forks (the Desktop file aside), the volume consistent. By sector,
+   2,649 of the source's file sectors whole on the card (compile 45:
+   351); the 11 the tail-located check still flags are resource forks'
+   File Manager bytes `$30`-`$7D`, which `fork_cmp` excuses.
 4. 720K: the read gate first (still owed, 5.13.11), then a copy onto it.
    **720K is DOS only** (Daniel, 2026-10-06: the Mac formats double-density
    media as 800K GCR; it never made 720K HFS volumes, so none is tested).
