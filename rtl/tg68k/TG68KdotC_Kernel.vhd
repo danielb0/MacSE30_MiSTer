@@ -2352,10 +2352,21 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				-- drain window while REAL ready-acked beats complete).
 				IF beat_valid='1' OR dib_sub_hit='1' THEN
 					IF state="00" OR exec(update_ld)='1' THEN
+						-- data_read already carries a byte or word operand
+						-- sign-extended by its size (1.15 item 5, above).  The
+						-- old "OR memread(1)='1'" term re-extended here from
+						-- the strobe history - "the previous beat strobed
+						-- nothing", a byte or word on the 16-bit kernel, but
+						-- also a long in ONE beat on the 32-bit port - and so
+						-- zeroed the upper word of the first operand of CMPM.L
+						-- and ADDX.L/SUBX.L -(Ay),-(Ax) when it was aligned:
+						-- PC Exchange's 11-byte name compare found every name
+						-- unequal (KNOWN ISSUES 9, 2026-10-06; sim/cpfpu
+						-- PROG=cmpm).  A fetch's word keeps its extension.
 						last_data_read <= data_read;
 						IF state(1)='0' AND memmask(1)='0' THEN
 							last_data_read(31 downto 16) <= last_opc_read;
-						ELSIF state(1)='0' OR memread(1)='1' THEN
+						ELSIF state(1)='0' THEN
 							last_data_read(31 downto 16) <= (OTHERS=>lane_in(31));
 						END IF;
 					END IF;
