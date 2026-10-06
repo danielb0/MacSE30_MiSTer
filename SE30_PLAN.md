@@ -16078,6 +16078,26 @@ byte-exact.**
   copy's side (a scratch `copy_cmp.py`; it joins `tools/hfs` when
   `floppy-write` merges).
 
+**Board, 2026-10-07 (Daniel, compile 48):**
+- **Boot with the disc in: OK.**
+- **Eject in the Finder, then remount from the OSD: OK.** The driver sees
+  the medium change and the disc comes back.
+- **A Finder Restart ejects the disc. An OSD reset does not:** the disc is
+  still mounted after it.
+  - So the eject is commanded by the Mac during Restart. The target keeps
+    its disc across a reset, and it obeys an eject as the SC's firmware
+    does: `C0`, or START/STOP with LoEj (`$2ECC` -> `$32C2`).
+  - The MacPlus/LC cores do not eject on Restart (Daniel). They run the
+    same driver but identify as a CDU-8004 tray drive, so the driver
+    evidently treats the SC, a caddy drive, differently at shutdown.
+  - A real SE/30 with an AppleCD SC would then eject on Restart too. **Not
+    proven:** which command is sent (a command-log probe would show it),
+    and where the driver decides (the ATAPI-side `DRVR 33` builds only a
+    START/STOP load, `$1B`/`$03`; the SCSI `DRVR 32` was not read).
+  - **For Daniel:** keep it (authentic), or add a reload of the last image
+    at the next boot's bus reset (an OSD option), or go back to the
+    CDU-8004 identity (not recommended).
+
 **Next:** the board (12.4 item 4):
 - an ISO and a Toast image under System 7.5.5 with Apple CD-ROM;
 - a boot with a disc in;
