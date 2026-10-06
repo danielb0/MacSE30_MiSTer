@@ -9901,6 +9901,23 @@ shared); the drive's index-on-RDDATA, the 12-bit block, the top 30-100.
    **Daniel, 2026-10-06: "You can proceed with the compilation when
    necessary."** The synthesis check is folded into the compile (it
    fails early in Analysis & Synthesis if a RAM does not infer).
+   Seam mutants (`mut_seam.py`), all caught: no index on RDDATA (the
+   formatter's wait runs out, `fmt2Err`), no look-back (the sector write
+   not committed), the CRC preset at every mark (the field refused).
+   **Compile 45, 2026-10-06**: tag `3cf41753`,
+   `output_files/MacSE30_3cf41753_mfmwrite.rbf`, 34.8 min. **39,047 ALMs
+   (93 %), 102 fewer than compile 44**; 343 M10K. By entity MFM writing
+   cost **about +270**: the decoder +160 (566), the SWIM +94 (407), the
+   SD writer +23, the drive +5, the encoder, loader and mux -14 - under
+   5.16.9's 350-700; the total fell because the CPU (-223) and FPU (-142)
+   packed smaller this fit. **Our timing met at every corner**
+   (`sta_corners.tcl`; the SDRAM capture met at every corner by A or B);
+   every failing setup path is the framework's `ascal` (`o_vcpt_pre3`,
+   `o_hacc`, `o_radl3`): -0.193 ns at slow -40C, -0.026 at slow 100C
+   (KNOWN ISSUES 6, the accepted precedent). No combinational loop in
+   STA; synthesis lists the decoder's eight `Add2` cells, as at compile
+   44. Compile 45 also carries the PSTA fix (KNOWN ISSUES 10, FUTURE
+   BOARD TESTS item 6).
 8. The board (5.16.8).
 
 # Section 6 - The ADB and the RTC
