@@ -80,7 +80,7 @@ module tb_se30_gcrwrite;
   wire [15:0] de_wdata;
   reg  [15:0] en_rdata = 0;
   reg        en_ack = 0, de_ack = 0;
-  wire [10:0] cm_blk;
+  wire [11:0] cm_blk;
   wire [31:0] ddbg;
 
   se30_fdhd drive (
@@ -105,7 +105,7 @@ module tb_se30_gcrwrite;
   se30_flp_decoder #(.BASE(BASE)) dec (
     .clk(clk), .reset_n(reset_n),
     .disk_in(1'b1), .loading(1'b0), .write_ok(1'b1),
-    .img_ds(1'b1), .img_800k(1'b1), .img_tags(1'b1), .ds_eff(ds_eff),
+    .img_ds(1'b1), .img_800k(1'b1), .img_tags(1'b1), .img_mfm(1'b0), .img_hd(1'b0), .ds_eff(ds_eff),
     .arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end),
     .arc_whole(arc_whole), .trk_cells(trk_cells), .cyl(cyl),
     .dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle), .hold(hold),

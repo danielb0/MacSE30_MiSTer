@@ -82,6 +82,22 @@
 //        drive's 1 us (15.6672 FCLK, fractional), an 8-FCLK pulse at each
 //        1.
 //
+//   and, for MFM writing (plan 5.16.3, 5.16.7 item 1), the ISM's write path:
+//
+//    18. in write mode the FIFO's places on handshake bits 7 and 6, an
+//        overrun (error bit 2), the CRC register with ACTION low taking no
+//        entry, /WRREQ low only with write mode and ACTION; the ROM's sector
+//        write ($4082EB3E) at the paced kernel's pace - the first byte
+//        shifted at ACTION, the first transition one TIME1 after it, every
+//        interval 2, 3 or 4 units (31.5, 47, 62.5 FCLK from the ROM's
+//        TIME1/TIME0, the half carried so 90 sync intervals are 2835 FCLK),
+//        decoded by the bench's own MFM reference into 10 x 00, three A1s as
+//        $4489, FB, the 512 bytes (A1 and C2 among them with no clock
+//        dropped), the CRC preset at the first mark, then 4E; 4-FCLK pulses
+//        with the IBM option, level changes without; an underrun (error bit
+//        0) and an overrun with ACTION each clearing ACTION and raising
+//        /WRREQ, the handshake then showing the FIFO empty.
+//
 //   Rung 2's bytes are read the ROM's way: the data register at $1800
 //   (L6 cleared by the access, L7 and MotorOn as they are), polled until
 //   its MSB is set ($40831C2E: move.b (a4),d5 / bpl).  The flux reaches
@@ -475,6 +491,79 @@ module tb_se30_swim;
       end
     end
   endtask
+  // ------------------------------------------- the ISM's write path (5.16)
+  // the transitions on WRDATA - the falling edge of each pulse with the
+  // IBM option, every edge without it - and the pulses' widths
+  integer tr [0:16383];
+  integer ntr = 0, pw_bad = 0, t_fall = 0, n_edges = 0;
+  reg     tlog = 0, ibm = 1;
+  always @(posedge clk) if (tlog) begin
+    if (wrdata !== wrdata_q) n_edges = n_edges + 1;
+    if (ibm) begin
+      if (wrdata_q && !wrdata) begin if (ntr < 16384) tr[ntr] = cyc; ntr = ntr + 1; t_fall = cyc; end
+      if (!wrdata_q && wrdata && cyc - t_fall != 4) pw_bad = pw_bad + 1;
+    end else if (wrdata !== wrdata_q) begin if (ntr < 16384) tr[ntr] = cyc; ntr = ntr + 1; end
+  end
+  // the bench's own MFM reference: the intervals as units (31-32 FCLK a
+  // 2-unit interval, 46-48 a 3, 62-63 a 4 - TIME1 31.5, TIME0 15.5, the
+  // half carried), the cells they make (a 1 at each transition, u - 1 0s
+  // before it), and bytes read from the cells: the data cell is the second
+  // of each pair; `$4489` is an A1 with its bit-2 clock dropped
+  reg     cl [0:131071];
+  integer ncl, ivbad;
+  task tr_cells;
+    integer k, d, u, j;
+    begin
+      ncl = 1; ivbad = 0; cl[0] = 1;
+      for (k = 1; k < ntr; k = k + 1) begin
+        d = tr[k] - tr[k-1];
+        u = (d == 31 || d == 32) ? 2 : (d >= 46 && d <= 48) ? 3 : (d == 62 || d == 63) ? 4 : 0;
+        if (u == 0) ivbad = ivbad + 1;
+        else begin
+          for (j = 1; j < u; j = j + 1) begin cl[ncl] = 0; ncl = ncl + 1; end
+          cl[ncl] = 1; ncl = ncl + 1;
+        end
+      end
+    end
+  endtask
+  function [15:0] cw16(input integer at);
+    integer j;
+    begin cw16 = 0; for (j = 0; j < 16; j = j + 1) cw16 = {cw16[14:0], (at + j < ncl) ? cl[at + j] : 1'b0}; end
+  endfunction
+  function [7:0] mbyte(input integer at);
+    integer j;
+    begin mbyte = 0; for (j = 0; j < 8; j = j + 1) mbyte = {mbyte[6:0], (at + 2*j + 1 < ncl) ? cl[at + 2*j + 1] : 1'b0}; end
+  endfunction
+  function integer find4489(input integer from);
+    integer j;
+    begin find4489 = -1; for (j = ncl - 16; j >= from; j = j - 1) if (cw16(j) == 16'h4489) find4489 = j; end
+  endfunction
+  // the ROM's byte loop ($4082EBC8): the handshake polled until bit 7 (a
+  // place free), then the byte written to `off` 15 FCLK after the poll's
+  // strobe (the paced kernel's shortest SWIM gap, 1.17.5)
+  task iw_byte(input [15:0] off, input [7:0] v);
+    integer t;
+    begin
+      t = cyc; rd(16'h1E00);
+      while (!q[7] && cyc - t < 4000) rd(16'h1E00);
+      hs = q;
+      repeat (10) @(posedge clk);
+      wr(off, v);
+    end
+  endtask
+  // the ROM's set-up for a write ($4082EB4C-$4082EB68): phases $F5, the
+  // error register read, write and ACTION off, write mode, Clear FIFO on
+  // and off, the error register read
+  task iw_arm;
+    begin
+      wr(16'h0800, 8'hF5); rd(16'h1400); wr(16'h0C00, 8'h18); wr(16'h0E00, 8'h10);
+      wr(16'h0E00, 8'h01); wr(16'h0C00, 8'h01); rd(16'h1400);
+    end
+  endtask
+  reg  [7:0] dfield [0:511];
+  reg [15:0] wcrc;
+  integer    m0, t_act;
+
   // a sector's opening as the ROM writes it ($4082E4FA, $4082E65E): the
   // entry byte FF, five sync bytes, the data mark, a sector code, a few
   // data codes, the closing bytes
@@ -1088,6 +1177,127 @@ module tb_se30_swim;
     m_clear; m_zeros(96); m_byte(8'hA1, 1); m_byte(8'hFE, 0); m_byte(8'h4E, 0);
     m_play; rd(16'h1E00); hs = q;
     check(hs[7] == 0, "ACTION off: nothing read", hs, 8'h00);
+
+    // ---- 18. the ISM's write path
+    $display("---- 18. the ISM write path: the FIFO, the ROM's sector write, the errors, the IBM pulses (5.16.3)");
+    // (the ISM selected, the ROM's parameters and Setup $20, from 17)
+    wr(16'h0C00, 8'h18);
+    iw_arm;
+    rd(16'h1E00); hs = q;
+    check(hs[7:6] == 2'b11, "write mode, the FIFO cleared: two places (handshake bits 7, 6)", hs, 8'hC0);
+    check(wrreq_n == 1, "  /WRREQ high before ACTION", wrreq_n, 1);
+    wr(16'h0000, 8'h00); rd(16'h1E00); hs = q;
+    check(hs[7:6] == 2'b10, "  one byte in: one place", hs, 8'h80);
+    wr(16'h0000, 8'h00); rd(16'h1E00); hs = q;
+    check(hs[7:6] == 2'b00, "  two bytes in: none", hs, 8'h00);
+    wr(16'h0000, 8'h00); rd(16'h1400); er = q;
+    check(er == 8'h04, "  a third: overrun (error bit 2)", er, 8'h04);
+    rd(16'h1400); er = q;
+    check(er == 0, "  the read cleared it", er, 0);
+    wr(16'h0400, 8'h00); rd(16'h1400); er = q;
+    check(er == 0, "  the CRC register with ACTION low is the IWM configuration: no FIFO entry, no overrun", er, 0);
+    wr(16'h0C00, 8'h10);
+    wr(16'h0E00, 8'h08); @(posedge clk); #1;
+    check(wrreq_n == 1, "ACTION in read mode: /WRREQ high", wrreq_n, 1);
+    wr(16'h0C00, 8'h08);
+
+    // the ROM's sector write ($4082EB3E): 00 00 into the FIFO, ACTION,
+    // ten more 00, A1 A1 A1 through the Mark register, FB, the 512 bytes,
+    // the CRC, 4E x 4, the handshake's error bit, write mode off.  The
+    // data holds A1 and C2 as plain bytes: no clock may be dropped there.
+    $display("     (the ROM's sector write)");
+    for (k2 = 0; k2 < 512; k2 = k2 + 1) dfield[k2] = (k2 * 7 + 3) & 8'hFF;
+    dfield[0] = 8'hA1; dfield[1] = 8'hC2; dfield[2] = 8'h00; dfield[3] = 8'hFF;
+    wcrc = 16'hFFFF;
+    for (k2 = 0; k2 < 3; k2 = k2 + 1) wcrc = crc_b(wcrc, 8'hA1);
+    wcrc = crc_b(wcrc, 8'hFB);
+    for (k2 = 0; k2 < 512; k2 = k2 + 1) wcrc = crc_b(wcrc, dfield[k2]);
+    ibm = 1; ntr = 0; pw_bad = 0; n_edges = 0;
+    iw_arm;
+    wr(16'h0000, 8'h00); wr(16'h0000, 8'h00);
+    #1 tlog = 1;
+    wr(16'h0E00, 8'h08); t_act = t_latch;
+    @(posedge clk); #1;
+    check(wrreq_n == 0, "ACTION in write mode: /WRREQ low", wrreq_n, 0);
+    rd(16'h1E00); hs = q;
+    check(hs[7:6] == 2'b10, "  the first byte moved to the shift register at once (an IN at ACTION): one place", hs, 8'h80);
+    for (k2 = 0; k2 < 10; k2 = k2 + 1) iw_byte(16'h0000, 8'h00);
+    for (k2 = 0; k2 < 3; k2 = k2 + 1) iw_byte(16'h0200, 8'hA1);
+    iw_byte(16'h0000, 8'hFB);
+    for (k2 = 0; k2 < 512; k2 = k2 + 1) iw_byte(16'h0000, dfield[k2]);
+    iw_byte(16'h0400, 8'h00);
+    for (k2 = 0; k2 < 4; k2 = k2 + 1) iw_byte(16'h0000, 8'h4E);
+    b = hs;
+    wr(16'h0C00, 8'h18); @(posedge clk); #1;
+    check(b[5] == 0, "  the handshake's error bit clear after the last byte (no wrUnderrun)", b, 0);
+    check(wrreq_n == 1, "  write mode off: /WRREQ high", wrreq_n, 1);
+    n = ntr; repeat (200) @(posedge clk);
+    check(ntr == n, "  and WRDATA quiet after it", ntr - n, 0);
+    #1 tlog = 0;
+    rd(16'h1400); er = q;
+    check(er == 0, "  the error register 0", er, 0);
+    check(pw_bad == 0 && n_edges == 2 * ntr, "  every transition a 4-FCLK pulse (the IBM option, ISM spec 5.1)", pw_bad, 0);
+    check(ntr > 0 && tr[0] - t_act >= 31 && tr[0] - t_act <= 33, "  the first transition one TIME1 (31.5 FCLK) after ACTION's strobe", tr[0] - t_act, 32);
+    tr_cells;
+    check(ivbad == 0, "  every interval 2, 3 or 4 units (31-32, 46-48, 62-63 FCLK)", ivbad, 0);
+    check(ntr > 91 && tr[90] - tr[0] >= 2834 && tr[90] - tr[0] <= 2836, "  the sync's 90 2-unit intervals 2835 FCLK (the half carried, none lost)", tr[90] - tr[0], 2835);
+    m0 = find4489(0);
+    bad = 0;
+    for (k2 = m0 - 160; k2 < m0; k2 = k2 + 1) if (m0 < 160 || cl[k2] != ((k2 - m0) % 2 == 0)) bad = bad + 1;
+    check(m0 > 0 && bad == 0, "  the sync: 10 x 00 (cells 10 10 ...) before the first mark", bad, 0);
+    check(cw16(m0 + 16) == 16'h4489 && cw16(m0 + 32) == 16'h4489, "  three A1s with the clock dropped ($4489)", {cw16(m0 + 16)}, 16'h4489);
+    check(mbyte(m0 + 48) == 8'hFB, "  then FB", mbyte(m0 + 48), 8'hFB);
+    bad = 0;
+    for (k2 = 0; k2 < 512; k2 = k2 + 1) if (mbyte(m0 + 64 + 16 * k2) != dfield[k2]) bad = bad + 1;
+    check(bad == 0, "  the 512 bytes", bad, 0);
+    check({mbyte(m0 + 64 + 16 * 512), mbyte(m0 + 80 + 16 * 512)} == wcrc, "  the CRC: CCITT-16 from all ones over A1 A1 A1 FB and the data (preset at the first mark)",
+          {mbyte(m0 + 64 + 16 * 512), mbyte(m0 + 80 + 16 * 512)}, wcrc);
+    check(mbyte(m0 + 96 + 16 * 512) == 8'h4E, "  then 4E", mbyte(m0 + 96 + 16 * 512), 8'h4E);
+    check(find4489(m0 + 48) == -1, "  no clock dropped after the marks (A1, C2 as data)", find4489(m0 + 48), -1);
+
+    // the underrun: ACTION with two bytes, two more, then none - error bit
+    // 0, ACTION cleared, /WRREQ high, WRDATA quiet, and the handshake
+    // showing the FIFO empty so the ROM's loop runs on to its error check
+    $display("     (the errors)");
+    iw_arm;
+    wr(16'h0000, 8'h00); wr(16'h0000, 8'h00); wr(16'h0E00, 8'h08);
+    iw_byte(16'h0000, 8'h4E); iw_byte(16'h0000, 8'h4E);
+    repeat (6 * 251) @(posedge clk);
+    rd(16'h1C00); b = q; @(posedge clk); #1;
+    check(b[3] == 0 && wrreq_n == 1, "an underrun clears ACTION and raises /WRREQ (ISM spec p. 45)", {b[3], wrreq_n}, 1);
+    rd(16'h1E00); hs = q;
+    check(hs[7:5] == 3'b111, "  the handshake: the error bit, and the FIFO shown empty (bits 7, 6)", hs, 8'hE0);
+    ntr = 0; #1 tlog = 1; repeat (300) @(posedge clk); #1 tlog = 0;
+    check(ntr == 0, "  WRDATA quiet", ntr, 0);
+    rd(16'h1400); er = q;
+    check(er == 8'h01, "  error bit 0", er, 8'h01);
+    wr(16'h0C00, 8'h18);
+    // an overrun with ACTION: the FIFO full, a byte more
+    iw_arm;
+    wr(16'h0000, 8'h00); wr(16'h0000, 8'h00); wr(16'h0E00, 8'h08);
+    wr(16'h0000, 8'h00); wr(16'h0000, 8'h00);
+    rd(16'h1C00); b = q; @(posedge clk); #1;
+    rd(16'h1400); er = q;
+    check(er == 8'h04 && b[3] == 0 && wrreq_n == 1, "an overrun with ACTION: error bit 2, ACTION cleared, /WRREQ high", {er, b[3], wrreq_n}, 10'h011);
+    wr(16'h0000, 8'h00);                                 // another overrun: an error held, the FIFO still full
+    rd(16'h1E00); hs = q;
+    check(hs[7:5] == 3'b111, "  the FIFO full, an error held: the handshake shows it empty (bits 7, 6) and the error", hs, 8'hE0);
+    wr(16'h0C00, 8'h18);
+
+    // without the IBM option every edge is a transition: level changes
+    $display("     (Apple drive: level changes)");
+    wr(16'h0A00, 8'h00);
+    ibm = 0; ntr = 0; n_edges = 0;
+    iw_arm;
+    wr(16'h0000, 8'h00); wr(16'h0000, 8'h00);
+    #1 tlog = 1;
+    wr(16'h0E00, 8'h08);
+    for (k2 = 0; k2 < 8; k2 = k2 + 1) iw_byte(16'h0000, 8'h00);     // (the last two stay in the FIFO)
+    wr(16'h0C00, 8'h18);
+    #1 tlog = 0;
+    tr_cells;
+    check(ntr > 40 && ivbad == 0 && (tr[1] - tr[0] == 31 || tr[1] - tr[0] == 32), "Setup bit 5 clear: WRDATA changes level at each transition, 31-32 FCLK apart", tr[1] - tr[0], 32);
+    wr(16'h0A00, 8'h20);
 
     // ---- verdict
     if (fails == 0) $display("==== PASS: %0d checks, the SWIM holds to plan 5.2 and 5.5", checks);

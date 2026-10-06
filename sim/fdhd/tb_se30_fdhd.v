@@ -55,6 +55,13 @@
 //        cell); IBM-style write pulses (two edges 4 FCLK apart) counted
 //        once
 //
+//   and, since plan 5.16 (MFM writing; 5.16.7 item 2):
+//
+//    13. in MFM mode with /WRTGATE low, $1 and $3 (RDDATA0/1) read the
+//        index once a revolution, as $E does - the ROM's formatter waits
+//        on it there; with the gate high they read the read pulses; in
+//        GCR mode no index there
+//
 // THE BENCH
 //   clk is FCLK (c16_en tied high).  The encoder is modelled: two track
 //   buffers whose bit at cell a is 1 when a is a multiple of 7 (side 0)
@@ -284,6 +291,18 @@ module tb_se30_fdhd;
         @(posedge clk); #1; if (!s_d && sense) idx_rises = idx_rises + 1; s_d = sense;
       end
       rev_clk = cyc - t0;
+    end
+  endtask
+  // the rising edges of register n over one HD MFM revolution in FCLK
+  // (5.16.4: with the gate low trk_addr is the write cursor, not the head,
+  // so the revolution is timed, not read off trk_addr)
+  task rises_rev(input [3:0] n);
+    integer t0;
+    reg s_d;
+    begin
+      addr(n); repeat (4) @(posedge clk);
+      t0 = cyc; idx_rises = 0; #1 s_d = sense;
+      while (cyc - t0 < 3133440) begin @(posedge clk); #1; if (!s_d && sense) idx_rises = idx_rises + 1; s_d = sense; end
     end
   endtask
   // write a list of intervals (in FCLK) as transitions; pulse = 1 makes
@@ -559,12 +578,27 @@ module tb_se30_fdhd;
     write_intervals(1);
     check_units;
     check(nones == nivl && ubad == 0, "IBM pulses (two edges 4 FCLK apart): each counted once", ubad, 0);
+    // the index on RDDATA while the gate is low (plan 5.16.2 item 3, the
+    // ROM's formatter): $1 and $3 read it as $E does; with the gate high
+    // they read the read pulses
+    #1 wrreq_n = 0;
+    rises_rev(4'h1);
+    check(idx_rises == 1, "MFM, /WRTGATE low: the index on $1 (RDDATA0), once a revolution", idx_rises, 1);
+    rises_rev(4'h3);
+    check(idx_rises == 1, "  and on $3 (RDDATA1)", idx_rises, 1);
+    #1 wrreq_n = 1;
+    rises_rev(4'h1);
+    check(idx_rises > 1000, "MFM, /WRTGATE high: $1 reads the read pulses, not the index", idx_rises, 28572);
     // back to GCR: the zones again
     cmd(4'h7);
     rd(4'h7); check(sns == 0, "command $7: GCR", sns, 0);
     until(4'hB, 0, T_GRP + 1000);
     revolution;
     check(rev_cells == 74558, "GCR again: group 0's 74,558 cells", rev_cells, 74558);
+    #1 wrreq_n = 0;
+    rises_rev(4'h1);
+    #1 wrreq_n = 1;
+    check(idx_rises == 0, "GCR, /WRTGATE low: no index on $1", idx_rises, 0);
 
     if (fails == 0) $display("==== PASS: %0d checks, the drive holds to plan 5.12.3", checks);
     else            $display("==== FAIL: %0d of %0d checks", fails, checks);

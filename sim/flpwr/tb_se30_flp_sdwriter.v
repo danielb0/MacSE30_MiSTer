@@ -31,6 +31,10 @@
 //        next block's first word took the stale acknowledge's data)
 //     9. the disk port's handshake: no request torn down before its
 //        acknowledge, its address held, none raised over a stale one
+//    10. 1.44 MB (plan 5.16.5 item 6): image blocks 2,879 and 2,048 of a
+//        DiskCopy image (format 3, no tags) - the 12-bit block - and the
+//        partial last file block; the eject's data sum over 1,474,560
+//        bytes and a tag sum of 0; block 2,879 of a raw image
 //
 // THE BENCH
 //   clk is clk_sys.  The HPS model serves the slot as Main does: it polls
@@ -49,7 +53,7 @@
 module tb_se30_flp_sdwriter;
 
   localparam [23:0] BASE = 24'h800000;
-  localparam integer MAXF = 838484 + 1024;
+  localparam integer MAXF = 1474644 + 1024;      // a 1.44 MB DiskCopy image, the largest
   localparam integer POLL = 40;
 
   reg clk = 0;
@@ -87,7 +91,7 @@ module tb_se30_flp_sdwriter;
   wire [15:0] hdr_data;
   wire [12:0] file_blks;
   reg         cm_done = 0, flush_req = 0;
-  reg  [10:0] cm_blk = 0;
+  reg  [11:0] cm_blk = 0;
   wire        cm_ready, wbusy;
   wire [31:0] wdbg;
 
@@ -215,6 +219,27 @@ module tb_se30_flp_sdwriter;
       for (i = 0; i < fsize; i = i + 1) expf[i] = file[i];
     end
   endtask
+  task make_dc42_1440;                             // a 1.44 MB DiskCopy image (format 3, no tags)
+    begin
+      fsize = 1474644;
+      for (i = 0; i < fsize; i = i + 1) file[i] = ((i * 3) ^ (i >> 9) ^ (i >> 15)) & 8'hFF;
+      for (i = 0; i < 84; i = i + 1) file[i] = 8'h00;
+      file[0] = 8'd9;
+      for (i = 1; i < 10; i = i + 1) file[i] = "a" + i;
+      {file[64], file[65], file[66], file[67]} = 32'd1474560;
+      {file[68], file[69], file[70], file[71]} = 32'd0;
+      {file[72], file[73], file[74], file[75]} = 32'h12345678;   // stale sums: the flush must replace them
+      {file[76], file[77], file[78], file[79]} = 32'h9ABCDEF0;
+      file[80] = 8'h03; file[81] = 8'h22; file[82] = 8'h01; file[83] = 8'h00;
+      for (i = 0; i < fsize; i = i + 1) expf[i] = file[i];
+    end
+  endtask
+  task make_raw_1440;
+    begin
+      fsize = 1474560;
+      for (i = 0; i < fsize; i = i + 1) begin file[i] = ((i * 9) ^ (i >> 7)) & 8'hFF; expf[i] = file[i]; end
+    end
+  endtask
   task make_raw;
     begin
       fsize = 819200;
@@ -276,6 +301,14 @@ module tb_se30_flp_sdwriter;
   // DiskCopy's sum over the expected file: data from byte 84, tags from
   // byte 84 + dsize + 12
   reg [31:0] dsum, tsum;
+  task dc42_dsum(input integer dsize);              // the data sum alone (an image without tags)
+    reg [31:0] s;
+    begin
+      s = 0;
+      for (i = 84; i < 84 + dsize; i = i + 2) begin s = s + {expf[i], expf[i + 1]}; s = {s[0], s[31:1]}; end
+      dsum = s;
+    end
+  endtask
   task dc42_sums;
     reg [31:0] s;
     begin
@@ -405,6 +438,36 @@ module tb_se30_flp_sdwriter;
     wr_xfers = 0;
     pulse_eject; drain;
     check(wr_xfers == 0, "no flush for a raw image", wr_xfers, 0);
+
+    $display("---- 10. 1.44 MB: the 12-bit block (plan 5.16.5 item 6)");
+    prog("10. 1.44 MB");
+    make_dc42_1440;
+    mount(fsize, 0);
+    check(disk_in && is_dc42 && !img_tags && file_blks == 2881, "(a 1.44 MB DiskCopy image: 1,474,644 bytes, 2,881 blocks, no tags)", file_blks, 2881);
+    wr_xfers = 0;
+    commit(2879, 60);
+    drain;
+    compare_file;
+    check(diffs == 0, "image block 2,879, the last: written, clipped at the file's end", diffs, 0);
+    check(wr_xfers == 2 && wr_blk[0] == 2879 && wr_blk[1] == 2880, "file blocks 2,879 and 2,880 (the partial last)", wr_blk[1], 2880);
+    wr_xfers = 0;
+    commit(2048, 61);
+    drain;
+    compare_file;
+    check(diffs == 0 && wr_xfers == 2 && wr_blk[0] == 2048, "image block 2,048 (bit 11): file blocks 2,048 and 2,049, not block 0", wr_blk[0], 2048);
+    dc42_dsum(1474560);
+    {expf[72], expf[73], expf[74], expf[75]} = dsum;
+    {expf[76], expf[77], expf[78], expf[79]} = 32'd0;
+    wr_xfers = 0;
+    pulse_eject; drain; compare_file;
+    check(diffs == 0 && wr_xfers == 1, "the eject: the data sum over 1,474,560 bytes, the tag sum 0", diffs, 0);
+    make_raw_1440;
+    mount(fsize, 0);
+    wr_xfers = 0;
+    commit(2879, 62);
+    drain;
+    compare_file;
+    check(diffs == 0 && wr_xfers == 1 && wr_blk[0] == 2879, "a raw 1.44 MB image: block 2,879 at its own place", wr_blk[0], 2879);
 
     $display("---- 9. the disk port's handshake");
     prog("9. the disk port's handshake");

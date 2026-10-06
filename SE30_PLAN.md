@@ -9845,13 +9845,62 @@ shared); the drive's index-on-RDDATA, the 12-bit block, the top 30-100.
 1. ~~Write this section.~~ **Done 2026-10-06.**
 2. `sim/swim` write checks (5.16.7 item 1), failing, then the ISM write
    chain in `se30_swim.v`.
+   **Done 2026-10-06: `sim/swim` 207 PASS (~3.5 min; 175 as before, 32
+   new in section 18), failing first (18 of the new checks on the old
+   RTL).** The bench's own MFM reference decodes WRDATA's intervals into
+   cells and bytes. 13 mutants (scratchpad `mut_ismw.py`): 12 caught -
+   the CRC preset at every mark, no dropped clock, the clock dropped in
+   every byte, the half lost, no IN at ACTION, an error keeping ACTION,
+   no empty-gating (survived the first bench: an underrun leaves the
+   FIFO empty anyway; caught after a check with the FIFO full and an
+   error held), a 3-FCLK pulse, TIME0 for a 1, no write overrun, (1,0)
+   as 1, /WRREQ blind to ACTION. **One equivalent**: the CRC taking its
+   own bits (the bytes leave from a copy, and the next mark presets
+   it). Each new block is behind `MFM_WRITE` (default 1).
 3. `sim/fdhd` checks, then the index on RDDATA while writing.
+   **Done 2026-10-06: section 13 (four checks), failing first on the
+   old RTL (the two index checks).** The checks time a revolution in
+   FCLK, not by `trk_addr`: with the gate low `trk_addr` is the write
+   cursor, which can trail the head by a cell (the first version timed
+   by it and missed a rise - a bench slip).
 4. `sim/flpdec` MFM checks, then the decoder's MFM parse; `sim/flpwr` and
    the SD writer's 12-bit block.
+   **Done 2026-10-06: `sim/flpdec` 70 PASS; with `MFM_WRITE` = 0 (the
+   parse left out) 13 of the MFM checks fail.** The bench has its own MFM
+   cell encoder and CRC; the image memory grew to 2,880 blocks. 14
+   mutants (`mut_dec.py`), all caught: no look-back, marks in the
+   look-back accepted, the address field kept after a data field, no C,
+   H, N or upper-R check, the CRC preset from all ones, two marks
+   accepted, 9 sectors on HD, `seen` not set, a GCR-sized whole window,
+   a bad address field kept, CRC over the clock cells. Three survived the
+   first bench and made it stronger: a whole arc ending at cell 511 (the
+   window opens on a sector and reads it twice), one ending at cell
+   1,000 (a sector read whole only in the window's extra), and a good
+   data field after a bad one with no address field between.
+   **`sim/flpwr` 33 PASS** (section 10: blocks 2,879 and 2,048 of a
+   1.44 MB DiskCopy image, the partial last file block, the eject's sums;
+   block 2,879 of a raw image).
 5. The top: MFM disks writable.
+   **Done 2026-10-06**: `disk_wprot = flp_readonly` (and the external
+   drive's), the 12-bit block wires, the decoders' `img_mfm`/`img_hd`.
+   `sim/gcrwrite` 9 PASS (its decoder's new ports tied off),
+   `sim/mfmread` 22 PASS, `sim/machine` 17 PASS (ModelSim).
 6. `sim/mfmwrite`, the seam.
+   **Done 2026-10-06: 20 PASS (~15 min alone).** The ROM's sector write
+   of cylinder 0 R 7 after its address-field read: no underrun, block 6
+   committed once, nothing else changed, read back byte for byte by the
+   ROM's reads, R 8 after it untouched. The ROM's format of cylinder 1:
+   the index found on RDDATA0/1 while writing (4,848 and 10,746 bytes of
+   `4E` before it), side 1's tail ending at the next index (169 bytes
+   after the fixed five; the arithmetic's 192 less the cursor's drift),
+   36 sectors committed as F6, read back by the ROM's reads. One bench
+   slip on the way: the write leaves phases `$F5`, and the read-back must
+   select the head again (the ROM's reads do).
 7. The reruns; `build_only.sh --check` (a RAM's ports may change); then
    a compile when Daniel says.
+   **Daniel, 2026-10-06: "You can proceed with the compilation when
+   necessary."** The synthesis check is folded into the compile (it
+   fails early in Analysis & Synthesis if a RAM does not infer).
 8. The board (5.16.8).
 
 # Section 6 - The ADB and the RTC
@@ -16598,7 +16647,19 @@ Daniel - add to it, move items out when fixed).**
    formatting built and board-proven 2026-10-05** (5.15, compile 42;
    only the soak is left). **MFM disks (720K, 1.44 MB) are
    write-protected** until MFM writing is built (5.13.12 item 5); MFM
-   reading is on the board with compile 43.
+   reading is on the board with compile 43. **2026-10-06: MFM writing
+   and formatting built (5.16), benched; the write-protect lifted;
+   board gates 5.16.8 to come.** Two things go with it:
+   - **Inferred: the SuperDrive puts the index on RDDATA0/1 while
+     /WRTGATE is low in MFM mode** (5.16.2 item 3). No drive document;
+     the ROM's formatter needs it. An `fmt2Err` (-83) from a 1.44 MB
+     erase on the board points here first.
+   - **Accepted deviation: an MFM field the image cannot hold is
+     refused** (5.16.5 item 5): a data field whose address field names
+     another cylinder or side, an R past the track's count, N not 2, or
+     a bad CRC stays in the track buffer until the head leaves, then the
+     image's sector returns. A real disk keeps it. GCR's twin is
+     5.15.6.
 5. **The 68882's atypical operands** (special values, denormals, rare
    rounding cases) may run up to ~13 clocks over the 68881's per-case
    figures: no document gives the 68882's own (8.9.7).

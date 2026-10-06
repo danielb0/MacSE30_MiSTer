@@ -93,7 +93,10 @@
 //   on average): 200,000 or 100,000 cells a revolution.  $E gives the
 //   index, high for the first IDX cells of the revolution, instead of the
 //   tach (the width is ours: no drive document; the ROM waits only for
-//   the rising edge).  $F reads 0 for a high-density medium (hd).  A
+//   the rising edge).  While /WRTGATE is low in MFM mode, $1 and $3
+//   (RDDATA0/1) read the index too: the ROM's formatter selects them and
+//   waits there for the index's edge (plan 5.16.2 item 3 - an inference
+//   from the ROM, no drive document).  $F reads 0 for a high-density medium (hd).  A
 //   speed change takes the speed group's 152 ms settle (3.4.3.3, the
 //   documented analogue).
 //
@@ -101,7 +104,9 @@
 
 `timescale 1ns/1ps
 
-module se30_fdhd (
+module se30_fdhd #(
+  parameter     MFM_WRITE = 1          // the index on RDDATA while writing (plan 5.16.4)
+) (
   input         clk,
   input         c16_en,                // FCLK
   input         reset_n,               // power-up, not the RESET instruction
@@ -186,6 +191,10 @@ module se30_fdhd (
   wire data_ok = disk_in && disk_d && motor_on && trk_ok;
   wire ready   = data_ok && spin == 0 && settle == 0;
   wire rd_data = !(data_ok && pulse != 0);
+  // MFM mode with /WRTGATE low: RDDATA0/1 give the index, as $E does - the
+  // ROM's formatter waits on it there (plan 5.16.2 item 3, an inference
+  // from the ROM: no drive document)
+  wire rd_reg  = (MFM_WRITE && mfm && !wrreq_n) ? (motor_on && index) : rd_data;
 
   // ------------------------------------------------------ recording
   wire        gate    = !enbl_n && !wrreq_n && data_ok && !wprot;
@@ -215,7 +224,7 @@ module se30_fdhd (
       4'h1: bit_q = step_n;                       // $4 /STEP
       4'h2: bit_q = !motor_on;                    // $8 /MOTORON
       4'h3: bit_q = eject_latch;                  // $C the eject latch
-      4'h4: bit_q = rd_data;                      // $1 RDDATA, side 0
+      4'h4: bit_q = rd_reg;                       // $1 RDDATA, side 0
       4'h5: bit_q = 1'b1;                         // $5 a SuperDrive
       4'h6: bit_q = 1'b1;                         // $9 /SINGLE SIDE: 1, double-sided
       4'h7: bit_q = 1'b0;                         // $D /DRVIN: present
@@ -224,7 +233,7 @@ module se30_fdhd (
       4'hA: bit_q = (track != 0);                 // $A /TK0
       4'hB: bit_q = mfm ? (motor_on && index)      // $E the index (MFM mode)
                         : (motor_on ? tach : 1'b1); // $E /TACH (GCR)
-      4'hC: bit_q = rd_data;                      // $3 RDDATA, side 1
+      4'hC: bit_q = rd_reg;                       // $3 RDDATA, side 1
       4'hD: bit_q = mfm;                          // $7 MFM mode
       4'hE: bit_q = !ready;                       // $B /READY
       4'hF: bit_q = !(disk_in && hd);             // $F 0: a high-density medium

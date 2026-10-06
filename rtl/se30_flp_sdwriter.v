@@ -59,7 +59,7 @@ module se30_flp_sdwriter #(
   input      [12:0] file_blks,         // the file's blocks, the partial last one counted
 
   input             cm_done,           // the decoder committed image block cm_blk
-  input      [10:0] cm_blk,
+  input      [11:0] cm_blk,           // (12 bits: a 1.44 MB image's 2,880 blocks)
   output            cm_ready,          // there is room for a commit's blocks
 
   input             flush_req,         // one clock: the drive's eject
@@ -99,7 +99,7 @@ module se30_flp_sdwriter #(
 
   // a commit's blocks, pushed one a clock: data, its spill, the tags, theirs
   reg   [2:0] ps;                      // 0 idle, 1-4 the four candidates
-  reg  [10:0] pn;                      // the image block being pushed
+  reg  [11:0] pn;                      // the image block being pushed
   reg  [12:0] last_pushed;
   reg         any_pushed;
   wire [19:0] t_off  = (img_800k ? 20'd819200 : 20'd409600) + {pn, 3'b000} + {pn, 2'b00} + 20'd84;  // tags' file offset
@@ -108,8 +108,8 @@ module se30_flp_sdwriter #(
   reg         cand_ok;
   always @* begin
     case (ps)
-      3'd1:    begin cand = {2'b00, pn};          cand_ok = 1'b1;     end
-      3'd2:    begin cand = {2'b00, pn} + 13'd1;  cand_ok = dc42;     end
+      3'd1:    begin cand = {1'b0, pn};           cand_ok = 1'b1;     end
+      3'd2:    begin cand = {1'b0, pn} + 13'd1;   cand_ok = dc42;     end
       3'd3:    begin cand = t_off[19:9];          cand_ok = img_tags; end
       default: begin cand = t_end[19:9];          cand_ok = img_tags; end
     endcase

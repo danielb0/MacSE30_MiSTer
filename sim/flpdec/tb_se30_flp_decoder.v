@@ -68,6 +68,7 @@ module tb_se30_flp_decoder;
 
   // ------------------------------------------------------------ the DUTs
   reg        disk_in = 0, loading = 0, write_ok = 1, img_ds = 1, img_tags = 1, img_800k = 1;
+  reg        img_mfm = 0, img_hd = 0;
   reg  [6:0] cyl = 0;
   wire [6:0] trk_cyl;
   wire       trk_valid;
@@ -85,23 +86,28 @@ module tb_se30_flp_decoder;
   reg        arc_done = 0, arc_side = 0, arc_whole = 0;
   reg [17:0] arc_start = 0, arc_end = 0, trk_cells = 74558;
   wire       cm_done;
-  wire [10:0] cm_blk;
+  wire [11:0] cm_blk;
   reg        cm_ready = 1;
   wire [31:0] ddbg;
 
   se30_flp_encoder #(.BASE(BASE)) enc (
     .clk(clk), .reset_n(reset_n),
-    .disk_in(disk_in), .img_ds(ds_eff), .img_tags(img_tags), .img_800k(img_800k), .img_mfm(1'b0), .img_hd(1'b0),
+    .disk_in(disk_in), .img_ds(ds_eff), .img_tags(img_tags), .img_800k(img_800k), .img_mfm(img_mfm), .img_hd(img_hd),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
     .trk_we(trk_we), .trk_wbit(trk_wbit), .hold(hold), .dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle),
     .mem_req(en_req), .mem_addr(en_addr), .mem_rdata(en_rdata), .mem_ack(en_ack),
     .dbg());
 
-  se30_flp_decoder #(.BASE(BASE)) dut (
+`ifdef NO_MFM_WRITE
+  localparam MW = 0;                               // the parse left out: the MFM checks must fail
+`else
+  localparam MW = 1;
+`endif
+  se30_flp_decoder #(.BASE(BASE), .MFM_WRITE(MW)) dut (
     .clk(clk), .reset_n(reset_n),
     .disk_in(disk_in), .loading(loading), .write_ok(write_ok),
-    .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags), .ds_eff(ds_eff),
+    .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags), .img_mfm(img_mfm), .img_hd(img_hd), .ds_eff(ds_eff),
     .arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end),
     .arc_whole(arc_whole), .trk_cells(trk_cells), .cyl(cyl),
     .dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle), .hold(hold),
@@ -145,8 +151,9 @@ module tb_se30_flp_decoder;
 
   // ------------------------------------------------------------ the image
   integer blocks;
-  reg [15:0] mem [0:1600*256 + 1600*6 - 1];
-  reg [15:0] want [0:1600*256 + 1600*6 - 1];     // what the memory should hold
+  localparam integer MEMW = 2880 * 256;           // 1.44 MB, the largest image
+  reg [15:0] mem [0:MEMW - 1];
+  reg [15:0] want [0:MEMW - 1];                   // what the memory should hold
   function [7:0] dimg(input integer n, input integer i);   // block n's data byte i
     dimg = (n * 7 + i * 13) & 8'hFF;
   endfunction
@@ -157,7 +164,7 @@ module tb_se30_flp_decoder;
     integer n, i, j;
     begin
       blocks = 1600;
-      for (n = 0; n < 1600 * 256 + 1600 * 6; n = n + 1) begin mem[n] = 16'hDEAD; want[n] = 16'hDEAD; end
+      for (n = 0; n < MEMW; n = n + 1) begin mem[n] = 16'hDEAD; want[n] = 16'hDEAD; end
       for (n = 0; n < blocks; n = n + 1) begin
         for (i = 0; i < 256; i = i + 1) begin
           mem[n * 256 + i] = {dimg(n, 2 * i), dimg(n, 2 * i + 1)};
@@ -175,7 +182,7 @@ module tb_se30_flp_decoder;
     integer n;
     begin
       diffs = 0;
-      for (n = 0; n < 1600 * 256 + 1600 * 6; n = n + 1) if (mem[n] !== want[n]) diffs = diffs + 1;
+      for (n = 0; n < MEMW; n = n + 1) if (mem[n] !== want[n]) diffs = diffs + 1;
     end
   endtask
 
@@ -187,7 +194,7 @@ module tb_se30_flp_decoder;
       if (elat == 0) elat <= 3 + (cyc % 10);
       else if (elat == 1) begin
         en_ack <= 1; elat <= 0;
-        en_rdata <= (en_addr >= BASE && en_addr - BASE < 1600*256 + 1600*6) ? mem[en_addr - BASE] : 16'hBAD0;
+        en_rdata <= (en_addr >= BASE && en_addr - BASE < MEMW) ? mem[en_addr - BASE] : 16'hBAD0;
       end else elat <= elat - 1;
     end
     if (en_ack && !en_req) begin
@@ -210,7 +217,7 @@ module tb_se30_flp_decoder;
       if (dlat == 0) dlat <= 3 + (cyc % 10);
       else if (dlat == 1) begin
         de_ack <= 1; dlat <= 0; nwr <= nwr + 1;
-        if (de_addr >= BASE && de_addr - BASE < 1600*256 + 1600*6) mem[de_addr - BASE] <= de_wdata;
+        if (de_addr >= BASE && de_addr - BASE < MEMW) mem[de_addr - BASE] <= de_wdata;
         else wild <= wild + 1;
       end else dlat <= dlat - 1;
     end
@@ -352,6 +359,114 @@ module tb_se30_flp_decoder;
     begin
       for (i = 0; i < 256; i = i + 1) want[n * 256 + i] = {sec[12 + 2 * i], sec[13 + 2 * i]};
       if (img_tags) for (j = 0; j < 6; j = j + 1) want[blocks * 256 + n * 6 + j] = {sec[2 * j], sec[2 * j + 1]};
+    end
+  endtask
+
+  // ------------------------------------------------------------ MFM (5.16.5)
+  // the bench's own MFM: a bit is a clock cell then a data cell; a 1 a
+  // transition in its data cell, a 0 after a 0 one in its clock cell; a
+  // mark drops its bit-2 clock (an A1 is then $4489)
+  reg     mcl [0:262143];
+  integer nmc;
+  reg     mprev;
+  task m_put(input [7:0] v, input mark);
+    integer b;
+    reg d;
+    begin
+      for (b = 7; b >= 0; b = b - 1) begin
+        d = v[b];
+        mcl[nmc] = !mprev && !d && !(mark && b == 2); mcl[nmc + 1] = d;
+        nmc = nmc + 2; mprev = d;
+      end
+    end
+  endtask
+  function [15:0] crc_b(input [15:0] c, input [7:0] d);    // CCITT-16 (User's Ref p. 9)
+    integer j;
+    reg [15:0] r;
+    begin
+      r = c;
+      for (j = 7; j >= 0; j = j - 1) r = {r[14:0], 1'b0} ^ ((r[15] ^ d[j]) ? 16'h1021 : 16'h0000);
+      crc_b = r;
+    end
+  endfunction
+  reg [15:0] mcrc_b;
+  task m_crcd(input [7:0] v); begin m_put(v, 0); mcrc_b = crc_b(mcrc_b, v); end endtask
+  task m_marks; begin mcrc_b = 16'hFFFF; repeat (3) begin m_put(8'hA1, 1); mcrc_b = crc_b(mcrc_b, 8'hA1); end end endtask
+  task m_crc(input [7:0] spoil); begin m_put(mcrc_b[15:8], 0); m_put(mcrc_b[7:0] ^ spoil, 0); end endtask
+  // an address field as the ROM's formatter writes one; `spoil` flips CRC bits
+  task m_id(input [7:0] c, input [7:0] h, input [7:0] r, input [7:0] n, input [7:0] spoil);
+    begin
+      repeat (12) m_put(8'h00, 0);
+      m_marks; m_crcd(8'hFE); m_crcd(c); m_crcd(h); m_crcd(r); m_crcd(n); m_crc(spoil);
+    end
+  endtask
+  // a data field as the ROM's sector writer writes it ($4082EB3E): 12 x 00,
+  // the marks, FB, the 512 bytes, the CRC, then the 4Es it is cut in
+  reg [7:0] msec [0:511];
+  task m_data(input [7:0] spoil);
+    integer j;
+    begin
+      repeat (12) m_put(8'h00, 0);
+      m_marks; m_crcd(8'hFB);
+      for (j = 0; j < 512; j = j + 1) m_crcd(msec[j]);
+      m_crc(spoil); m_put(8'h4E, 0); m_put(8'h4E, 0);
+    end
+  endtask
+  task write_mcells(input integer s, input integer start, input integer ncells_rev);
+    integer j, a;
+    begin
+      a = start;
+      for (j = 0; j < nmc; j = j + 1) begin
+        @(posedge clk); #1 trk_we = 1; trk_side = s; trk_addr = a; trk_wbit = mcl[j];
+        last_cell = a;
+        a = (a + 1 == ncells_rev) ? 0 : a + 1;
+      end
+      @(posedge clk); #1 trk_we = 0;
+    end
+  endtask
+  // the encoder's MFM side (5.13.12 item 3): 32 x 4E from the index, then
+  // a slot a sector - the address field ends 352 cells in, the data marks
+  // begin at 896 - of 682 bytes (1.44 MB) or 654 (720K)
+  function integer m_slot(input integer r, input integer hd);
+    m_slot = 512 + (r - 1) * (hd ? 10912 : 10464);
+  endfunction
+  // where the ROM's write begins: 0.459 ms (459 cells) after the address
+  // field's end - inside the old data field's sync
+  function integer m_wstart(input integer r, input integer hd);
+    m_wstart = m_slot(r, hd) + 352 + 459;
+  endfunction
+  function integer mblk(input integer c, input integer s, input integer r, input integer n);
+    mblk = (2 * c + s) * n + r - 1;
+  endfunction
+  task m_content(input integer seed);
+    integer j;
+    begin for (j = 0; j < 512; j = j + 1) msec[j] = (seed * 37 + j * 11 + (j >> 3)) & 8'hFF; end
+  endtask
+  task m_expect(input integer n);
+    integer j;
+    begin for (j = 0; j < 256; j = j + 1) want[n * 256 + j] = {msec[2 * j], msec[2 * j + 1]}; end
+  endtask
+  task build_mfm_image(input integer nblk);
+    integer n, j;
+    begin
+      blocks = nblk;
+      for (n = 0; n < MEMW; n = n + 1) begin mem[n] = 16'hDEAD; want[n] = 16'hDEAD; end
+      for (n = 0; n < nblk; n = n + 1)
+        for (j = 0; j < 256; j = j + 1) begin
+          mem[n * 256 + j] = {dimg(n, 2 * j), dimg(n, 2 * j + 1)};
+          want[n * 256 + j] = mem[n * 256 + j];
+        end
+    end
+  endtask
+  // a refusal: written, the arc raised, nothing committed, refused counted
+  integer r0;
+  task m_refused(input integer s, input integer start, input [8*88-1:0] what);
+    begin
+      write_mcells(s, start, trk_cells);
+      ncm = 0; r0 = ddbg[15:8];
+      raise_arc(s, start, last_cell, 0, trk_cells);
+      wait_decoded;
+      check(ncm == 0, what, ncm, 0);
     end
   endtask
 
@@ -528,6 +643,139 @@ module tb_se30_flp_decoder;
     expect_block(blk_of(2, 1, 4, 1));
     compare_image;
     check(diffs == 0, "the tag region untouched", diffs, 0);
+
+    $display("---- 11. MFM: 1.44 MB (plan 5.16.5)");
+    #1 disk_in = 0; repeat (8) @(posedge clk);
+    #1 img_mfm = 1; img_hd = 1; img_tags = 0; img_800k = 0; trk_cells = 200000;
+    build_mfm_image(2880);
+    #1 disk_in = 1; cyl = 0;
+    wait_valid(0);
+    check(trk_valid && trk_cyl == 0, "(cylinder 0 built, MFM)", trk_cyl, 0);
+    // the encoder's own side, as a whole arc: ending at cell 511, so the
+    // window opens on slot 1 and reads it twice (one commit: `seen`)
+    ncm = 0; nwr = 0;
+    raise_arc(0, 0, 511, 1, 200000);
+    wait_decoded;
+    check(ncm == 18, "a whole arc over the encoder's side: all 18 sectors committed, once each", ncm, 18);
+    k = 0; for (i = 0; i < ncm && i < 64; i = i + 1) if (cmb[i] > 17) k = k + 1;
+    check(k == 0, "  to blocks 0-17 ((2C + H) x 18 + R - 1, the encoder's)", k, 0);
+    check(nwr == 18 * 256, "  256 words a sector, no tags", nwr, 18 * 256);
+    compare_image;
+    check(diffs == 0, "  the image unchanged: the decoder agrees with the encoder's layout", diffs, 0);
+    // ending at cell 1,000: slot 1's address field before the window's
+    // start, its data marks after - read whole only after the wrap, in the
+    // window's extra sector (11,264 cells)
+    ncm = 0;
+    raise_arc(0, 0, 1000, 1, 200000);
+    wait_decoded;
+    check(ncm == 18, "a whole arc ending inside a sector: that sector read after the wrap, 18 in all", ncm, 18);
+    // a sector written as the ROM writes it, 0.459 ms after its address field
+    m_content(1); nmc = 0; mprev = 0; m_data(8'h00);
+    start = m_wstart(5, 1);
+    write_mcells(0, start, 200000);
+    ncm = 0;
+    raise_arc(0, start, last_cell, 0, 200000);
+    wait_decoded;
+    check(ncm == 1 && cmb[0] == 4, "the ROM's sector write of R 5: its address field found in the look-back, block 4", cmb[0], 4);
+    m_expect(4); compare_image;
+    check(diffs == 0, "  its 512 bytes in the image, nothing else changed", diffs, 0);
+    // side 1 of cylinder 5, R 18
+    #1 cyl = 5; wait_valid(5);
+    m_content(2); nmc = 0; mprev = 0; m_data(8'h00);
+    start = m_wstart(18, 1);
+    write_mcells(1, start, 200000);
+    ncm = 0;
+    raise_arc(1, start, last_cell, 0, 200000);
+    wait_decoded;
+    check(ncm == 1 && cmb[0] == mblk(5, 1, 18, 18), "cylinder 5 side 1 R 18: block 215", cmb[0], mblk(5, 1, 18, 18));
+    m_expect(mblk(5, 1, 18, 18)); compare_image;
+    check(diffs == 0, "  in the image, nothing else changed", diffs, 0);
+
+    // refused
+    m_content(3);
+    nmc = 0; mprev = 0; m_data(8'h01);
+    m_refused(0, m_wstart(7, 1), "a bad CRC: refused");
+    check(ddbg[15:8] == r0 + 1, "  counted refused", ddbg[15:8] - r0, 1);
+    nmc = 0; mprev = 0; m_data(8'h00);
+    m_refused(0, m_slot(17, 1) + 9600, "a data field with no address field before it (written in gap 3): refused");
+    // the write began after the old marks: the marks are in the look-back
+    nmc = 0; mprev = 1;                                  // (FB's last bit)
+    mcrc_b = 16'hFFFF;
+    for (i = 0; i < 3; i = i + 1) mcrc_b = crc_b(mcrc_b, 8'hA1);
+    mcrc_b = crc_b(mcrc_b, 8'hFB);
+    for (i = 0; i < 512; i = i + 1) m_crcd(msec[i]);
+    m_crc(8'h00); m_put(8'h4E, 0); m_put(8'h4E, 0);
+    m_refused(0, m_slot(9, 1) + 960, "marks in the look-back (the write began after them), CRC good: refused");
+    nmc = 0; mprev = 0; m_id(8'd4, 8'd0, 8'd10, 8'd2, 8'h00); repeat (22) m_put(8'h4E, 0); m_data(8'h00);
+    m_refused(0, m_slot(10, 1), "an address field naming cylinder 4 with the head on 5: refused");
+    nmc = 0; mprev = 0; m_id(8'd5, 8'd1, 8'd10, 8'd2, 8'h00); repeat (22) m_put(8'h4E, 0); m_data(8'h00);
+    m_refused(0, m_slot(10, 1), "an address field naming side 1 on side 0: refused");
+    nmc = 0; mprev = 0; m_id(8'd5, 8'd0, 8'd0, 8'd2, 8'h00); repeat (22) m_put(8'h4E, 0); m_data(8'h00);
+    m_refused(0, m_slot(10, 1), "R 0: refused");
+    nmc = 0; mprev = 0; m_id(8'd5, 8'd0, 8'd19, 8'd2, 8'h00); repeat (22) m_put(8'h4E, 0); m_data(8'h00);
+    m_refused(0, m_slot(10, 1), "R 19: refused");
+    nmc = 0; mprev = 0; m_id(8'd5, 8'd0, 8'd10, 8'd3, 8'h00); repeat (22) m_put(8'h4E, 0); m_data(8'h00);
+    m_refused(0, m_slot(10, 1), "N 3 (1,024 bytes): refused");
+    nmc = 0; mprev = 0; m_id(8'd5, 8'd0, 8'd10, 8'd2, 8'h10); repeat (22) m_put(8'h4E, 0); m_data(8'h00);
+    m_refused(0, m_slot(10, 1), "a bad address field's CRC: refused");
+    // an address field, a data field with a bad CRC, then a good data field
+    // with no address field of its own: the first forgot the address field
+    nmc = 0; mprev = 0; m_id(8'd5, 8'd0, 8'd12, 8'd2, 8'h00); repeat (22) m_put(8'h4E, 0); m_data(8'h01);
+    repeat (40) m_put(8'h4E, 0); m_data(8'h00);
+    m_refused(0, m_slot(12, 1), "a good data field after a bad one, no address field between: refused");
+    #1 write_ok = 0;
+    nmc = 0; mprev = 0; m_data(8'h00);
+    m_refused(0, m_wstart(11, 1), "read-only: refused");
+    #1 write_ok = 1;
+    compare_image;
+    check(diffs == 0, "  the image unchanged by all of them", diffs, 0);
+
+    // a format of cylinder 3 as the ROM's formatter writes it ($4082EC5E):
+    // 4E until the index, then 32 x 4E and the 18 sectors (data F6), then
+    // a few 4E.  Side 0: begun 48,000 cells before the index (a whole arc);
+    // side 1: begun 1,000 before it (an arc short of a revolution)
+    #1 cyl = 3; wait_valid(3);
+    for (i = 0; i < 512; i = i + 1) msec[i] = 8'hF6;
+    for (k = 0; k < 2; k = k + 1) begin
+      nmc = 0; mprev = 0;
+      repeat ((k == 0) ? 3000 : 62) m_put(8'h4E, 0);
+      repeat (32) m_put(8'h4E, 0);
+      for (i = 1; i <= 18; i = i + 1) begin
+        m_id(8'd3, k, i, 8'd2, 8'h00); repeat (22) m_put(8'h4E, 0);
+        m_data(8'h00); repeat (106) m_put(8'h4E, 0);
+      end
+      repeat (7) m_put(8'h4E, 0);
+      start = (k == 0) ? 200000 - 48000 : 200000 - 992;
+      write_mcells(k, start, 200000);
+      ncm = 0;
+      raise_arc(k, start, last_cell, (k == 0), 200000);
+      wait_decoded;
+      check(ncm == 18, (k == 0) ? "a format, side 0 (a whole arc): 18 sectors committed, once each"
+                                : "a format, side 1 (an arc short of a revolution): 18 sectors committed", ncm, 18);
+      n0 = 0; for (i = 0; i < ncm && i < 64; i = i + 1) if (cmb[i] < mblk(3, k, 1, 18) || cmb[i] > mblk(3, k, 18, 18)) n0 = n0 + 1;
+      check(n0 == 0, "  to cylinder 3's blocks of that side", n0, 0);
+      for (i = 1; i <= 18; i = i + 1) m_expect(mblk(3, k, i, 18));
+    end
+    compare_image;
+    check(diffs == 0, "  both sides F6, nothing else changed", diffs, 0);
+
+    $display("---- 12. MFM: 720K");
+    #1 disk_in = 0; repeat (8) @(posedge clk);
+    #1 img_hd = 0; trk_cells = 100000;
+    build_mfm_image(1440);
+    #1 disk_in = 1; cyl = 2;
+    wait_valid(2);
+    m_content(4); nmc = 0; mprev = 0; m_data(8'h00);
+    start = m_wstart(9, 0);
+    write_mcells(1, start, 100000);
+    ncm = 0;
+    raise_arc(1, start, last_cell, 0, 100000);
+    wait_decoded;
+    check(ncm == 1 && cmb[0] == mblk(2, 1, 9, 9), "720K cylinder 2 side 1 R 9: block 53 ((2C + H) x 9 + R - 1)", cmb[0], mblk(2, 1, 9, 9));
+    m_expect(mblk(2, 1, 9, 9)); compare_image;
+    check(diffs == 0, "  in the image, nothing else changed", diffs, 0);
+    nmc = 0; mprev = 0; m_id(8'd2, 8'd0, 8'd10, 8'd2, 8'h00); repeat (22) m_put(8'h4E, 0); m_data(8'h00);
+    m_refused(0, m_slot(5, 0), "720K: R 10 refused (9 sectors)");
 
     $display("---- 10. the disk port's handshake");
     check(torn == 0, "no request torn down before its acknowledge", torn, 0);

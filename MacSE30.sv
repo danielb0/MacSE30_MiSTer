@@ -313,11 +313,9 @@ wire        dk_req, dk_we, dk_ack;
 wire [23:0] dk_addr;
 wire [15:0] dk_wdata, dk_rdata;
 wire [15:0] ld_dbg, en_dbg;
-// writing (plan 5.15): the drive's recording and arcs, the decoder and the SD writer
-// an MFM disk is write-protected until the ISM's write path is built (plan
-// 5.13: MFM writing is the third step) - nothing may write a GCR format
-// into a 720K or 1.44 MB file meanwhile
-wire        disk_wprot = flp_readonly || img_mfm;
+// writing (plan 5.15, and MFM 5.16): the drive's recording and arcs, the
+// decoder and the SD writer; a disk is protected only when mounted read-only
+wire        disk_wprot = flp_readonly;
 wire        trk_we, trk_wbit, arc_done, arc_side, arc_whole;
 wire [17:0] trk_cells, arc_start, arc_end;
 wire        enc_hold, enc_idle, dec_bit, ds_eff, flp_dc42;
@@ -328,7 +326,7 @@ wire [12:0] flp_blks;
 wire        de_req, de_ack, wr_req, wr_ack, cm_done, cm_ready;
 wire [23:0] de_addr, wr_addr;
 wire [15:0] de_wdata, wr_rdata;
-wire [10:0] cm_blk;
+wire [11:0] cm_blk;
 wire [31:0] de_dbg, wr_dbg;
 // the external drive's (plan 5.14): its image at word $900000
 wire        disk2_in, img2_ds, img2_800k, img2_tags, img2_mfm, img2_hd, flp2_readonly, flp2_loading, disk2_eject;
@@ -339,7 +337,7 @@ wire        ld2_req, ld2_ack, en2_req, en2_ack;
 wire [23:0] ld2_addr, en2_addr;
 wire [15:0] ld2_wdata, en2_rdata;
 wire [15:0] ld2_dbg, en2_dbg, dbg_fdhd2;
-wire        disk2_wprot = flp2_readonly || img2_mfm;
+wire        disk2_wprot = flp2_readonly;
 wire        trk2_we, trk2_wbit, arc2_done, arc2_side, arc2_whole;
 wire [17:0] trk2_cells, arc2_start, arc2_end;
 wire        de2_req, de2_ack, wr2_req, wr2_ack;
@@ -350,7 +348,7 @@ wire [18:0] dec2_addr;
 wire  [5:0] hdr2_addr;
 wire [15:0] hdr2_data;
 wire [12:0] flp2_blks;
-wire [10:0] cm2_blk;
+wire [11:0] cm2_blk;
 
 se30_flp_loader flp_loader
 (
@@ -384,7 +382,7 @@ se30_flp_decoder flp_decoder
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
 	.disk_in(disk_in), .loading(flp_loading), .write_ok(!disk_wprot),
-	.img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags), .ds_eff(ds_eff),
+	.img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags), .img_mfm(img_mfm), .img_hd(img_hd), .ds_eff(ds_eff),
 	.arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end),
 	.arc_whole(arc_whole), .trk_cells(trk_cells), .cyl(disk_cyl),
 	.dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle), .hold(enc_hold),
@@ -439,7 +437,7 @@ se30_flp_decoder #(.BASE(24'h900000)) flp2_decoder
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
 	.disk_in(disk2_in), .loading(flp2_loading), .write_ok(!disk2_wprot),
-	.img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags), .ds_eff(ds2_eff),
+	.img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags), .img_mfm(img2_mfm), .img_hd(img2_hd), .ds_eff(ds2_eff),
 	.arc_done(arc2_done), .arc_side(arc2_side), .arc_start(arc2_start), .arc_end(arc2_end),
 	.arc_whole(arc2_whole), .trk_cells(trk2_cells), .cyl(disk2_cyl),
 	.dec_addr(dec2_addr), .dec_bit(dec2_bit), .enc_idle(enc2_idle), .hold(enc2_hold),

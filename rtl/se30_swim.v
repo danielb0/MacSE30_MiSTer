@@ -1,7 +1,7 @@
 // se30_swim.v - Apple's SWIM (343S0061-A) at UJ11, to the contract of
-// SE30_PLAN.md 5.2, 5.12, 5.13 and 5.15 - both register sets, the IWM's
-// read path (rung 2, GCR) and its write path (rung 3), the ISM's MFM
-// read path (5.13).  The ISM's write path is to come.
+// SE30_PLAN.md 5.2, 5.12, 5.13, 5.15 and 5.16 - both register sets, the
+// IWM's read path (rung 2, GCR) and its write path (rung 3), the ISM's MFM
+// read path (5.13) and its write path (5.16).
 //
 // WHAT IT IS
 //   An IWM and an ISM in one package, one register set selected at a time
@@ -64,6 +64,44 @@
 //   fall stops the machine.  The correction counters (4.3) and
 //   post-compensation (4.4) are not built: the Correction register reads
 //   0 (Setup bit 4, the ROM's 0, leaves them without effect).
+//
+// THE ISM WRITE PATH (plan 5.16.3; the SWIM drawing 6.2, the ISM ASIC
+// spec 3.1-3.6 and 5.1, the User's Reference pp. 12-13 and 19-24)
+//   The FIFO is the read path's: in write mode the Data register pushes a
+//   byte, the Mark register a byte with its mark bit, the CRC register
+//   (with ACTION) an entry that sends the CRC; a push into a full FIFO is
+//   an overrun (error bit 2) and is lost.  Handshake bits 7 and 6 are a
+//   place free and two.  "An IN occurs at the instant that Action is set
+//   when writing": the head entry goes to the shift register at once.  The
+//   shift register sends MSB first; with its last bit gone the next IN
+//   takes the FIFO's head, and an IN with the FIFO empty is an underrun
+//   (error bit 0).  "The Action bit will be cleared any time there is any
+//   Error while writing"; the handshake then shows the FIFO empty, so the
+//   ROM's byte loop, which has no timeout, runs on to its error check
+//   (engineering, from the ROM and SWIM III's register document).  /WRREQ
+//   is low while write mode and ACTION are set.
+//   The CRC takes every data and mark bit as it leaves the shift register,
+//   preset to ones at the IN of a mark byte that follows a non-mark byte
+//   (our reading of "cleared to ones just prior to writing the Mark byte":
+//   it then covers the three A1s, as the read path's and the encoder's do);
+//   a CRC entry shifts its 16 bits instead, which it does not take.
+//   The trans-space machine (Table 13): the current bit c and the next n
+//   give 1 for (0,0), 01 for (0,1), 0 for (1,0), 1 for (1,1); in a mark
+//   byte at the pattern 1 0 0 0 (two back, one back, c, n), 00 - the
+//   dropped clock.  A trans-space 1 presets the counter to TIME1, a 0 to
+//   TIME0, each in half-clocks plus the chip's two-clock delay the User's
+//   Reference takes off (the ROM's: 31.5 and 15.5 FCLK), and WRDATA
+//   toggles at a 1's terminal count - intervals of 31.5, 47 and 62.5 FCLK.
+//   The half clock (3.6) is a remainder carried into the next count: the
+//   toggle lands on the FCLK, nothing accumulates.  With the IBM drive
+//   option (Setup bit 5, the ROM's) WRDATA idles high and each toggle is a
+//   4-FCLK low pulse instead (5.1).  Not built: pre-compensation (EARLY/
+//   NORMAL/LATE move a transition 2 clocks, which never changes the cell
+//   count the drive records - plan 5.16.3 item 8), trans-space bypass and
+//   GCR through the ISM (Setup bits 6 and 2, which the ROM never sets).
+//   An ACTION whose first entry is a CRC entry sends it as a data byte.
+//   MFM_WRITE = 0 leaves the whole path out (plan 10.4.2): write mode then
+//   accepts nothing and never lowers /WRREQ.
 //
 // THE IWM WRITE PATH (plan 5.15.2; the SWIM drawing sheet 52, the IWM
 // Spec Rev 19 pp. 2-3 and 7, the 1984 undocumented-features note)
@@ -140,7 +178,9 @@
 
 `timescale 1ns/1ps
 
-module se30_swim (
+module se30_swim #(
+  parameter     MFM_WRITE = 1          // the ISM's write path (plan 5.16)
+) (
   input         clk,
   input         c16_en,                // FCLK: C16M
   input         reset_n,
@@ -373,7 +413,8 @@ module se30_swim (
       4'd12: ism_q = {ph_dir, ph_rd};
       4'd13: ism_q = ism_setup;
       4'd14: ism_q = ism_mode | 8'h40;                               // status: the mode, bit 6 reading 1
-      4'd15: ism_q = fifo_w ? {2'b11, |ism_error, ism_mode[7], sense, sense, 2'b00}
+      4'd15: ism_q = fifo_w ? {f_n != 2'd2 || |ism_error, f_n == 2'd0 || |ism_error, |ism_error,
+                               ism_mode[7], sense, sense, 2'b00}         // places free; an error shows it empty
                             : {f_n != 0, f_n == 2'd2, |ism_error, ism_mode[7], sense, sense,
                                (f_n != 0) ? !f_c0 : (rcrc != 16'h0000), (f_n != 0) && f_m0};
       default: ism_q = 8'hFF;                                        // a write address: the chip does not drive the lanes
@@ -451,6 +492,56 @@ module se30_swim (
   // a byte to the FIFO: locked, or the mark cell that locks completing it
   wire        f_push  = cell_ok && ccls != 3'd0 && done && !ism_mode[0] &&
                         (csm == C_LOCK || (csm == C_MARK && is_mark));
+
+  // ------------------------------------------------ the ISM write path
+  // (plan 5.16.3).  An OUT: a processor write to Data, Mark, or CRC with
+  // ACTION, in write mode.  An IN: ACTION set in write mode, or a bit
+  // wanted with the shift register empty.
+  wire        iw_on   = MFM_WRITE && ism && ism_mode[4] && ism_mode[3];
+  wire        w_push  = MFM_WRITE && hit && ism && ism_mode[4] && !rs[3] && !ism_mode[0] &&
+                        (rs[2:0] == 3'd0 || rs[2:0] == 3'd1 || (rs[2:0] == 3'd2 && ism_mode[3]));
+  wire        w_mk    = (rs[2:0] == 3'd1);
+  wire        w_crc   = (rs[2:0] == 3'd2);
+  wire        iw_go   = MFM_WRITE && hit && ism && !rs[3] && rs[2:0] == 3'd7 && wdata[3] &&
+                        !ism_mode[3] && (ism_mode[4] || wdata[4]);   // ACTION set in write mode
+  reg  [15:0] wsr16;                                          // the shift register (a CRC entry's 16 bits)
+  reg   [4:0] wn;                                             // its bits left
+  reg         wisc, wmk, wpmk;                                // it holds the CRC; a mark byte; the last IN a mark
+  reg  [15:0] wcrc;
+  reg         wh2, wh1, wcur, wnxt, wmk_c, wmk_n;             // the trans-space machine's four bits, two marks
+  reg         wtok, wtok2, wtok2v;                            // the token counting; a second owed, its value
+  reg   [9:0] tcnt;                                           // half-clocks left of the token (signed)
+  reg         wrd_m;                                          // WRDATA as a level
+  reg   [2:0] wpul;                                           // FCLK left of the IBM pulse
+  wire  [9:0] tcnt_n  = tcnt - 10'd2;
+  wire        tk_end  = iw_on && c16_en && $signed(tcnt_n) <= 0;
+  wire        need_b  = tk_end && !wtok2;                     // the next bit into the machine
+  wire        w_need  = (need_b && wn == 0) || iw_go;
+  wire        w_in    = w_need && f_n != 0;
+  wire        w_unr   = w_need && f_n == 0;
+  // the bit wanted: from the shift register, or the FIFO's head at an IN
+  wire        in_crc  = f_c0 && !iw_go;
+  wire        wb      = (wn != 0) ? wsr16[15] : (in_crc ? wcrc[15] : f_b0[7]);
+  wire        wb_mk   = (wn != 0) ? wmk : (!in_crc && f_m0);
+  wire        wb_isc  = (wn != 0) ? wisc : in_crc;
+  wire [15:0] crc_b0  = (wn == 0 && !in_crc && f_m0 && !wpmk) ? 16'hFFFF : wcrc;   // preset at a mark after a non-mark
+  // the tokens for a bit c with the next n (Table 13): {first, two, second}
+  function [2:0] tks(input h2, input h1, input c, input n, input mk);
+    if (mk && h2 && !h1 && !c && !n) tks = 3'b010;            // 00: the dropped clock
+    else case ({c, n})
+      2'b00:   tks = 3'b100;                                  // 1
+      2'b01:   tks = 3'b011;                                  // 01
+      2'b10:   tks = 3'b000;                                  // 0
+      default: tks = 3'b100;                                  // 1
+    endcase
+  endfunction
+  wire  [9:0] dur1 = {2'b00, param[15]} + 10'd4;             // TIME1 + the two-clock delay, in half-clocks
+  wire  [9:0] dur0 = {2'b00, param[13]} + 10'd4;             // TIME0
+  // a new bit: (c, n) become (wnxt, wb), or at ACTION the head's first two
+  wire        a_c  = iw_go ? f_b0[7] : wnxt;
+  wire        a_n  = iw_go ? f_b0[6] : wb;
+  wire  [2:0] a_t  = iw_go ? tks(1'b0, 1'b0, f_b0[7], f_b0[6], f_m0) : tks(wh1, wcur, wnxt, wb, wmk_n);
+  wire        w_tog = tk_end && wtok;                         // a 1 token's terminal count
   // the error bits raised this clock (User's Ref p. 23)
   wire  [7:0] rc_err  = {2'b00,
                          wide_now,                                            // 5 too wide
@@ -459,6 +550,57 @@ module se30_swim (
                          (rd_data || rd_mark) && f_n == 0,                    // 2 nothing to read
                          rd_data && f_n != 0 && f_m0,                         // 1 a mark through Data
                          f_push && f_n == 2'd2 && !f_pop};                    // 0 overrun
+  // ... and the write path's (write mode only)
+  wire  [7:0] wc_err  = {5'b00000,
+                         w_push && f_n == 2'd2 && !w_in,                      // 2 overrun
+                         1'b0,
+                         w_unr};                                              // 0 underrun
+  wire  [7:0] all_err = rc_err | wc_err;
+  // the FIFO's one push and one pop, reading or writing
+  wire        fp   = f_push || w_push;
+  wire        fo   = f_pop  || w_in;
+  wire  [7:0] fd_b = w_push ? wdata : done_b;
+  wire        fd_m = w_push ? w_mk  : done_m;
+  wire        fd_c = w_push ? w_crc : done_c;
+
+  always @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+      wsr16 <= 0; wn <= 0; wisc <= 0; wmk <= 0; wpmk <= 0; wcrc <= 16'hFFFF;
+      wh2 <= 0; wh1 <= 0; wcur <= 0; wnxt <= 0; wmk_c <= 0; wmk_n <= 0;
+      wtok <= 0; wtok2 <= 0; wtok2v <= 0; tcnt <= 0; wrd_m <= 0; wpul <= 0;
+    end else begin
+      if (c16_en && wpul != 0) wpul <= wpul - 1'b1;
+      if (w_tog) begin wrd_m <= !wrd_m; wpul <= 3'd4; end
+
+      if (iw_go) begin
+        // the IN at ACTION: the head's first two bits into the machine
+        wh2 <= 0; wh1 <= 0; wcur <= f_b0[7]; wnxt <= f_b0[6]; wmk_c <= f_m0; wmk_n <= f_m0;
+        wsr16 <= {f_b0[5:0], 10'd0}; wn <= 5'd6; wisc <= 0; wmk <= f_m0; wpmk <= f_m0;
+        wcrc <= crc1(crc1((f_m0 && !wpmk) ? 16'hFFFF : wcrc, f_b0[7]), f_b0[6]);
+        wtok <= a_t[2]; wtok2 <= a_t[1]; wtok2v <= a_t[0];
+        tcnt <= a_t[2] ? dur1 : dur0;
+      end else if (!iw_on) begin
+        wtok <= 0; wtok2 <= 0; wn <= 0;
+      end else if (c16_en) begin
+        if (!tk_end) tcnt <= tcnt_n;
+        else if (wtok2) begin                                 // the second token of 01 or 00
+          wtok <= wtok2v; wtok2 <= 0;
+          tcnt <= tcnt_n + (wtok2v ? dur1 : dur0);
+        end else begin                                        // the next bit
+          wh2 <= wh1; wh1 <= wcur; wcur <= wnxt; wnxt <= wb; wmk_c <= wmk_n; wmk_n <= wb_mk;
+          if (!wb_isc) wcrc <= crc1(crc_b0, wb);
+          if (wn != 0) begin wsr16 <= {wsr16[14:0], 1'b0}; wn <= wn - 1'b1; end
+          else if (f_n != 0) begin                            // an IN
+            wisc <= in_crc; wmk <= !in_crc && f_m0; wpmk <= !in_crc && f_m0;
+            wsr16 <= in_crc ? {wcrc[14:0], 1'b0} : {f_b0[6:0], 9'd0};
+            wn <= in_crc ? 5'd15 : 5'd7;
+          end
+          wtok <= a_t[2]; wtok2 <= a_t[1]; wtok2v <= a_t[0];
+          tcnt <= tcnt_n + (a_t[2] ? dur1 : dur0);
+        end
+      end
+    end
+  end
 
   always @(posedge clk or negedge reset_n) begin
     if (!reset_n) begin
@@ -507,21 +649,24 @@ module se30_swim (
         end
       end
 
-      // the FIFO: a pop, a push of a completed byte, Clear FIFO
+      // the FIFO: a pop, a push, Clear FIFO.  Reading, a completed byte in
+      // and the processor's read out; writing, the processor's byte in
+      // (OUT) and the shift register's IN out.  f_c is the CRC-zero flag
+      // reading and the CRC entry writing.
       if (ism_mode[0]) begin
         f_n <= 0; rcrc <= 16'hFFFF;
       end else begin
-        if (f_pop) begin f_b0 <= f_b1; f_m0 <= f_m1; f_c0 <= f_c1; end
-        if (f_push) begin
-          if (f_n == 2'd2 && !f_pop) ;                            // overrun: the byte is lost
-          else if ((f_n == 2'd0) || (f_n == 2'd1 && f_pop)) begin
-            f_b0 <= done_b; f_m0 <= done_m; f_c0 <= done_c;
-            f_n <= f_pop ? f_n : f_n + 1'b1;
+        if (fo) begin f_b0 <= f_b1; f_m0 <= f_m1; f_c0 <= f_c1; end
+        if (fp) begin
+          if (f_n == 2'd2 && !fo) ;                               // overrun: the byte is lost
+          else if ((f_n == 2'd0) || (f_n == 2'd1 && fo)) begin
+            f_b0 <= fd_b; f_m0 <= fd_m; f_c0 <= fd_c;
+            f_n <= fo ? f_n : f_n + 1'b1;
           end else begin
-            f_b1 <= done_b; f_m1 <= done_m; f_c1 <= done_c;
-            f_n <= f_pop ? f_n : f_n + 1'b1;
+            f_b1 <= fd_b; f_m1 <= fd_m; f_c1 <= fd_c;
+            f_n <= fo ? f_n : f_n + 1'b1;
           end
-        end else if (f_pop) f_n <= f_n - 1'b1;
+        end else if (fo) f_n <= f_n - 1'b1;
       end
     end
   end
@@ -536,8 +681,8 @@ module se30_swim (
       ism_mode <= 0; ism_setup <= 0; ism_error <= 0; pidx <= 0; corr_sel <= 0;
     end else begin
       if (c16_en && timer != 0) timer <= timer - 1'b1;
-      // the read path's errors: the first one holds the register until it is read
-      if (rc_err != 0 && ism_error == 0) ism_error <= rc_err;
+      // the errors: the first one holds the register until it is read
+      if (all_err != 0 && ism_error == 0) ism_error <= all_err;
 
       if (hit && !ism) begin
         ph_lvl <= ph_n; motor <= motor_n; drvsel <= drvsel_n; l6 <= l6_n; l7 <= l7_n;
@@ -572,11 +717,14 @@ module se30_swim (
         endcase
         else case (rs[2:0])
           3'd0: if (!ism_mode[3]) corr_sel <= !corr_sel;
-          3'd2: ism_error <= rc_err;                                 // read: cleared (an error this clock stays)
+          3'd2: ism_error <= all_err;                                // read: cleared (an error this clock stays)
           3'd3: pidx <= pidx + 1'b1;
           default: ;
         endcase
       end
+      // "the Action bit will be cleared any time there is any Error while
+      // writing" (ISM spec p. 45) - after the register writes, so it wins
+      if (wc_err != 0) ism_mode[3] <= 1'b0;
     end
   end
 
@@ -585,8 +733,9 @@ module se30_swim (
   assign ph_oe   = ph_dir;
   assign enbl1_n = ism ? !(ism_mode[7] && ism_mode[1]) : !(motor_d && !drvsel);
   assign enbl2_n = ism ? !(ism_mode[7] && ism_mode[2]) : !(motor_d &&  drvsel);
-  assign wrdata  = wrd;
-  assign wrreq_n = !(wact && unr_n);
+  // the ISM's WRDATA: a 4-FCLK low pulse a toggle with the IBM option, else the level
+  assign wrdata  = ism ? (ism_setup[5] ? (wpul == 0) : wrd_m) : wrd;
+  assign wrreq_n = ism ? !iw_on : !(wact && unr_n);
   assign hdsel   = ism_setup[0] && ism_mode[5];
 
   assign dbg_vread = vread;
