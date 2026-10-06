@@ -464,6 +464,14 @@ module se30_sdram #(
   reg  [9:0] ref_cnt;
   reg        ref_due, ref_early, ref_force;
   reg  [5:0] since_start;              // clocks since the last start, saturating: where in a cycle we are
+  // The idle windows a clock ahead, as registers (compile 47, 2026-10-06:
+  // since_start -> the two window compares -> the arbitration -> the cmd
+  // register in the pin's I/O cell missed by 0.203 ns on a 5.7 ns wire; the
+  // compares now run on next_start, the value since_start takes at this
+  // edge, so the flags say exactly what the compares said, a clock earlier).
+  wire [5:0] next_start = start_rise ? 6'd0 : (since_start != 6'd63) ? since_start + 1'b1 : 6'd63;
+  reg        win_ref;                  // since_start in [WIN_LO, WIN_HI]: an early refresh fits
+  reg        win_dk;                   // since_start in [WIN_LO, DK_HI], or 63 (an idle bus): a disk word fits
   reg        start_pend;               // a start seen and not yet served
   reg        a_we;                     // the access in flight is a write
   reg        a_written;                // its WRITE has issued
@@ -496,7 +504,7 @@ module se30_sdram #(
       cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_pre <= 0; oe_pre <= 0;
       cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; raw_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
       dk_ack <= 0; dk_rdata <= 0;
-      since_start <= 6'd63;
+      since_start <= 6'd63; win_ref <= 0; win_dk <= 1;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
       k_we_r <= 0; k_bank_r <= 0; k_col_r <= 0; k_wdata_r <= 0;
       cap_sel <= 0; cap_ok <= 2'b00; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
@@ -508,8 +516,10 @@ module se30_sdram #(
       ref_due   <= (ref_cnt >= REF_PERIOD);
       ref_early <= (ref_cnt >= REF_EARLY);
       ref_force <= (ref_cnt >= REF_FORCE);
-      if (start_rise) begin start_pend <= 1; since_start <= 0; end
-      else if (since_start != 6'd63) since_start <= since_start + 1'b1;
+      if (start_rise) start_pend <= 1;
+      since_start <= next_start;
+      win_ref <= (next_start >= WIN_LO) && (next_start <= WIN_HI);
+      win_dk  <= ((next_start >= WIN_LO) && (next_start <= DK_HI)) || (next_start == 6'd63);
       if (!dl_req_q) dl_ack <= 0;
       if (!raw_req_q) raw_ack <= 0;
       if (!dk_req_q) dk_ack <= 0;
@@ -603,14 +613,13 @@ module se30_sdram #(
               a_be <= xs_be; a_wdata <= xs_wdata;
               seq <= 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
-            end else if (ref_due || (ref_early && since_start >= WIN_LO && since_start <= WIN_HI)) begin
+            end else if (ref_due || (ref_early && win_ref)) begin
               cmd <= CMD_REFRESH; busy <= REF_BUSY; ref_cnt <= 0;
             end else if (dl_req_q && !dl_ack) begin
               cmd <= CMD_ACTIVE; sd_ba <= d_bank; sd_addr <= d_row;
               seq <= 1; busy <= ACT_BUSY;
               state <= S_DL;
-            end else if (dk_req_q && !dk_ack &&
-                         ((since_start >= WIN_LO && since_start <= DK_HI) || since_start == 6'd63)) begin
+            end else if (dk_req_q && !dk_ack && win_dk) begin
               // a disk word: in the window after a start, or on an idle bus
               cmd <= CMD_ACTIVE; sd_ba <= k_bank; sd_addr <= k_row;
               k_we_r <= xs_dk_we; k_bank_r <= k_bank; k_col_r <= k_col; k_wdata_r <= xs_dk_wdata;
