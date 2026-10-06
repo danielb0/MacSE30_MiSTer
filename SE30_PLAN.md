@@ -15711,6 +15711,169 @@ tagged HW (ASCTester), G, HO, S7, SW (the ROM's and System 7.5.5's use,
 
 ---
 
+# Section 12 - the CD-ROM (opened 2026-10-06)
+
+Daniel, 2026-10-06 (late evening):
+- **The CD-ROM is built on its own branch, `cdrom`**, cut from `dev` at
+  `c3c3a0f`. That branch has no floppy writing; floppy writing merges at
+  the end.
+- **Data only.** There is no CD audio, so no CUE/BIN/CHD: "There is no
+  point support cue/BIN/CHD if we are not supporting CD audio".
+- **ISO and Toast images.** Toast "will be first to go if we can't get it
+  all to fit".
+- **The drive is an AppleCD SC (CDU-8001)**, chosen from three: the
+  AppleCD SC (CDU-8001), the AppleCD SC Plus / AppleCD 150 (CDU-8002), and
+  `scsi.v`'s CDU-8004.
+- The drive documents in 12.1 were downloaded with his OK.
+
+## 12.1 Sources, and their standing
+
+All of these are in `C:\temp\Mac\SE30\Docs\cdrom\`. The bitsavers files
+came from the mirrorservice mirror (`ftp.mirrorservice.org/sites/
+www.bitsavers.org/pdf/sony/cdrom/`), because bitsavers itself answers a
+scripted fetch with 403.
+
+| Source | What it gives | Standing |
+|---|---|---|
+| **AppleCD SC firmware `AppleCD_SC_A-3.2.bin`** (bitsavers `AppleCD_SC_1X_CDU-8001_SLCD-SCSI/A-3.2.bin`, 16,384 B, sha256 `dccc64ce...`; "Copyright (c) SONY, 1987-12-29 Ver 3.2i"). It is 8051 code: the reset vector does `MOV SP,#10h` | the drive's own SCSI program: the INQUIRY bytes, the command table, every response | **primary: the drive's own program** |
+| `AppleCD_SC_AC-3.8.bin` (same folder, 16,384 B, "CDROM AC-3.8 1/8/'87") | the drive's second processor (unread; the folder's `upd70008a.pdf` suggests a Z80-compatible part) | not needed for data |
+| AppleCD SC Plus firmware `CDU-8002_Apple_1.8G.bin` (bitsavers `CDU8002/`, 32,768 B). It is **byte-identical** to `CDU541-25_AppleCD_150/AppleCD-150_v1.89_IC303.BIN` (sha256 `4fb86fe6...`) | the same program two years on, for comparison | primary for the SC Plus; a comparison here |
+| **Sony, *CDU-541 CD-ROM Drive SCSI Interface Manual*, rev 1.00, 20 Mar 1989, firmware S-1.0a** (6,400,588 B; `CDU541.txt` is the `pdftotext -layout` output) | Sony's own dialect for this family: conditions, the commands (Table 5-1), MODE SELECT/SENSE pages, the block lengths (Table 5-4), the sense codes | **primary for SCSI behaviour where the SC firmware agrees.** The AppleCD firmware is Apple's variant, so the manual does not by itself give the SC's command set |
+| Apple Technical Note dv_18, "AppleCD SC" (`Apple_TN_dv18_AppleCD_SC.html`) | the driver and its use | Apple document, software side |
+| **Apple's CD-ROM driver**, `C:\temp\Mac\Apple CD-ROM.rsrc` (89,932 B, 1996) | the product strings it binds to, at `$8093`-`$8115`: CDU-8005, CR-8005, CDU-8004, CDR-8004, CR-8004, CDU-8003, CDU-8002, **CDU-8001** | **evidence of use**: the CDU-8001 identity is accepted |
+| `rtl/scsi.v`'s CD personality (MacPlus/LC, after MAME's `nscsi_cdrom_apple_device`) | a working CD target, hardware-proven with System 7 on MacPlus and LC | **donor**. Its identity is MAME's and matches no dump (12.2) |
+| MacPlus master's spin-up NOT READY (`40f2e1c1`) and its unmerged `cd-512-blocks` branch (`7fc9690`) | the CD-at-boot hang and its two readings: the Plus ROM walks the partition map in 512-byte units, and a ~4.1 s NOT READY after reset makes the ROM skip the drive | lessons for the boot scan |
+| Main_MiSTer `support/mac` (`mac.cpp`) | CD translation and the TOC block only for cores named `maclc`, `maciivi`, `macplus` and `lbmactwo` | engineering: **`MACSE30` gets Main's generic path**, which serves a flat image as it is. No Main change |
+
+## 12.2 What the firmware settles
+
+**The INQUIRY data** is at `$3929` in the SC and `$3F75` in the SC Plus:
+
+    05 80 01 01 31 00 00 00  "SONY    CD-ROM CDU-8001 3.2i"
+    00 00 00 D0 90 27 3E 01 04 91 00 18 06 F0 FC 00 00
+
+`scsi.v` serves `02 02` for bytes 2-3 (the SC has `01 01`), the string
+"CDU-8004 1.9a", and `FE` for byte 50 (the SC has `FC`; the SC Plus has
+`FE`). Every other byte is the same. The INQUIRY handler (`$256E`, not yet
+read) will say whether the response is 54 bytes (5 + `$31`).
+
+**The command dispatch** is at `$03AB`-`$03BE` in the SC:
+- The opcode is in internal RAM `$38`.
+- If `op & $C0` is 0, it is a `JMP @A+DPTR` into an LJMP table at `$03C4`,
+  indexed by `op & $3F`.
+- Otherwise the table base is `$0484`, the same table's entries 64-111.
+  That reaches the vendor codes `$C0`-`$EF`.
+
+The table has 112 entries. The handler that most entries share (`$1E55`)
+is read as the illegal-opcode handler; that is an inference until read.
+The SC's commands:
+
+| Opcode | Handler | Command (the Sony manual's name; MAME's for the vendor codes) |
+|---|---|---|
+| `00` | `0C2A` | TEST UNIT READY |
+| `01` | `0E40` | REZERO UNIT |
+| `03` | `0EAA` | REQUEST SENSE |
+| `08`, `28`, `2F` | `10AF` | READ(6), READ(10), VERIFY |
+| `0B`, `2B` | `2D4F` | SEEK(6), SEEK(10) |
+| `12` | `256E` | INQUIRY |
+| `15` | `261E` | MODE SELECT |
+| `16`, `17` | `23D6`, `24C5` | RESERVE, RELEASE |
+| `1A` | `2B2E` | MODE SENSE |
+| `1B` | `2EB2` | START/STOP UNIT |
+| `1C`, `1D` | `1E5F`, `1F0B` | RECEIVE DIAGNOSTIC, SEND DIAGNOSTIC |
+| `1E` | `2E4D` | PREVENT/ALLOW MEDIUM REMOVAL |
+| `25` | `2A3E` | READ CAPACITY |
+| `3B`, `3C` | `3074`, `2F80` | WRITE BUFFER, READ BUFFER |
+| `C0` | `327E` | (MAME: EJECT) |
+| `C1` | `3379` | READ TOC |
+| `C2` | `3490` | READ SUB-CHANNEL Q |
+| `C3` | `10AF` | READ's handler (READ HEADER?) |
+| `C8`-`CD` | `365E` | the audio commands, one handler |
+
+The SC Plus has the same set plus `CE`.
+
+**OPEN:**
+- `$40`-`$BF` index the same two tables unless a group check before
+  `$03AB` rejects them. Until that is read, it is not settled that the SC
+  answers ILLEGAL REQUEST to the SCSI-2 commands `scsi.v` takes (`42`,
+  `43`, `44`, `BB`, and `CE`).
+- The `C0` and `C3` handlers are still to read.
+
+## 12.3 The design
+
+1. **The target:** a third `scsi` instance in `rtl/se30_scsi.v`, ID 3,
+   `CDROM` 1. The bus composition's priority mux grows to three targets.
+2. **No audio engine:** a new `scsi.v` parameter, `CD_AUDIO` (0 here).
+   - Without the engine, the TOC is synthesised as a single data track
+     from the capacity, as the MacPlus core served it before `cd_audio`
+     (its history).
+   - Today the no-engine branch serves zeros (`rtl/scsi.v:1722`).
+3. **The identity and command set are the SC's** (12.2):
+   - the INQUIRY bytes as dumped;
+   - opcodes the SC has no handler for answer ILLEGAL REQUEST, once 12.2's
+     group check is read. That also takes logic out;
+   - the remaining responses (REQUEST SENSE, MODE SENSE's pages, READ
+     CAPACITY, C1 READ TOC, the power-on and disc-change unit attention)
+     are checked against the SC's handlers, and any deviation is recorded.
+4. **Block size:** `scsi.v` serves 2048 only and discards MODE SELECT's
+   list. The Sony manual allows 512 by MODE SELECT (Table 5-4; 2048 is the
+   default).
+   - The CDU-8001's MODE SELECT handler, the Apple driver and the SE/30 ROM
+     say whether 512 is ever asked for (MacPlus `cd-512-blocks`: the Plus
+     ROM walks the partition map in 512-byte units).
+   - 512 is built only if something asks for it.
+5. **hps_io:**
+   - slot 4 (where Main's Mac family keeps its CD), `VDNUM` 5;
+   - `"SC4,ISOTO*,Mount CD-ROM;"`. `TO*` matches `.toast`/`.toa`, since
+     Main's extension match stops at `*` (`file_io.cpp:1795`);
+   - `sd_wr[4]` = 0: the image is read only.
+6. **Main is unchanged.** Flat ISO/Toast images use its generic path.
+7. **The boot:**
+   - The SE/30 ROM is not expected to boot from a CD (it predates Apple's
+     CD hardware); to confirm from the ROM's SCSI listings (`romscsi\`).
+   - Its scan must pass a mounted CD at ID 3 without hanging or slowing the
+     boot. `scsi.v`'s ~4.1 s spin-up NOT READY stays, unless the SC's TEST
+     UNIT READY handler says otherwise.
+8. **Budget:**
+   - The target is measured alone first, with a Quartus fit of
+     `se30_scsi` with and without ID 3.
+   - Then the full compile, with Daniel's go-ahead.
+   - Toast costs no logic: it is the extension list.
+   - For scale: the LC's CD target measured 5,822 ALMs, of which
+     `cd_audio` is 2,986 (`MacLC.fit.rpt`, read 2026-10-06). This target
+     has no audio and should be leaner; its cost is unmeasured.
+
+## 12.4 The tests
+
+1. **`sim/scsi_seam`, extended** with ID 3 and a model ISO image:
+   - INQUIRY = the SC's 54 bytes;
+   - TEST UNIT READY: NOT READY during spin-up, then GOOD;
+   - READ CAPACITY: the last block and 2048;
+   - READ(6)/(10): 2048-byte blocks byte-exact, polled and blind;
+   - C1 READ TOC: the single track and the lead-out;
+   - MODE SENSE as the SC;
+   - an opcode the SC lacks gives CHECK CONDITION, ILLEGAL REQUEST;
+   - no disc gives NOT READY; an eject; a remount gives UNIT ATTENTION.
+2. **The ROM's boot scan replayed** with a CD at ID 3 (its READ(6) of
+   block 0).
+3. **Quartus analysis**, then the target-alone fit for the cost.
+4. **The board:**
+   - System 7.5.5 with the Apple CD-ROM extension; an ISO and a Toast
+     image mount;
+   - a Finder copy CD to hard disk, checked on the PC (`hfs_fork_diff`,
+     byte-exact);
+   - a boot with a CD mounted: no hang, no added delay;
+   - eject and remount.
+
+## 12.5 Next
+
+Read the SC firmware's data-path handlers (12.2's open items, and 12.3
+items 3, 4 and 7's TEST UNIT READY) with a small 8051 disassembler.
+Record them in `C:\temp\Mac\SE30\Docs\cdrom\audit_applecd_sc_firmware.md`.
+Then the RTL.
+
+---
+
 ## Appendix - where the sources are
 
 The IIvi core is now cloned durably at `C:/Git/MiSTer-devel/MacIIvi_MiSTer`
