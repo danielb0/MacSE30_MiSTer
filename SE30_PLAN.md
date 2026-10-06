@@ -15772,3 +15772,29 @@ keys), `grab.sh` (screenshot via HTTP API), and `menubar_probe.py` /
 `menuitem_probe.py` / `finder_probe.py` (read Mac UI state back out of the
 screenshot pixels). That turns the game-compatibility campaign from a manual
 hardware loop into a scripted one.
+
+**FIXES CHERRY-PICKED FROM `floppy-write` INTO `dev` (2026-10-06 evening,
+Daniel's rule: everything on floppy-write that is NOT floppy writing comes
+to dev now; the floppy-writing RTL merges at the end, to keep the logic
+budget free while CD-ROM is developed on a branch cut from THIS dev).**
+The commits, with their floppy-write originals in the `(cherry picked
+from ...)` trailers; their full accounts are in floppy-write's plan:
+1. 53C80: DBP is the bus's parity line, released on a free bus
+   (floppy-write e074dd5) - PC Exchange's SCSI search hung on register 4
+   reading $01; every SCSI target scan sees this. KNOWN ISSUES 9 there.
+2. Kernel: BUG #388's carry as a flip-flop (d2291f6) - the combinational
+   loop on compile 43's worst path; Operation Intercept's crash.
+3. Kernel: the first operand of CMPM.L / ADDX.L -(Ay),-(Ax) lost its
+   upper word when its long came in one 32-bit beat (dd2dfe3) - the
+   16-bit kernel's strobe-history test in `last_data_read`; PC Exchange's
+   11-byte name compare found every name unequal (every per-file
+   operation on a DOS disk failed). sim/cpfpu PROG=cmpm (new, 24 checks).
+   Board-proven on floppy-write's compile 47.
+4. SDRAM: the idle windows as registered flags `win_ref`/`win_dk`
+   (25c1b3f) - compile 47's `since_start -> cmd` path missed by 0.203 ns;
+   sim/sdram 195, flpload 53, machine 17.
+Not taken: the PBER probe (144c4b8, +1,405 ALMs - 10.4.2's release
+profile drops the probes), the host tools, the floppy-writing commits.
+Compile 47 on floppy-write (38,825 ALMs) also misses by -0.323 ns on the
+kernel's same-clock ATC-hit chain (1.17.3) - a routing detour of a 93 %
+fit; Daniel: timing closure on the merged release netlist after CD-ROM.
