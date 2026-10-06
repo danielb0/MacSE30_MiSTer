@@ -9582,6 +9582,278 @@ write) may not, and is measured when it comes.
    untouched; and **still 400K after a remount** (Daniel). Left: the
    soak.
 
+## 5.16 MFM writing and formatting - 1.44 MB and 720K (2026-10-06)
+
+Opened 2026-10-06 on `floppy-write`, the third step of Daniel's order
+(5.15: GCR writing, then MFM reading, then MFM writing), after GCR writing
+finished on the board (5.15.10 gate 5, the soak) and the 1.44 MB read was
+host-checked (5.13.11). Daniel: "Let's proceed with MFM write."
+
+**The budget (Daniel, 2026-10-06).** No measurement compile first. The
+estimate is 350-700 ALMs (by part, 5.16.9), against compile 44's 39,149
+with the probe deck (2,074 of it the deck and hub; a release build is
+estimated at 35,700-36,900). Features stay removable: Daniel wants to be
+able to drop a part - all floppy writing, say - from a debug build so the
+probes can be spent on something else, since no build needs every feature
+probed at once (10.4.2's profiles). So every block this section adds sits
+behind a module parameter, which 10.4.2's `SE30_FLOPPY_WRITE` will drive
+together with GCR writing. An audit of what is already built (10.4.1 items
+2-3) stays open as a further lever.
+
+### 5.16.1 Sources, and their standing
+
+| source | what | standing |
+|---|---|---|
+| The SWIM drawing 343S0061-A, sheets 21-29 (6.2, "MFM WRITE") | the write chain: the FIFO and its IN/OUT, the shift register, the CRC register, the trans-space machine (Table 13), pre-compensation, the half write | **primary**; it repeats the ISM spec's section 3 (read side by side: no difference found) |
+| `ISM_ASIC_spec_198707.pdf` 3.1-3.6, 5.1, pp. 42-46 | the same chain with its figures (6, 8, 10, 11, 12); the IBM drive option (4-clock pulses); the registers: Error bit 0 underrun and bit 2 overrun in write mode, "Write CRC", handshake bits 7/6 as FIFO space in write mode, "**the Action bit will be cleared any time there is any Error while writing**", two bytes in the FIFO before ACTION, "**an IN occurs at the instant that Action is set when writing**" | primary |
+| `SWIM_Chip_Users_Ref_198801` pp. 12-13, 19-24 | the write parameters (TIME0, TIME1, EARLY/NORMAL/LATE) and the 2/3/4-us intervals they build; the Mark register "will cause a byte to be written that has a transition missing between two adjacent zero-bits"; the CRC register with ACTION | primary for behaviour as software sees it |
+| `SWIM_regs.txt` (SWIM III, a later chip) | "Dat1byte ... is gated with error in write mode so that if a write error occurs the SWIM will appear empty so to not cause the software to hang" | a later chip's documented behaviour - used only where our chip's documents are silent and the ROM needs it (5.16.3 item 6) |
+| The ROM: **the sector writer** `$4082EB3E`-`$4082EC0A`, **the track formatter** `$4082EC5E`-`$4082EE40`, the drive-register select `$4082E8E0` | what the machine does: 5.16.2 | documentation tier (1.11) |
+| `Apple_drive_command_and_status_codes.txt` | the drive registers by {SEL, CA2, CA1, CA0}: `rRdData0`/`rRdData1` "selects head 0/1", `rIndexPulse` "MFM: 1 - index pulse" | secondary (a SWIM3 driver's table) |
+| MacLC `rtl/mfm_write_decoder.v` | Daniel's MFM write parse, board-gated | donor for the image half only (its capture taps the guest's bytes and is not lifted); its checks become ours |
+
+### 5.16.2 What the ROM does
+
+The ISM registers are base + n x `$200` (writes 0-7, reads 8-F); `A4` is
+the handshake (`$1E00`), `A3` the base. Every byte waits on the handshake
+(`tst.b (A4); bpl`) with **no timeout**, and between polls the driver
+saves any SCC byte waiting (`tst.b (A5); bmi; move.b (A6),-(A7)`), so the
+byte loop is not uniform.
+
+1. **A sector write** (`$4082EB3E`, after the address field was read,
+   5.13.2 item 3): phases `$F5`; the error register read (cleared); mode
+   zeros `$18` (write and ACTION off), ones `$10` (write mode), ones then
+   zeros `$01` (Clear FIFO); a delay of `$758E` x TimeSCCDB (`$D02`) /
+   65,536 loops of a VIA read, **0.459 ms**; two `$00` into the FIFO; ones
+   `$08` (**ACTION**); ten more `$00`; `A1 A1 A1` through the Mark register
+   (`$200`); `FB`; the 512 bytes; **the CRC** (a write to `$400`); four
+   `4E`; then the handshake's error bit (bit 5 -> `wrUnderrun`, -74) and
+   mode zeros `$18`, which ends the write with bytes still in the FIFO.
+   The write starts 0.46 ms after the address field's CRC: 352 us is gap 2
+   (22 x `4E`), so it lands in the old 12 x `00` sync, about 100 us before
+   the old data mark (the splice).
+2. **A track format** (`$4082EC5E`), one side a call, side 0 then side 1:
+   the head selected through `$4082E0EC` (register `$1`/`$3`, RDDATA0/1,
+   which "selects head 0/1" - in the ISM set `$4082E8E0` writes phases
+   `$F4` and sets SEL); write mode, Clear FIFO, two `4E`, ACTION; then `4E`
+   after `4E` while polling **handshake bit 3 (SENSE): first until it reads
+   0, then until it reads 1** - up to 13,500 bytes, else `fmt2Err` (-83);
+   then phases `$F5`, 32 x `4E`, and for R = 1..18 (or 9): 12 x `00`, `A1 A1
+   A1 FE` C H R `02` CRC, 22 x `4E`, 12 x `00`, `A1 A1 A1 FB`, 512 x `F6`,
+   CRC, gap 3 of 108 (or 80) x `4E`; then `4E` with phases `$F4` again,
+   until SENSE reads 1 - **side 1 up to 1,000 bytes (`fmt2Err` if it never
+   does), side 0 only about seven bytes**, whatever SENSE says. The
+   handshake's bit 5 decides `wrUnderrun`.
+3. **What SENSE shows while it formats.** The phases select RDDATA0/1 the
+   whole time it waits (`$F4`), and it waits for a 0-then-1 edge once a
+   revolution, then writes until the next 1 - the index. **So the
+   SuperDrive in MFM mode must put the index on the RDDATA registers while
+   the write gate is low.** No drive document is in hand (5.13.4: bitsavers
+   has only photos of the MP-F75W); this is an inference from the ROM, the
+   documentation tier. The index's polarity is `$E`'s (1 in the pulse):
+   the rising edge starts the track, which is where the encoder lays cell 0
+   (5.13.12 item 3), and side 1's tail ends in it.
+4. **The track's length**: 32 + 18 x 682 = 12,308 bytes from the index, of
+   the revolution's 12,500 at 500 kbit/s (196,928 cells of 200,000). Side 1
+   writes on to the index; side 0 stops about 192 bytes short, and the old
+   cells there stay (gap 4, read by nobody). With the wait before the
+   index the gate is open for between 12,308 bytes and about a revolution
+   more: **an arc of a whole revolution or less**, depending on where the
+   disk was when the write began.
+
+### 5.16.3 The ISM's write chain (the drawing 6.2, the ISM spec 3)
+
+1. **The FIFO** is the read path's two entries, each a byte, a mark bit and
+   a CRC bit. In write mode a processor write is an OUT: the Data register
+   pushes the byte, the Mark register the byte with its mark bit, the CRC
+   register (with ACTION) an entry with the CRC bit. A push into a full
+   FIFO is **overrun** (error bit 2) and is lost. Clear FIFO empties it
+   (the drawing's "preset to ones" for write: two places free). The
+   handshake in write mode: **bit 7 a place free, bit 6 two**, bit 5 an
+   error, bits 3/2 SENSE, bit 4 the motor, bits 1 and 0 read 0.
+2. **ACTION** in write mode: "an IN occurs at the instant that Action is
+   set" - the head entry moves to the shift register at once, so the
+   ROM's two bytes are the first written. /WRREQ is low while write mode
+   and ACTION are both set.
+3. **The shift register** sends its byte MSB first; its last bit taken,
+   the next IN moves the FIFO's head in. **An IN with the FIFO empty is an
+   underrun** (error bit 0). A CRC entry shifts the CRC register's 16 bits
+   instead, MSB first, and the CRC does not take its own bits.
+4. **The CRC** (CCITT-16, the read path's) takes every data and mark bit as
+   it leaves the shift register. "The CRC is cleared to ones just prior to
+   writing the Mark byte": **our reading - at the IN of a mark byte that
+   follows a non-mark byte**, so it covers the three `A1`s and the field
+   (`$CDB4` after them), the same reading as the read path's (5.13.12 item
+   4) and the encoder's, and the only one that gives the fields' CRCs the
+   ROM reads back.
+5. **The trans-space machine** (Table 13): the current bit c and the next
+   n give 1 for (0,0), 01 for (0,1), 0 for (1,0), 1 for (1,1); in a mark
+   byte, at the pattern 1 0 0 0 (two bits back, one back, c, n), (0,0)
+   gives 00 - the dropped clock, `$4489`. **A trans-space 1 presets the
+   counter to TIME1 and toggles WRDATA at its terminal count; a 0 presets
+   TIME0 and does not.** With the ROM's parameters (TIME1 `$3B`, TIME0
+   `$1B`, in half-clocks, plus the two clocks the User's Reference takes
+   off: 31.5 and 15.5 FCLK) the intervals are 31.5, 47 and 62.5 FCLK - the
+   2, 3 and 4 units, which the drive's interval recording keeps (5.13.5).
+   **The half clock** (3.6) is kept as a remainder: the toggle lands on
+   the FCLK, the half carried into the next interval, so no error
+   accumulates; the drive counts in FCLK and cannot see the half.
+6. **Errors stop the write**: any error in write mode clears ACTION (so
+   /WRREQ rises and WRDATA stops). **The handshake then shows the FIFO
+   empty** (bits 7 and 6 set): the ROM's byte loops have no timeout, so
+   an underrun mid-sector would hang it on the chip as the ISM spec
+   describes it, yet the ROM reads the error bit after the field to report
+   `wrUnderrun` - it expects to get there. SWIM III's register document
+   states this gating; our chip's documents are silent. Engineering, from
+   the ROM and the later chip.
+7. **The IBM drive option** (Setup bit 5, the ROM's): WRDATA is a 4-FCLK
+   pulse at each toggle (5.1, figure 32) instead of a level change; the
+   drive takes the pulse's first edge (it already ignores a second edge
+   within half a cell, 5.13.12 item 2). The half-clock-late pulse ("4 1/2
+   clocks when Long") is the remainder of item 5.
+8. **Not built**: pre-compensation - EARLY 5 / NORMAL 7 / LATE 9 move a
+   transition by 2 clocks; at worst a 2-unit interval becomes 27.5 FCLK
+   (1.76 cells) and a 4-unit 66.5 (4.24 cells), so every interval rounds
+   to the same cell count in the drive and the medium is unchanged; the
+   parameters are stored and read back as now. Setup bit 6 (trans-space
+   bypassed) and bit 2 (GCR through the ISM), which the ROM never sets, as
+   on the read side.
+
+### 5.16.4 The drive (`se30_fdhd.v`)
+
+- **The index on RDDATA while writing** (5.16.2 item 3): in MFM mode with
+  /WRTGATE low and the drive enabled, registers `$1` and `$3` read the
+  index (as `$E` does) instead of the read pulses. Our inference from the
+  ROM; to KNOWN ISSUES as an inferred behaviour once built.
+- Recording is unchanged: interval recording in both modes, the arc
+  reported when the gate rises (5.15.3, 5.13.5).
+
+### 5.16.5 The decoder (`se30_flp_decoder.v`, an MFM parse beside the GCR one)
+
+1. **The window.** A sector write's arc holds only the data field: its
+   address field was on the track already, read by the ROM 0.46 ms
+   earlier. So for an arc shorter than a revolution the parse starts
+   **1,024 cells before the arc** - the address field ends 460-550 cells
+   before it (the delay and the ROM's own time), and a write later than 544
+   cells after it would have missed the old data mark on a real disk -
+   and runs to the arc's end. An arc of a revolution or more is parsed, as
+   for GCR, from the cell after its end for a revolution and one sector
+   (11,264 cells, more than a sector's 682 bytes).
+2. **The marks.** A 16-cell shift register finds `$4489` at any cell; a run
+   of exactly three (16 cells apart) and the next 16 cells' data bits (every
+   second cell, the clock first) give the mark byte: `FE` an address field,
+   `FB` a data field, anything else back to hunting. The CRC is preset with
+   the run (`$443B` after the first `A1`, our constant from all ones) and
+   takes every data bit; a field is good when it is zero after its two CRC
+   bytes. Exactly three, as the ROM's reader compares `A1 A1 A1 FE`.
+3. **An address field** `FE C H R N`: a good one is remembered; any data
+   mark, and a bad address field, forget it.
+4. **A data field** `FB` + 512 + CRC is committed when: its CRC is good; the
+   field before it was a good address field; N is 2 (512 bytes); **C is the
+   head's cylinder and H the arc's side**; 1 <= R <= 18 (or 9); the image
+   is writable; and - for an arc shorter than a revolution - its marks
+   start inside the written cells (not in the 1,024 looked back at). The
+   block is the encoder's own expression, (2C + H) x spt + R - 1
+   (`se30_flp_encoder.v`'s `mblk`), and the 512 bytes go to BASE + 256 x
+   block in words, through the committer the GCR path uses (no tags). A
+   sector committed once from an arc is not committed again (`seen` grows
+   to 18 bits).
+5. **Refused, as 5.15.6**: a field the image cannot place - C or H not
+   where the head is, R out of range, N not 2 - or with a bad CRC stays in
+   the track buffer until the head leaves, then the image's sector returns.
+   A real disk would keep it. **Accepted deviation**, to KNOWN ISSUES with
+   5.15.6's.
+6. **Widths**: the block becomes 12 bits (2,880 blocks) through the decoder
+   and the SD writer (`cm_blk`); the writer's file blocks are 13 bits
+   already, and its DC42 flush reads the data size from the header, so a
+   1.44 MB DiskCopy image needs no other change.
+
+### 5.16.6 The top
+
+`disk_wprot = flp_readonly || img_mfm` (5.13.12 item 5) becomes
+`flp_readonly`: MFM disks become writable. The external drive's chain
+(`SE30_EXT_DRIVE`) gets the same.
+
+### 5.16.7 The benches (seam benches, then the board)
+
+1. **`sim/swim`**, a write section: the ROM's sector write in its register
+   order at the paced kernel's pace; WRDATA's intervals measured (31/32,
+   47, 62/63 FCLK, the half carried) and decoded by the bench's own MFM
+   reference into `00` x 12, `A1 A1 A1` as `$4489`, `FB`, the bytes and the
+   CRC, then `4E`; the first byte at ACTION; the handshake's places in
+   write mode; overrun (and ACTION cleared); underrun (error bit 0, ACTION
+   cleared, /WRREQ high, the handshake empty); the CRC preset at the first
+   mark only; IBM pulses 4 FCLK wide; /WRREQ low only with write mode and
+   ACTION.
+2. **`sim/fdhd`**: the index on `$1`/`$3` with the gate low in MFM mode;
+   read pulses there with the gate high, and in GCR mode either way.
+3. **`sim/flpdec`**, an MFM section: a sector written into an
+   encoder-laid track (the address field found in the look-back); a format
+   as a whole arc and as a short one; refused - a bad CRC, no address
+   field, a bad address field, C or H elsewhere, R 0 or 19, N 3, a data
+   field wholly in the look-back, a read-only image; 720K's geometry; the
+   block numbers against the encoder's; one commit per sector an arc.
+4. **`sim/flpwr`**: block 2,879 of a raw and a DC42 1.44 MB image (the
+   12-bit block).
+5. **`sim/mfmwrite`** (new, the seam, as `sim/gcrwrite`): SWIM + drive +
+   encoder + decoder + committer on an SDRAM model, driven by the ROM's
+   sequences at its pace - a sector write after its address-field read,
+   then both sides of a cylinder formatted (the index waits included), then
+   every sector read back through the ISM's read chain and compared with
+   the image in SDRAM.
+6. Reruns: `sim/swim` (all), `sim/mfmread`, `sim/gcrwrite`, `sim/flpenc`,
+   `sim/machine`; mutants for every new check (the standing method).
+
+### 5.16.8 The board (host-checked gates, scratch copies of every image)
+
+1. A 1.44 MB raw image: copy a folder onto it, eject, compare on the PC
+   (`tools/hfs/fork_cmp.py`); remount, Disk First Aid.
+2. The Finder's Erase of a 1.44 MB disk (a format: both sides of every
+   cylinder), then a copy onto it; host-check the volume (`hfs_check`).
+3. A 1.44 MB DiskCopy 4.2 image written: both checksums right after the
+   eject (DiskCopy or our checker).
+4. 720K: the read gate first (still owed, 5.13.11), then a copy onto it.
+5. PC Exchange on a DOS disk (KNOWN ISSUES 9, FUTURE BOARD TESTS item 7):
+   the copy and the TeachText open that failed on a locked volume.
+
+### 5.16.9 The budget, by part (estimates; the fit decides)
+
+The ISM write chain in `se30_swim.v` 120-250 (the FIFO and the CRC are
+the read path's, shared; new: the IN logic, the trans-space machine with
+its 4-bit history, the TIME0/TIME1 counter with the half carry, the
+pulse); the MFM parse in the decoder 200-350 (the mark hunt, the 16-cell
+framing, the field states, the remembered address field, the block
+expression - the committer, the sector buffer and the SD writer are
+shared); the drive's index-on-RDDATA, the 12-bit block, the top 30-100.
+**Total 350-700.** Each behind a module parameter (5.16, the budget).
+
+### 5.16.10 Risks and open items
+
+- **The index on RDDATA while writing** is an inference (5.16.2 item 3).
+  If the board's formats fail with `fmt2Err`, that is the first suspect.
+- **The look-back** (5.16.5 item 1) depends on the ROM's 0.46 ms delay
+  reaching the board as it reaches the bench: the delay is calibrated by
+  TimeSCCDB at boot, and the paced kernel holds the 030's times (1.17).
+- **The underrun handshake** (5.16.3 item 6) is engineering.
+- **Decode time**: an MFM side is 211,264 cells at two clocks each, about
+  13.5 ms, plus 18 commits; the format writes the next side for 200 ms
+  meanwhile, and a seek waits for the decode (`hold`), inside the step's
+  settle.
+
+### 5.16.11 The work
+
+1. ~~Write this section.~~ **Done 2026-10-06.**
+2. `sim/swim` write checks (5.16.7 item 1), failing, then the ISM write
+   chain in `se30_swim.v`.
+3. `sim/fdhd` checks, then the index on RDDATA while writing.
+4. `sim/flpdec` MFM checks, then the decoder's MFM parse; `sim/flpwr` and
+   the SD writer's 12-bit block.
+5. The top: MFM disks writable.
+6. `sim/mfmwrite`, the seam.
+7. The reruns; `build_only.sh --check` (a RAM's ports may change); then
+   a compile when Daniel says.
+8. The board (5.16.8).
+
 # Section 6 - The ADB and the RTC
 
 Opened 2026-09-28, after 5.11 item 6: compile 16 drew the grey desktop and
@@ -16703,6 +16975,14 @@ margin, which matters because timing gets harder above ~85-88 % fill,
 not only at the ceiling. The single disk (or the shared engine) is held
 in reserve, for a CD-ROM heavier than estimated. **Daniel's decisions:
 to come.**
+
+**Daniel, 2026-10-06:** no measurement compile yet (compile 44's per-entity
+table puts the deck and hub at 2,074 and a release build at an estimated
+35,700-36,900). Keep parts removable - all floppy writing, for one - so a
+debug build can drop them and spend the room on probes for something
+else; no build needs every feature probed at once. The audit (items 2-3)
+stays an option. MFM writing goes ahead (5.16), each new block behind a
+module parameter.
 
 ### 10.4.2 Build profiles: features tested with the probes, released without (2026-10-05, proposed)
 
