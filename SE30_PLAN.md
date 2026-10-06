@@ -9839,6 +9839,18 @@ byte loop is not uniform.
    (gate 2, which also rebuilds the catalog with the Mac's own records).
 2. The Finder's Erase of a 1.44 MB disk (a format: both sides of every
    cylinder), then a copy onto it; host-check the volume (`hfs_check`).
+   **PASS 2026-10-06 (Daniel, compile 45)**: gate 1's disk erased, the
+   same files copied, **Disk First Aid OK**;
+   `Test disks\Written\SE30\MFM\Blank1440K-2.dsk` host-checked: all 25
+   files (4 at the root, 19 one folder down, 2 in `English:UK`/`:US`;
+   the MDB's `drFilCnt` 25) identical to the source but the Finder's own
+   Desktop file, the volume consistent, every thread record 46 bytes (the
+   Mac's own catalog now). **The format census**: all 61 free allocation
+   blocks and the last sector hold the formatter's `512 x F6`; the 22
+   in-use blocks still `F6` are the catalog's unused nodes; sector 2878
+   the alternate MDB. So the ROM's formatter found the index on RDDATA on
+   both sides of every cylinder (5.16.2 item 3's inference holds against
+   the ROM on the board) and every sector reached the image.
 3. A 1.44 MB DiskCopy 4.2 image written: both checksums right after the
    eject (DiskCopy or our checker).
 4. 720K: the read gate first (still owed, 5.13.11), then a copy onto it.
