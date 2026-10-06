@@ -16510,10 +16510,19 @@ bitmap, the MDB's counts):
      target is not the lever. GLUE's DRQ wait shows how much of the
      bus time the CPU actually spends held.
 
-**END OF SESSION 2026-10-06 (evening) - READ THIS TO RESUME** (supersedes
-the blocks below; the afternoon block's items 1-3, 5 and 6 still stand).
-Branch `floppy-write`, tree clean after this commit, nothing pushed
-(Daniel pushes). No compile this session; compile 46 stays current.
+**END OF SESSION 2026-10-06 (evening, closed ~19:15) - READ THIS TO RESUME**
+(supersedes the blocks below; the afternoon block's items 1-3, 5 and 6
+still stand). Branch `floppy-write` at the commit after this one, tree
+clean, nothing pushed (Daniel pushes). **Daniel: the core is FEATURE
+COMPLETE EXCEPT CD-ROM; the next session is the CD-ROM session, on a
+branch cut from `dev` at `c3c3a0f`** - dev now holds the four non-floppy
+fixes of item 3a (its plan has the note); `C:\Git\MacSE30_mode32` is the
+worktree that has dev checked out. **Current bitstream: compile 47,
+`output_files/MacSE30_dd2dfe39_cmpmfix.rbf`** (38,825 ALMs; timing missed
+by two routing detours, item 3a - Daniel: closure on the merged release
+netlist after CD-ROM; the SDRAM half is done, the ATC-hit chain is the
+open one). Still owed on floppy-write: 5.16.8 gate 4 (720K, DOS - now
+unblocked); the floppy-writing RTL merges into dev at the end.
 0. **KNOWN ISSUES 9 RESOLVED ON THE BOARD (compile 47, ~19:00): TeachText
    opens NETWORKS.TXT from the DOS disk, a Finder copy to the hard disk
    succeeds, Get Info works.** The kernel fix dd2dfe3 is
