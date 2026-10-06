@@ -9877,8 +9877,19 @@ byte loop is not uniform.
    Mutants: the old rule caught; two equivalent - the `push` term (it
    saves only a duplicate write) and a pop guard, dropped (a block the
    writer takes is read after the commit's words reached SDRAM).
-   Next: compile 46, then gate 3 again on a fresh copy of the DC42 blank
-   (Disk First Aid will report the machfs blank's short threads again).
+   **The exposure, for the record**: any two commits in a row touching
+   one file block - tagless DC42s (1.44 MB, 720K, a tagless 800K) on
+   every run of consecutive sectors; any image, raw included, when one
+   sector was committed twice in a row (an MDB or bitmap rewrite); a
+   DC42 with tags only that way too (its tag block breaks the run).
+   **Compile 46, 2026-10-06**: tag `d56cab1a`,
+   `output_files/MacSE30_d56cab1a_dc42fix.rbf`, 40.8 min. **38,893 ALMs
+   (93 %)**, 343 M10K. Our timing met at every corner, the SDRAM capture
+   met at every corner by A or B; the only failing paths `ascal`'s,
+   -0.036 ns at slow -40C and -0.021 at slow 100C (KNOWN ISSUES 6); no
+   combinational loop. Next: gate 3 again on a fresh copy of the DC42
+   blank (Disk First Aid will report the machfs blank's short threads
+   again) - judged by the file contents on the card.
 4. 720K: the read gate first (still owed, 5.13.11), then a copy onto it.
    **720K is DOS only** (Daniel, 2026-10-06: the Mac formats double-density
    media as 800K GCR; it never made 720K HFS volumes, so none is tested).
