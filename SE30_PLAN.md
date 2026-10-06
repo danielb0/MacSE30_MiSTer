@@ -16062,6 +16062,22 @@ the CD's `io_wr` is 0.
 **On the board (Daniel, 2026-10-06, compile 48): an ISO image mounted
 successfully.** He has no Toast images to try.
 
+**Board gate, host-checked (2026-10-07): a Finder copy from the CD is
+byte-exact.**
+- Daniel copied the "Before You Install" folder of the System 7.5.3 CD
+  (`C:\temp\Mac\System753.iso`, 267,390,976 B, HFS 'System 7.5 Version
+  7.5.3', 4,096-byte allocation blocks) into "CD Test" on the hard disk
+  image (`Test disks\Written\SE30\CD Test\mac_80mb-restored.vhd`).
+- Every file was compared with the CD's, at the same path, by type,
+  creator, data fork and resource fork. **21 of 21 identical** (3,788,658
+  data + 354,489 resource bytes; nested folders and a 422 KB PDF
+  included). The resource fork header's `$30`-`$7D` (the File Manager's,
+  TN 74) is reported, not counted.
+- Both volumes audit clean.
+- The tool is `floppy-write`'s `tools/hfs/fork_cmp.py` reader, run from the
+  copy's side (a scratch `copy_cmp.py`; it joins `tools/hfs` when
+  `floppy-write` merges).
+
 **Next:** the board (12.4 item 4):
 - an ISO and a Toast image under System 7.5.5 with Apple CD-ROM;
 - a boot with a disc in;
