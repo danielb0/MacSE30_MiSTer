@@ -17268,8 +17268,13 @@ Daniel - add to it, move items out when fixed).**
      606-613) -> the idle arbitration -> `cmd[2]` (an I/O register at the
      pin, X60_Y0): 4 levels, 2.3 ns of cells, a 5.7 ns wire into the pin -
      registering the two window flags a clock ahead (since_start counts by
-     one; start_rise clears them) takes the comparators out of the path,
-     sim/sdram 193 the bench. **BOARD (Daniel, ~19:00): compile 47 opens
+     one; start_rise clears them) takes the comparators out of the path -
+     **DONE (Daniel's go, 2026-10-06 ~19:00): `win_ref`/`win_dk` registered
+     from `next_start` in `se30_sdram.v`; sim/sdram 195 + the three
+     training runs, sim/flpload 53, sim/machine 17 all PASS; no compile of
+     its own, it rides on the next.** The ATC-hit chain waits for the
+     merged release netlist (Daniel: CD-ROM first, timing on the merge).
+     **BOARD (Daniel, ~19:00): compile 47 opens
      NETWORKS.TXT in TeachText - KNOWN ISSUES 9 RESOLVED.** The DOSTest
      names on compile 47 are still worth a reading** -
      `DT R 0000 0000 0000 0000`, `DT S 0029 0000 FFD5`, then TeachText's
