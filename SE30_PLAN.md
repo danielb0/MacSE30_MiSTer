@@ -16059,6 +16059,9 @@ the CD's `io_wr` is 0.
   entity figure is taken as the conservative one.
 - Only a release-profile compile of the merged tree settles it.
 
+**On the board (Daniel, 2026-10-06, compile 48): an ISO image mounted
+successfully.** He has no Toast images to try.
+
 **Next:** the board (12.4 item 4):
 - an ISO and a Toast image under System 7.5.5 with Apple CD-ROM;
 - a boot with a disc in;
