@@ -187,7 +187,10 @@ class Vol:
         for (fid, ft), lst in self.over.items():
             for _, ext in lst: own(ext, "overflow of file %d fork %02X" % (fid, ft))
         self.files, dirs, dthr, fthr = {}, {}, {}, {}
-        for r in self.leaves(self.read([e for e in self.ctext if e[1]], self.ctsz)):
+        # the catalog's own extents, its overflow records included: a
+        # fragmented volume's catalog outgrows the MDB's three (the first
+        # MFM write test, 2026-10-06, had 26 nodes in seven extents)
+        for r in self.leaves(self.read(self.extents(4, 0, self.ctext, self.ctsz), self.ctsz)):
             kl = r[0]; par = be32(r, 2); nm = r[7:7 + r[6]].decode("mac-roman", "replace")
             p = 1 + kl; p += p & 1; t = r[p]
             if t == 2:

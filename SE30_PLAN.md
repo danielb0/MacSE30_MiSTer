@@ -9808,6 +9808,19 @@ byte loop is not uniform.
 
 1. A 1.44 MB raw image: copy a folder onto it, eject, compare on the PC
    (`tools/hfs/fork_cmp.py`); remount, Disk First Aid.
+   **PASS 2026-10-06 (Daniel, compile 45)**: `C:\temp\Mac\Test
+   disks\Written\SE30\MFM\Blank1440K.dsk` (raw, 1,474,560 bytes), the
+   whole of the System 7.5.5 Update's disk 1 copied onto it from a DC42
+   copy of `System 7.5.5 Update - 1.dsk`: **24 files identical in both
+   forks** (all of them but the Finder's own Desktop file), 25 folders,
+   the volume consistent - ownership, threads, the bitmap, the MDB's
+   free count. One checker fault on the way: `tools/hfs/soak.py`'s audit
+   read the catalog through the MDB's three extents only. This volume's
+   catalog is 26 nodes in seven extents, four of them in the extents
+   overflow file, so the audit reported missing threads, no files and
+   2,747 unowned blocks. Fixed to follow the catalog's overflow records;
+   `soak.py selftest` passes. Still to run: the remount and Disk First
+   Aid.
 2. The Finder's Erase of a 1.44 MB disk (a format: both sides of every
    cylinder), then a copy onto it; host-check the volume (`hfs_check`).
 3. A 1.44 MB DiskCopy 4.2 image written: both checksums right after the
