@@ -16527,9 +16527,11 @@ Branch `floppy-write`, tree clean after this commit, nothing pushed
    writes the result codes as file names (`DT V/N/R/S/C ...`), the last
    set with the 68030 caches off; validated in MAME's SE/30 (every call
    noErr; the decoding table and the board procedure are in KNOWN ISSUES
-   9). **Next: Daniel runs it on compile 46** (DOS disk in one drive,
-   DOSTest.img writable in the other, double-click DOSTest, read the
-   names); then CacheOff + TeachText open + CacheOn.
+   9). **Next: Daniel runs it on compile 46** - one floppy drive in the
+   build, so: mount DOSTest.img, copy the three apps to the hard disk,
+   eject, mount the DOS scratch copy, double-click DOSTest on the hard
+   disk, read the `DT` names beside it; then CacheOff + TeachText open +
+   CacheOn.
 3. What the result decides (KNOWN ISSUES 9, last bullet): caches (plan
    1.16) if `DT C` passes while `DT R` fails; otherwise a kernel
    instruction or state fault, to be localised by a MAME instruction
@@ -17102,10 +17104,13 @@ Daniel - add to it, move items out when fixed).**
      0000 FFD5` (41 entries; the hidden IO.SYS/MSDOS.SYS enumerate, the
      label and PC Exchange's own files do not), `DT C 0000 0000` - the
      independent 68030 passes every call, caches on or off.
-   - **THE BOARD (compile 46, Daniel)**: a scratch copy of `Test disks\
-     DOS\Disk1.img` in one drive, `DOSTest.img` (writable) in the other;
-     double-click `DOSTest`, wait for it to quit, read the `DT ...` names
-     in its window (a photo is enough). Then `CacheOff`, TeachText's
+   - **THE BOARD (compile 46, Daniel; one floppy drive in the build -
+     the second is out since compile 36)**: mount `DOSTest.img`, copy
+     its three apps to the hard disk (any folder), eject it; mount a
+     scratch copy of `Test disks\DOS\Disk1.img`; double-click `DOSTest`
+     on the hard disk, wait for it to quit (immediate with the DOS disk
+     mounted; else it polls for 120 s), read the `DT ...` names that
+     appear next to it (a photo is enough). Then `CacheOff`, TeachText's
      open of NETWORKS.TXT, `CacheOn`. What the names decide: `DT R`
      a/b = FFD5 with `DT S` e the same -> the by-name lookup itself fails
      in a bare app (no Finder, no AppleEvents); `DT C` b = 0000 while
