@@ -16510,6 +16510,40 @@ bitmap, the MDB's counts):
      target is not the lever. GLUE's DRQ wait shows how much of the
      bus time the CPU actually spends held.
 
+**END OF SESSION 2026-10-06 (evening) - READ THIS TO RESUME** (supersedes
+the blocks below; the afternoon block's items 1-3, 5 and 6 still stand).
+Branch `floppy-write`, tree clean after this commit, nothing pushed
+(Daniel pushes). No compile this session; compile 46 stays current.
+1. **KNOWN ISSUES 9 (PC Exchange per-file operations) worked offline**:
+   PC Exchange 2.0.5 is an FSM foreign file system; its name lookup was
+   read from the disassembly (`EXFS 16` $70D2 -> $8070 -> $C056 / $69B6 /
+   $E9E) - everything after the mount runs in memory, so the open fails
+   without disk I/O by design. The whole account is in KNOWN ISSUES 9
+   under "2026-10-06 (evening)".
+2. **A deterministic board test is ready**: `C:	emp\Mac\Test disks   DOSTest\DOSTest.img` (built by `tools/hfs/make_dostest.py`) holds
+   `DOSTest`, `CacheOff` and `CacheOn`. DOSTest makes the Finder's and
+   TeachText's File Manager calls against the PC Exchange volume and
+   writes the result codes as file names (`DT V/N/R/S/C ...`), the last
+   set with the 68030 caches off; validated in MAME's SE/30 (every call
+   noErr; the decoding table and the board procedure are in KNOWN ISSUES
+   9). **Next: Daniel runs it on compile 46** (DOS disk in one drive,
+   DOSTest.img writable in the other, double-click DOSTest, read the
+   names); then CacheOff + TeachText open + CacheOn.
+3. What the result decides (KNOWN ISSUES 9, last bullet): caches (plan
+   1.16) if `DT C` passes while `DT R` fails; otherwise a kernel
+   instruction or state fault, to be localised by a MAME instruction
+   trace of the GetCatInfo call replayed against our kernel (sim/cpfpu
+   loads a program image; MAME's debugger traces headless - see the MAME
+   memory note). The cputest 030 corpus passing makes a plain
+   instruction-semantics fault the less likely of the two.
+4. MAME lessons (also in the memory note): a disk inserted while an
+   application is in front mounts only inside that application's
+   GetNextEvent (the fidtest-style app had to initialise the Toolbox and
+   poll events; error type 25 at launch = GetNextEvent before InitGraf);
+   `-autoboot_script` Lua can insert a floppy at a chosen emulated time
+   (`manager.machine.images[':fdc:0:35hd']:load(path)`); the ROM ejects a
+   non-bootable floppy present at power-on, so insert after boot.
+
 **END OF SESSION 2026-10-06 (afternoon) - READ THIS TO RESUME** (supersedes
 the blocks below). Branch `floppy-write`, tree clean after this commit,
 nothing pushed (Daniel pushes). Another session works the ALM budget and
@@ -17008,6 +17042,75 @@ Daniel - add to it, move items out when fixed).**
    act (does the refusal exist from the mount?);
    (d) the same image on the LC core with TeachText (Daniel: the LC
    copies from a DOS disk; its open not yet tried).
+   **2026-10-06 (evening): the lookup read, and a deterministic test
+   app built, validated in MAME, waiting for the board.**
+   - **What PC Exchange 2.0.5 is** (from its resources in the boot image,
+     `System Folder:Control Panels:PC Exchange`, vers 2.0.5 / System
+     7.5.3): a File System Manager (FSM) foreign file system - its 52 KB
+     `EXFS 16` code calls `_FSMDispatch` ($A824; `UTResolveFCB` selector 5,
+     `UTCheckVolOffline` $18 ...), its volumes carry FSID `$4953` ('IS'),
+     and its `lpch 31/32/63` resources are linked ROM patches by ROM class
+     (31 = Plus/SE/II/Portable/IIci class, 675 bytes; 32 = the LC class,
+     13 bytes) - the SE/30 runs the big one, the LC core the stub. Compiled
+     MPW C, plain 68000 forms (no 020/030-only instructions in the code).
+   - **The lookup path** (`EXFS 16`, offsets): the main handler `$2C`
+     resolves every named call through `$70D2` (the only routine that
+     returns fnfErr $FFD5, at three sites), which calls `$8070`
+     "FindEntry(vol, index, out, macName, allowDirs)": a Mac name goes to
+     `$C056` (Mac -> DOS 8.3: first the long-name database `$68CE`, else
+     manual upper-casing with `CharacterByteType`, ScriptUtil $C2060010),
+     then `$69B6` consults the database built from FINDER.DAT (`$93D4`
+     by DOS name) - if a record exists, the requested Mac name must
+     `_CmpString` ($A03C, the ROM's case- and diacritical-insensitive
+     compare, as HFS uses) with the record's Mac name or the lookup is
+     refused - then a linear scan of the directory's 32-byte entries
+     (`$1358` fetches the sector, entries skipped: $E5, '.', the volume
+     label, FILEID.DAT / FINDER.DAT / RESOURCE.FRK) comparing the 11 DOS
+     bytes with `$E9E` (CMPM.L x2, CMPM.W, CMPM.B - the entry buffer at
+     vol+$176 is 2 mod 4, so these are misaligned longword reads).
+     Enumeration (`$7D88`, ioFDirIndex > 0) scans the same entries and
+     names them through `$BF6C`, which reads the SAME database record -
+     so a correct listing means the database's names are right; what the
+     lookup adds is the Mac->DOS conversion, the database veto and the
+     11-byte compare, all in memory (no disk I/O - as PFWR/PSCS showed).
+   - FINDER.DAT on the board-written image (`Test disks\Written\SE30\
+     DOS\Disk1.img`): 92-byte records, 5 per 512-byte sector, the 52
+     padding bytes of each sector left as whatever PC Exchange's buffer
+     held (the boot sector's tail) - benign; one odd record (Mac name
+     `$7F $A9 _Apple.Com`) before the DESKTOP records, origin unknown.
+   - **The test: `tools/hfs/make_dostest.py`** builds a 1.44 MB HFS
+     floppy (`C:\temp\Mac\Test disks\DOSTest\DOSTest.img`) with
+     three hand-assembled applications (the make_fidtest.py method):
+     `DOSTest` finds the first volume with a non-zero ioVFSID (waits up
+     to 120 s, calling GetNextEvent so an inserted disk mounts), then
+     makes the calls the Finder and TeachText make and writes the results
+     as the NAMES of files next to itself: `DT V vRefNum FSID drive r`
+     (r = PBGetCatInfo ioFDirIndex 1), `DT N <that name>`, `DT R a b c d`
+     (GetCatInfo by that name, dirID 2; by "NETWORKS.TXT"; PBHOpenDF
+     fsRdPerm; _HOpen fsRdPerm - each open closed again), `DT S n e f`
+     (n = root entries enumerated; "NETWORKS.TXT" with dirID 0; the
+     control "NOSUCH.TXT", fnfErr FFD5 expected), `DT C b c` (GetCatInfo
+     and HOpenDF of NETWORKS.TXT with CACR $0808 - both 68030 caches off -
+     then CACR $2909). `CacheOff` and `CacheOn` only write CACR ($0808 /
+     $2909) and quit, for a TeachText open with the caches off. Hex words:
+     0000 noErr, FFD5 fnfErr -43, FFCF opWrErr -49, FFCA permErr -54,
+     FFD1 fBsyErr -47, FFC6 extFSErr -58.
+   - **MAME (headless, the app in Startup Items of a copy of the boot
+     image, the DOS floppy inserted by Lua at 100 s)**: `DT V FFFE 4953
+     0001 0000`, `DT N IO.SYS`, `DT R 0000 0000 0000 0000`, `DT S 0029
+     0000 FFD5` (41 entries; the hidden IO.SYS/MSDOS.SYS enumerate, the
+     label and PC Exchange's own files do not), `DT C 0000 0000` - the
+     independent 68030 passes every call, caches on or off.
+   - **THE BOARD (compile 46, Daniel)**: a scratch copy of `Test disks\
+     DOS\Disk1.img` in one drive, `DOSTest.img` (writable) in the other;
+     double-click `DOSTest`, wait for it to quit, read the `DT ...` names
+     in its window (a photo is enough). Then `CacheOff`, TeachText's
+     open of NETWORKS.TXT, `CacheOn`. What the names decide: `DT R`
+     a/b = FFD5 with `DT S` e the same -> the by-name lookup itself fails
+     in a bare app (no Finder, no AppleEvents); `DT C` b = 0000 while
+     `DT R` b = FFD5 -> the 68030 data/instruction cache (plan 1.16);
+     `DT C` b = FFD5 too -> not the caches: next a MAME instruction trace
+     of the GetCatInfo call replayed against our kernel in sim/cpfpu.
 
 10. **The ~514 bus-error exceptions of a boot (PBER; items 8 and 9 read
     them as "the wrapper's own, CPU-space")** - re-read 2026-10-05
