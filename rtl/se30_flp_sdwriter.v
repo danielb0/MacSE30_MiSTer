@@ -18,7 +18,9 @@
 //   4.2 header shifting every sector across a block boundary: blocks n and
 //   n + 1), and, when the image has tags, its 12 tag bytes at 84 + the
 //   data region + 12n (one block, or two).  A block equal to the one last
-//   queued is not queued again.  Each block is then filled from SDRAM -
+//   queued is not queued again while that one still waits in the queue
+//   (once the writer has taken it, the new words must go out again).
+//   Each block is then filled from SDRAM -
 //   block 0's first 42 words from the loader's header store, the 84 bytes
 //   the image in SDRAM does not hold - and handed to hps_io (sd_wr, the
 //   block at sd_lba, the words on sd_buff_din by sd_buff_addr).
@@ -174,7 +176,17 @@ module se30_flp_sdwriter #(
       if (push) wr_ptr <= wr_ptr + 1'b1;
       if (cm_done && ps == 3'd0 && write_ok) begin pn <= cm_blk; ps <= 3'd1; end
       else if (ps != 3'd0) begin
-        if (cand_ok && !(any_pushed && cand == last_pushed)) begin
+        // a block equal to the last one queued is skipped only while that
+        // one still waits in the queue (it will be read from SDRAM after
+        // this commit's words are there); once the writer has taken it,
+        // it goes in again - adjacent DC42 sectors share a file block, and
+        // MFM's 1:1 writes commit them ~11 ms apart (board gate 3,
+        // 2026-10-06: the second sector's first 428 bytes were lost).  A
+        // block taken by the writer is always read after this commit's
+        // words reached SDRAM (the decoder writes them before cm_done), so
+        // "still queued" is the whole condition; `push` covers an entry
+        // whose push is still on its way (the writer never takes one then)
+        if (cand_ok && !(any_pushed && cand == last_pushed && (count != 0 || push))) begin
           push <= 1; push_blk <= cand; last_pushed <= cand; any_pushed <= 1;
         end
         ps <= (ps == 3'd4) ? 3'd0 : ps + 1'b1;

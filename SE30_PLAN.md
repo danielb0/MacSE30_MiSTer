@@ -9853,6 +9853,32 @@ byte loop is not uniform.
    the ROM on the board) and every sector reached the image.
 3. A 1.44 MB DiskCopy 4.2 image written: both checksums right after the
    eject (DiskCopy or our checker).
+   **FAIL 2026-10-06 (Daniel, compile 45), FIXED in the SD writer.**
+   `Test disks\Written\SE30\MFM\Blank1440K (DC42).dsk` (the same files
+   copied onto the machfs DC42 blank) mounted and worked on the Mac - it
+   was reading the image in SDRAM - but **the card's file was wrong**:
+   the header's data sum (`92F53AA7`, rewritten at the eject) did not
+   match the file's data (`53A59436`), the catalog would not parse, and
+   of the source's file sectors found by their last 84 bytes **2,309 had
+   their first 428 bytes wrong** (351 whole). **The cause, ours (5.15.5
+   item 6's design):** a commit queues the file blocks its sector
+   touches - two in a DC42, the 84-byte header shifting sector n across
+   file blocks n and n + 1 - and the writer skipped a block equal to the
+   one last queued. MFM writes 1:1, so sector n + 1's commit (~11 ms
+   later) found file block n + 1 "already queued" and skipped it, though
+   the writer had long since taken that block from SDRAM to the card with
+   sector n + 1's old first 428 bytes. GCR's 2:1 interleave never commits
+   adjacent sectors, which is why the GCR soak's DC42 rounds passed; raw
+   images have one block a sector (gates 1 and 2 were raw). **The fix**
+   (`se30_flp_sdwriter.v`): the skip applies only while the last block
+   queued still waits in the queue. `sim/flpwr` 35 PASS, failing first
+   with the board's exact signature (file block 101 stale from byte 84):
+   adjacent sectors with the writer idle between, and six back to back.
+   Mutants: the old rule caught; two equivalent - the `push` term (it
+   saves only a duplicate write) and a pop guard, dropped (a block the
+   writer takes is read after the commit's words reached SDRAM).
+   Next: compile 46, then gate 3 again on a fresh copy of the DC42 blank
+   (Disk First Aid will report the machfs blank's short threads again).
 4. 720K: the read gate first (still owed, 5.13.11), then a copy onto it.
    **720K is DOS only** (Daniel, 2026-10-06: the Mac formats double-density
    media as 800K GCR; it never made 720K HFS volumes, so none is tested).

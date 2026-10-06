@@ -455,6 +455,20 @@ module tb_se30_flp_sdwriter;
     drain;
     compare_file;
     check(diffs == 0 && wr_xfers == 2 && wr_blk[0] == 2048, "image block 2,048 (bit 11): file blocks 2,048 and 2,049, not block 0", wr_blk[0], 2048);
+    // adjacent sectors, as MFM's 1:1 writes commit them (board gate 3,
+    // 2026-10-06): with the header's shift, image blocks n and n + 1 share
+    // file block n + 1.  The second commit must write it again once the
+    // first's copy is on the card; it may skip it only while that copy
+    // still waits in the queue.
+    wr_xfers = 0;
+    commit(100, 63); drain;
+    commit(101, 64); drain;
+    compare_file;
+    check(diffs == 0 && wr_xfers == 4, "adjacent sectors, the writer idle between: file block 101 written again (100, 101; 101, 102)", wr_xfers, 4);
+    for (k = 0; k < 6; k = k + 1) commit(400 + k, 70 + k);   // back to back: some of the shared blocks still queued
+    drain;
+    compare_file;
+    check(diffs == 0, "six adjacent sectors back to back: every byte on the card", diffs, 0);
     dc42_dsum(1474560);
     {expf[72], expf[73], expf[74], expf[75]} = dsum;
     {expf[76], expf[77], expf[78], expf[79]} = 32'd0;
