@@ -16094,9 +16094,9 @@ byte-exact.**
     proven:** which command is sent (a command-log probe would show it),
     and where the driver decides (the ATAPI-side `DRVR 33` builds only a
     START/STOP load, `$1B`/`$03`; the SCSI `DRVR 32` was not read).
-  - **For Daniel:** keep it (authentic), or add a reload of the last image
-    at the next boot's bus reset (an OSD option), or go back to the
-    CDU-8004 identity (not recommended).
+  - **DECIDED (Daniel, 2026-10-07): "We'll keep restart ejecting".** It is
+    the authentic behaviour. No reload option, and the identity stays the
+    AppleCD SC's.
 - **The soak, host-checked: a 20 MB folder from the System 7.1 CD
   (`C:\temp\Mac\System 7.1 CD-ROM.iso`, 374,839,296 B, HFS 6,144-byte
   blocks) copied by the Finder is byte-exact.** The folder is "British" in
