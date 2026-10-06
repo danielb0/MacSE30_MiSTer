@@ -15792,12 +15792,66 @@ The SC's commands:
 
 The SC Plus has the same set plus `CE`.
 
-**OPEN:**
-- `$40`-`$BF` index the same two tables unless a group check before
-  `$03AB` rejects them. Until that is read, it is not settled that the SC
-  answers ILLEGAL REQUEST to the SCSI-2 commands `scsi.v` takes (`42`,
-  `43`, `44`, `BB`, and `CE`).
-- The `C0` and `C3` handlers are still to read.
+**Read since (2026-10-06, `tools/cdrom/dis8051.py`; every address in
+`C:\temp\Mac\SE30\Docs\cdrom\audit_applecd_sc_firmware.md`):**
+
+- **The group check (`$032F`-`$0342`):** only `$00`-`$3F` and `$C0`-`$CF`
+  are taken. Everything else is key 5, ASC `$20` (`$1E55`) before any
+  handler runs. So the SC rejects `42`, `43`, `44`, `4B`, `BB`, and also
+  `C4`-`C7`, `CE` and `CF`.
+- **INQUIRY:** min(allocation, 54) bytes. Byte 53 is `$FF` (`scsi.v`: 0).
+  A LUN other than 0 makes byte 0 `$7F`.
+- **The media commands' prologue:**
+  - LUN, else key 5 ASC `$25`;
+  - reservation, else RESERVATION CONFLICT status;
+  - power-on/reset unit attention, key 6 ASC `$29`, once per initiator;
+  - the drive state:
+    - spinning up gives BUSY status or NOT READY key 2 ASC `$04`;
+    - a new disc gives one UNIT ATTENTION, key 6 ASC `$28`;
+    - **no disc gives key 2 ASC `$B7`** (`scsi.v`: MAME's `$B0`), after a
+      first 6/`$28`.
+- **REQUEST SENSE:** 16 bytes (additional length 8; `scsi.v` sends 18).
+  An allocation of 0 sends 4 bytes.
+- **READ CAPACITY:** (lead-out - first track start) - 1, in the current
+  block length. For a flat image that is `scsi.v`'s value.
+- **MODE SENSE:**
+  - header device-specific byte 0, not `$80`;
+  - block count 0 in the descriptor;
+  - pages `00`, `01`, `02`, `20`, `30` and `3F` only;
+  - `scsi.v` serves `0E` and `2A`, which the SC answers key 5 ASC `$24`.
+- **MODE SELECT:** block lengths 256, 512, 1024, 2048, 2336, 2340, else
+  key 5 ASC `$26`. READ and READ CAPACITY follow the block length.
+- **READ TOC (`C1`):**
+  - header, lead-out, or descriptors from a BCD track (CDB byte 9 bits 7-6,
+    allocation in bytes 7-8), 4 bytes each;
+  - a track outside first..last is key 5 ASC `$24`;
+  - the TOC buffer's fields are built from the disc by `$3549` (not read):
+    MAME's field reading stands until it is.
+- **EJECT (`C0`):** key 5 ASC `$80` while removal is prevented, as
+  `scsi.v`.
+
+**So `scsi.v` must change for the SC** in:
+- the INQUIRY bytes;
+- the command set (drop `42`/`43`/`44`/`BB`/`CE`; this also removes
+  logic);
+- REQUEST SENSE's length;
+- MODE SENSE's header, descriptor and pages;
+- the no-disc ASC.
+
+**Two questions stay with the board:**
+- **Block length.** The SC can switch to 512, 1024, 256, 2336 or 2340.
+  `scsi.v` serves 2048 only. The MacPlus/LC CDU-8004 driver path never
+  asked: it read 18 blocks from LBA 0 at 2048, which reaches the ISO 9660
+  volume descriptor only at 2048 (`scsi.v`'s UNIT ATTENTION note). Whether
+  the driver's CDU-8001 path asks is not known. Proposed: build 512 and
+  2048, which suit an image of 512-byte HPS blocks (a shift of 2 or 0).
+  1024 and 256 are cheap too if anything asks. 2336 and 2340 cannot be
+  served from a flat image, which has no EDC/ECC: key 5 ASC `$26` there,
+  a limitation of images, not of the drive.
+- **Pages `0E`/`2A`.** `scsi.v`'s note says the driver asks for `0E` at
+  start-up, but that is the CDU-8004 path. For a CDU-8001 the real drive
+  answers CHECK CONDITION with no data phase, so no blind transfer can
+  strand. That is the SC's behaviour, and we build it.
 
 ## 12.3 The design
 
