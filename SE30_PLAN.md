@@ -16963,10 +16963,12 @@ Daniel - add to it, move items out when fixed).**
    per-file failures
    were the kernel's CMPM.L/ADDX.L upper-word loss, found with the DOSTest
    floppy and sim/cpfpu PROG=cmpm (the account at the end of this item);
-   the Options hang was the 53C80 parity line (compile 44). Still to
-   read on compile 47 when convenient: DOSTest's `DT R`/`DT S` names
-   (expected 0000s and `DT S 0029 0000 FFD5`), a Finder copy to the hard
-   disk and Get Info; then 5.16.8 gate 4 (720K, DOS).**
+   the Options hang was the 53C80 parity line (compile 44). **DOSTest on
+   compile 47 (Daniel's screenshot 18:49): `DT V FFFD 4953 0001 0000`,
+   `DT N IO.SYS`, `DT R 0000 0000 0000 0000`, `DT S 002A 0000 FFD5` (42
+   entries: this disk carries `!README` beside the 41 - MAME's fresh copy
+   gave 41), `DT C 0000 0000` - every call as MAME's 68030 answers it.**
+   Next: 5.16.8 gate 4 (720K, DOS).**
    The history: **PC Exchange's Options button never finishes "searching
    for SCSI devices"** (Daniel, board, compile 43, 2026-10-05). The probes: the
    CPU alive in the ROM's SCSI Manager, every A-line trap `A815`
