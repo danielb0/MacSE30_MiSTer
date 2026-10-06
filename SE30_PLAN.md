@@ -17117,6 +17117,62 @@ Daniel - add to it, move items out when fixed).**
      `DT R` b = FFD5 -> the 68030 data/instruction cache (plan 1.16);
      `DT C` b = FFD5 too -> not the caches: next a MAME instruction trace
      of the GetCatInfo call replayed against our kernel in sim/cpfpu.
+   - **BOARD RESULT (compile 46, Daniel, 2026-10-06 15:44, the apps run
+     from the DOSTest floppy, DOS disk mounted)**: `DT V FFFD 4953 0001
+     0000`, `DT N IO.SYS`, **`DT R FFD5 FFD5 0000 0000`**, **`DT S 002C
+     FFD5 FFD5`**, **`DT C FFD5 0000`**; CacheOff then TeachText: still
+     "may be in use by someone else". So: PBGetCatInfo BY NAME fails with
+     fnfErr for every name and dirID (MAME 0000), while PBHOpenDF and
+     _HOpen of the same name SUCCEED; enumeration returns 44 entries where
+     MAME returns 41; the caches change nothing (not plan 1.16). The 3
+     extra entries are the count of reserved names (FILEID.DAT,
+     FINDER.DAT, RESOURCE.FRK) that `$8070`'s scan filters with the
+     11-byte compare at `$E9E` - the same routine that matches a looked-up
+     name. One failing primitive explains both: **`$E9E` (CMPM.L x2,
+     CMPM.W, CMPM.B, one operand at 2 mod 4) returning "unequal" for equal
+     names on our kernel.** Why the opens still succeed is not understood
+     (a different resolution inside PC Exchange, to be read if the kernel
+     fix does not clear the opens' callers too). The cputest corpus is the
+     68882's (tools/cputest/README.md) - the kernel's integer instructions
+     were never corpus-tested. **Test: `sim/cpfpu` PROG=cmpm** (the
+     compare at every alignment, its CCR, pointers and a misaligned long
+     read) - result below.
+   - **FOUND AND FIXED IN THE KERNEL (2026-10-06 evening).** `sim/cpfpu`
+     PROG=cmpm reproduced it at once: "FINDER  DAT" compared unequal to
+     itself whenever the SOURCE long of CMPM.L was aligned (one 32-bit
+     beat); CMPM.B, CMPM.W and a misaligned source (two beats) were right;
+     paced or unpaced the same. The widening of the program found the
+     mechanism: ADDX.L -(A0),-(A1) added only the LOW word of its source
+     ('FIND' + 'FIND' = $46499C88, not $8C929C88) - the first operand of a
+     read-read instruction (held in `last_data_read` for the direct-data
+     path) lost its upper word. In `TG68KdotC_Kernel.vhd`'s stream latch,
+     after `last_data_read <= data_read`, the upper word was re-extended
+     from the sign when `memread(1)='1'` - "the previous beat strobed
+     nothing", which on the 16-bit kernel meant a byte or word read (a
+     long took two beats) but on the 32-bit port is also a long in one
+     beat. `data_read` itself had been converted to the size-based rule
+     in 1.15 item 5; this latch had not. Fix: the data-read term is gone
+     (data_read already carries the right extension); a fetch keeps its
+     old treatment. Exposure: CMPM.L, ADDX.L/SUBX.L/ABCD/SBCD's memory
+     forms with an aligned long source - rare in compiled code, which is
+     why the machine ran; MPW's memcmp is CMPM, hence PC Exchange. The
+     first candidate (the PMOVE (An)+ "BUG FIX" override at the top of the
+     OP1out mux) was tested and is NOT involved - excluding CMPM from it
+     changed nothing, so it stays as imported. **Bench**: PROG=cmpm 23
+     checks (the compare at six alignments, unequal, CCR, pointers, two
+     misaligned long reads, CMPM.B/W/L and NOP/MOVE controls, ADDX.L,
+     SUBX.L, ABCD) - all pass after the fix, 8 fail before it. Why the
+     opens succeeded on the board is now plain: PBHOpenDF/_HOpen resolve
+     through PC Exchange's FCB/long-name path, not the 11-byte scan.
+     **Gate (all PASS, 2026-10-06 evening, ~6 min)**: sim/cpfpu all 14
+     programs (cmpm 24, b1 9, b2 28, b3a 20, b3b 15, b3c 13, b4 24, b5a
+     15, b5b 18, b5c 26, b5d 19, b7e 15, mmu 11, full 15); kernel_bus
+     PORT=16/32/8 (338/237/520); busfault 14; busfault_dib 18; machine 17
+     (93 s); upstream's suite verdicts identical to ours.txt (21 benches,
+     the known three). Not run: sim/system (18 min, Daniel's call). **Next:
+     a compile with the fix; on the board the DOSTest floppy decides** -
+     `DT R 0000 0000 0000 0000`, `DT S 0029 0000 FFD5`, then TeachText's
+     open and a Finder copy from the DOS disk (720K gate 4 follows).
 
 10. **The ~514 bus-error exceptions of a boot (PBER; items 8 and 9 read
     them as "the wrapper's own, CPU-space")** - re-read 2026-10-05

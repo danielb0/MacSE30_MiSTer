@@ -958,6 +958,78 @@ elif MODE == 'b4':
         (0x33FC, 0x00000000, 0x08000000),     # ... the exception pending (bit 27 low)
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
+elif MODE == 'cmpm':
+    # PC Exchange's 11-byte DOS-name compare (EXFS 16 at $E9E - KNOWN ISSUES 9,
+    # 2026-10-06): SF D0; CMPM.L (A0)+,(A1)+; BNE; CMPM.L; BNE; CMPM.W; BNE;
+    # CMPM.B; BNE; ST D0 - with one operand in a buffer at 2 mod 4 (the volume
+    # record's directory sector at +$176), as the board's lookup runs it.
+    data = bytearray(0x140)
+    nm = b'FINDER  DAT'
+    for off in (0x00, 0x22, 0x41, 0x63, 0x100, 0x122):
+        data[off:off + 11] = nm
+    data[0x80:0x8B] = b'FINDER  DAX'                   # differs in the last byte
+    put(0x3100, [(data[i] << 8) | data[i + 1] for i in range(0, len(data), 2)])
+    a = Asm(0x1000)
+    a.emit(0xF280, 0x0000)                             # fnop: the bench wants one coprocessor cycle
+    def cmp_at(a0, a1, res):                           # the compare, its truth byte to res
+        a.emit(0x41F8, a0, 0x43F8, a1)                 # lea a0.w,a0 ; lea a1.w,a1
+        a.br(0x6100, 'CMP')                            # bsr.w CMP
+        a.emit(0x7200, 0x1200, 0x21C1, res)            # moveq #0,d1 ; move.b d0,d1 ; move.l d1,res.w
+    cmp_at(0x3100, 0x3122, 0x3000)                     # aligned vs 2 mod 4
+    cmp_at(0x3122, 0x3100, 0x3004)                     # 2 mod 4 vs aligned
+    cmp_at(0x3100, 0x3200, 0x3008)                     # both aligned
+    cmp_at(0x3122, 0x3222, 0x300C)                     # both 2 mod 4
+    cmp_at(0x3100, 0x3141, 0x3010)                     # aligned vs 1 mod 4
+    cmp_at(0x3100, 0x3163, 0x3014)                     # aligned vs 3 mod 4
+    cmp_at(0x3100, 0x3180, 0x3018)                     # unequal: 0
+    a.emit(0x41F8, 0x3100, 0x43F8, 0x3122)             # one CMPM.L, its CCR and pointers
+    a.emit(0xB388, 0x42C1, 0x21C1, 0x301C)             # cmpm.l (a0)+,(a1)+ ; move ccr,d1 ; -> $301C
+    a.emit(0x21C8, 0x3020, 0x21C9, 0x3024)             # a0 -> $3020, a1 -> $3024
+    a.emit(0x2438, 0x3122, 0x21C2, 0x3028)             # move.l $3122.w,d2 (a misaligned long) -> $3028
+    a.emit(0x43F8, 0x3122, 0x2611, 0x21C3, 0x302C)     # move.l (a1),d3 -> $302C
+    a.emit(0x41F8, 0x3100, 0xB690, 0x42C1, 0x21C1, 0x3030)   # cmp.l (a0),d3 ; ccr -> $3030
+    a.emit(0x41F8, 0x3100, 0x43F8, 0x3200, 0xB308, 0x42C1, 0x21C1, 0x3034)   # cmpm.b (a0)+,(a1)+ both aligned ; ccr
+    a.emit(0x41F8, 0x3100, 0x43F8, 0x3200, 0xB348, 0x42C1, 0x21C1, 0x3038)   # cmpm.w both aligned ; ccr
+    a.emit(0x41F8, 0x3100, 0x43F8, 0x3200, 0xB388, 0x42C1, 0x21C1, 0x303C)   # cmpm.l both aligned ; ccr
+    a.emit(0x41F8, 0x3122, 0x43F8, 0x3200, 0xB388, 0x42C1, 0x21C1, 0x3040)   # cmpm.l source 2 mod 4 ; ccr
+    a.emit(0x41F8, 0x3100, 0x43F8, 0x3200, 0x4E71, 0xB388, 0x42C1, 0x21C1, 0x3044)   # nop then cmpm.l both aligned
+    a.emit(0x41F8, 0x3100, 0x43F8, 0x3200, 0x2018, 0xB099, 0x42C1, 0x21C1, 0x3048)   # move.l (a0)+,d0 ; cmp.l (a1)+,d0 ; ccr
+    # the other read-read forms, last (they change $3200): ADDX.L/SUBX.L -(Ay),-(Ax), ABCD -(Ay),-(Ax)
+    a.emit(0x023C, 0x0000, 0x41F8, 0x3104, 0x43F8, 0x3204, 0xD388, 0x21F8, 0x3200, 0x304C)   # X clear; addx.l ; $3200 -> $304C
+    a.emit(0x023C, 0x0000, 0x41F8, 0x3104, 0x43F8, 0x3204, 0x9388, 0x21F8, 0x3200, 0x3050)   # subx.l ; -> $3050
+    a.emit(0x023C, 0x0000, 0x41F8, 0x3101, 0x43F8, 0x3201, 0xC308, 0x21F8, 0x3200, 0x3054)   # abcd -(a0),-(a1) ; -> $3054
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                             # stop #$2700
+    a.label('CMP')
+    a.emit(0x51C0, 0xB388, 0x660E, 0xB388, 0x660A, 0xB348, 0x6606, 0xB308, 0x6602, 0x50C0, 0x4E75)
+    p = a.done()
+    put(0x1000, p)
+    expect = [
+        (0x3000, 0x000000FF, 0xFFFFFFFF),   # aligned vs 2 mod 4: equal
+        (0x3004, 0x000000FF, 0xFFFFFFFF),
+        (0x3008, 0x000000FF, 0xFFFFFFFF),
+        (0x300C, 0x000000FF, 0xFFFFFFFF),
+        (0x3010, 0x000000FF, 0xFFFFFFFF),
+        (0x3014, 0x000000FF, 0xFFFFFFFF),
+        (0x3018, 0x00000000, 0xFFFFFFFF),   # unequal
+        (0x301C, 0x00000004, 0x0000001F),   # CCR after one equal CMPM.L: Z only
+        (0x3020, 0x00003104, 0xFFFFFFFF),   # both pointers advanced by 4
+        (0x3024, 0x00003126, 0xFFFFFFFF),
+        (0x3028, 0x46494E44, 0xFFFFFFFF),   # 'FIND' read at 2 mod 4
+        (0x302C, 0x46494E44, 0xFFFFFFFF),
+        (0x3030, 0x00000004, 0x0000001F),   # cmp.l of the same: Z
+        (0x3034, 0x00000004, 0x0000001F),   # cmpm.b aligned: Z
+        (0x3038, 0x00000004, 0x0000001F),   # cmpm.w aligned: Z
+        (0x303C, 0x00000004, 0x0000001F),   # cmpm.l aligned: Z
+        (0x3040, 0x00000004, 0x0000001F),   # cmpm.l misaligned source: Z
+        (0x3044, 0x00000004, 0x0000001F),   # after a nop
+        (0x3048, 0x00000004, 0x0000001F),   # move.l/cmp.l pair: Z
+        (0x304C, 0x8C929C88, 0xFFFFFFFF),   # 'FIND' + 'FIND'
+        (0x3050, 0x46494E44, 0xFFFFFFFF),   # and back
+        (0x3054, 0x92494E44, 0xFFFFFFFF),   # BCD 46 + 46 = 92 in the first byte
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+
 else:
     p = []
     p += [0x7003]                                  # moveq #3,d0
