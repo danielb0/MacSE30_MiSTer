@@ -16097,6 +16097,10 @@ byte-exact.**
   - **For Daniel:** keep it (authentic), or add a reload of the last image
     at the next boot's bus reset (an OSD option), or go back to the
     CDU-8004 identity (not recommended).
+- **Toast: a System 7.1 CD image renamed `.toast` is listed by the OSD
+  (`TO*`) and mounts.** The bytes are those of an ISO, so this checks the
+  extension filter. A bare-HFS "Mac Volume" Toast image (no partition map)
+  has not been tried.
 
 **Next:** the board (12.4 item 4):
 - an ISO and a Toast image under System 7.5.5 with Apple CD-ROM;
