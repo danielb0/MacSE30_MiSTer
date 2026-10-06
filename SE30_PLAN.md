@@ -9854,6 +9854,20 @@ byte loop is not uniform.
 3. A 1.44 MB DiskCopy 4.2 image written: both checksums right after the
    eject (DiskCopy or our checker).
 4. 720K: the read gate first (still owed, 5.13.11), then a copy onto it.
+   **720K is DOS only** (Daniel, 2026-10-06: the Mac formats double-density
+   media as 800K GCR; it never made 720K HFS volumes, so none is tested).
+   So, through PC Exchange: read `Test disks\Phase6\P6_DOS720K.img`'s
+   files to the SCSI disk; copy files onto a scratch copy of `Test
+   disks\MFM\Blank720K.img` (FAT12) and check it on the PC with the LC's
+   `scripts/fat_diff.py` (its `floppy-write` branch); and the LC's two
+   cross-encoding erases (its plan 6C.4, gate 4a: an 800K image erased as
+   DOS 720K hung the LC until fixed) - `P6_Cross800K.dsk` erased as DOS
+   720K, `P6_Cross720K.img` erased as Macintosh 800K. Here the drive spins
+   in whichever mode the ROM asks for, so a hang is not expected; the risk
+   is the other way - a format the image's fixed size cannot hold that
+   looks finished, then reverts after a seek (5.16.5 item 5's deviation).
+   What the board shows decides whether such a write should be refused
+   up front (the disk reading write-protected in the other encoding).
 5. PC Exchange on a DOS disk (KNOWN ISSUES 9, FUTURE BOARD TESTS item 7):
    the copy and the TeachText open that failed on a locked volume.
 
