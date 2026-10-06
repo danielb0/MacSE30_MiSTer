@@ -1,6 +1,7 @@
 // se30_scsi.v - the SE/30's SCSI: the 53C80 (se30_ncr53c80.v, ours), the
-// bus, and the drives - the MacPlus core's scsi.v targets, byte-exact
-// (SE30_PLAN.md 9.5).  Stage 1: two hard disks at IDs 0 and 1.
+// bus, and the drives - the MacPlus core's scsi.v targets (SE30_PLAN.md
+// 9.5): two hard disks at IDs 0 and 1, and the CD-ROM at ID 3, an AppleCD
+// SC (plan Section 12; scsi.v's CDROM personality, data only).
 //
 // THE BUS
 //   Active high inside the core (1 = asserted).  BSY is everyone's; SEL,
@@ -21,11 +22,19 @@
 //   again.  So the bus REQ here rises only once the target's REQ has been
 //   up for DESKEW clocks, and falls at once.  This is the seam's
 //   adaptation (plan 9.8); the target file stays byte-exact.
+//
+// THE CD-ROM
+//   A drive with no disc still answers selection (the AppleCD driver polls
+//   TEST UNIT READY for a disc going in), so ID 3 is on the bus whenever
+//   CDROM_EN is set, mounted or not.  Its image slot is read only: io_wr[2]
+//   is 0 (the target refuses WRITE).
 
 `timescale 1ns/1ps
 
 module se30_scsi #(
-  parameter integer DESKEW = 4          // clocks the target's REQ must hold before the bus sees it
+  parameter integer DESKEW = 4,         // clocks the target's REQ must hold before the bus sees it
+  parameter integer CDROM_EN = 1,       // the CD-ROM at ID 3
+  parameter integer CD_SPINUP_LOG = 27  // the CD's spin-up, 2^n clocks (~4.3 s at 31.3 MHz); benches shorten it
 ) (
   input             clk,
   input             reset_n,           // RESET*: the 53C80's /RESET (the CPU's RESET instruction included)
@@ -41,17 +50,17 @@ module se30_scsi #(
   output            drq,               // SCSIDRQ: GLUE and VIA2 CA2
   output            irq,               // SCSIIRQ: VIA2 CB2
 
-  // the images: hps_io slots, one per disk
-  input       [1:0] img_mounted,
+  // the images: hps_io slots, one per drive - {CD, disk 1, disk 0}
+  input       [2:0] img_mounted,
   input      [31:0] img_blocks,        // hps_io's img_size in 512-byte blocks
-  output     [63:0] io_lba,            // {disk 1, disk 0}
-  output      [1:0] io_rd,
-  output      [1:0] io_wr,
-  output     [11:0] io_blk_cnt,        // {disk 1, disk 0}: hps_io sd_blk_cnt, a write request's sectors - 1
-  input       [1:0] io_ack,
+  output     [95:0] io_lba,            // {CD, disk 1, disk 0}
+  output      [2:0] io_rd,
+  output      [2:0] io_wr,
+  output     [17:0] io_blk_cnt,        // {CD, disk 1, disk 0}: hps_io sd_blk_cnt, a write request's sectors - 1
+  input       [2:0] io_ack,
   input      [12:0] sd_buff_addr,      // hps_io's word address (a multi-block write's runs past 255)
   input      [15:0] sd_buff_dout,
-  output     [31:0] sd_buff_din,       // {disk 1, disk 0}
+  output     [47:0] sd_buff_din,       // {CD, disk 1, disk 0}
   input             sd_buff_wr,
 
   output     [15:0] dbg                // {target BSY[1:0], REQ raw, REQ bus, ACK, SEL, RST, ATN, MSG, C/D, I/O, chip BSY, DRQ, IRQ, hold-off, 0}
@@ -61,17 +70,20 @@ module se30_scsi #(
   wire [7:0] c_db;
   wire       c_db_en, c_bsy, c_sel, c_rst, c_atn, c_ack;
 
-  wire [1:0] t_bsy, t_msg, t_cd, t_io, t_req;
-  wire [7:0] t_dout [0:1];
+  wire [2:0] t_bsy, t_msg, t_cd, t_io, t_req;
+  wire [7:0] t_dout [0:2];
 
-  // the target holding the bus
+  // the target holding the bus (one at a time: each answers selection only
+  // on a free bus)
   wire       t0 = t_bsy[0];
   wire       t1 = t_bsy[1] && !t_bsy[0];
-  wire       t_msg_b = t0 ? t_msg[0] : t1 ? t_msg[1] : 1'b0;
-  wire       t_cd_b  = t0 ? t_cd[0]  : t1 ? t_cd[1]  : 1'b0;
-  wire       t_io_b  = t0 ? t_io[0]  : t1 ? t_io[1]  : 1'b0;
-  wire       t_req_b = t0 ? t_req[0] : t1 ? t_req[1] : 1'b0;
-  wire [7:0] t_db_b  = t0 ? t_dout[0] : t1 ? t_dout[1] : 8'h00;
+  wire       t2 = t_bsy[2] && !t_bsy[1] && !t_bsy[0];
+  wire       t_any   = t0 || t1 || t2;
+  wire       t_msg_b = t0 ? t_msg[0] : t1 ? t_msg[1] : t2 ? t_msg[2] : 1'b0;
+  wire       t_cd_b  = t0 ? t_cd[0]  : t1 ? t_cd[1]  : t2 ? t_cd[2]  : 1'b0;
+  wire       t_io_b  = t0 ? t_io[0]  : t1 ? t_io[1]  : t2 ? t_io[2]  : 1'b0;
+  wire       t_req_b = t0 ? t_req[0] : t1 ? t_req[1] : t2 ? t_req[2] : 1'b0;
+  wire [7:0] t_db_b  = t0 ? t_dout[0] : t1 ? t_dout[1] : t2 ? t_dout[2] : 8'h00;
 
   // REQ's deskew: up for DESKEW clocks before the bus sees it, down at once
   reg  [3:0] req_up;
@@ -81,10 +93,10 @@ module se30_scsi #(
   wire       b_req = t_req_b && (req_up == DESKEW[3:0]);
 
   wire       b_bsy = c_bsy | (|t_bsy);
-  wire [7:0] b_db  = (c_db_en ? c_db : 8'h00) | ((t0 || t1) && t_io_b ? t_db_b : 8'h00);
+  wire [7:0] b_db  = (c_db_en ? c_db : 8'h00) | (t_any && t_io_b ? t_db_b : 8'h00);
   // the parity line: odd parity from whoever drives the data bus, released
   // (0) when no one does (the 53C80 manual 4.2, 6.5)
-  wire       b_dbp = (c_db_en || ((t0 || t1) && t_io_b)) && ~^b_db;
+  wire       b_dbp = (c_db_en || (t_any && t_io_b)) && ~^b_db;
 
   se30_ncr53c80 chip (
     .clk(clk), .reset_n(reset_n),
@@ -98,7 +110,7 @@ module se30_scsi #(
   // byte (a sector not yet fetched, a flush in flight) - not wired to the
   // bus (GLUE's handshake waits on DRQ), measured only (PSCT, plan 10.4
   // item 3)
-  wire [1:0] t_holdoff;
+  wire [2:0] t_holdoff;
 
   genvar i;
   generate for (i = 0; i < 2; i = i + 1) begin : g_disk
@@ -121,6 +133,29 @@ module se30_scsi #(
       .cd_snd_l(snd_l_nc), .cd_snd_r(snd_r_nc));
   end endgenerate
 
-  assign dbg = {t_bsy, t_req_b, b_req, c_ack, c_sel, c_rst, c_atn, t_msg_b, t_cd_b, t_io_b, c_bsy, drq, irq, |t_holdoff, 1'b0};
+  generate if (CDROM_EN != 0) begin : g_cd
+    wire signed [15:0] snd_l_nc, snd_r_nc;
+    scsi #(.ID(3'd3), .CDROM(1), .CD_AUDIO(0), .SPINUP_LOG(CD_SPINUP_LOG)) target (
+      .clk(clk), .rst(c_rst), .sys_rst(!sys_reset_n),
+      .bus_busy(|t_bsy), .cd_enable(1'b1),
+      .sel(c_sel), .atn(c_atn), .ack(c_ack),
+      .bsy(t_bsy[2]), .msg(t_msg[2]), .cd(t_cd[2]), .io(t_io[2]), .req(t_req[2]),
+      .din(b_db), .dout(t_dout[2]),
+      .img_mounted(img_mounted[2]), .img_blocks(img_blocks),
+      .io_lba(io_lba[95:64]), .io_rd(io_rd[2]), .io_wr(io_wr[2]), .io_blk_cnt(io_blk_cnt[17:12]),
+      .io_ack(io_ack[2] & t_bsy[2]),
+      .sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_addr_hi(sd_buff_addr[12:8]),
+      .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[47:32]),
+      .sd_buff_wr(sd_buff_wr & io_ack[2]),
+      .data_holdoff(t_holdoff[2]),
+      .cd_snd_l(snd_l_nc), .cd_snd_r(snd_r_nc));
+  end else begin : g_no_cd
+    assign t_bsy[2] = 1'b0; assign t_msg[2] = 1'b0; assign t_cd[2] = 1'b0;
+    assign t_io[2] = 1'b0;  assign t_req[2] = 1'b0; assign t_dout[2] = 8'h00;
+    assign io_lba[95:64] = 32'd0; assign io_rd[2] = 1'b0; assign io_wr[2] = 1'b0;
+    assign io_blk_cnt[17:12] = 6'd0; assign sd_buff_din[47:32] = 16'd0; assign t_holdoff[2] = 1'b0;
+  end endgenerate
+
+  assign dbg = {t_bsy[1:0], t_req_b, b_req, c_ack, c_sel, c_rst, c_atn, t_msg_b, t_cd_b, t_io_b, c_bsy, drq, irq, |t_holdoff, 1'b0};
 
 endmodule

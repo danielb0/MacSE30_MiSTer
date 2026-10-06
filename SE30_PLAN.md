@@ -15924,7 +15924,117 @@ The SC Plus has the same set plus `CE`.
 Read the SC firmware's data-path handlers (12.2's open items, and 12.3
 items 3, 4 and 7's TEST UNIT READY) with a small 8051 disassembler.
 Record them in `C:\temp\Mac\SE30\Docs\cdrom\audit_applecd_sc_firmware.md`.
-Then the RTL.
+Then the RTL. **Done 2026-10-06** (12.2, 12.6).
+
+## 12.6 As built (2026-10-06)
+
+Daniel, 2026-10-06: "go ahead with 512 and 2048".
+
+**`rtl/scsi.v`, the CD personality, made the AppleCD SC's.** Every change
+is under `CDROM != 0`, so the disks are as they were.
+- **Identity:**
+  - INQUIRY = the firmware's table (`$3929`);
+  - a LUN other than 0 makes byte 0 `$7F` and gives the other commands
+    5/`$25`.
+- **Command set (the dispatch):**
+  - an opcode outside `$00`-`$3F`/`$C0`-`$CF` completes after its first
+    byte with CHECK, 5/`$20` (`cmd1_cpl`);
+  - `42`/`43`/`44`/`BB`/`CE` and the SCSI-2 play commands are no longer
+    taken;
+  - RESERVE/RELEASE give GOOD; the audio commands `C8`-`CB`/`CD`, REZERO,
+    SEEK and VERIFY give GOOD with no data (an idle drive; `$365E` unread);
+  - **taken by the SC but refused here** (handlers not read, nothing on the
+    data path sends them): `1C`, `1D`, `3B`, `3C`, `C3`.
+- **Readiness, in the SC's order:**
+  - the opcode, the LUN;
+  - the reset's UNIT ATTENTION 6/`$29` (now also reported by a REQUEST
+    SENSE with nothing stored; INQUIRY, REQUEST SENSE and EJECT skip it);
+  - NOT READY 2/`$04` during the spin-up, **now also armed by a disc going
+    in** (the SC spins a new disc up);
+  - **a medium change 6/`$28`**, once, after the spin-up or on an eject;
+  - no disc **2/`$B7`** (was MAME's `$B0`);
+  - then the CDB field checks 5/`$24` (TEST UNIT READY, C1, C0, a MODE
+    SENSE page the SC lacks, START/STOP with LoEj and Start both set);
+  - MODE SENSE, MODE SELECT and PREVENT are served while NOT READY.
+- **REQUEST SENSE:**
+  - 16 bytes (additional length 8); an allocation of 0 sends 4;
+  - with no sense stored it reports the drive's state;
+  - the sense is cleared once sent.
+- **MODE SENSE:**
+  - the SC's header (length = bytes sent - 1, device-specific 0, BD length
+    0 under an allocation of 5) and descriptor (block count 0, the block
+    length by PC);
+  - pages `00`/`01`/`02`/`20`/`30`/`3F` from the firmware's ROM tables;
+  - min(allocation, size). The MacPlus core's full-allocation padding was
+    for the CDU-8004 driver path's blind transfers. The SC clamps.
+    **Watch on the board:** if the driver arms a longer blind transfer, it
+    shows as a bus error in the CD's first MODE SENSE.
+- **MODE SELECT:**
+  - the list's block descriptor sets the block length, 512 or 2048 (Daniel);
+  - anything else is CHECK 5/`$26`, keeping the length;
+  - no page values are kept;
+  - a reset restores 2048.
+  - At 512: READ addresses 512-byte blocks (no `<<2`); READ CAPACITY is
+    4n + 3 x 512; MODE SENSE's current length is 512.
+- **READ TOC (C1) without audio** (new parameter `CD_AUDIO`, 0 here):
+  - the header {01, 01, 00, 00};
+  - the lead-out {M, S, F BCD, 00} at the image's blocks + 150 frames,
+    computed by subtraction after each mount;
+  - track 1 {14, 00, 02, 00};
+  - the CDB checks;
+  - 4 bytes, or fewer if the allocation is shorter.
+  - `cd_audio.sv` is not instantiated (it is not in the repository).
+  - **Open, for the board:** the field layout (MAME/the donor on the SC's
+    structure; `$3549` copies the second processor's bytes, AC-3.8 unread),
+    the +150 (Red Book absolute time) and the control byte `$14`.
+- **EJECT:** GOOD with no sense (it was GOOD with 2/`$3A` in the sense); the
+  next command sees 6/`$28`, then 2/`$B7`.
+
+**Also read in the firmware but not built:** READ's power-on path (`$10CE`-
+`$11C0`). Right after power-on (flag `$6B`), a READ of blocks 0-32 waits
+out the caddy load with BUSY status rather than CHECK. The target keeps
+`scsi.v`'s hardware-proven reset behaviour instead (6/`$29`, then
+~4.3 s of 2/`$04`), which makes the ROM's boot scan skip the drive.
+
+**`rtl/se30_scsi.v`:** a third target `g_cd` (ID 3, `CDROM` 1, `CD_AUDIO`
+0), selected whenever `CDROM_EN` is set, disc or not (a drive with no disc
+answers). The bus mux takes three targets. Ports `{CD, disk 1, disk 0}`;
+the CD's `io_wr` is 0.
+
+**`rtl/se30_machine.v`:** the SCSI ports three wide; `CDROM_EN`.
+**`MacSE30.sv`:**
+- `"SC4,ISOTO*,Mount CD-ROM;"`, `VDNUM` 5, slot 4;
+- `SE30_NO_CDROM` builds without the drive;
+- the disk-timing probe (PSCT, built only with `SE30_PERF_PROBES`) counts
+  the disks only.
+
+**Tests:**
+- **`sim/scsi_seam`: 298 checks PASS** (1 min 25 s). Tests 1-10 (the
+  disks) are unchanged; test 7's absent ID is now 4. Tests 11-22 are the
+  CD, in the bench's header. Test 12 also checks that a LUN-1 command
+  does not use up a pending medium-change attention: a review before the
+  commit found both attentions cleared by any command that refused, even
+  when another condition was the one reported. The bench's `scsi_cmdn` sends CDBs of any
+  length.
+  - **Three mutants are caught:**
+    - MAME's `$B0`: 3 checks fail;
+    - no early completion for a bad opcode: the `43` leaves the target
+      holding the bus and the bench cascades;
+    - MODE SELECT's block length ignored: 7 or more checks fail.
+- **`sim/machine` 17 PASS** (ModelSim; `scsi_idle.v` gained the new
+  parameters).
+- **Quartus Analysis & Synthesis: 0 errors** (9 min 25 s). The only new
+  warning is `cd_bin2bcd`'s harmless truncation, the function now in use.
+- **Synthesis estimate:** the CD target is 1,352 ALUTs and 497 registers,
+  plus two M10K (the 16 KB ring); a disk target is about 700 and 334. A
+  disk measured 372-387 ALMs at fit, so the CD is probably 700-800 ALMs.
+  The fit gives the figure.
+
+**Next:** a compile on Daniel's go-ahead, then the board (12.4 item 4):
+- an ISO and a Toast image under System 7.5.5 with Apple CD-ROM;
+- a boot with a disc in;
+- eject and remount;
+- a Finder copy, checked on the PC.
 
 ---
 

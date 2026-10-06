@@ -11,7 +11,9 @@
 
 module scsi #(
   parameter [2:0] ID = 0,
-  parameter CDROM = 0
+  parameter CDROM = 0,
+  parameter CD_AUDIO = 0,
+  parameter SPINUP_LOG = 27
 ) (
   input         clk,
   input         rst,

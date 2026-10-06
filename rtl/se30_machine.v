@@ -77,7 +77,8 @@ module se30_machine #(
   parameter DECLROM_HEX = "",          // the video's declaration ROM preload, for the benches
   parameter V_TOTAL     = 370,
   parameter FPU_UCODE   = "rtl/fpu/ucode/",  // the 68882's microcode images (the benches: ../../rtl/fpu/ucode/)
-  parameter EXT_DRIVE   = 1                  // the external FDHD on /ENBL2 (plan 5.14; a build option, 10.4 item 3: MacSE30.sv passes 0 unless SE30_EXT_DRIVE is defined)
+  parameter EXT_DRIVE   = 1,                 // the external FDHD on /ENBL2 (plan 5.14; a build option, 10.4 item 3: MacSE30.sv passes 0 unless SE30_EXT_DRIVE is defined)
+  parameter CDROM_EN    = 1                  // the CD-ROM at SCSI ID 3 (plan Section 12; MacSE30.sv passes 0 when SE30_NO_CDROM is defined)
 ) (
   input         clk,
   input         phi1,
@@ -141,16 +142,16 @@ module se30_machine #(
   input         trk2_bit,
 
   // the SCSI disks' images: hps_io slots, one per disk (plan 9.5)
-  input   [1:0] scsi_img_mounted,
+  input   [2:0] scsi_img_mounted,      // {CD, disk 1, disk 0}
   input  [31:0] scsi_img_blocks,       // img_size in 512-byte blocks
-  output [63:0] scsi_io_lba,           // {disk 1, disk 0}
-  output  [1:0] scsi_io_rd,
-  output  [1:0] scsi_io_wr,
-  output [11:0] scsi_io_blk_cnt,       // {disk 1, disk 0}: hps_io sd_blk_cnt (plan 10.4 item 3)
-  input   [1:0] scsi_io_ack,
+  output [95:0] scsi_io_lba,           // {CD, disk 1, disk 0}
+  output  [2:0] scsi_io_rd,
+  output  [2:0] scsi_io_wr,            // the CD's is 0: read only
+  output [17:0] scsi_io_blk_cnt,       // {CD, disk 1, disk 0}: hps_io sd_blk_cnt (plan 10.4 item 3)
+  input   [2:0] scsi_io_ack,
   input  [12:0] scsi_sd_buff_addr,
   input  [15:0] scsi_sd_buff_dout,
-  output [31:0] scsi_sd_buff_din,      // {disk 1, disk 0}
+  output [47:0] scsi_sd_buff_din,      // {CD, disk 1, disk 0}
   input         scsi_sd_buff_wr,
 
   // the SCC's serial ports, as the board's 75175 receivers and 26LS30
@@ -445,7 +446,7 @@ module se30_machine #(
   // $50006000 once DRQ is up); one access per byte cycle: GLUE's strobe,
   // one clk of it; A6-A4 select the register (plan 9.2, 9.5)
   wire scsi_stb = dev_strobe && phi1 && (scsi_sel || scsi_dack);
-  se30_scsi scsi (
+  se30_scsi #(.CDROM_EN(CDROM_EN)) scsi (
     .clk(clk), .reset_n(via_reset_n), .sys_reset_n(reset_n),
     .cs(scsi_sel), .dack(scsi_dack), .rd(scsi_stb && dev_rw), .wr(scsi_stb && !dev_rw),
     .rs(dev_addr[6:4]), .wdata(dev_wdata), .rdata(scsi_rdata), .drq(scsi_drq), .irq(scsi_irq),

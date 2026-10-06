@@ -52,6 +52,32 @@
 //       for the last request (the image is checked at once, no settling
 //       time); an unaligned 33-block write and a 1-block write after it;
 //       reads still ask one sector a request
+//   11-22: the CD-ROM at ID 3, an AppleCD SC (SE30_PLAN.md Section 12; its
+//       firmware's addresses in Docs\cdrom\audit_applecd_sc_firmware.md),
+//       the spin-up shortened to 2^14 clocks.  +NOCD skips them.
+//   11. no disc: INQUIRY the SC's 54 bytes with a reset pending; TEST UNIT
+//       READY CHECK, REQUEST SENSE 6/29 (16 bytes, additional length 8),
+//       then 2/B7; REQUEST SENSE alone reports the state; allocation 0
+//       gives 4 bytes; MODE SENSE served with no disc
+//   12. a disc goes in: 2/04 while it spins up, one 6/28, then GOOD
+//   13. READ CAPACITY: 269 x 2048
+//   14. READ(6) polled, READ(10) blind, the last block, byte-exact; past
+//       the end 5/21
+//   15. MODE SENSE: 3F (64 bytes, the SC's pages and header), 30, a
+//       changeable page at allocation 4, 0E refused 5/24
+//   16. READ TOC (C1): the header, the lead-out 00:05:45, track 1
+//       {14, 00:02:00} (4 bytes of 255 asked), track 2 refused 5/24
+//   17. 43 refused after its opcode byte (5/20), CE and WRITE(6) refused
+//   18. LUN 1: 5/25; INQUIRY byte 0 $7F
+//   19. MODE SELECT 512: READ CAPACITY 1079 x 512, a 512-byte read byte-
+//       exact, MODE SENSE's block length; 1024 refused 5/26 (512 kept);
+//       back to 2048
+//   20. PREVENT then EJECT: 5/80, the disc stays; ALLOW, EJECT GOOD, then
+//       6/28, then 2/B7
+//   21. the ROM's boot scan: after a bus reset its READ(6) of block 0 gets
+//       CHECK with no data phase (6/29), and again inside the spin-up
+//       (2/04); after it, block 0 reads
+//   22. the CD's slot never asked a write; ID 0 still reads
 
 `timescale 1ns/1ps
 
@@ -68,19 +94,21 @@ module tb_scsi_seam;
   wire [7:0] rdata;
   wire       drq, irq;
 
-  reg  [1:0] img_mounted = 0;
+  reg  [2:0] img_mounted = 0;
   reg [31:0] img_blocks = 0;
-  wire [63:0] io_lba;
-  wire [1:0] io_rd, io_wr;
-  wire [11:0] io_blk_cnt;
-  reg  [1:0] io_ack = 0;
+  wire [95:0] io_lba;
+  wire [2:0] io_rd, io_wr;
+  wire [17:0] io_blk_cnt;
+  reg  [2:0] io_ack = 0;
   reg [12:0] sd_buff_addr = 0;
   reg [15:0] sd_buff_dout = 0;
-  wire [31:0] sd_buff_din;
+  wire [47:0] sd_buff_din;
   reg        sd_buff_wr = 0;
   wire [15:0] dbg;
 
-  se30_scsi dut (
+  // the CD's spin-up shortened to 2^14 clocks (~0.5 ms); the real 2^27 is
+  // ~4.3 s
+  se30_scsi #(.CD_SPINUP_LOG(14)) dut (
     .clk(clk), .reset_n(reset_n), .sys_reset_n(reset_n),
     .cs(cs), .dack(dack), .rd(rd), .wr(wr), .rs(rs), .wdata(wdata), .rdata(rdata), .drq(drq), .irq(irq),
     .img_mounted(img_mounted), .img_blocks(img_blocks),
@@ -98,6 +126,10 @@ module tb_scsi_seam;
   localparam BLOCKS = 64;
   reg [7:0] img0 [0:BLOCKS*512-1];
   reg [7:0] img1 [0:BLOCKS*512-1];
+  // the CD's image: CD_BLOCKS 512-byte HPS blocks = CD_BLOCKS/4 CD blocks
+  localparam CD_BLOCKS = 4 * 270;        // 270 CD blocks: the lead-out at 270 + 150 = 420 frames = 00:05:45
+  reg [7:0] img2 [0:CD_BLOCKS*512-1];
+  integer cd_reqs = 0, cd_wr_seen = 0;
   integer k, latency = 300;              // clocks before a sector arrives (~10 us)
   integer wr_latency = 300;              // clocks before a write request is taken (the SD card's write)
   initial begin
@@ -105,6 +137,7 @@ module tb_scsi_seam;
       img0[k] = (k * 7 + (k >> 9) * 13) & 8'hFF;
       img1[k] = (k * 11 + 5 + (k >> 9) * 3) & 8'hFF;
     end
+    for (k = 0; k < CD_BLOCKS*512; k = k + 1) img2[k] = (k * 13 + 3 + (k >> 11) * 29) & 8'hFF;
   end
   // one slot at a time, as hps_io serves them; a write request's size is read
   // with the request (Main's UIO_GET_SDSTAT), then (n+1) x 256 words are read
@@ -113,9 +146,10 @@ module tb_scsi_seam;
   integer wr_reqs = 0, wr_secs = 0, wr_max = 0, rd_multi = 0;
   always begin
     @(negedge clk);
-    if (io_rd[0] || io_rd[1] || io_wr[0] || io_wr[1]) begin
-      s = io_rd[0] || io_wr[0] ? 0 : 1;
+    if (io_rd[0] || io_rd[1] || io_wr[0] || io_wr[1] || io_rd[2] || io_wr[2]) begin
+      s = io_rd[0] || io_wr[0] ? 0 : io_rd[1] || io_wr[1] ? 1 : 2;
       blk = io_lba[32*s +: 32];
+      if (s == 2) begin cd_reqs = cd_reqs + 1; if (io_wr[2]) cd_wr_seen = cd_wr_seen + 1; end
       if (io_rd[s]) begin
         if (io_blk_cnt[6*s +: 6] != 0) rd_multi = rd_multi + 1;
         ticks(latency);
@@ -123,7 +157,8 @@ module tb_scsi_seam;
         for (w = 0; w < 256; w = w + 1) begin
           @(negedge clk); sd_buff_addr = w;
           sd_buff_dout = (s == 0) ? {img0[blk*512 + 2*w + 1], img0[blk*512 + 2*w]}
-                                  : {img1[blk*512 + 2*w + 1], img1[blk*512 + 2*w]};
+                       : (s == 1) ? {img1[blk*512 + 2*w + 1], img1[blk*512 + 2*w]}
+                                  : {img2[blk*512 + 2*w + 1], img2[blk*512 + 2*w]};
           sd_buff_wr = 1; @(negedge clk); sd_buff_wr = 0;
         end
         @(negedge clk); io_ack[s] = 0;
@@ -269,6 +304,28 @@ module tb_scsi_seam;
     end
   endtask
 
+  // the command bytes of a CDB of any length (left-aligned in 80 bits);
+  // nsent: how many went before the target left the command phase
+  integer nsent;
+  task scsi_cmdn(input [79:0] cdb, input integer len, output ok);
+    integer b;
+    begin
+      reg_wr(3, 8'h02); ok = 1; nsent = 0;
+      for (b = 0; b < len && ok; b = b + 1) begin
+        wait_csr(5, 1, 2000, ok);
+        if (ok) begin reg_rd(5); ok = rv[3]; end
+        if (ok) begin
+          reg_wr(0, cdb[79 - 8*b -: 8]); reg_wr(1, 8'h01);
+          wait_csr(5, 1, 2000, ok);
+          reg_wr(1, 8'h11);
+          wait_csr(5, 0, 2000, ok);
+          reg_wr(1, 8'h00);
+          nsent = nsent + 1;
+        end
+      end
+    end
+  endtask
+
   // ------------------------------------------------------------ one command, whole
   reg [7:0] st, msg;
   reg ok, ok2;
@@ -321,10 +378,74 @@ module tb_scsi_seam;
     end
   endtask
 
+  // ------------------------------------------------------------ the CD (plan 12.4)
+  // cd_do: select ID 3, the CDB (len bytes, left-aligned in 80 bits), n_in
+  // bytes in or n_out bytes out (wbuf) polled, status and message
+  reg [7:0] cd_st;
+  reg       cd_ok;
+  task cd_do(input [79:0] cdb, input integer len, input integer n_in, input integer n_out);
+    reg okc;
+    begin
+      command(3'd3, 0, okc); check(okc, "CD: ID 3 selected");
+      scsi_cmdn(cdb, len, okc);
+      rerr = 0;
+      if (okc && n_in > 0) scsi_read(n_in, 1'b0, n_in);
+      if (okc && n_out > 0) scsi_write(n_out, 1'b0, n_out);
+      scsi_complete(cd_st, msg, cd_ok); cd_ok = cd_ok && (msg == 8'h00) && (rerr == 0);
+    end
+  endtask
+  reg [3:0] key;
+  reg [7:0] asc;
+  // REQUEST SENSE, 16 bytes asked: the key and the ASC (cd_st keeps the
+  // status of the command before it)
+  task cd_sense;
+    reg [7:0] st_before;
+    begin
+      st_before = cd_st;
+      cd_do({8'h03, 8'h00, 8'h00, 8'h00, 8'd16, 8'h00, 32'h0}, 6, 16, 0);
+      key = rbuf[2][3:0]; asc = rbuf[12];
+      cd_st = st_before;
+    end
+  endtask
+  localparam [79:0] CD_TUR = {8'h00, 72'h0};
+  function [79:0] cdb6(input [7:0] op, input [7:0] b1, input [7:0] b2, input [7:0] b3, input [7:0] b4);
+    cdb6 = {op, b1, b2, b3, b4, 8'h00, 32'h0};
+  endfunction
+  function [79:0] cdb_toc(input [7:0] trk, input [7:0] alloc, input [7:0] type9);
+    cdb_toc = {8'hC1, 32'h0, trk, 8'h00, 8'h00, alloc, type9};
+  endfunction
+  // the AppleCD SC's INQUIRY data, its firmware's table at $3929
+  reg [7:0] inq [0:53];
+  initial begin
+    for (k = 0; k < 54; k = k + 1) inq[k] = 8'h00;
+    inq[0] = 8'h05; inq[1] = 8'h80; inq[2] = 8'h01; inq[3] = 8'h01; inq[4] = 8'h31;
+    for (k = 0; k < 28; k = k + 1) inq[8 + k] = "SONY    CD-ROM CDU-8001 3.2i" >> (8 * (27 - k));
+    inq[39] = 8'hD0; inq[40] = 8'h90; inq[41] = 8'h27; inq[42] = 8'h3E; inq[43] = 8'h01;
+    inq[44] = 8'h04; inq[45] = 8'h91; inq[47] = 8'h18; inq[48] = 8'h06; inq[49] = 8'hF0;
+    inq[50] = 8'hFC; inq[53] = 8'hFF;
+  end
+  task cd_read(input integer op10, input integer lba, input integer cnt, input integer bsize, input blind,
+               input [8*48-1:0] what);
+    integer b, n;
+    begin
+      n = cnt * bsize;
+      command(3'd3, 0, ok); check(ok, "CD: select for a read");
+      if (op10) scsi_cmdn({8'h28, 8'h00, lba[31:0], 8'h00, cnt[15:0], 8'h00}, 10, ok);
+      else      scsi_cmdn({8'h08, 3'b000, lba[20:0], cnt[7:0], 8'h00, 32'h0}, 6, ok);
+      check(ok, "CD: the READ's command bytes");
+      scsi_read(n, blind, blind ? bsize : n); check(rerr == 0, what);
+      bad = 0;
+      for (b = 0; b < n; b = b + 1) if (rbuf[b] !== img2[lba * bsize + b]) bad = bad + 1;
+      check(bad == 0, what);
+      if (bad != 0) $display("     %0d of %0d bytes wrong", bad, n);
+      scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "CD: the READ's status GOOD");
+    end
+  endtask
+
   initial begin
     ticks(5); reset_n = 1; ticks(5);
     img_blocks = BLOCKS;
-    @(negedge clk); img_mounted = 2'b11; @(negedge clk); img_mounted = 2'b00; ticks(20);
+    @(negedge clk); img_mounted = 3'b011; @(negedge clk); img_mounted = 3'b000; ticks(20);
 
     if ($test$plusargs("QUICK")) begin
       scsi_reset; reg_rd(7);
@@ -353,7 +474,7 @@ module tb_scsi_seam;
     do_read(3'd1, 21'd3, 8'd2, 1'b0, "6. ID 1 reads its own image");
 
     // 7
-    scsi_get(ok); scsi_select(3'd3, ok2); check(!ok2, "7. an absent ID: no BSY, the selection times out");
+    scsi_get(ok); scsi_select(3'd4, ok2); check(!ok2, "7. an absent ID (4): no BSY, the selection times out");
     reg_wr(1, 8'h00); reg_wr(2, 8'h00); ticks(100);
 
     // 8: ask 513 bytes of a 1-block read
@@ -395,6 +516,141 @@ module tb_scsi_seam;
     do_write(3'd0, 21'd63, 8'd1, 1'b0, 8'h91);
     check(wr_reqs == 1 && wr_secs == 1, "10. a 1-block write at the last LBA: one request, one sector");
     check(rd_multi == 0, "10. reads still ask one sector a request");
+
+    // ---------------------------------------------------- 11-22: the CD-ROM
+    // ID 3, an AppleCD SC (plan 12.2/12.3), its spin-up 2^14 clocks here
+    latency = 300; wr_latency = 300;
+    if (!$test$plusargs("NOCD")) begin
+    // 11: no disc
+    scsi_reset; reg_rd(7); ticks(20000);                                 // past the spin-up
+    cd_do(cdb6(8'h12, 8'h00, 8'h00, 8'h00, 8'd255), 6, 54, 0);
+    check(cd_ok && cd_st == 8'h00, "11. INQUIRY with a reset pending: 54 bytes, GOOD");
+    bad = 0; for (k = 0; k < 54; k = k + 1) if (rbuf[k] !== inq[k]) bad = bad + 1;
+    check(bad == 0, "11. INQUIRY: the AppleCD SC's bytes ($3929), CDU-8001 3.2i");
+    cd_do(CD_TUR, 6, 0, 0); check(cd_ok && cd_st == 8'h02, "11. TEST UNIT READY after the reset: CHECK CONDITION");
+    cd_sense; check(cd_ok && key == 4'h6 && asc == 8'h29, "11. ... UNIT ATTENTION 6/29");
+    check(rbuf[0] == 8'h70 && rbuf[7] == 8'h08, "11. REQUEST SENSE: extended sense, additional length 8 (16 bytes)");
+    cd_do(CD_TUR, 6, 0, 0); check(cd_ok && cd_st == 8'h02, "11. TEST UNIT READY, no disc: CHECK");
+    cd_sense; check(key == 4'h2 && asc == 8'hB7, "11. ... NOT READY / $B7 (the SC's no-disc)");
+    cd_sense; check(key == 4'h2 && asc == 8'hB7, "11. REQUEST SENSE with nothing stored: the state, NOT READY / $B7");
+    cd_do(cdb6(8'h03, 8'h00, 8'h00, 8'h00, 8'd0), 6, 4, 0);
+    check(cd_ok && cd_st == 8'h00, "11. REQUEST SENSE, allocation 0: 4 bytes, GOOD");
+    cd_do(cdb6(8'h1A, 8'h00, 8'h3F, 8'h00, 8'd255), 6, 64, 0);
+    check(cd_ok && cd_st == 8'h00, "11. MODE SENSE with no disc: served (NOT READY tolerated), 64 bytes");
+
+    // 12: a disc goes in
+    img_blocks = CD_BLOCKS;
+    @(negedge clk); img_mounted = 3'b100; @(negedge clk); img_mounted = 3'b000; ticks(20);
+    cd_do(CD_TUR, 6, 0, 0); cd_sense;
+    check(key == 4'h2 && asc == 8'h04, "12. a disc goes in: NOT READY / 04 while it spins up");
+    ticks(20000);
+    cd_do(cdb6(8'h00, 8'h20, 8'h00, 8'h00, 8'h00), 6, 0, 0); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h25, "12. a LUN 1 command meanwhile: 5/25, the attention kept");
+    cd_do(CD_TUR, 6, 0, 0); check(cd_ok && cd_st == 8'h02, "12. then CHECK once");
+    cd_sense; check(key == 4'h6 && asc == 8'h28, "12. ... UNIT ATTENTION 6/28 (medium changed)");
+    cd_do(CD_TUR, 6, 0, 0); check(cd_ok && cd_st == 8'h00, "12. then TEST UNIT READY GOOD");
+
+    // 13: READ CAPACITY
+    cd_do({8'h25, 72'h0}, 10, 8, 0);
+    check(cd_ok && cd_st == 8'h00 && {rbuf[0], rbuf[1], rbuf[2], rbuf[3]} == 32'd269 &&
+          {rbuf[4], rbuf[5], rbuf[6], rbuf[7]} == 32'd2048, "13. READ CAPACITY: last block 269, 2048 bytes");
+
+    // 14: reads
+    cd_read(0, 3, 2, 2048, 1'b0, "14. READ(6) polled, 2 CD blocks, byte-exact");
+    cd_read(1, 100, 3, 2048, 1'b1, "14. READ(10) blind per block, 3 CD blocks, byte-exact");
+    cd_read(0, 269, 1, 2048, 1'b0, "14. READ(6) of the last block, byte-exact");
+    cd_do({8'h08, 8'h00, 8'h01, 8'h0E, 8'd1, 8'h00, 32'h0}, 6, 0, 0); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h21, "14. READ(6) at block 270: CHECK, 5/21");
+
+    // 15: MODE SENSE
+    cd_do(cdb6(8'h1A, 8'h00, 8'h3F, 8'h00, 8'd255), 6, 64, 0);
+    check(cd_ok && rbuf[0] == 8'd63 && rbuf[2] == 8'h00 && rbuf[3] == 8'h08 &&
+          {rbuf[5], rbuf[6], rbuf[7]} == 24'h0 && {rbuf[9], rbuf[10], rbuf[11]} == 24'h000800,
+          "15. MODE SENSE 3F: header (length 63, no WP, BD 8), block count 0, 2048");
+    check(rbuf[12] == 8'h00 && rbuf[13] == 8'h02 && rbuf[14] == 8'h10 && rbuf[16] == 8'h01 && rbuf[24] == 8'h02 &&
+          rbuf[26] == 8'h08 && rbuf[36] == 8'h20 && rbuf[39] == 8'h05 && rbuf[40] == 8'h30 && rbuf[41] == 8'h16 &&
+          rbuf[42] == "A" && rbuf[60] == "C" && rbuf[63] == " ", "15. MODE SENSE 3F: pages 00, 01, 02, 20, 30 as the SC's ROM");
+    cd_do(cdb6(8'h1A, 8'h00, 8'h30, 8'h00, 8'd255), 6, 36, 0);
+    check(cd_ok && rbuf[0] == 8'd35 && rbuf[12] == 8'h30, "15. MODE SENSE 30: 36 bytes");
+    cd_do(cdb6(8'h1A, 8'h00, 8'h41, 8'h00, 8'd4), 6, 4, 0);
+    check(cd_ok && rbuf[0] == 8'd3 && rbuf[3] == 8'h00, "15. MODE SENSE 01 changeable, allocation 4: 4 bytes, no BD length");
+    cd_do(cdb6(8'h1A, 8'h00, 8'h0E, 8'h00, 8'd255), 6, 0, 0); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h24, "15. MODE SENSE 0E (not the SC's): CHECK, 5/24");
+
+    // 16: READ TOC (C1)
+    cd_do(cdb_toc(8'h00, 8'd4, 8'h00), 10, 4, 0);
+    check(cd_ok && {rbuf[0], rbuf[1], rbuf[2], rbuf[3]} == 32'h01010000, "16. C1 header: first 01, last 01");
+    cd_do(cdb_toc(8'h00, 8'd4, 8'h40), 10, 4, 0);
+    check(cd_ok && {rbuf[0], rbuf[1], rbuf[2], rbuf[3]} == 32'h00054500, "16. C1 lead-out: 00:05:45 (270 + 150 frames), BCD");
+    cd_do(cdb_toc(8'h01, 8'd255, 8'h80), 10, 4, 0);
+    check(cd_ok && {rbuf[0], rbuf[1], rbuf[2], rbuf[3]} == 32'h14000200, "16. C1 from track 1: {14, 00:02:00}, 4 bytes of 255 asked");
+    cd_do(cdb_toc(8'h02, 8'd4, 8'h80), 10, 0, 0); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h24, "16. C1 from track 2 (none): CHECK, 5/24");
+
+    // 17: commands the SC does not have
+    cd_do({8'h43, 72'h0}, 10, 0, 0);
+    check(nsent == 1 && cd_st == 8'h02, "17. 43 (SCSI-2 READ TOC): STATUS after the opcode byte, CHECK");
+    cd_sense; check(key == 4'h5 && asc == 8'h20, "17. ... ILLEGAL REQUEST 5/20");
+    cd_do({8'hCE, 72'h0}, 10, 0, 0); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h20, "17. CE (the CDU-8004's AUDIO CONTROL): CHECK, 5/20");
+    cd_do(cdb6(8'h0A, 8'h00, 8'h00, 8'h05, 8'd1), 6, 0, 0); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h20, "17. WRITE(6): CHECK, 5/20");
+
+    // 18: the LUN
+    cd_do(cdb6(8'h00, 8'h20, 8'h00, 8'h00, 8'h00), 6, 0, 0); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h25, "18. TEST UNIT READY to LUN 1: CHECK, 5/25");
+    cd_do(cdb6(8'h12, 8'h20, 8'h00, 8'h00, 8'd1), 6, 1, 0);
+    check(cd_ok && rbuf[0] == 8'h7F, "18. INQUIRY to LUN 1: byte 0 $7F");
+
+    // 19: the block length
+    for (k = 0; k < 12; k = k + 1) wbuf[k] = 8'h00;
+    wbuf[3] = 8'h08; wbuf[10] = 8'h02;
+    cd_do(cdb6(8'h15, 8'h00, 8'h00, 8'h00, 8'd12), 6, 0, 12);
+    check(cd_ok && cd_st == 8'h00, "19. MODE SELECT, block length 512: GOOD");
+    cd_do({8'h25, 72'h0}, 10, 8, 0);
+    check(cd_ok && {rbuf[0], rbuf[1], rbuf[2], rbuf[3]} == 32'd1079 &&
+          {rbuf[4], rbuf[5], rbuf[6], rbuf[7]} == 32'd512, "19. READ CAPACITY at 512: last block 1079 (4n + 3)");
+    cd_read(0, 13, 3, 512, 1'b0, "19. READ(6) at 512, 3 blocks from 13, byte-exact");
+    cd_do(cdb6(8'h1A, 8'h00, 8'h00, 8'h00, 8'd255), 6, 16, 0);
+    check(cd_ok && {rbuf[9], rbuf[10], rbuf[11]} == 24'h000200, "19. MODE SENSE: the current block length 512");
+    wbuf[10] = 8'h04;
+    cd_do(cdb6(8'h15, 8'h00, 8'h00, 8'h00, 8'd12), 6, 0, 12); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h26, "19. MODE SELECT 1024: CHECK, 5/26");
+    cd_do({8'h25, 72'h0}, 10, 8, 0);
+    check(cd_ok && {rbuf[4], rbuf[5], rbuf[6], rbuf[7]} == 32'd512, "19. ... the length stays 512");
+    wbuf[10] = 8'h08;
+    cd_do(cdb6(8'h15, 8'h00, 8'h00, 8'h00, 8'd12), 6, 0, 12);
+    cd_do({8'h25, 72'h0}, 10, 8, 0);
+    check(cd_ok && {rbuf[0], rbuf[1], rbuf[2], rbuf[3]} == 32'd269 &&
+          {rbuf[4], rbuf[5], rbuf[6], rbuf[7]} == 32'd2048, "19. MODE SELECT 2048: back to 269 x 2048");
+
+    // 20: eject
+    cd_do(cdb6(8'h1E, 8'h00, 8'h00, 8'h00, 8'h01), 6, 0, 0); check(cd_ok && cd_st == 8'h00, "20. PREVENT: GOOD");
+    cd_do({8'hC0, 72'h0}, 10, 0, 0); cd_sense;
+    check(cd_st == 8'h02 && key == 4'h5 && asc == 8'h80, "20. C0 EJECT while prevented: CHECK, 5/80");
+    cd_do(CD_TUR, 6, 0, 0); check(cd_ok && cd_st == 8'h00, "20. ... the disc stays");
+    cd_do(cdb6(8'h1E, 8'h00, 8'h00, 8'h00, 8'h00), 6, 0, 0);
+    cd_do({8'hC0, 72'h0}, 10, 0, 0); check(cd_ok && cd_st == 8'h00, "20. C0 EJECT allowed: GOOD");
+    cd_do(CD_TUR, 6, 0, 0); cd_sense; check(cd_st == 8'h02 && key == 4'h6 && asc == 8'h28, "20. then UNIT ATTENTION 6/28");
+    cd_do(CD_TUR, 6, 0, 0); cd_sense; check(cd_st == 8'h02 && key == 4'h2 && asc == 8'hB7, "20. then NOT READY / $B7");
+
+    // 21: the ROM's boot scan with a disc in: a bus reset, then its READ(6)
+    // of block 0 (SE30_PLAN.md 9.3) - CHECK with no data phase, twice
+    img_blocks = CD_BLOCKS;
+    @(negedge clk); img_mounted = 3'b100; @(negedge clk); img_mounted = 3'b000; ticks(20000);
+    cd_do(CD_TUR, 6, 0, 0); cd_do(CD_TUR, 6, 0, 0);                        // the medium change, reported
+    scsi_reset; reg_rd(7);
+    cd_do(cdb6(8'h08, 8'h00, 8'h00, 8'h00, 8'd1), 6, 0, 0);
+    check(cd_ok && cd_st == 8'h02, "21. after a bus reset, the ROM's READ(6) of block 0: CHECK, no data phase (6/29)");
+    cd_do(cdb6(8'h08, 8'h00, 8'h00, 8'h00, 8'd1), 6, 0, 0);
+    check(cd_ok && cd_st == 8'h02, "21. its retry inside the spin-up: CHECK, no data phase (2/04)");
+    ticks(20000);
+    cd_read(0, 0, 1, 2048, 1'b0, "21. after the spin-up: block 0, 2048 bytes");
+
+    // 22: the CD never asked for a write; the disks still answer
+    check(cd_wr_seen == 0 && cd_reqs > 0, "22. the CD's slot: reads only");
+    do_read(3'd0, 21'd5, 8'd1, 1'b1, "22. ID 0 still reads, byte-exact");
+    end
 
     if (fails == 0) $display("==== PASS: %0d checks, the 53C80 and the MacPlus targets meet at the bus", checks);
     else $display("==== FAIL: %0d of %0d checks", fails, checks);

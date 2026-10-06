@@ -93,6 +93,18 @@ localparam PERF_PROBES = 1;
 localparam PERF_PROBES = 0;
 `endif
 
+// The CD-ROM (plan Section 12): an AppleCD SC at SCSI ID 3 on hps_io slot
+// 4, data only (no CD audio, so no CUE/BIN/CHD: flat ISO and Toast images,
+// which Main serves on its generic path).  Define SE30_NO_CDROM to build
+// without it.  Toast is the first thing to drop if the logic runs short
+// (Daniel, 2026-10-06) - it costs only the OSD's extension list.
+// `define SE30_NO_CDROM
+`ifdef SE30_NO_CDROM
+localparam CDROM_EN = 0;
+`else
+localparam CDROM_EN = 1;
+`endif
+
 localparam CONF_STR = {
 	"MACSE30;;",
 	"-;",
@@ -103,6 +115,9 @@ localparam CONF_STR = {
 	"-;",
 	"SC2,IMGVHD,Mount SCSI-0;",
 	"SC3,IMGVHD,Mount SCSI-1;",
+`ifndef SE30_NO_CDROM
+	"SC4,ISOTO*,Mount CD-ROM;",
+`endif
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"-;",
@@ -124,40 +139,44 @@ wire         ioctl_wait;
 
 // the images: S0 the internal drive's, S1 the external drive's (plan
 // 5.14), 512-byte blocks read only (plan 5.12.5; writing is rung 3's);
-// SC2 and SC3 the SCSI disks at IDs 0 and 1, read and written (plan 9.5).
-// The data bus is shared; each client takes sd_buff_wr only under its own
-// sd_ack.
-wire   [3:0] img_mounted;
+// SC2 and SC3 the SCSI disks at IDs 0 and 1, read and written (plan 9.5);
+// SC4 the CD-ROM at ID 3, read only (plan 12.3; slot 4 is where Main's Mac
+// family keeps its CD).  The data bus is shared; each client takes
+// sd_buff_wr only under its own sd_ack.
+wire   [4:0] img_mounted;
 wire         img_readonly;
 wire  [63:0] img_size;
-wire  [31:0] sd_lba[4];
-wire   [5:0] sd_blk_cnt[4];
-wire  [15:0] sd_buff_din[4];
-wire   [3:0] sd_rd, sd_wr, sd_ack;
+wire  [31:0] sd_lba[5];
+wire   [5:0] sd_blk_cnt[5];
+wire  [15:0] sd_buff_din[5];
+wire   [4:0] sd_rd, sd_wr, sd_ack;
 wire         sd_buff_wr;
 wire  [12:0] sd_buff_addr;
 wire  [15:0] sd_buff_dout;
 wire  [31:0] flp_sd_lba, flp2_sd_lba;
-wire  [63:0] scsi_io_lba;
-wire  [31:0] scsi_sd_buff_din;
-wire   [1:0] scsi_io_rd, scsi_io_wr;
-wire  [11:0] scsi_io_blk_cnt;
+wire  [95:0] scsi_io_lba;
+wire  [47:0] scsi_sd_buff_din;
+wire   [2:0] scsi_io_rd, scsi_io_wr;
+wire  [17:0] scsi_io_blk_cnt;
 assign sd_lba[0]      = flp_sd_lba;
 assign sd_lba[1]      = flp2_sd_lba;
 assign sd_lba[2]      = scsi_io_lba[31:0];
 assign sd_lba[3]      = scsi_io_lba[63:32];
+assign sd_lba[4]      = scsi_io_lba[95:64];
 assign sd_blk_cnt[0]  = 6'd0;
 assign sd_blk_cnt[1]  = 6'd0;
 assign sd_blk_cnt[2]  = scsi_io_blk_cnt[5:0];    // a SCSI write request's sectors - 1 (plan 10.4 item 3)
 assign sd_blk_cnt[3]  = scsi_io_blk_cnt[11:6];
+assign sd_blk_cnt[4]  = 6'd0;                    // the CD: reads, one sector a request
 assign sd_buff_din[0] = 16'd0;
 assign sd_buff_din[1] = 16'd0;
 assign sd_buff_din[2] = scsi_sd_buff_din[15:0];
 assign sd_buff_din[3] = scsi_sd_buff_din[31:16];
-assign sd_rd[3:2]     = scsi_io_rd;
-assign sd_wr          = {scsi_io_wr, 2'b00};
+assign sd_buff_din[4] = scsi_sd_buff_din[47:32];
+assign sd_rd[4:2]     = scsi_io_rd;
+assign sd_wr          = {1'b0, scsi_io_wr[1:0], 2'b00};   // the CD never writes
 
-hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(4)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -467,7 +486,7 @@ always @(posedge clk_sys) begin
 	if ((sd_ack[2] && !scsi_ack_q[0]) || (sd_ack[3] && !scsi_ack_q[1])) scsi_sectors <= scsi_sectors + 1'd1;
 end
 
-se30_machine #(.EXT_DRIVE(EXT_DRIVE)) machine
+se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN)) machine
 (
 	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n),
 	.mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
@@ -487,8 +506,8 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE)) machine
 	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
 	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc), .dbg_asc(dbg_asc), .dbg_fpu(dbg_fpu), .dbg_pace(dbg_pace),
 	.audio_l(asc_audio_l), .audio_r(asc_audio_r),
-	.scsi_img_mounted(img_mounted[3:2]), .scsi_img_blocks(img_size[40:9]),
-	.scsi_io_lba(scsi_io_lba), .scsi_io_rd(scsi_io_rd), .scsi_io_wr(scsi_io_wr), .scsi_io_blk_cnt(scsi_io_blk_cnt), .scsi_io_ack(sd_ack[3:2]),
+	.scsi_img_mounted(img_mounted[4:2]), .scsi_img_blocks(img_size[40:9]),
+	.scsi_io_lba(scsi_io_lba), .scsi_io_rd(scsi_io_rd), .scsi_io_wr(scsi_io_wr), .scsi_io_blk_cnt(scsi_io_blk_cnt), .scsi_io_ack(sd_ack[4:2]),
 	.scsi_sd_buff_addr(sd_buff_addr), .scsi_sd_buff_dout(sd_buff_dout), .scsi_sd_buff_din(scsi_sd_buff_din),
 	.scsi_sd_buff_wr(sd_buff_wr),
 	.scc_port_in(6'b110_110), .scc_port_out()   // both serial ports empty (plan 10.3)
@@ -563,8 +582,8 @@ always @(posedge clk_sys) begin
 	if (dbg_scsi[1]) st_hold <= st_hold + 1'd1;
 	if (dbg_scsi[0]) st_hsw <= st_hsw + 1'd1;
 	if (!st_fly) begin
-		if (|scsi_io_rd || |scsi_io_wr) begin
-			st_fly <= 1; st_fly_wr <= |scsi_io_wr; st_cur <= 24'd1;
+		if (|scsi_io_rd[1:0] || |scsi_io_wr[1:0]) begin   // the disks (the CD is not measured)
+			st_fly <= 1; st_fly_wr <= |scsi_io_wr[1:0]; st_cur <= 24'd1;
 			st_blk <= scsi_io_wr[1] ? scsi_io_blk_cnt[11:6] : scsi_io_blk_cnt[5:0];
 		end
 	end else begin
@@ -659,7 +678,7 @@ dbg_probes #(.PERF_PROBES(PERF_PROBES)) probes
 	.flp2_state({ld2_dbg, en2_dbg, dbg_fdhd2, flp2_words}),
 	.exc_state(dbg_exc),
 	.cache_state(dbg_cache),
-	.scsi_state({dbg_scsi, scsi_io_rd, scsi_io_wr, sd_ack[3:2], scsi_sectors}),
+	.scsi_state({dbg_scsi, scsi_io_rd[1:0], scsi_io_wr[1:0], sd_ack[3:2], scsi_sectors}),
 	.scsi_meter(scsi_meter),
 	.scc_state(dbg_scc),
 	.asc_state(dbg_asc),
