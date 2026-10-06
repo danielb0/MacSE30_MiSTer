@@ -16510,8 +16510,45 @@ bitmap, the MDB's counts):
      target is not the lever. GLUE's DRQ wait shows how much of the
      bus time the CPU actually spends held.
 
-**END OF SESSION 2026-10-06 (early) - READ THIS TO RESUME** (supersedes
-the blocks below). Branch `floppy-write` at the commit after this one, tree
+**END OF SESSION 2026-10-06 (afternoon) - READ THIS TO RESUME** (supersedes
+the blocks below). Branch `floppy-write`, tree clean after this commit,
+nothing pushed (Daniel pushes). Another session works the ALM budget and
+CD-ROM (on a branch from `dev`); do not edit 10.4 or the budget memory.
+1. **Current bitstream: compile 46**, `output_files/MacSE30_d56cab1a_
+   dc42fix.rbf` (38,893 ALMs; our timing met at every corner; `ascal`
+   only, KNOWN ISSUES 6). Compile 45 (`3cf41753_mfmwrite`) is superseded
+   (its SD writer loses DC42 data).
+2. **MFM writing and formatting: BUILT (5.16) and 1.44 MB board-proven.**
+   Gates (5.16.8): 1 raw copy PASS, 2 Finder erase + copy PASS (every
+   free sector the formatter's F6 - the index-on-RDDATA inference holds),
+   3 DC42 FAILED on compile 45 (the SD writer's dedupe race - fixed
+   d56cab1, see 5.16.8 gate 3) and PASSED on compile 46. MFM writing cost
+   ~+270 ALMs by entity (compile 45).
+3. **Lessons**: a floppy that mounts and lists proves only the catalog -
+   check the files' CONTENTS on the card (`tools/hfs/fork_cmp.py`, and
+   `tools/hfs/split_check.py` for the DC42 head/tail signature); the
+   machfs-minted blanks (`Test disks\MFM\Blank1440K*`) draw a Disk First
+   Aid "Invalid thread record length" by themselves (`tools/hfs/
+   threads.py`); `soak.py`'s audit now follows the catalog's overflow
+   extents. New host tools in `tools/hfs`: `census.py` (the formatter's
+   fill in unused sectors), `threads.py`, `split_check.py`, `cat_dump.py`,
+   `node_check.py`.
+4. **Open: KNOWN ISSUES 9, PC Exchange** - writes work, the directory
+   lists, but every per-file operation fails (open "in use", Get Info
+   "can't be found") with no I/O; MAME opens and copies. Next steps (a)-(d)
+   are listed there; (a) the PC Exchange disassembly was proposed first.
+5. **Still owed on the board (compile 46)**: gate 4, 720K - DOS only
+   (Daniel: the Mac never made 720K HFS): read `Test disks\Phase6\
+   P6_DOS720K.img`, write a copy of `Test disks\MFM\Blank720K.img`, the
+   LC's two cross-encoding erases (`P6_Cross800K.dsk` as DOS 720K,
+   `P6_Cross720K.img` as Mac 800K) - but 720K goes through PC Exchange,
+   so it waits for item 4 (Daniel). FUTURE BOARD TESTS item 6 (PSTA vs
+   PBER) can be read on compile 46 any time.
+6. **After the gates**: merge `floppy-write` into `dev` (Daniel's call),
+   then the MVP's persistent PRAM.
+
+**END OF SESSION 2026-10-06 (early) - READ THIS TO RESUME** (superseded by
+the afternoon block above). Branch `floppy-write` at the commit after this one, tree
 clean, nothing pushed (Daniel pushes).
 1. **Current bitstream: compile 44**, `output_files/MacSE30_144c4b8d_
    stabilise1.rbf` (39,149 ALMs with the PBER probe; our timing met at
@@ -16925,6 +16962,52 @@ Daniel - add to it, move items out when fixed).**
    writable - one MAME run, on a disk MAME showed as unlocked while its
    writes failed, is not enough to call it the software's. Item 9 stays
    open, parked; the test is FUTURE BOARD TESTS item 7.
+   **RE-OPENED 2026-10-06 on compile 46 (MFM writing built; the DOS disk
+   WRITABLE, no lock icon): STILL OURS, NOT THE LOCK.** Board (Daniel),
+   a scratch copy of `Test disks\DOS\Disk1.img` as
+   `Test disks\Written\SE30\DOS\Disk1.img`:
+   - **Writing through PC Exchange works**: its mount-time files
+     (`DESKTOP`, `FINDER.DAT`, `RESOURCE.FRK/DESKTOP`) and a Finder copy
+     of a Mac file `README` (`!README`, data 8,672 + resource 8,858) all
+     on the card, both FATs equal, only the FATs, the root directory and
+     the new clusters changed (LC `scripts/fat_diff.py`, `floppy-write`
+     branch; it needs that branch's `hfs_check.py`/`hfs_fork_diff.py`).
+   - **The directory lists** (names, sizes) - **but every operation on a
+     named file fails**: TeachText's open of `NETWORKS.TXT` (17,465 B),
+     `README.TXT` (60,646 B) and the just-written `!README` all "may be
+     in use by someone else", **immediately** (no timeout); **Get Info on
+     a file: "can't be found"**; a Finder copy to the hard disk fails.
+     None of the files carries the DOS read-only bit (all `$20`).
+   - **No I/O during the refused open**: PSCS's SCSI sector count 569
+     before and after (no hard-disk traffic at all), PFWR's floppy
+     counters unchanged (97 arcs, 3,425 commits, 0 refused).
+   - **MAME's SE/30** (the same ROM, System - `pcx80.chd` - and PC
+     Exchange, a fresh copy of `Disk1.img` inserted READ-WRITE through
+     its File Manager): **the TeachText open of `NETWORKS.TXT` works,
+     and a Finder copy of it to the hard disk works** (yesterday's MAME
+     "cannot be found" was its disk effectively read-only). **But MAME's
+     write-back corrupted the floppy** (both FATs differ, a garbage root
+     entry, broken chains) - MAME's own write emulation; its Mac read its
+     in-memory cache. So MAME is a reference for reads and opens only
+     (Daniel: "MAME is very buggy, just differently").
+   **Reading**: enumeration works, a lookup by name fails, apparently in
+   memory - that points away from the floppy (the same sectors serve
+   both) and toward the CPU: an instruction our 68030 kernel gets wrong
+   in PC Exchange's name conversion/comparison, or a cache serving a
+   stale table or patched code. Not proven; MAME's independent 68030
+   running the same software is the contrast. **Next** (the next session
+   chose neither yet):
+   (a) disassemble PC Exchange's lookup path from the image MAME uses
+   (`C:\temp\Mac\mame\opint\pcx80.chd` = a copy of `MiSTer SE30
+   Backup\mac_80mb-restored.vhd`), list the instructions it relies on
+   (68020/030-only forms, `MULU.L`/`DIVU.L`, bit fields, `CMP2`/`CHK2`,
+   `CAS`), run them through the cputest corpus / `sim/cpfpu`;
+   (b) a debug compile with the 68030 caches forced off (~40 min) and the
+   open again - settles the cache question alone;
+   (c) on the board, a fresh mount with the TeachText open as the first
+   act (does the refusal exist from the mount?);
+   (d) the same image on the LC core with TeachText (Daniel: the LC
+   copies from a DOS disk; its open not yet tried).
 
 10. **The ~514 bus-error exceptions of a boot (PBER; items 8 and 9 read
     them as "the wrapper's own, CPU-space")** - re-read 2026-10-05
