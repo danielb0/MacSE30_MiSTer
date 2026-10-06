@@ -16515,7 +16515,8 @@ the blocks below; the afternoon block's items 1-3, 5 and 6 still stand).
 Branch `floppy-write`, tree clean after this commit, nothing pushed
 (Daniel pushes). No compile this session; compile 46 stays current.
 0. **KNOWN ISSUES 9 RESOLVED ON THE BOARD (compile 47, ~19:00): TeachText
-   opens NETWORKS.TXT from the DOS disk.** The kernel fix dd2dfe3 is
+   opens NETWORKS.TXT from the DOS disk, a Finder copy to the hard disk
+   succeeds.** The kernel fix dd2dfe3 is
    board-proven; compile 47 misses timing on two routing detours (item
    3a's compile record) - the timing work is next, Daniel's call on the
    ATC-hit path; the dev cherry-picks (3a) now include a proven fix.
@@ -16957,7 +16958,8 @@ Daniel - add to it, move items out when fixed).**
    `MacSE30.sta.rpt` for "combinational loop" - a loop in our logic is a
    defect, not a warning (this one sat in the reports unread).
 9. **RESOLVED 2026-10-06 evening (compile 47, dd2dfe39): TeachText opens
-   NETWORKS.TXT on the DOS disk (Daniel, ~19:00) - the per-file failures
+   NETWORKS.TXT on the DOS disk and a Finder copy from the diskette to
+   the hard disk succeeds (Daniel, ~19:00) - the per-file failures
    were the kernel's CMPM.L/ADDX.L upper-word loss, found with the DOSTest
    floppy and sim/cpfpu PROG=cmpm (the account at the end of this item);
    the Options hang was the 53C80 parity line (compile 44). Still to
