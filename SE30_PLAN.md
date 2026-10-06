@@ -9826,10 +9826,15 @@ byte loop is not uniform.
    HFS's thread records are 46 (*Inside Macintosh: Files* 2-88); every
    thread the Mac wrote during the copy is 46, and the untouched starting
    image `Test disks\MFM\Blank1440K.dsk` and its `.baseline` (2026-09-18)
-   carry the same two short threads. A host tool minted them
-   (compact threads; the LC's `mint_phase6_images.py` uses `machfs` - not
-   confirmed as this image's maker). The DC42 blank beside them has the
-   same; the 720K blanks there hold no volume. Next (Daniel): the
+   carry the same two short threads. **They were minted on the host with
+   `machfs`** (Daniel; the LC's `floppy-write` branch,
+   `docs/floppy_write_plan.md`, "Images (minted 2026-09-18)":
+   `Volume.write(size=1474560, bootable=False)`, then `scripts/mk_dc42.py`
+   for the DC42), which sizes the root's and the Desktop file's threads
+   to their names. Mac OS mounts and uses such a volume (the copy worked);
+   only Disk First Aid objects. Every blank minted that way draws the
+   same report. The DC42 blank beside them has the same; the 720K blanks
+   there hold no volume. Next (Daniel): the
    Finder's Erase of the same disk, the same copy, Disk First Aid
    (gate 2, which also rebuilds the catalog with the Mac's own records).
 2. The Finder's Erase of a 1.44 MB disk (a format: both sides of every
