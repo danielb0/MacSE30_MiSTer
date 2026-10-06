@@ -16097,6 +16097,18 @@ byte-exact.**
   - **For Daniel:** keep it (authentic), or add a reload of the last image
     at the next boot's bus reset (an OSD option), or go back to the
     CDU-8004 identity (not recommended).
+- **The soak, host-checked: a 20 MB folder from the System 7.1 CD
+  (`C:\temp\Mac\System 7.1 CD-ROM.iso`, 374,839,296 B, HFS 6,144-byte
+  blocks) copied by the Finder is byte-exact.** The folder is "British" in
+  "CD Test": 137 of 137 files identical (11,460,314 data + 8,543,176
+  resource bytes; nested folders, eight 1.4 MB DiskCopy images).
+  - The CD volume audits clean.
+  - The disk volume has two orphan file threads (parent 3539: 'SimpleText'
+    and "What's New in Version 7.5.3?"). These are files of the earlier
+    "Before You Install" copy, now deleted. It is the known HDelete
+    behaviour of System 7.5.5 on this ROM, which MAME's 68030 reproduces
+    byte for byte (2026-10-04, branch `fidthread`): not the CD, and not
+    the core.
 - **Toast: a System 7.1 CD image renamed `.toast` is listed by the OSD
   (`TO*`) and mounts.** The bytes are those of an ISO, so this checks the
   extension filter. A bare-HFS "Mac Volume" Toast image (no partition map)
