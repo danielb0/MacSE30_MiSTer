@@ -16514,6 +16514,11 @@ bitmap, the MDB's counts):
 the blocks below; the afternoon block's items 1-3, 5 and 6 still stand).
 Branch `floppy-write`, tree clean after this commit, nothing pushed
 (Daniel pushes). No compile this session; compile 46 stays current.
+0. **KNOWN ISSUES 9 RESOLVED ON THE BOARD (compile 47, ~19:00): TeachText
+   opens NETWORKS.TXT from the DOS disk.** The kernel fix dd2dfe3 is
+   board-proven; compile 47 misses timing on two routing detours (item
+   3a's compile record) - the timing work is next, Daniel's call on the
+   ATC-hit path; the dev cherry-picks (3a) now include a proven fix.
 1. **KNOWN ISSUES 9 (PC Exchange per-file operations) worked offline**:
    PC Exchange 2.0.5 is an FSM foreign file system; its name lookup was
    read from the disassembly (`EXFS 16` $70D2 -> $8070 -> $C056 / $69B6 /
@@ -16951,8 +16956,16 @@ Daniel - add to it, move items out when fixed).**
    Lesson, added to the build ritual: after the STA corners, grep
    `MacSE30.sta.rpt` for "combinational loop" - a loop in our logic is a
    defect, not a warning (this one sat in the reports unread).
-9. **PC Exchange's Options button never finishes "searching for SCSI
-   devices"** (Daniel, board, compile 43, 2026-10-05). The probes: the
+9. **RESOLVED 2026-10-06 evening (compile 47, dd2dfe39): TeachText opens
+   NETWORKS.TXT on the DOS disk (Daniel, ~19:00) - the per-file failures
+   were the kernel's CMPM.L/ADDX.L upper-word loss, found with the DOSTest
+   floppy and sim/cpfpu PROG=cmpm (the account at the end of this item);
+   the Options hang was the 53C80 parity line (compile 44). Still to
+   read on compile 47 when convenient: DOSTest's `DT R`/`DT S` names
+   (expected 0000s and `DT S 0029 0000 FFD5`), a Finder copy to the hard
+   disk and Get Info; then 5.16.8 gate 4 (720K, DOS).**
+   The history: **PC Exchange's Options button never finishes "searching
+   for SCSI devices"** (Daniel, board, compile 43, 2026-10-05). The probes: the
    CPU alive in the ROM's SCSI Manager, every A-line trap `A815`
    (`_SCSIDispatch`, ~30,000 calls a second), the PCs in the dispatcher
    (`$408266A4`) and selector 10's routine (`$40826706`: `SCSIStat`,
@@ -17251,7 +17264,9 @@ Daniel - add to it, move items out when fixed).**
      pin, X60_Y0): 4 levels, 2.3 ns of cells, a 5.7 ns wire into the pin -
      registering the two window flags a clock ahead (since_start counts by
      one; start_rise clears them) takes the comparators out of the path,
-     sim/sdram 193 the bench. On the board the DOSTest floppy decides** -
+     sim/sdram 193 the bench. **BOARD (Daniel, ~19:00): compile 47 opens
+     NETWORKS.TXT in TeachText - KNOWN ISSUES 9 RESOLVED.** The DOSTest
+     names on compile 47 are still worth a reading** -
      `DT R 0000 0000 0000 0000`, `DT S 0029 0000 FFD5`, then TeachText's
      open and a Finder copy from the DOS disk (720K gate 4 follows).
 
