@@ -16520,7 +16520,8 @@ Branch `floppy-write`, tree clean after this commit, nothing pushed
    $E9E) - everything after the mount runs in memory, so the open fails
    without disk I/O by design. The whole account is in KNOWN ISSUES 9
    under "2026-10-06 (evening)".
-2. **A deterministic board test is ready**: `C:	emp\Mac\Test disks   DOSTest\DOSTest.img` (built by `tools/hfs/make_dostest.py`) holds
+2. **A deterministic board test is ready**: `C:\temp\Mac\Test disks\DOSTest\DOSTest.img`
+   (built by `tools/hfs/make_dostest.py`) holds
    `DOSTest`, `CacheOff` and `CacheOn`. DOSTest makes the Finder's and
    TeachText's File Manager calls against the PC Exchange volume and
    writes the result codes as file names (`DT V/N/R/S/C ...`), the last
