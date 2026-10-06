@@ -27,8 +27,21 @@
 //             drNmAlBlks x drAlBlkSiz over 1200 blocks, or no MDB to say
 //             (the SuperDrive, the first ceiling, is always double-sided)
 //   img_tags  a DC42 whose tag size ($44) is 12 bytes a block
-//   disk_in   also needs a GCR geometry: 400K or 800K.  720K and 1440K
-//             images load but are not a disk on rung 2 (plan 5.13).
+//   img_mfm   an MFM disk (plan 5.13.6, 5.13.9 item 5): the file's data
+//             is 1,474,560 bytes (1.44 MB) or 737,280 (720K) - raw, or a
+//             DC42 whose format byte ($50) is 3 or 2 (DiskCopy's 1440K
+//             and 720K); no tags, two sides of 18 or 9 sectors
+//   img_hd    a 1.44 MB disk: the drive's $F reads a high-density medium
+//   disk_in   also needs one of the four geometries: 400K, 800K (GCR),
+//             720K, 1.44 MB (MFM).
+//
+// FOR THE WRITER (rung 3, plan 5.15.5 item 8)
+//   The first 42 words of file block 0 are kept in a small store (every
+//   mount rewrites it; for a raw image they are only its first 84 bytes,
+//   which the writer never asks for): a DiskCopy image's header is the one
+//   part of the file the image in SDRAM does not hold.  is_dc42 and
+//   file_blks (the file's 512-byte blocks, the partial last one counted)
+//   go to the writer too.
 
 `timescale 1ns/1ps
 
@@ -62,8 +75,16 @@ module se30_flp_loader #(
   output reg        img_ds,
   output reg        img_800k,
   output reg        img_tags,
+  output reg        img_mfm,
+  output reg        img_hd,
   output reg        readonly,
   output reg        loading,
+
+  input       [5:0] hdr_addr,          // the header store, for the writer
+  output reg [15:0] hdr_data,          // registered
+  output            is_dc42,
+  output     [12:0] file_blks,
+
   output     [15:0] dbg
 );
 
@@ -106,6 +127,15 @@ module se30_flp_loader #(
   reg        mount_pending;
   reg [63:0] pend_size;
   reg        pend_ro;
+
+  // file block 0's first 42 words, as they stream in (byte-swapped like
+  // the payload: file byte 2k in the high half)
+  reg [15:0] hdr_ram [0:63];
+  always @(posedge clk) begin
+    if (state == S_RD && sd_buff_wr && sd_ack && sd_lba == 32'd0 && sd_buff_addr < 8'd42)
+      hdr_ram[sd_buff_addr[5:0]] <= sw_data;
+    hdr_data <= hdr_ram[hdr_addr];
+  end
 
   // DC42 header words, sampled as sector 0 streams past. Tested on the RAW
   // delivered word, not the swapped one:
@@ -157,6 +187,10 @@ module se30_flp_loader #(
   wire        fits      = !dc42 || (size_l >= 64'd84 + data_size);          // the data is in the file
   wire        gcr       = (is800 || is400) && fits && (!dc42 || dc42_fmt < 8'd2) &&
                           (dc42 || size_l[63:32] == 0);
+  wire        is1440    = (data_size == 32'd1474560);
+  wire        is720     = (data_size == 32'd737280);
+  wire        mfm       = (is1440 || is720) && fits && (!dc42 || dc42_fmt == 8'd2 || dc42_fmt == 8'd3) &&
+                          (dc42 || size_l[63:32] == 0);
   wire [31:0] tags_want = is800 ? 32'd19200 : 32'd9600;                      // 12 bytes a block
   wire        tags_ok   = dc42 && dc42_tsize == tags_want && size_l >= 64'd84 + data_size + tags_want;
 
@@ -164,6 +198,7 @@ module se30_flp_loader #(
     if (!reset_n) begin
       state <= S_IDLE; sd_rd <= 0; sd_lba <= 0; mem_req <= 0; mem_addr <= 0; mem_wdata <= 0;
       loading <= 0; disk_in <= 0; img_ds <= 0; img_800k <= 0; img_tags <= 0; readonly <= 0;
+      img_mfm <= 0; img_hd <= 0;
       dc42 <= 0; dc42_name_ok <= 0; dc42_fmt <= 0; dc42_dsize <= 0; dc42_tsize <= 0;
       mount_pending <= 0; pend_size <= 0; pend_ro <= 0; size_l <= 0;
       sec_total <= 0; file_word <= 0; drain_idx <= 0; old_ack <= 0;
@@ -225,7 +260,7 @@ module se30_flp_loader #(
             size_l   <= pend_size;
             dc42 <= 0; dc42_name_ok <= 0; dc42_fmt <= 0; dc42_dsize <= 0; dc42_tsize <= 0;
             mdb_seen <= 0; mul_busy <= 0; vol_blocks <= 0;
-            img_ds <= 0; img_800k <= 0; img_tags <= 0;
+            img_ds <= 0; img_800k <= 0; img_tags <= 0; img_mfm <= 0; img_hd <= 0;
             if (pend_size != 64'd0) begin
               // CEIL, not floor: a DC42 file is 84 + payload bytes and
               // never ends on a block boundary, so a floor drops the last
@@ -295,10 +330,12 @@ module se30_flp_loader #(
             img_800k <= is800;
             img_ds   <= is800 && (!mdb_ok || vol_blocks > SIDEDNESS_THRESHOLD);
             img_tags <= tags_ok;
+            img_mfm  <= mfm;
+            img_hd   <= mfm && is1440;
             // a mount pending, or arriving on this very clock (these
             // assignments come after the pulse's own and would undo them),
             // supersedes this image: not in, and still loading
-            disk_in  <= gcr && !mount_pending && !img_mounted;
+            disk_in  <= (gcr || mfm) && !mount_pending && !img_mounted;
             if (!mount_pending && !img_mounted) loading <= 0;
             state    <= S_IDLE;
           end
@@ -308,6 +345,8 @@ module se30_flp_loader #(
     end
   end
 
+  assign is_dc42   = dc42;
+  assign file_blks = sec_total[12:0];
   assign dbg = {disk_in, loading, img_ds, img_800k, img_tags, dc42, state, sd_lba[6:0]};
 
 endmodule

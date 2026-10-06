@@ -188,22 +188,25 @@ module tb_se30_gcrread;
 
   wire  [6:0] cyl, trk_cyl, cyl2, trk2_cyl;
   wire        trk_valid, trk_side, trk_bit, trk2_valid, trk2_side, trk2_bit;
-  wire [16:0] trk_addr, trk2_addr;
+  wire [17:0] trk_addr, trk2_addr;
   wire        disk_in, img_ds, img_800k, img_tags, readonly, loading;
   wire        disk2_in, img2_ds, img2_800k, img2_tags, readonly2, loading2;
 
+  wire swim_wrdata, swim_wrreq_n;                      // the write lines, to both drives (plan 5.15)
   se30_swim swim (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
     .sel(swim_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .wdata(dev_wdata), .rdata(swim_rdata),
     .ph_out(swim_ph), .ph_oe(swim_ph_oe), .ph_in(swim_ph_pin),
     .enbl1_n(enbl1_n), .enbl2_n(enbl2_n), .sense(swim_sense),
-    .wrdata(), .wrreq_n(), .hdsel(), .dbg(swim_dbg));
+    .wrdata(swim_wrdata), .wrreq_n(swim_wrreq_n), .hdsel(), .dbg(swim_dbg));
 
   se30_fdhd fdhd (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
     .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
     .sense(fdhd_sense), .disk_in(disk_in), .eject(fdhd_eject),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+    .hd(1'b0), .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata), .trk_we(), .trk_wbit(), .trk_cells(),
+    .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
     .dbg(fdhd_dbg));
 
   se30_fdhd fdhd2 (                                    // the external drive (plan 5.14)
@@ -211,6 +214,8 @@ module tb_se30_gcrread;
     .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
     .sense(fdhd2_sense), .disk_in(disk2_in), .eject(fdhd2_eject),
     .cyl(cyl2), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+    .hd(1'b0), .wprot(1'b1), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata), .trk_we(), .trk_wbit(), .trk_cells(),
+    .arc_done(), .arc_side(), .arc_start(), .arc_end(), .arc_whole(),
     .dbg(fdhd2_dbg));
 
   // ------------------------------------------------------------ the loader, the encoder, the port
@@ -237,13 +242,14 @@ module tb_se30_gcrread;
     .mem_req(ld_req), .mem_addr(ld_addr), .mem_wdata(ld_wdata), .mem_ack(ld_ack),
     .eject(fdhd_eject),
     .disk_in(disk_in), .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags),
-    .readonly(readonly), .loading(loading), .dbg());
+    .readonly(readonly), .loading(loading), .hdr_addr(6'd0), .hdr_data(), .is_dc42(), .file_blks(), .dbg());
 
   se30_flp_encoder #(.BASE(BASE)) encoder (
     .clk(clk), .reset_n(reset_n),
-    .disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_800k),
+    .disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_800k), .img_mfm(1'b0), .img_hd(1'b0),
     .cyl(cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
     .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+    .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(19'd0), .dec_bit(), .enc_idle(),
     .mem_req(en_req), .mem_addr(en_addr), .mem_rdata(en_rdata), .mem_ack(en_ack),
     .dbg());
 
@@ -255,13 +261,14 @@ module tb_se30_gcrread;
     .mem_req(ld2_req), .mem_addr(ld2_addr), .mem_wdata(ld2_wdata), .mem_ack(ld2_ack),
     .eject(fdhd2_eject),
     .disk_in(disk2_in), .img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags),
-    .readonly(readonly2), .loading(loading2), .dbg());
+    .readonly(readonly2), .loading(loading2), .hdr_addr(6'd0), .hdr_data(), .is_dc42(), .file_blks(), .dbg());
 
   se30_flp_encoder #(.BASE(BASE2)) encoder2 (
     .clk(clk), .reset_n(reset_n),
-    .disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k),
+    .disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k), .img_mfm(1'b0), .img_hd(1'b0),
     .cyl(cyl2), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid),
     .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+    .trk_we(1'b0), .trk_wbit(1'b0), .hold(1'b0), .dec_addr(19'd0), .dec_bit(), .enc_idle(),
     .mem_req(en2_req), .mem_addr(en2_addr), .mem_rdata(en2_rdata), .mem_ack(en2_ack),
     .dbg());
 
@@ -271,6 +278,10 @@ module tb_se30_gcrread;
     .en0_req(en_req), .en0_addr(en_addr), .en0_rdata(en_rdata), .en0_ack(en_ack),
     .ld1_req(ld2_req), .ld1_addr(ld2_addr), .ld1_wdata(ld2_wdata), .ld1_ack(ld2_ack),
     .en1_req(en2_req), .en1_addr(en2_addr), .en1_rdata(en2_rdata), .en1_ack(en2_ack),
+    .de0_req(1'b0), .de0_addr(24'd0), .de0_wdata(16'd0), .de0_ack(),   // reading only (plan 5.15 has its own benches)
+    .wr0_req(1'b0), .wr0_addr(24'd0), .wr0_rdata(), .wr0_ack(),
+    .de1_req(1'b0), .de1_addr(24'd0), .de1_wdata(16'd0), .de1_ack(),
+    .wr1_req(1'b0), .wr1_addr(24'd0), .wr1_rdata(), .wr1_ack(),
     .dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack));
 
   // ------------------------------------------------------------ the SDRAM, as the machine drives it

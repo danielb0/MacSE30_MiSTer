@@ -93,6 +93,17 @@ localparam PERF_PROBES = 1;
 localparam PERF_PROBES = 0;
 `endif
 
+// PBER, the probe of the last four bus-error exceptions (KNOWN ISSUES 8;
+// about 1,405 ALMs), is a build option too: define SE30_PBER for it (with
+// USE_DBG_PROBES).  Off by default (Daniel, 2026-10-07); a debug build that
+// needs it can leave other probes out to make room.
+// `define SE30_PBER
+`ifdef SE30_PBER
+localparam PBER = 1;
+`else
+localparam PBER = 0;
+`endif
+
 // The CD-ROM (plan Section 12): an AppleCD SC at SCSI ID 3 on hps_io slot
 // 4, data only (no CD audio, so no CUE/BIN/CHD: flat ISO and Toast images,
 // which Main serves on its generic path).  Define SE30_NO_CDROM to build
@@ -138,11 +149,13 @@ wire  [15:0] ioctl_dout;
 wire         ioctl_wait;
 
 // the images: S0 the internal drive's, S1 the external drive's (plan
-// 5.14), 512-byte blocks read only (plan 5.12.5; writing is rung 3's);
-// SC2 and SC3 the SCSI disks at IDs 0 and 1, read and written (plan 9.5);
-// SC4 the CD-ROM at ID 3, read only (plan 12.3; slot 4 is where Main's Mac
-// family keeps its CD).  The data bus is shared; each client takes
-// sd_buff_wr only under its own sd_ack.
+// 5.14), 512-byte blocks, read by the loaders (plan 5.12.5) and written
+// back by the SD writers (plan 5.15.5 item 6: the slot's lba is the
+// writer's while it presents a block); SC2 and SC3 the SCSI disks at IDs
+// 0 and 1, read and written (plan 9.5); SC4 the CD-ROM at ID 3, read only
+// (plan 12.3; slot 4 is where Main's Mac family keeps its CD).
+// The data bus is shared; each client takes sd_buff_wr only under its own
+// sd_ack.
 wire   [4:0] img_mounted;
 wire         img_readonly;
 wire  [63:0] img_size;
@@ -153,13 +166,15 @@ wire   [4:0] sd_rd, sd_wr, sd_ack;
 wire         sd_buff_wr;
 wire  [12:0] sd_buff_addr;
 wire  [15:0] sd_buff_dout;
-wire  [31:0] flp_sd_lba, flp2_sd_lba;
+wire  [31:0] flp_sd_lba, flp2_sd_lba, flp_wr_lba, flp2_wr_lba;
+wire         flp_sd_wr, flp2_sd_wr;
+wire  [15:0] flp_sd_din, flp2_sd_din;
 wire  [95:0] scsi_io_lba;
 wire  [47:0] scsi_sd_buff_din;
 wire   [2:0] scsi_io_rd, scsi_io_wr;
 wire  [17:0] scsi_io_blk_cnt;
-assign sd_lba[0]      = flp_sd_lba;
-assign sd_lba[1]      = flp2_sd_lba;
+assign sd_lba[0]      = flp_sd_wr  ? flp_wr_lba  : flp_sd_lba;
+assign sd_lba[1]      = flp2_sd_wr ? flp2_wr_lba : flp2_sd_lba;
 assign sd_lba[2]      = scsi_io_lba[31:0];
 assign sd_lba[3]      = scsi_io_lba[63:32];
 assign sd_lba[4]      = scsi_io_lba[95:64];
@@ -168,13 +183,13 @@ assign sd_blk_cnt[1]  = 6'd0;
 assign sd_blk_cnt[2]  = scsi_io_blk_cnt[5:0];    // a SCSI write request's sectors - 1 (plan 10.4 item 3)
 assign sd_blk_cnt[3]  = scsi_io_blk_cnt[11:6];
 assign sd_blk_cnt[4]  = 6'd0;                    // the CD: reads, one sector a request
-assign sd_buff_din[0] = 16'd0;
-assign sd_buff_din[1] = 16'd0;
+assign sd_buff_din[0] = flp_sd_din;
+assign sd_buff_din[1] = flp2_sd_din;
 assign sd_buff_din[2] = scsi_sd_buff_din[15:0];
 assign sd_buff_din[3] = scsi_sd_buff_din[31:16];
 assign sd_buff_din[4] = scsi_sd_buff_din[47:32];
 assign sd_rd[4:2]     = scsi_io_rd;
-assign sd_wr          = {1'b0, scsi_io_wr[1:0], 2'b00};   // the CD never writes
+assign sd_wr          = {1'b0, scsi_io_wr[1:0], flp2_sd_wr, flp_sd_wr};   // the CD never writes
 
 hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5)) hps_io
 (
@@ -317,10 +332,10 @@ end
 // machine's reset: a reset keeps the disk in, as it does on a Mac.
 
 wire        flp_reset_n = lock_s[1];
-wire        disk_in, img_ds, img_800k, img_tags, flp_readonly, flp_loading, disk_eject;
+wire        disk_in, img_ds, img_800k, img_tags, img_mfm, img_hd, flp_readonly, flp_loading, disk_eject;
 wire  [6:0] disk_cyl, trk_cyl;
 wire        trk_valid, trk_side, trk_bit;
-wire [16:0] trk_addr;
+wire [17:0] trk_addr;
 wire        ld_req, ld_ack, en_req, en_ack;
 wire [23:0] ld_addr, en_addr;
 wire [15:0] ld_wdata, en_rdata;
@@ -328,15 +343,42 @@ wire        dk_req, dk_we, dk_ack;
 wire [23:0] dk_addr;
 wire [15:0] dk_wdata, dk_rdata;
 wire [15:0] ld_dbg, en_dbg;
+// writing (plan 5.15, and MFM 5.16): the drive's recording and arcs, the
+// decoder and the SD writer; a disk is protected only when mounted read-only
+wire        disk_wprot = flp_readonly;
+wire        trk_we, trk_wbit, arc_done, arc_side, arc_whole;
+wire [17:0] trk_cells, arc_start, arc_end;
+wire        enc_hold, enc_idle, dec_bit, ds_eff, flp_dc42;
+wire [18:0] dec_addr;
+wire  [5:0] hdr_addr;
+wire [15:0] hdr_data;
+wire [12:0] flp_blks;
+wire        de_req, de_ack, wr_req, wr_ack, cm_done, cm_ready;
+wire [23:0] de_addr, wr_addr;
+wire [15:0] de_wdata, wr_rdata;
+wire [11:0] cm_blk;
+wire [31:0] de_dbg, wr_dbg;
 // the external drive's (plan 5.14): its image at word $900000
-wire        disk2_in, img2_ds, img2_800k, img2_tags, flp2_readonly, flp2_loading, disk2_eject;
+wire        disk2_in, img2_ds, img2_800k, img2_tags, img2_mfm, img2_hd, flp2_readonly, flp2_loading, disk2_eject;
 wire  [6:0] disk2_cyl, trk2_cyl;
 wire        trk2_valid, trk2_side, trk2_bit;
-wire [16:0] trk2_addr;
+wire [17:0] trk2_addr;
 wire        ld2_req, ld2_ack, en2_req, en2_ack;
 wire [23:0] ld2_addr, en2_addr;
 wire [15:0] ld2_wdata, en2_rdata;
 wire [15:0] ld2_dbg, en2_dbg, dbg_fdhd2;
+wire        disk2_wprot = flp2_readonly;
+wire        trk2_we, trk2_wbit, arc2_done, arc2_side, arc2_whole;
+wire [17:0] trk2_cells, arc2_start, arc2_end;
+wire        de2_req, de2_ack, wr2_req, wr2_ack;
+wire [23:0] de2_addr, wr2_addr;
+wire [15:0] de2_wdata, wr2_rdata;
+wire        enc2_hold, enc2_idle, dec2_bit, ds2_eff, flp2_dc42, cm2_done, cm2_ready;
+wire [18:0] dec2_addr;
+wire  [5:0] hdr2_addr;
+wire [15:0] hdr2_data;
+wire [12:0] flp2_blks;
+wire [11:0] cm2_blk;
 
 se30_flp_loader flp_loader
 (
@@ -347,17 +389,50 @@ se30_flp_loader flp_loader
 	.mem_req(ld_req), .mem_addr(ld_addr), .mem_wdata(ld_wdata), .mem_ack(ld_ack),
 	.eject(disk_eject),
 	.disk_in(disk_in), .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags),
-	.readonly(flp_readonly), .loading(flp_loading), .dbg(ld_dbg)
+	.img_mfm(img_mfm), .img_hd(img_hd),
+	.readonly(flp_readonly), .loading(flp_loading),
+	.hdr_addr(hdr_addr), .hdr_data(hdr_data), .is_dc42(flp_dc42), .file_blks(flp_blks),
+	.dbg(ld_dbg)
 );
 
 se30_flp_encoder flp_encoder
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
-	.disk_in(disk_in), .img_ds(img_ds), .img_tags(img_tags), .img_800k(img_800k),
+	.disk_in(disk_in), .img_ds(ds_eff), .img_tags(img_tags), .img_800k(img_800k),
+	.img_mfm(img_mfm), .img_hd(img_hd),
 	.cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
 	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+	.trk_we(trk_we), .trk_wbit(trk_wbit), .hold(enc_hold), .dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle),
 	.mem_req(en_req), .mem_addr(en_addr), .mem_rdata(en_rdata), .mem_ack(en_ack),
 	.dbg(en_dbg)
+);
+
+// the written cylinder back into the image, and the image back to the card (plan 5.15)
+se30_flp_decoder flp_decoder
+(
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.disk_in(disk_in), .loading(flp_loading), .write_ok(!disk_wprot),
+	.img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags), .img_mfm(img_mfm), .img_hd(img_hd), .ds_eff(ds_eff),
+	.arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end),
+	.arc_whole(arc_whole), .trk_cells(trk_cells), .cyl(disk_cyl),
+	.dec_addr(dec_addr), .dec_bit(dec_bit), .enc_idle(enc_idle), .hold(enc_hold),
+	.mem_req(de_req), .mem_addr(de_addr), .mem_wdata(de_wdata), .mem_ack(de_ack),
+	.cm_done(cm_done), .cm_blk(cm_blk), .cm_ready(cm_ready),
+	.dbg(de_dbg)
+);
+
+se30_flp_sdwriter flp_sdwriter
+(
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.img_mounted(img_mounted[0]), .loading(flp_loading), .write_ok(!disk_wprot),
+	.dc42(flp_dc42), .img_tags(img_tags), .img_800k(img_800k), .file_blks(flp_blks),
+	.cm_done(cm_done), .cm_blk(cm_blk), .cm_ready(cm_ready),
+	.flush_req(disk_eject),
+	.hdr_addr(hdr_addr), .hdr_data(hdr_data),
+	.mem_req(wr_req), .mem_addr(wr_addr), .mem_rdata(wr_rdata), .mem_ack(wr_ack),
+	.sd_lba(flp_wr_lba), .sd_wr(flp_sd_wr), .sd_ack(sd_ack[0]),
+	.sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_din(flp_sd_din),
+	.busy(), .dbg(wr_dbg)
 );
 
 generate if (EXT_DRIVE) begin : ext   // the external drive's chain (the option above)
@@ -370,17 +445,49 @@ se30_flp_loader #(.BASE(24'h900000)) flp2_loader
 	.mem_req(ld2_req), .mem_addr(ld2_addr), .mem_wdata(ld2_wdata), .mem_ack(ld2_ack),
 	.eject(disk2_eject),
 	.disk_in(disk2_in), .img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags),
-	.readonly(flp2_readonly), .loading(flp2_loading), .dbg(ld2_dbg)
+	.img_mfm(img2_mfm), .img_hd(img2_hd),
+	.readonly(flp2_readonly), .loading(flp2_loading),
+	.hdr_addr(hdr2_addr), .hdr_data(hdr2_data), .is_dc42(flp2_dc42), .file_blks(flp2_blks),
+	.dbg(ld2_dbg)
 );
 
 se30_flp_encoder #(.BASE(24'h900000)) flp2_encoder
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
-	.disk_in(disk2_in), .img_ds(img2_ds), .img_tags(img2_tags), .img_800k(img2_800k),
+	.disk_in(disk2_in), .img_ds(ds2_eff), .img_tags(img2_tags), .img_800k(img2_800k),
+	.img_mfm(img2_mfm), .img_hd(img2_hd),
 	.cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid),
 	.trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+	.trk_we(trk2_we), .trk_wbit(trk2_wbit), .hold(enc2_hold), .dec_addr(dec2_addr), .dec_bit(dec2_bit), .enc_idle(enc2_idle),
 	.mem_req(en2_req), .mem_addr(en2_addr), .mem_rdata(en2_rdata), .mem_ack(en2_ack),
 	.dbg(en2_dbg)
+);
+
+se30_flp_decoder #(.BASE(24'h900000)) flp2_decoder
+(
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.disk_in(disk2_in), .loading(flp2_loading), .write_ok(!disk2_wprot),
+	.img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags), .img_mfm(img2_mfm), .img_hd(img2_hd), .ds_eff(ds2_eff),
+	.arc_done(arc2_done), .arc_side(arc2_side), .arc_start(arc2_start), .arc_end(arc2_end),
+	.arc_whole(arc2_whole), .trk_cells(trk2_cells), .cyl(disk2_cyl),
+	.dec_addr(dec2_addr), .dec_bit(dec2_bit), .enc_idle(enc2_idle), .hold(enc2_hold),
+	.mem_req(de2_req), .mem_addr(de2_addr), .mem_wdata(de2_wdata), .mem_ack(de2_ack),
+	.cm_done(cm2_done), .cm_blk(cm2_blk), .cm_ready(cm2_ready),
+	.dbg()
+);
+
+se30_flp_sdwriter #(.BASE(24'h900000)) flp2_sdwriter
+(
+	.clk(clk_sys), .reset_n(flp_reset_n),
+	.img_mounted(img_mounted[1]), .loading(flp2_loading), .write_ok(!disk2_wprot),
+	.dc42(flp2_dc42), .img_tags(img2_tags), .img_800k(img2_800k), .file_blks(flp2_blks),
+	.cm_done(cm2_done), .cm_blk(cm2_blk), .cm_ready(cm2_ready),
+	.flush_req(disk2_eject),
+	.hdr_addr(hdr2_addr), .hdr_data(hdr2_data),
+	.mem_req(wr2_req), .mem_addr(wr2_addr), .mem_rdata(wr2_rdata), .mem_ack(wr2_ack),
+	.sd_lba(flp2_wr_lba), .sd_wr(flp2_sd_wr), .sd_ack(sd_ack[1]),
+	.sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_din(flp2_sd_din),
+	.busy(), .dbg()
 );
 end else begin : noext   // no external drive: no image, no disk, no port requests
 assign flp2_sd_lba   = 32'd0;
@@ -389,6 +496,8 @@ assign disk2_in      = 1'b0;
 assign img2_ds       = 1'b0;
 assign img2_800k     = 1'b0;
 assign img2_tags     = 1'b0;
+assign img2_mfm      = 1'b0;
+assign img2_hd       = 1'b0;
 assign flp2_readonly = 1'b0;
 assign flp2_loading  = 1'b0;
 assign ld2_req       = 1'b0;
@@ -401,6 +510,14 @@ assign en2_dbg       = 16'd0;
 assign trk2_cyl      = 7'd0;
 assign trk2_valid    = 1'b0;
 assign trk2_bit      = 1'b0;
+assign flp2_wr_lba   = 32'd0;
+assign flp2_sd_wr    = 1'b0;
+assign flp2_sd_din   = 16'd0;
+assign de2_req       = 1'b0;
+assign de2_addr      = 24'd0;
+assign de2_wdata     = 16'd0;
+assign wr2_req       = 1'b0;
+assign wr2_addr      = 24'd0;
 end endgenerate
 
 se30_flp_dkmux flp_dkmux
@@ -410,6 +527,10 @@ se30_flp_dkmux flp_dkmux
 	.en0_req(en_req), .en0_addr(en_addr), .en0_rdata(en_rdata), .en0_ack(en_ack),
 	.ld1_req(ld2_req), .ld1_addr(ld2_addr), .ld1_wdata(ld2_wdata), .ld1_ack(ld2_ack),
 	.en1_req(en2_req), .en1_addr(en2_addr), .en1_rdata(en2_rdata), .en1_ack(en2_ack),
+	.de0_req(de_req), .de0_addr(de_addr), .de0_wdata(de_wdata), .de0_ack(de_ack),
+	.wr0_req(wr_req), .wr0_addr(wr_addr), .wr0_rdata(wr_rdata), .wr0_ack(wr_ack),
+	.de1_req(de2_req), .de1_addr(de2_addr), .de1_wdata(de2_wdata), .de1_ack(de2_ack),
+	.wr1_req(wr2_req), .wr1_addr(wr2_addr), .wr1_rdata(wr2_rdata), .wr1_ack(wr2_ack),
 	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack)
 );
 
@@ -472,6 +593,7 @@ wire [63:0] dbg_swim, dbg_adb;
 wire [31:0] dbg_rtc;
 wire        dbg_swim_vread;
 wire [56:0] dbg_exc;
+wire [55:0] dbg_mmuf;
 wire [63:0] dbg_cache;
 wire [15:0] dbg_scsi;
 wire [31:0] dbg_scc;
@@ -501,9 +623,13 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN)) machine
 	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
 	.disk_in(disk_in), .disk_eject(disk_eject), .disk_cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
 	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+	.disk_wprot(disk_wprot), .disk_hd(img_hd), .trk_we(trk_we), .trk_wbit(trk_wbit), .trk_cells(trk_cells),
+	.arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end), .arc_whole(arc_whole),
 	.disk2_in(disk2_in), .disk2_eject(disk2_eject), .disk2_cyl(disk2_cyl), .trk2_cyl(trk2_cyl), .trk2_valid(trk2_valid),
 	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
-	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
+	.disk2_wprot(disk2_wprot), .disk2_hd(img2_hd), .trk2_we(trk2_we), .trk2_wbit(trk2_wbit), .trk2_cells(trk2_cells),
+	.arc2_done(arc2_done), .arc2_side(arc2_side), .arc2_start(arc2_start), .arc2_end(arc2_end), .arc2_whole(arc2_whole),
+	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_exc(dbg_exc), .dbg_mmuf(dbg_mmuf), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
 	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc), .dbg_asc(dbg_asc), .dbg_fpu(dbg_fpu), .dbg_pace(dbg_pace),
 	.audio_l(asc_audio_l), .audio_r(asc_audio_r),
 	.scsi_img_mounted(img_mounted[4:2]), .scsi_img_blocks(img_size[40:9]),
@@ -661,7 +787,7 @@ always @(posedge clk_sys) begin
 	if (!pk_hold) begin pk_req_r <= 0; raw_req_r <= 0; pk_st <= 0; end
 end
 
-dbg_probes #(.PERF_PROBES(PERF_PROBES)) probes
+dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER)) probes
 (
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
@@ -676,7 +802,8 @@ dbg_probes #(.PERF_PROBES(PERF_PROBES)) probes
 	.adb_state(dbg_adb), .rtc_state(dbg_rtc),
 	.flp_state({ld_dbg, en_dbg, flp_words, flp_bytes}),
 	.flp2_state({ld2_dbg, en2_dbg, dbg_fdhd2, flp2_words}),
-	.exc_state(dbg_exc),
+	.fwr_state({de_dbg, wr_dbg}),
+	.exc_state(dbg_exc), .berr_state(dbg_mmuf),
 	.cache_state(dbg_cache),
 	.scsi_state({dbg_scsi, scsi_io_rd[1:0], scsi_io_wr[1:0], sd_ack[3:2], scsi_sectors}),
 	.scsi_meter(scsi_meter),

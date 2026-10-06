@@ -8317,6 +8317,487 @@ The probes say where it stops.
 9. **5.13 - the ISM's MFM read** (720K, 1.44 MB), from the ISM ASIC spec,
    written when GCR is on the board.
 
+## 5.13 MFM reading - 1.44 MB and 720K (documentation pass, 2026-10-05)
+
+Opened 2026-10-05 after GCR writing passed its board gates (5.15.13 item
+8), the second of Daniel's three steps (5.15: GCR writing, then MFM
+reading, then MFM writing). Written from the ISM ASIC spec, the SWIM
+User's Reference, the SWIM drawing and the ROM's MFM code, before any
+design; Daniel's 32-bit fix was compiling in another worktree, so no
+Quartus run was made for this pass.
+
+### 5.13.1 Sources, and their standing
+
+| source | what | standing |
+|---|---|---|
+| `ISM_ASIC_spec_198707` 3.4, 4.1-4.5, 5.1-5.3 (and the SWIM drawing 6.2-6.4, the same text) | the read chain: Rddata synchronised to the nearest half clock (Half Read), the SCT counter classifying each cell as 2, 3 or 4 units against the parameter RAM, the Correction State Machine's mark search, the inverse trans-space machine, the FIFO; error correction and post-compensation; the drive option (IBM pulses); GCR through the ISM; time-out | **primary** |
+| `SWIM_Chip_Users_Ref_198801` pp. 6-9, 13-25 | the MFM track and sector format, the CRC (CCITT-16 from all ones), the parameter arithmetic and its 15.6672 MHz worked example, the registers, an MFM address-field read in 68000 code | primary for behaviour as software sees it |
+| The ROM: the ISM entry and parameter load (`$4082E712`-`$4082E81C`, the table at `$4082E82E`), **the MFM address-field read** (`$4082E9A6`), **the data-field read** (`$4082EA68`), the sector write (`$4082EB3E`), **the track format** (`$4082EC5E`-`$4082EE40`), the disk-insert format decision (`$4082E872`), block to cylinder (`$4082E970`) | what the machine does | documentation tier (1.11) |
+| The *Guide* 2e, ch. 9 (pp. 329-331) | the FDHD drive's formats: 400K/800K GCR, 720K MFM, 1.4 MB MFM; chip internals disclaimed | primary for what the machine supports |
+| `Apple_drive_command_and_status_codes` | the SuperDrive registers' names: `$F` (0 = high-density medium), `$B` (MFM: the index), `$7` (MFM mode), commands `$6`/`$7` | secondary (reverse-engineered), as in 5.5 |
+| bitsavers `apple/disk/sony/MP-F75W*` (looked at 2026-10-05) | photographs of the SE/30's SuperDrive (MP-F75W-01G) and its board; **no engineering specification** | none for behaviour |
+
+### 5.13.2 What the ROM does
+
+1. **The parameters.** One set, written reversed into the parameter RAM
+   (`$4082E80A`): MIN `$18`, MULT `$41`, SSL/SSS `$2E`, SLL/SLS `$18`,
+   RPT/CSLS `$1B`, LSL/LSS `$2F`, LLL/LLS `$19`, LATE/NORMAL `$97`,
+   TIME0 `$1B`, EARLY/NORMAL `$57`, TIME1 `$3B` - **the User's Reference's
+   2-, 3- and 4-us worked example at 15.6672 MHz** (MULT 65, TIME1 31.5 -
+   2 = 29.5 clocks, TIME0 15.5 - 2 = 13.5, `$97`/`$57`), in half-clocks.
+   The table appears twice (`$4082E82E`, `$4082E83E`), identical; beside
+   it an Easter egg ("SO... WHAT ARE YOU STARING AT?"). **Setup is written
+   once, `$20`** (`$4082E7A8`): an IBM-type drive (pulses), the
+   correction machine off, trans-space on, FCLK not halved.
+2. **The decision on insert** (`$4082E872`): drive register `$F` read; 0
+   (a high-density medium) sets the HD flag. **HD media is MFM (1.44
+   MB); a double-density medium is tried as MFM first** (an address
+   field read) **and taken as GCR when that fails.**
+3. **The address-field read** (`$4082E9A6`): error register read
+   (cleared), mode zeros `$18` (write and ACTION off), ones then zeros
+   `$01` (the FIFO cleared), error read again, ones `$08` (ACTION). Up to
+   20,000 handshake polls for the first byte; then **every byte through
+   the Mark register** (`$1200`, no mark error): `A1 A1 A1 FE`, cylinder,
+   side (non-zero = 1), sector, size; the two CRC bytes; then the
+   handshake (bit 1, CRC error) and the error register: `and.b #$22`.
+   Each later byte has 31 handshake polls (`moveq #$1E` ... `dbmi`) -
+   the budget 1.17.5 measured.
+4. **The data field** (`$4082EA68`): the same set-up, `A1 A1 A1 FB`, 512
+   bytes (or compared, for a verify), the CRC.
+5. **A sector write** (`$4082EB3E`): after the address field, a delay
+   from TimeDBRA (`mulu $D02`), then write mode, `00 00` in the FIFO,
+   ACTION, ten more `00`, `A1 A1 A1` through the Mark register (dropped
+   clock), `FB`, 512 bytes, the CRC (register 2 write), `4E` x 4; the
+   error register's underrun bit.
+6. **A track format** (`$4082EC5E`): write mode, `4E` until **the index
+   edge on SENSE** (the drive addressed to its index register), then 32 x
+   `4E`, then for each sector (1:1, sectors 1..9 or 1..18): 12 x `00`,
+   `A1 A1 A1 FE` C H R `02` CRC, 22 x `4E`, 12 x `00`, `A1 A1 A1 FB`, **512
+   x `F6`**, CRC, then gap 3 **80 x `4E` (9 sectors) or 108 (18)**, and
+   `4E` to the next index. No index mark (`C2 C2 C2 FC`) is written.
+   Per HD track: 32 + 18 x 682 = 12,308 bytes of the revolution's
+   12,500 at 500 kbit/s and 300 rpm.
+7. **Block to cylinder** (`$4082E970`): 9 or 18 sectors a side, two
+   sides; 1440 or 2880 blocks.
+
+### 5.13.3 The ISM's read chain (ISM spec 4.1-4.5)
+
+Rddata is synchronised to the nearest half clock and made one clock wide
+(TranCk). The SCT counter, preset from the parameter RAM at each TranCk
+and SCT, counts boundaries between transitions: **one, two or three SCTs
+make a 2-, 3- or 4-unit cell**, the boundaries chosen per pair of
+neighbouring cells (the xSx/xLx parameters, CSLS when a "long" resolves
+short). The **Correction State Machine** waits for 32 pairs of minimum
+cells (a sync field of zeros), then for the first non-minimum cell; if it
+begins a mark it locks and **the FIFO starts filling with the mark
+byte**, otherwise it goes back to looking for zeros. The inverse
+trans-space machine turns cells back into data bits (the previous data
+bit decides; a 4-unit cell after a data 0 is the dropped clock of a
+mark). Bytes enter the shift register MSB first, then the FIFO (two
+deep); the CRC runs over them (CCITT-16 from all ones, preset at the
+mark); the handshake shows FIFO bytes (bits 7/6), the next byte a mark
+(bit 0), the CRC non-zero (bit 1), an error (bit 5). Error correction
+(speed and asymmetry from the sync field) and post-compensation (peak
+shift) act on the counts; with Setup bit 4 clear (the ROM's) and an ideal
+medium they change nothing - built to their register-visible behaviour
+(5.15's decision). **The IBM drive option** (Setup bit 5, the ROM's):
+write data as pulses; read data valid on the trailing edge.
+
+### 5.13.4 The drive in MFM mode
+
+Command `$6` puts the SuperDrive in MFM mode (`$7` reads 1). In MFM mode
+the spindle runs at a constant speed, `$B` gives **the index** (once a
+revolution) instead of the GCR tach, RD and WR are IBM-style pulses.
+`$F` reads 0 for a high-density medium. **HD**: 300 rpm, 500 kbit/s, a
+1-us MFM cell (15.6672 FCLK), 200,000 cells a side.
+
+**Open (A): the 720K data rate.** A 720K disk is 250 kbit/s at 300 rpm,
+2-us cells; but the ROM has one parameter set, the 1.44 MB one, and never
+halves FCLK (Setup bit 3) - so on this machine a 720K disk must reach the
+ISM at 500 kbit/s, which is a drive spinning double-density media at 600
+rpm in MFM mode. That is an inference from the ROM (documentation tier),
+not a document: no SuperDrive specification is in hand. Proposed: build
+1.44 MB first (unaffected), then 720K at 600 rpm, and let the board say
+(a 720K image read by the ROM's own code) - or a document if one turns up.
+
+### 5.13.5 The medium: recording what the ISM writes (the finding)
+
+The track buffer stores one bit a cell on a fixed grid. For GCR that is
+exact: the IWM writes 32-FCLK cells and the drive's grid is 32 FCLK - the
+same clock count (5.15.3). **The ISM is not**: its write intervals come
+from the parameter RAM - 2 units = TIME1 = 31.5 FCLK, 3 = TIME1 + TIME0
+= 47, 4 = 62.5 - none a whole multiple of a 15.6672-FCLK grid, and the
+ratio differs per interval. Placing each transition in the cell it falls
+in drifts the phase by about a whole cell within one 12-byte sync field
+(96 two-unit intervals at +0.17 FCLK each), and some 2-unit intervals
+would be recorded as 3s - a corrupt medium. **Proposed: interval
+recording** - the drive keeps a write cursor, and puts each written
+transition at the previous one's cell plus the interval since it,
+rounded to whole cells. Every interval keeps its class exactly; the
+cursor drifts from the head by the writer's own rate error (a sector of
+~8,500 cells at under 1 % - tens of cells, inside gap 3; a whole format
+at 98.5 % of a revolution - inside its margin). For GCR (interval =
+exact multiple of 32) it is today's behaviour. This is 5.15's MFM write,
+but it decides the buffer's design, so it is settled now.
+
+### 5.13.6 The images
+
+Raw 1,474,560 (1.44 MB) and 737,280 (720K) bytes; DiskCopy 4.2 with
+format byte `$50` = 3 (1440K) or 2 (720K), no tags. The loader accepts
+them today and leaves `disk_in` low (5.12.5); it gains their geometry.
+In SDRAM, 2 MB a drive holds either. `$F` follows the image (1.44 MB =
+HD medium, the rest DD).
+
+### 5.13.7 The cost, and room for it
+
+- **Track buffer**: an HD cylinder is 2 x 200,000 cells = 400,000 bits
+  (the GCR buffer is 149,120): about 40 M10K against 19 - compile 42 uses
+  314 of 553 blocks, so it fits.
+- **Logic**: 10.4's estimate for the ISM's machinery and an MFM track
+  engine is 800-1,400 ALMs; **compile 42 has about 500 under the ~38.3k
+  ceiling. It does not fit without a lever** (10.4): the probe deck out
+  of the build (~1,450, compile 42), one track engine for the two drives
+  (the external one is already out), the framework's options
+  (`MISTER_DISABLE_ALSA`, `MISTER_DOWNSCALE_NN`, `MISTER_DISABLE_ADAPTIVE`,
+  several hundred to ~1,000). Daniel's call.
+
+### 5.13.8 Daniel's decisions (2026-10-05)
+
+- **(A) 1.44 MB first, 720K after**, at the ROM-implied 600 rpm; a 720K
+  image on the board decides (5.13.4).
+- **(B) Interval recording** for the medium (5.13.5) - in both modes.
+- **(C) Measure first**: build MFM reading with the probe deck in,
+  compile, and choose the lever from the real number (5.13.7).
+
+### 5.13.9 The design
+
+1. **`se30_fdhd.v`, MFM mode** (command `$6`): a constant speed - 300 rpm
+   for an HD medium, 600 rpm for DD (decision A) - and a 1-us cell
+   (15.6672 FCLK by a fractional accumulator: cells of 15 or 16 FCLK,
+   exact on average), so a revolution is 200,000 cells (HD) or 100,000
+   (DD); `$B` the index, high for a short pulse at cell 0 each revolution
+   (its width an open item: no drive document; the ROM only waits for the
+   rising edge); `$F` 0 for an HD medium; RD as IBM pulses. **Interval
+   recording** in both modes (decision B): a write cursor, each transition
+   placed at the last one's cell plus the interval rounded to whole
+   cells.
+2. **The track buffer** grows to two sides of 200,000 cells (18-bit
+   address a side); GCR uses its first 74,560 a side as now.
+3. **`se30_flp_encoder.v`, an MFM track**: the ROM formatter's layout
+   (5.13.2 item 6) from the index, the sectors' data from the image, MFM
+   cells (a clock cell and a data cell a bit; the clock dropped in the
+   marks' `A1`), the CRC (CCITT-16 from all ones over `A1 A1 A1` and the
+   field). The same module, the same buffer; the image's kind chooses.
+4. **`se30_swim.v`, the ISM's read chain** (5.13.3): the cell classifier
+   on the parameter RAM's counts (half-clock resolution), the CSM's lock
+   on 32 pairs of minimum cells and a mark, the inverse trans-space
+   machine, the shift register, the two-byte FIFO, the CRC, the mark
+   flag; the handshake, error and data/mark registers in read mode;
+   ACTION starting and stopping it. The correction machine and
+   post-compensation to their register-visible behaviour.
+5. **`se30_flp_loader.v`**: 1,474,560 and 737,280-byte raw images and
+   DC42 format 3/2 become disks (`disk_in`), with `img_mfm` and `img_hd`
+   out to the drive and the encoder.
+6. **Writing MFM** (the decoder's MFM parse, the ISM's write chain) is the
+   third step, after this one is on the board.
+
+### 5.13.10 The benches
+
+1. `sim/swim`: the ISM read chain - the classifier's bands at the ROM's
+   parameters (a 2/3/4-us cell at each boundary's either side), the CSM
+   (no lock without 32 pairs; lock on a mark; back to hunting on a
+   non-mark), mark bytes through the Mark register and the mark error
+   through the Data register, the CRC bit, the FIFO's two bytes and its
+   overrun, the ROM's address-field read sequence end to end.
+2. `sim/fdhd`: MFM mode - the revolution at 300 and 600 rpm, the index,
+   `$F`, the cell's average length; interval recording (GCR exact as
+   before; MFM intervals of 31.5/47/62.5 FCLK kept as 2/3/4 cells).
+3. `sim/flpenc`: an MFM track of a synthetic 1.44 MB image decoded by a
+   bench reference - every sector, its address field, the CRCs, the gaps.
+4. `sim/flpload`: the new geometries.
+5. **`sim/mfmread` (new, the seam)**: SWIM + drive + encoder, the ROM's
+   address- and data-field reads (`$4082E9A6`, `$4082EA68`) at its pace -
+   every sector of a cylinder byte for byte.
+6. `sim/machine`, `sim/gcrwrite`, `sim/flpdec`: rerun (the drive and the
+   buffer change under them).
+
+### 5.13.11 The board
+
+A 1.44 MB HFS image: the ROM mounts it; files copied off it to the SCSI
+disk and compared on the PC (`hfs_fork_diff`). Then a 720K image
+(decision A). Writing is the next step's.
+
+### 5.13.12 The work
+
+1. ~~The documentation pass~~ **Done 2026-10-05** (c63edca, 40f57c3).
+2. `sim/fdhd` MFM checks, then the drive's MFM mode and interval
+   recording; the buffer's size.
+   **Done 2026-10-05: `sim/fdhd` 97 PASS (~10 min), 7/7 mutants caught**
+   (no half-cell merge, the zero threshold at 1 cell, a 16-FCLK MFM cell,
+   the tach for the index, `$F` stuck at 1, no settle on a speed change,
+   and the bug below put back). The drive: a fractional cell clock (units
+   of 1/10000 FCLK - 32 FCLK GCR, 15.6672 MFM, one mechanism); MFM mode
+   200,000 cells at 300 rpm (HD) or 100,000 at 600 rpm (DD), exact to
+   the clock (3,133,440 / 1,566,720 FCLK a revolution); `$E` the index in
+   MFM (2,000 cells wide - ours, no document), `$F` from `hd`; a speed
+   change takes 152 ms. **Interval recording** in both modes. The bench
+   writes the ISM's intervals (31/32, 47, 62/63 FCLK) - a 100-interval
+   mix and a 200-interval sync field - and IBM pulses: every interval
+   recorded as exactly 2, 3 or 4 cells. **It found a real bug**: a
+   transition on the same clock as a due 0 (its 1 owed to the next
+   clock) kept counting its interval from the 0's threshold, not from
+   itself - one cell long. And a bench slip (the first gap compared with
+   the gate's lead). The buffer is two 200,000-cell sides (SIDE1 =
+   200,000, 400,000 bits; GCR uses 74,560 a side); the cell addresses are
+   18 bits through the drive, encoder, decoder, machine and top; the
+   drive's `hd` is tied 0 in the top until item 5. Rerun on the change:
+   `sim/flpenc` 26, `sim/flpdec` 39, `sim/gcrwrite` 9 (GCR writes now
+   recorded by intervals, decoded as before), `sim/swim` 141,
+   `sim/machine` 17. **The synthesis check for the larger buffer is
+   still to run** (deferred while Daniel's 32-bit compile ran).
+   **Run 2026-10-05: passed** (`build_only.sh --check`, 9.6 min): the
+   buffer is one 400,000-bit altsyncram in M10K, with 150 ALMs of
+   address decode and output mux around it.
+3. `sim/flpenc` MFM checks, then the encoder's MFM track.
+   **Done 2026-10-05: `sim/flpenc` 53 PASS (~18 min; 26 GCR as before, 27 MFM;
+   the MFM half alone `+MFM_ONLY`, ~11 min), 8/8 mutants caught.** The
+   encoder lays out, when `img_mfm`, the ROM formatter's track (5.13.2
+   item 6) from the index: 32 x `4E`; per sector R = 1..18 (9), 1:1,
+   12 x `00`, `A1 A1 A1 FE` C H R `02` CRC, 22 x `4E`, 12 x `00`, `A1 A1
+   A1 FB`, the 512 bytes, CRC, gap 3 of 108 (80); `4E` to the end (192
+   bytes HD, 332 DD - whole bytes, so every byte sits on a 16-cell
+   boundary from the index). Two cells a data bit, the clock cell first;
+   the marks drop bit 2's clock (the User's Reference p. 7: "the middle
+   clock pulse in a run of four zeroes"); the CRC bit-serial as the cells
+   go out, preset at each field's first `A1`, running on through its own
+   two bytes (which shifts them out). Block (2c + s) x spt + R - 1; the
+   cells 200,000 (`img_hd`) or 100,000 a side. A cylinder builds in
+   538,177 clocks (17.2 ms, HD) or 265,253 (DD), inside the 36 ms settle.
+   **The bench**: its own MFM encoder (the User's Reference's rules, the
+   mark by the TSM's "1000" rule - it gives `$4489`) and its own CRC (the
+   p. 9 pseudo-code as written - `$CDB4` over three `A1`s) build the
+   expected side; a reference decoder finds marks at every cell offset
+   and reads fields by their data cells. **1.44 MB, every cylinder, both
+   sides**: all 2,880 address fields and data fields right (C H R N,
+   both CRCs, the data byte for byte); every transition interval 2, 3 or
+   4 cells, around the wrap too; the mark only at the 108 places a side's
+   18 sectors put it; 1:1 order; the first mark at cell 704 (32 x `4E`
+   and the sync), gap 2, gap 3 of 108, the 300-byte tail of `4E`; every
+   cell the formatter's layout; the drive's port reads the buffer
+   (cylinders 0, 41, 79, side 1 at 200,000). **720K** on 8 cylinders:
+   the same at 9 sectors, gap 3 of 80, 100,000 cells. **Second opinion**:
+   MacLC's `mfm_track_encoder.v` (byte-level, an IBM layout with an index
+   field) gives identical address and data fields - marks, C H R N, data,
+   CRCs - on 144 sectors. Negative cases (a flipped data cell fails that
+   sector's CRC alone; a header cell that header), a restart mid-build,
+   and a GCR image after the MFM ones. Mutants: no dropped clock, one CRC
+   preset a sector, gap 3 of 107, H stuck at 0, R 0-based, the HD block
+   formula for 720K, the CRC byte a bit early (`crc` for `crc_nx`), the
+   last bit forgotten across a byte. `img_mfm`/`img_hd` are tied 0 in
+   the top until item 5; `sim/flpdec` 39 and `sim/gcrwrite` 9 rerun
+   (pass), `sim/gcrread` compiles.
+4. `sim/swim` ISM read checks, then the ISM's read chain.
+   **Done 2026-10-05: `sim/swim` 175 PASS (~3 min; 141 as before, 34
+   new in section 17), 10/10 mutants caught.** `se30_swim.v` reads MFM
+   as the ROM drives it (Setup `$20`; the ROM's parameter table at
+   `$4082E82E`, written last byte first: MIN `$18`, MULT `$41`, SSL/SSS
+   `$2E`, SLL/SLS `$18`, RPT/CSLS `$1B`, LSL/LSS `$2F`, LLL/LLS `$19`,
+   then the write set):
+   - **The transition**: RD is SENSE; with Setup bit 5 (IBM pulses) a
+     pulse's trailing edge, else every edge. RD is synchronous to FCLK
+     here, so the Half Read's bias (ISM spec 4.1) has nothing to
+     correct: the counter counts FCLK as two half-clocks.
+   - **The cell** (User's Ref pp. 12-14, ISM spec 4.1): boundaries in
+     half-clocks from the last transition, each parameter plus the
+     internal delay the User's Reference takes off it (MIN 3 clocks, the
+     rest 2): B1 = MIN + 6, B2 = B1 + xSx + 4, B3 = B2 + xLx + 4, B4 =
+     B3 + RPT + 4 - with the ROM's table 15, 40, 54 and 69.5 FCLK (after
+     a long cell 15, 40.5, 55, 70.5). Before B1 too narrow (error bit
+     4), then 2, 3, 4 units; none by B4 too wide (bit 5). The previous
+     cell picks the S or L row; the names' third letter (the next cell)
+     and CSLS are stored, not used - the ROM gives each pair one value,
+     and every boundary is 12 half-clocks or more from any interval the
+     drive's cells make (31-32, 46-48, 62-63 FCLK).
+   - **The CSM** (4.2): 64 minimum cells (32 pairs), then the first
+     non-minimum cell begins a byte; a mark - a 4-unit cell after a data
+     0, the dropped clock (4.5) - inside that byte locks; anything else
+     goes back to counting. Locked until ACTION falls. So bytes are
+     framed from the mark byte's first 1 - our reading for A1, the only
+     mark the ROM writes or reads.
+   - **The inverse trans-space** (4.5): after a data 1, 2/3/4 units are
+     1, 00, 01; after a clock (a 0), 0, 1 and the mark's 00. The CRC
+     (CCITT-16) starts at all ones on the byte's first bit, so it covers
+     the three A1s and the field - the User's Reference's "different
+     starting value" for reading is not given as a number; this is our
+     reading that makes the field's CRC come out.
+   - **The FIFO and registers** (User's Ref pp. 19-24): two bytes, each
+     with its mark flag and whether the CRC is zero after it; an
+     overrun loses the byte (error bit 0); Data (with ACTION) and Mark
+     read the head - a mark through Data is error bit 1, an empty read
+     bit 2; the first error bit holds the register until it is read.
+     Handshake in read mode: bit 7 a byte, 6 two, 5 an error, 1 the CRC
+     not zero after the head byte, 0 the head a mark. Clear FIFO empties
+     it while set. The correction counters and post-compensation are not
+     built (Setup bit 4 off); the Correction register reads 0.
+   **The bench** (section 17): the bands at every boundary's two sides
+   in both rows; 63 against 64 minimum cells; a non-mark after a sync
+   back to hunting; the ROM's address-field and data-field reads end to
+   end (its register sequence, every byte through the Mark register,
+   the marks flagged and no other byte, `and #$22` = 0 at CRC 2, the
+   error register 0); a bad CRC; the FIFO's two bytes and overrun; a
+   mark through Data; an empty read; the first error holding; Clear
+   FIFO; ACTION off. The stream is the drive's: 1-us cells at 15.6672
+   FCLK (fractional), an 8-FCLK pulse at each 1. Mutants: MIN's delay,
+   the row ignored, 63 cells for the lock, the mark rule after a 1, the
+   CRC from zero, no overrun, the mark flag from the wrong entry, errors
+   not holding, too wide at B3, a 3-unit cell after a 0 decoded as 0.
+   Two survived the first bench (the mark rule, errors not holding) and
+   made it stronger: the mark flag checked on every non-mark byte, and a
+   second error of another kind. Which edge of the pulse is the
+   transition cannot be told on our drive (its pulses are all 8 FCLK).
+   `sim/machine` 17 (ModelSim - it caught a use before declaration that
+   iverilog let through) and `sim/gcrwrite` 9 rerun, pass. Synthesis
+   check passed (9.9 min): the SWIM is 570 LUTs and 358 registers in
+   synthesis (compile 42 fitted it in 138 ALMs) - the fit at item 7
+   measures the read path.
+5. `sim/flpload`, then the loader's geometries; the machine and top
+   wiring.
+   **Done 2026-10-05: `sim/flpload` 53 PASS (~16 min; 45 as before less
+   section 5's two "not a disk" checks, plus 10).** The loader takes a
+   file whose data is 1,474,560 bytes (1.44 MB) or 737,280 (720K) - raw,
+   or DiskCopy 4.2 with format byte `$50` = 3 or 2 - as an MFM disk:
+   `disk_in`, `img_mfm`, and `img_hd` for 1.44 MB only; no tags, not
+   `img_800k`. Not a disk: a 1.44 MB-sized DC42 whose format byte says
+   GCR, a raw file a block short. The bench: both sizes raw and DC42
+   resident word for word (the header stripped), 2,880 sectors
+   transferred; the two refusals; an 800K image after a 1.44 MB one
+   clearing `img_mfm`/`img_hd`; the GCR cases now also see both low.
+   **The wiring** (`MacSE30.sv`): the loaders' `img_mfm`/`img_hd` to the
+   encoders and to the drives' `hd` (the machine's `disk_hd` and
+   `disk2_hd`, tied 0 until now), so `$F` reads a high-density medium
+   for a 1.44 MB image and the encoder lays the MFM track. **An MFM disk
+   is write-protected until MFM writing is built** (`disk_wprot =
+   readonly || img_mfm`, and the decoder's and SD writer's `write_ok`
+   follow it): the Finder could otherwise erase a 720K disk as 800K, and
+   the IWM's GCR track would be committed into the 720K file as a 400K
+   layout. Writing MFM (the third step) lifts it. `sim/flpwr` 27
+   rerun, `sim/gcrread` compiles; synthesis check passed (9.5 min).
+6. `sim/mfmread`, the seam.
+   **Done 2026-10-05: `sim/mfmread` 22 PASS (~9 min), the first run.**
+   The real SWIM, drive and encoder wired as the machine wires them,
+   driven by the ROM's sequences at the paced kernel's pace (a handshake
+   poll every 13 FCLK, the first-byte wait a VIA1 poll and a handshake
+   poll a turn, the set-up's writes 13 FCLK apart):
+   - **Bring-up through the ISM**: the switch, Setup `$20` and the ROM's
+     parameter table, drive 1 enabled by mode bits 7 and 1, the drive's
+     commands through the phase register (motor on, MFM mode `$6`), `$F`
+     a high-density medium, `$7` MFM mode, /READY after the 600 ms
+     spin-up.
+   - **1.44 MB, cylinder 0, both sides**: for each sector the ROM's
+     address-field read (`$4082E9A6`: A1 A1 A1 FE through the Mark
+     register, a mismatch re-arming on the shared budget, C H R N, the
+     handshake at CRC 2 `and #$22` = 0, the error register 0) until R is
+     the one wanted, then its data-field read (`$4082EA68`): all 36
+     sectors' 512 bytes the image's, CRC zero, no error. The busiest
+     byte took 21 of the ROM's 31 polls; every sector's address field
+     was the first one read after the previous sector (1:1 at the ROM's
+     pace).
+   - **A step** to cylinder 1 and its side 1, the same.
+   - **720K** at 600 rpm with the same parameters (decision A): `$F`
+     double density, 100,000 cells, cylinder 0's nine sectors a side.
+   - **An 800K GCR disk with the drive in MFM mode** (the ROM tries a
+     double-density disk as MFM first, `$4082E872`): the address-field
+     read times out on its 20,000 turns, and the ISM never locks (GCR's
+     cells are 2- and 3-unit cells here, never a 4).
+   Seam mutants, 5/5 caught: the SWIM ignoring the IBM option (each
+   pulse two transitions), the encoder's block one sector on, `$F`
+   blind to the medium, H stuck at 0, the drive spinning MFM at the GCR
+   cell (the last two never read a sector: the bench's time limit).
+7. A synthesis check (`build_only.sh --check`, after any RAM change),
+   then a compile when Daniel says, the size measured (decision C).
+   **Compile 43, 2026-10-05** (Daniel: "merge dev first, then compile";
+   `dev`'s 1.18 bus-error fix merged at 7d5900a): tag `7d5900aa`,
+   `output_files/MacSE30_7d5900aa_mfmread.rbf`, 40.7 min. **37,744 ALMs
+   (90 %) - 25 fewer than compile 42** (the fitter's packing moves a few
+   hundred; MFM reading costs no measurable logic in the total); **343 of
+   553 M10K** (314 before: the 400,000-bit track buffer). **Timing NOT
+   met**: `sta_corners.tcl` - the SDRAM capture met at every corner by one
+   of A and B; the framework's `ascal` (`o_h_lum_pix` -> `o_poly_lum`)
+   -0.169 ns at slow -40C (KNOWN ISSUES 6, the accepted precedent) and
+   -0.008 at slow 100C; **ours: four paths in the CPU kernel at slow
+   100C, worst -0.086 ns**, from `exec[pmmu_rd]` (89, PMOVE <MMU>,Dn) into
+   the register file's write muxes (`regfile[9][24]`) on `clk_sys` - the
+   PMMU register's value reaching the register file in one clock. Not
+   floppy logic; the mode32-berr compile (b9003c88) met timing with this
+   kernel, so it is the fit moving. The remedy is Daniel's call (no seed
+   lottery: an RTL fix - register the PMMU read before the write, PMOVE
+   to Dn being rare).
+   **The fix (2026-10-05, Daniel: "go ahead with the timing fix")**: the
+   worst path, cell by cell, ran `exec[pmmu_rd]` -> a cell STA marks as
+   part of a **combinational loop** (4.7 ns: `Selector195`/`exec~6`, the
+   six-node loop STA reports at the microcode CASE, line 8761) ->
+   `pmmu_reg_sel_int` -> the PMMU's read mux -> `OP2out` -> the ALU's
+   bit-field shifter -> `regin` -> the register file. The loop: in
+   `pmmu_dn_read_wait` the microcode process read `set_exec(pmmu_rd)`,
+   its own output, to carry the previous state's request (BUG #388) - a
+   combinational latch. Now `pmmu_rd_carry`, a flip-flop holding
+   `set_exec(pmmu_rd)` of one clock ago, is read instead (the value the
+   simulation always read). Gate: `sim/busfault` 14, `sim/kernel_bus`
+   ports 16 (338) and 32 (237), `sim/cpfpu` mmu 11, b5c 26, b5d 19,
+   `sim/system` all eight (18 min), upstream's PMMU suite identical to
+   the baseline (58, the same five fail), its general suite identical to
+   `ours.txt` (14, the same three), `sim/busfault_dib` 18 - all PASS.
+   (Synthesis also listed eight cells of `se30_flp_decoder`'s `Add2` as
+   loop cells; their inputs are all registers and post-fit STA reports
+   only the kernel's loop - a synthesis-time listing.) The fit decides at
+   the next compile.
+   **Compile 44, 2026-10-05** (Daniel: "go ahead with the compile"): tag
+   `144c4b8d`, `output_files/MacSE30_144c4b8d_stabilise1.rbf`, 35.9 min -
+   the 53C80 DBP fix (e074dd5), the kernel loop fix (d2291f6), the PBER
+   probe (144c4b8). **39,149 ALMs (93 %), +1,405 on compile 43: the
+   probe's 432-bit capture and its instance** (the cost 10.4.2's release
+   profile removes); 343 M10K. **Our timing met at every corner**: slow
+   100C register-to-register +0.140 ns (was -0.086), no combinational
+   loop reported; the SDRAM capture met at every corner by A or B; the
+   only miss the framework's `ascal` (`o_vcpt_pre3`) -0.085 ns at slow
+   -40C (KNOWN ISSUES 6, the accepted precedent).
+8. The board: 1.44 MB, then 720K.
+   **Compile 43 on the board, 2026-10-05 (Daniel)**: PBLD `7d5900aa`.
+   **A 1.44 MB HFS image (DC42) mounts and its folders read; files copy
+   from it to the SCSI disk** (not yet host-checked). The probes: the
+   ISM selected, Setup `$20`, the drive in MFM mode, the image a DC42,
+   nothing written (the temporary write-protect). **A 1.44 MB DOS image
+   under PC Exchange** (`C:\temp\Mac\Test disks\DOS\Disk1.img`, MS-DOS
+   6.22's disk 1 - host-checked: FAT12, 18 x 2, both FATs equal, 41 files
+   on sound chains over cylinders 0-66): it mounts and lists, **but a
+   Finder copy fails, "cannot be found"**. Sectors are read (the HFS disk
+   copies over its whole span), so the suspect is the locked volume -
+   PC Exchange or the Finder writing to the source during a copy - our
+   hypothesis, not a document. To separate it: open a file from an
+   application instead of copying; the same image read-only on the LC
+   core; a small file near the start against a large one far out. **Then**: TeachText cannot open `README.TXT` from the DOS disk either
+   ("may be in use by someone else" - an open refused, before any data
+   is read); **a text file on the locked HFS 1.44 MB disk opens in
+   TeachText** - so a locked MFM disk is presented correctly and the
+   fault is PC Exchange with a locked DOS volume. Left: the same image
+   on the LC core, writable and read-only (the LC failing read-only
+   only would make it PC Exchange's own behaviour, gone with MFM
+   writing), and PC Exchange's version.
+   **Host check of an MFM read, 2026-10-06** (Daniel, compile 44): the
+   System 7.5.5 Update's disk 1 (`C:\temp\Mac\System 7.5.5 Update\System
+   7.5.5 Update - 1.dsk`, a 1.44 MB DC42, checksum verified; the copy
+   Daniel mounted, `Mister MacLC backup 4.10.2026\System 7.5.5 Update -
+   1.dsk`, is byte-identical to it, and the comparison against it also
+   passes) copied in
+   the Finder to the SCSI disk's folder `Test MFM`
+   (`Test disks\Soak\Results\mac_80mb-restored.vhd`):
+   `tools/hfs/fork_cmp.py` - **24 of 24 files identical**, both forks,
+   type and creator, the nested language folders included (the
+   Installer's 551,271-byte resource fork and `Tome1`'s 279,655-byte data
+   fork among them); 8 differ only at the resource headers' $30-$7D (the
+   File Manager's). The 1.44 MB read gate's host check is met; 720K is
+   still to test.
+
 ## 5.14 The external drive (Daniel, 2026-10-02)
 
 **Daniel: a second floppy drive before the next compile** - testing with
@@ -8454,6 +8935,1092 @@ running a test over two days").**
   routine gate. The LC precedent: its 35-minute boot gate passed 16 times
   and never caught a regression. `gcrread`'s quick mode stays available
   for that job. SWIM rung 3 (writing) is to be gated this way.
+
+## 5.15 Rung 3: writing and formatting - GCR first (2026-10-05)
+
+Opened 2026-10-05 on branch `floppy-write` (cut from `dev` at `ad21445`),
+documentation first: the SWIM drawing, the IWM specification, the 800K
+drive's ERS and the ROM's own writer and formatter were read before the
+design, the LC's floppy-write plan after it, for its bug list. Daniel
+asked for writing and for 1.44 MB disks together, and pointed at the LC
+core, which has the whole suite.
+
+**Daniel's decisions, 2026-10-05.**
+
+- **The order: GCR writing and formatting first** (800K and 400K, the IWM's
+  write path; the write-back chain is built here, once), **then MFM reading**
+  (1.44 MB and 720K, the ISM's read path - 5.13), **then MFM writing and
+  formatting.** Each goes to the board on its own.
+- **The ISM is built to what the ROM drives.** The ROM writes the Setup
+  register as `$20` (`$4082E7A8`): the correction machine off, the
+  trans-space logic on. So 5.13 builds the cell classifier from the
+  parameter RAM, the FIFO, marks, CRC, the error and handshake registers,
+  the trans-space encoder and the TIME0/TIME1 write timing; the correction
+  machine, post-compensation and pre-compensation only as far as their
+  registers show (on a medium with exact cell times they have no effect).
+- **Write-through to the card**, as Daniel's LC PR #7 does it: each sector
+  decoded from a written track goes into the image in SDRAM and is queued
+  straight to the SD card; a DiskCopy 4.2 image's checksums are rewritten
+  on eject.
+
+### 5.15.1 Sources, and their standing
+
+| source | what | standing |
+|---|---|---|
+| The SWIM drawing 343S0061-A, **sheet 52** (6.6; read from the page image, the OCR garbles it) | the IWM's write state, the asynchronous buffer and handshake, **the cell time by mode** ("in 7M and slow mode ... 28 FCLK ... in 8M and slow mode ... 32 periods, and in 8M and fast mode ... 16"), **"the write shift register is loaded every 8 bit cell times starting seven CLK periods after the write state begins"**, the underrun | **primary** |
+| `IWM_Spec_Rev19_1982.pdf` pp. 2-3 and 6-7 (page images) | the same paragraphs (the drawing copies them), the pins (**"WRDATA: a transition occurs on this output for each one bit"**), the state table and **"the combination of L7 and Motor-On and /underrun enables /WRREQ low"** | primary; the drawing outranks it where they differ (they do not, here) |
+| `IWM_undoco_features.txt` (Apple, April 1984) | **"for 9 FCLK periods after the shift register load, writes to the write latch are disabled"** | primary (an Apple engineering note) |
+| `SWIM_Chip_Users_Ref_198801` pp. 10-12 | the IWM register table as software sees it: write-handshake bit 7 "buffer empty", bit 6 "write state/underrun", bits 5-0 read 1; "the last byte written to the chip when the buffer is emptied is the one that will be used" | primary for behaviour as software sees it |
+| `669-0452-A_800K_Double-Sided_ERS_Sep86` 3.2.4.9, 3.2.5, 3.4.5, sheets 40-42 | **/WRTPRT** (0 with a protected disk or none), **/WRTGATE** ("when /WRTGATE is a zero, when /ENBL is a zero and if the inserted disk is not write protected, data on WRTDATA are recorded"), the write timing (T1-T7, the erase head's 480-590 us), the sector format and the 2:1 interleave | primary for the drive |
+| The ROM: **the sector writer** `$4082E518`-`$4082E65A` and **the track formatter** `$408320BC`-`$40832196` (disassembled with MAME's `unidasm -arch m68030`) | what the machine does: 5.15.4 | documentation tier (1.11) |
+| MacLC `floppy-write` `docs/floppy_write_plan.md`; `rtl/floppy_sd.v` (`floppy_write_committer`, `floppy_sd_writer`), `floppy_track_decoder.v` | Daniel's own write chain, gated on the board (PR #7) | donor for the image half - the committer, the SD writer, the DC42 rules; its capture is byte-level and is not lifted; its bug list becomes checks (5.15.7) |
+| MacPlus `FLOPPY_WRITE_PLAN.md` phase 5 review (the six inherited defects, carried in the LC plan's section 7) | defects found once already | test cases |
+
+### 5.15.2 The IWM's write path
+
+The documents, in order of the write:
+
+1. **The state** (IWM Spec p. 7; User's Ref p. 10). L7 L6 MotorOn: `10x`
+   reads the write-handshake register ("Write"), `111` writes the data
+   register ("Write Load"). "**The IWM is put into the write state by a
+   transition from the write protect sense state [`01x`] to the write load
+   state.**" The write state lasts until L7 is cleared.
+2. **/WRREQ**: "the combination of L7 and Motor-On and /underrun enables
+   /WRREQ low" - low exactly while L7 is set, the motor is on and no
+   underrun has happened. (Motor-On here is the delayed MotorOn the
+   register selection already uses: the latch, or the timer running.)
+3. **The cell** (asynchronous mode, CLK = FCLK in fast mode, FCLK/2 in
+   slow): 28 FCLK in 7M slow, **32 in 8M slow (the ROM's mode `$17`)**, 16
+   in 8M fast; 14 in 7M fast by the same rule. "A bit is transferred every
+   bit cell time"; MSB first; "a one is written as a transition on the
+   WRDATA output at a bit cell boundary time and zero is written as no
+   transition."
+4. **The buffer and the loads**: "the write shift register is buffered";
+   "**loaded every 8 bit cell times starting seven CLK periods after the
+   write state begins**" - 14 FCLK in slow mode, then every 256 FCLK at 8M
+   slow. At a load the buffer moves to the shift register and the
+   handshake's bit 7 (buffer empty) rises; a processor write to the data
+   register fills the buffer and clears bit 7; "only the data last written
+   into the buffer register, before the contents of the buffer register is
+   transferred to the write shift-register, is used." The access that
+   enters the write state is itself a data-register write (A0 = 1 with L6
+   and L7 both being set), so the buffer holds a byte from the first
+   clock.
+5. **The reload lock** (undocumented-features note): for 9 FCLK after a
+   load, writes to the buffer are ignored.
+6. **The underrun**: "when data has not been written to the buffer register
+   between the time the write-handshake bit indicates an empty buffer and
+   the time the buffer is transferred to the write shift-register. If an
+   underrun occurs in asynchronous mode /WRREQ will be disabled (set to a
+   TTL high state) and the /underrun flag will be set to zero ... Clearing
+   state bit L7 will reset the /underrun flag." The shift register goes on
+   shifting what it holds; with /WRREQ high the drive records nothing of
+   it.
+7. **The handshake register** (User's Ref p. 11): bit 7 buffer empty, bit 6
+   /underrun (1 while writing without an underrun), bits 5-0 read 1.
+
+**Not built: synchronous-mode writing.** Its write windows are timed from
+Q3, and on this board Q3 is AS* (5.3), not a clock; no software on the
+SE/30 can use it. The mode bit is stored as now; a write in synchronous
+mode behaves as the asynchronous one.
+
+### 5.15.3 The drive's write side (ERS 3.2.4.9, 3.2.5, 3.4.5)
+
+- **/WRTPRT** reads 0 with a protected disk or with none: now **0 when
+  the image was mounted read-only** (hps_io's `img_readonly`) or no disk is
+  in, 1 otherwise. Rung 2's constant 0 goes.
+- **Recording**: while /ENBL is low, /WRTGATE (the SWIM's /WRREQ) is low and
+  the disk is not protected, WRTDATA's transitions are recorded. The model
+  records them **into the track buffer the head is over**, at the cell
+  grid the drive already turns (32 FCLK a cell, 5.12.3): a cell under the
+  head while the gate is low is written - 1 if WRTDATA changed during it,
+  0 if not. That is the medium: what is read back is what was written,
+  and the buffer holds it until the head leaves the cylinder. The SWIM's
+  cell and the drive's are both 32 FCLK, so each written transition lands
+  in a cell of its own.
+- **The erase head** (T7, 480-590 us after the gate rises) trims the track
+  edges; it does not change what the read head sees, and is not modelled.
+- **The write arc**: the drive reports each recording - the side, the
+  cell where the gate fell and the cell where it rose, and whether it ran
+  a whole revolution or more - to the decoder (5.15.5).
+
+### 5.15.4 What the ROM does to write
+
+- **A sector** (`$4082E518`): having read the sector's address field
+  (5.12.6), it enters the write state from the sense state (`tst.b
+  $1A00` sets L6, then `move.b (a2)+,$1E00` sets L7 with the first byte
+  `$FF`), then per byte polls the handshake (`tst.b (a4); bpl`) and writes
+  the data register (`move.b d1,(a3)`, `a3` = base + `$1A00`): five more
+  sync bytes `3F CF F3 FC FF`, the data mark `D5 AA AD`, the sector's
+  code, 699 codes nibbled on the fly (the ERS's steps 1-9 in registers),
+  four checksum codes, then `DE AA FF FF` from `$4082E65E`. At the end it
+  reads the handshake's bit 6 (`moveq #-$4A` = `wrUnderrun` if clear) and
+  leaves with `tst.b $200(a3)` (base + `$1C00`: L7 cleared). Between some
+  polls it checks another device (`tst.b (a5); bmi; move.b (a6),-(a7)`),
+  so the byte loop is not uniform - the handshake absorbs it.
+- **A track** (`$408320BC`): **one continuous write per side** - 200 x 6
+  sync bytes, then for each sector its sync groups, the 27 bytes of
+  address field, sync and data mark built at `$40832198`, **703 codes of
+  `$96`** (a sector of zeros: 524 zero bytes nibble to `$96`, and their
+  checksum is zero) and the four closing bytes; then bit 6, then L7
+  cleared. On zone 1 that is about 10,500 bytes, **about 84,000 cells
+  against a revolution's 74,558**: the write overruns its own start, and
+  the lead-in sync is overwritten by the end of the track - the "overrun
+  lead-in" the encoder already lays out (5.12.5b).
+- Neither waits for an index (GCR has none): the write starts wherever the
+  disk is.
+
+### 5.15.5 The design
+
+**The chain.** SWIM (IWM write) -> drive (records into the track buffer)
+-> **decoder** (the written cells back into sectors) -> **committer** (the
+sector into the image in SDRAM) -> **SD writer** (the image's blocks to the
+card). Bit-level up to the buffer, as the read side is (5.12); the image
+half is the LC's, adapted.
+
+1. **`se30_swim.v` - the IWM write path** of 5.15.2: the write state, the
+   buffer and its lock, the load timer (7 CLK, then every 8 cells), the
+   shift register, WRDATA toggling on ones, /underrun and /WRREQ, the
+   handshake register.
+2. **`se30_fdhd.v` - recording** (5.15.3): the gate (enabled, /WRREQ low,
+   the motor on, the buffers valid for the head's cylinder, not
+   protected), a per-cell "changed" flag from WRDATA's edges, the cell
+   written into the buffer at its end; /WRTPRT from `wprot`; the arc
+   reported at the gate's rise: `{side, start cell, end cell, whole}`.
+3. **The track buffer** (`se30_flp_encoder.v`): its port A, which the
+   drive reads, gains the drive's write (a cell is read or written, never
+   both - the read head's output is not used while writing); its port B,
+   which the encoder writes, gains the decoder's read while the encoder is
+   idle. **The encoder does not rebuild while the decoder is busy** - a
+   seek waits for the written cylinder to be decoded and committed, so the
+   new cylinder is read from an image that already holds it. The step's
+   settle (36 ms) dwarfs the decode (about 75,000 clocks, ~2.4 ms).
+4. **`se30_flp_decoder.v` (new) - the written cells back into sectors.**
+   On an arc it parses the side's cells **from the arc's start to its
+   end**, or, for an arc of a revolution or more, the **whole revolution
+   starting at the arc's end** (everything on the side is then new). The
+   parse is the IWM's own byte framing (shift until a one reaches the MSB),
+   looking for `D5 AA AD`, the sector code, 703 codes de-nibbled through
+   the GCR table and the ERS's inverse steps, the checksum, `DE AA`; and
+   for `D5 AA 96` address fields, whose format byte it keeps (the
+   sidedness, item 7). **A data field wholly inside the written cells and
+   with a good checksum is committed** under the head's cylinder, the
+   arc's side and the field's own sector number; anything else is not.
+   Its sector buffer (524 bytes) is block RAM.
+5. **The committer** (in the decoder, after the LC's
+   `floppy_write_committer`): the 512 data bytes to the image at the
+   sector's block (the encoder's own block formula, 5.12.5b, inverted
+   nowhere - the same expression), **and the 12 tag bytes to the tag
+   region when the image has tags** (the LC dropped tags; this machine's
+   ROM writes them and the encoder reads them back, so a written tag must
+   survive a seek). **Bounds and the address are checked in the state that
+   issues the first word** (MacPlus defect 4). Writes are refused while
+   the loader is loading or the disk is out (defect 3).
+6. **`se30_flp_sdwriter.v` (new, after the LC's `floppy_sd_writer`)**: a
+   queue of **file block numbers** (the LC queued sectors); a sector's
+   commit pushes the blocks it touched - one raw, two in a DC42 (the
+   84-byte header shifts every sector across a block boundary), one or two
+   more for its tags - skipping a block equal to the last pushed. Each
+   block is filled from SDRAM (block 0's first 42 words from the loader's
+   header store) and handed to hps_io (`sd_wr`, `sd_buff_din`); **a timeout
+   re-presents the block, never retires it** (defect 2). **Back-pressure,
+   not loss**: a full queue holds the committer, which holds the decoder,
+   which holds the next seek's rebuild; the drive's /READY waits, and the
+   ROM with it. **On eject** (and before the loader takes a new image), a
+   DC42 that was written has its data checksum and its tag checksum
+   recomputed from SDRAM (DiskCopy's sum: add the word, rotate right; the
+   tag sum skipping the first 12 tag bytes) and header block 0 rewritten.
+   **The partial last block** (every DC42 ends mid-block) is written whole;
+   Main clips it to the file (the LC's 6D, read from Main's
+   `user_io.cpp`).
+7. **The sidedness** (the LC's 6B, MacPlus defect 2): a one-sided format of
+   an 819,200-byte image writes side 0 only, with format byte `$02`; the
+   encoder's `img_ds` then follows the format byte the decoder last saw in
+   a written address field, until the next mount, whose MDB sniff (the
+   loader's) sees the 400K volume. Side 1 keeps whatever it held, as a
+   real disk's does.
+8. **`se30_flp_loader.v`**: a 42-word header store (file block 0's first
+   84 bytes, for the writer), and `dc42`, the file's block count and its
+   partial tail, the tag size, out to the writer.
+9. **The disk port**: the committer writes and the writer reads, two
+   requesters more per drive; `se30_flp_dkmux.v` widens (its round robin
+   and quiet-port rule unchanged).
+10. **The top**: slot 0's `sd_wr` and `sd_buff_din` from the writer
+    (slot 1's from the external drive's, when `SE30_EXT_DRIVE` is defined);
+    the drive's `wprot` from the loader's `readonly`.
+
+### 5.15.6 What the image can hold
+
+The image file has a fixed size and layout; a real disk does not. So:
+- **A format in the image's own layout** (800K on an 800K image, 400K on
+  either) lands whole.
+- **A written field the layout cannot place** (a sector number past the
+  zone's count, a cylinder past the image) is dropped and counted (probe);
+  the track buffer keeps it until the head leaves, then the image's
+  content returns. Likewise **a data field with a bad checksum** (an
+  underrun mid-field): the buffer shows the damage, the image keeps the
+  old sector, and after a seek the old sector reads back. A real disk
+  would keep the damage. **Accepted deviation**, to go in KNOWN ISSUES
+  when built.
+- **A remount with writes still queued** loses them (hps_io's slot then
+  names the new file); a guest eject drains the queue first. The LC's
+  rule, kept.
+
+### 5.15.7 The donors' bugs, carried as checks
+
+From the MacPlus phase 5 review and the LC's 6B/6D (its plan's sections 6
+and 7):
+1. An async reset fed from a live signal (a glitch abandons a field
+   silently): every reset here is the module's own; **diff Quartus's
+   warning count against the last compile's**.
+2. The SD writer retiring a block on an ack timeout: re-present.
+3. Writes accepted across an image reload: refused while loading or out.
+4. A bounds check a state apart from the address it protects: one state.
+5. No bound against the image's size: the committer and the writer both.
+6. One wire as an async reset here and a sync reset there.
+7. The sidedness ceiling (item 7 above) - and its return on remount.
+8. The DC42 partial last block (item 6).
+9. Benches: inputs driven at `#1` after the edge, never at it; `ready`-style
+   strobes pulsed sparsely, not held.
+
+### 5.15.8 The RTL
+
+`se30_swim.v` (the write path), `se30_fdhd.v` (recording, /WRTPRT, the
+arc), `se30_flp_encoder.v` (the buffer's two new port uses, the rebuild
+held for the decoder, `img_ds` from the format byte), **`se30_flp_decoder.v`
+(new: decoder + committer)**, **`se30_flp_sdwriter.v` (new)**,
+`se30_flp_loader.v` (header store, file facts), `se30_flp_dkmux.v`
+(two more requesters per drive), `se30_machine.v` and `MacSE30.sv` (the
+wiring); `PFLP` gains the write counters (arcs, sectors committed,
+refused, blocks written, queue depth) - counters and status, since a
+peek resets the machine.
+
+### 5.15.9 The benches (the standing method: seam benches, then the board)
+
+1. **`sim/swim`** gains the write path: entry only from the sense state;
+   the first load 7 CLK after entry and every 256 FCLK after; WRDATA's
+   transitions on the ones at the cell boundaries, MSB first, at 32, 28
+   and 16 FCLK cells; bit 7 rising at a load and falling at a write; the
+   last write before a load wins; the 9-FCLK lock; an underrun clearing
+   bit 6 and raising /WRREQ, L7's clear resetting it; /WRREQ following L7,
+   the motor and /underrun.
+2. **`sim/fdhd`**: recording only with all of the gate's terms; the cells
+   written at the head's position on SEL's side; /WRTPRT; the arc's report
+   including a wrap and a whole revolution.
+3. **`sim/flpdec` (new)**: the decoder against tracks the encoder builds
+   (every sector of a synthetic self-identifying image recovered from a
+   whole-revolution arc) and against bitstreams written by a bench model
+   of the ROM's writer - a one-sector arc between two old sectors, a
+   format arc over 1.13 revolutions, a bad checksum (not committed), a
+   field cut by the arc's end (not committed), a sector number past the
+   zone (refused); tags committed only when the image has them; the
+   format byte's sidedness.
+4. **`sim/flpwr` (new)**: the SD writer against a model of hps_io - raw and
+   DC42 blocks byte for byte against a Python reference (block 0 with the
+   header store, the two-block spill, the tag blocks, the partial tail),
+   the checksums recomputed on eject, a delayed ack re-presented and never
+   lost, the queue's back-pressure.
+5. **`sim/flpmux`**: the wider mux, its existing checks.
+6. **The write seam (new, `sim/gcrwrite`)**: SWIM + drive + encoder +
+   decoder + committer + SDRAM model, driven at the register level by the
+   ROM's own sequences (5.15.4's sector write and track format, at its
+   polling pace) - the image in SDRAM afterwards byte-exact against the
+   expected. Minutes, not hours: a few sectors and one formatted side.
+7. `sim/flpenc`, `sim/flpload`, `sim/sdram`, `sim/machine`: rerun.
+
+### 5.15.10 The board (host-checked gates, scratch copies of every image)
+
+1. **Copy files to an 800K image** in the Finder; eject; on the PC
+   `hfs_check` (consistent) and `hfs_fork_diff` (byte-exact against the
+   source files) - raw and DC42 (the DC42's checksums recomputed on the
+   host and matching the header).
+2. **Erase an 800K image** in the Finder (a format of every track): the
+   volume mounts, `hfs_check` is consistent, and **the free sectors are
+   zeros** (the format's own data fields) - the census that tells a format
+   that reached the surface from a directory written over stale data
+   (the LC's `0xF6` check, GCR's filler being zero).
+3. **A one-sided erase** of an 800K image (needs a System before 7.5 - the
+   LC found 7.5.5 does not offer it): a 400K volume, side 1 untouched,
+   and still 400K after a remount.
+4. **A write-protected image** (mounted read-only): the Finder says the
+   disk is locked; nothing reaches the card.
+5. A soak: a folder copied back and forth, byte-identical. **Written out
+   2026-10-06 (Daniel: "we still need to do a soak test on the GCR
+   writing", before MFM writing):**
+   - **The tool**: `tools/hfs/soak.py`. `make <dir> --rounds N` writes
+     `soak_source.dsk` (an 800K HFS floppy, folder `Soak` with a nested
+     `Inner`: 33 files, 721,416 payload bytes, 73 KB free - the targets
+     are filled to ~90 %, so the copies reach the inner cylinders) and
+     blank round images; `check <images>` audits each volume (as
+     `hfs_vol.py`: links, threads, overflow extents, bitmap, MDB; DC42
+     data and tag checksums) and compares every folder holding `Big 1`
+     with the SEED, not with another copy. Every 512-byte block of the
+     payload is unique (a header naming file, fork and block, then
+     SHA-256), so a misplaced or stale sector cannot read back as right
+     (MacPlus 2026-08-23: a checker that cannot fail is not a checker);
+     a failure names the block that landed there. Resource forks are real
+     resource files; header bytes $30-$7D are reported, not counted.
+     `selftest` proves it can fail: two swapped sectors, one bit of
+     resource data, a sector from another file, a DC42 changed after its
+     checksum, a block freed in the bitmap - all FAIL; the File Manager's
+     header bytes - PASS. Agrees with `hfs_vol.py` on `mac_80mb.vhd` (its
+     6 unowned blocks are the image's own).
+   - **The images**: `C:\temp\Mac\Test disks\Soak\` (5 rounds made).
+     **One drive**: compile 44 has no external drive (`SE30_EXT_DRIVE`
+     is a build option, off - 10.4 item 3; Daniel 2026-10-06), so there
+     is no floppy-to-floppy hop. `soak_r1.dsk` .. `soak_r5.dsk`, raw and
+     DC42 with tags alternating by round (`soak_r2.image`,
+     `soak_r4.image`); `soak_final.dsk`. (`make --ext` makes two a round
+     for a build with the external drive.)
+   - **The rounds** (compile 44, `MacSE30_144c4b8d_stabilise1.rbf` - it
+     carries GCR writing; no compile needed). Keep the **mouse moving
+     during every copy** (the MacPlus HD20 lesson: a still mouse tests the
+     easy path).
+     0. `soak_source.dsk` in the drive; drag its `Soak` into a new folder
+        `Soak 0` on the SCSI disk; eject.
+     1. Round r = 1..5: `soak_rN` in the drive; **Initialize** it
+        (two-sided; the unreadable blank is formatted - every track
+        written); drag `Soak r-1:Soak` from the SCSI disk to the floppy
+        (SCSI read, floppy write); drag the floppy's `Soak` into a new
+        SCSI folder `Soak r` (floppy read, SCSI write); eject.
+     2. `soak_final.dsk`: Initialize, drag `Soak 5:Soak` to it, eject.
+     Every hop is checked: each SCSI copy is the next round's source, so
+     its faults reach a floppy; the SCSI image never needs pulling (its
+     own audit would fail on old faults - `check --sets-only` if wanted).
+   - **The check**: copy the 6 written images to the PC; `python
+     tools/hfs/soak.py check <the 6 images>` - every image PASS
+     (seconds).
+   - **The estimate**: ~5-6 min a round on the board (the initialize
+     ~1.5 min, two ~700 KB copies ~2.5 min, mounting and ejecting ~1-2
+     min), so ~30-35 min for 5 rounds + the source and final steps -
+     Daniel's board time; 4 rounds ~27 min.
+   - **RUN 2026-10-06 on compile 44 (Daniel): 3 rounds - enough (Daniel).
+     PASS.** Results in `C:\temp\Mac\Test disks\Soak\Results\`:
+     `soak_r1.dsk`, `soak_r2.img` (DC42: data and tag checksums match
+     the header), `soak_r3.dsk` - each a consistent volume (1,468 blocks
+     owned, 126 free, bitmap and MDB agreeing), its `Soak` 33 of 33 files
+     exact against the seed. The SCSI disk (`mac_80mb-restored.vhd`,
+     folders `soak:1`-`soak:4`, the last being round 3's return copy, so
+     no final floppy was needed): all four sets exact, and the volume
+     itself audits clean (801 files, 112 folders, 0 problems). The only
+     differences anywhere are the 11 resource forks' header bytes
+     $30-$7D (the File Manager's directory copy, as predicted). **Gate 5
+     met: 800K/400K GCR writing is finished on the board** (gates 1-5).
+
+### 5.15.11 The budget
+
+10.4's estimate for GCR writing and formatting is 800-1,200 ALMs. By part
+(estimates, to be measured): the IWM write path ~100, recording ~60, the
+decoder and committer ~400-500 (its 524-byte buffer in M10K), the SD
+writer ~400 (its queue and block buffer in M10K), the loader's header
+store and the mux ~80. The headroom: compile 41 was 38,758 ALMs; the
+measurement probes now out cost PFPU +374 (compile 40) and PPRF +805
+(compile 41), measured, and PSCT (compile 38) unmeasured - so the
+development build is about 37,300, **about 1,000 under the ~38.3k
+ceiling**. This step should fit with the probe deck in; MFM (5.13 and its
+write) may not, and is measured when it comes.
+
+### 5.15.12 Risks and open items
+
+- **The write splice**: where a sector write's first cell meets the old
+  track the IWM's framing may slip a byte of sync; the sync groups exist to
+  absorb that, and the decoder frames as the IWM does.
+- **The format's track length** depends on the zone's exact cell count
+  (5.12.3); the overrun means the formatter never needs it to match, but
+  the decoder's whole-revolution parse does - it uses the drive's own
+  `cells`.
+- **Decode latency before a seek**: ~2.4 ms per side, inside the step's
+  settle.
+- **The write-through traffic during a format**: about 3 blocks a sector,
+  4,800 for a disk, at the format's own pace (~1.5 s a cylinder) - well
+  inside the card's rate; back-pressure covers a slow card.
+- **The 9-FCLK lock** comes from a 6502-era note about the IWM; the SWIM's
+  IWM is the same design (the drawing reproduces the specification), so
+  it is built - the ROM never writes within 9 FCLK of a load.
+
+### 5.15.13 The work
+
+1. ~~Write this section.~~ **Done 2026-10-05.**
+2. `sim/swim` write checks (5.15.9 item 1), failing, then the IWM write
+   path in `se30_swim.v`.
+   **Done 2026-10-05: 141 checks PASS (~2.5 min), 4/4 mutants caught**
+   (no lock, 7 bits a load, /WRREQ blind to the underrun, the first load
+   at 8 CLK). Item 16 failed first as expected (no /WRREQ, no
+   transitions). Two findings on the way:
+   - **The bench must write at the machine's pace.** Its accesses are 5
+     FCLK apart; a write straight after the poll that saw the empty bit
+     landed inside the 9-FCLK lock and was dropped. The kernel's
+     shortest SWIM strobe-to-strobe gap is 15 FCLK (1.17.5), so the ROM
+     always clears the lock; `wr_byte` now waits that long.
+   - **Our reading: clearing L7 empties the buffer** as well as resetting
+     /underrun (sheet 52 names only the latter). Without it, rung 1's
+     idle handshake (`$FF`) read `$7F` after item 3's brief write states,
+     which never reached a load. The documents are silent; the ROM always
+     enters with a write, so it never sees the difference.
+   The write state is L7 with the delayed MotorOn, taken combinationally
+   so the first load is exactly 7 CLK after the access.
+3. `sim/fdhd` recording checks, then `se30_fdhd.v`'s recording, /WRTPRT
+   and the arc; the buffer's port uses in the encoder.
+   **Done 2026-10-05: `sim/fdhd` 81 PASS (~6.5 min), 5/5 mutants caught**
+   (a toggle early in a cell lost, the protect term dropped, no whole
+   arc, the buffer-valid term dropped, /WRTPRT blind to the disk). Item
+   11: /WRTPRT by disk and protection; a 64-bit pattern written at an
+   arbitrary phase against the drive's cells and read back from the
+   written cells; consecutive cells on SEL's side; each gate term alone
+   blocking; the arc; a revolution and 500 cells written, through the
+   wrap, reported whole. The bench and the drive went in together (the
+   old drive has no write ports to fail against), so the mutants carry
+   the proof. The arc closes the clock the gate drops, so a cell is
+   written only if the gate holds at its end. **The encoder**: port A
+   now a cell read or written (the drive), port B the build's writes or
+   the decoder's reads, chosen by the pending write (a build abandoned
+   on a seek can leave its last write for the first idle clock); a
+   rebuild waits for `hold`. `sim/flpenc` 26 PASS with them tied off.
+   The machine wires the SWIM's WR and /WRREQ to both drives, **with
+   `wprot` held at 1 until item 6 wires the write-back**; every other
+   instance (the top's encoders, `sim/swim`, `sim/gcrread`) ties the new
+   ports. `sim/swim` 141 PASS, `sim/machine` 17 PASS, Quartus analysis
+   0 errors (7,440 warnings, +2: the new unconnected outputs).
+4. `sim/flpdec` and `se30_flp_decoder.v` (decoder + committer).
+   **Done 2026-10-05: `sim/flpdec` 39 PASS (20 s), 9/9 mutants caught**
+   (no checksum test, the last group's B wrong, no duplicate guard, the
+   format byte ignored, no zone bound, no tags, loading ignored, the
+   window 200 cells long, the encoder blind to `hold`). The seam is the
+   real encoder (building cylinders from the image) and the decoder, the
+   bench writing fields into the buffer through the drive's port as the
+   ROM's writer and formatter do. Checked: a whole-revolution arc over
+   the encoder's own track commits all 12 sectors once and leaves the
+   image unchanged (the decoder agrees with the encoder's layout); a
+   ROM-written sector reaches its block, data and tags, nothing else
+   moving (side 0 and side 1); bad checksum, a field cut by the arc,
+   a sector past zone 4's eight, read-only and loading - all refused;
+   back-pressure holds the commit and `hold` keeps the encoder idle; a
+   one-sided format of cylinder 1 (84,096 cells, overrunning its start)
+   commits 12 zero sectors to the 400K layout's blocks 12-23 with
+   `ds_eff` falling at once; a tagless image's tag region untouched; the
+   disk port's handshake clean throughout. The mutant hunt found one
+   weak check (the hold test watched `trk_cyl`, which changes only when a
+   rebuild finishes; it now watches the encoder leave idle). The parse
+   takes two clocks a cell (address, then bit): a sector arc ~11,500
+   clocks, a format ~162,000 (5 ms) - inside the step's settle.
+5. `sim/flpwr` and `se30_flp_sdwriter.v`; the loader's header store.
+   **Done 2026-10-05: `sim/flpwr` 27 PASS (~5 min), 7/7 mutants caught**
+   (a timeout retiring the block, the tag sum over all 12 first bytes, no
+   header words, no room check, a mount keeping the queue, no DC42 spill
+   block, and the mount bug below put back). The writer follows
+   the LC's state for state; the queue holds file blocks, so a commit
+   pushes its data (one block raw, two DC42) and its tag block(s); the
+   eject flush recomputes the data and the tag checksum (the tags past
+   the first 12 bytes - DiskCopy's quirk, secondary sources). The loader
+   keeps file block 0's first 42 words and gives `is_dc42` and
+   `file_blks` (the partial last block counted). The bench: the real
+   loader loading an 800K DC42 with tags and a raw 800K image through an
+   hps_io model that clips writes at the file's end as Main does; a
+   sector's data across blocks 600/601 and its tags in block 1614; the
+   eject flush (block 0 only, then nothing on a second eject); the last
+   sector's tags in the partial block 1637; a late acknowledge
+   re-presented; back-pressure through a 16-deep queue with the card
+   stalled; read-only; a mount emptying the queue; raw blocks in place.
+   **It found a real bug: a mount on the clock the writer's disk-port
+   request rose left the request up** (the abort sent the state to idle
+   while the same clock's `mem_req <= 1` still landed); the memory held
+   its acknowledge, and the next block's first word took the stale
+   acknowledge's data - one word wrong on the card, in the raw image's
+   block 123 after a remount. And by review, the same window: a block
+   being presented (`sd_wr` up, not acknowledged) stayed presented across
+   a mount, where hps_io could write it into the new file, or the
+   loader's read acknowledge be taken for it. Fixed: a mount cancels a
+   request about to rise and withdraws an unacknowledged block at once;
+   a word in flight finishes first (`abort`, taken at the next quiet
+   clock); a block hps_io has acknowledged runs to its end without
+   marking the new file written. The bench now checks the writer idle
+   with no request up after the mount. Two bench faults on the way: a
+   deadlock of its own (waiting for room with the card it had stalled -
+   the card now returns from a parallel branch, every wait bounded) and
+   a debug field read from the wrong bits.
+6. The mux, the machine and top wiring, `PFLP`'s counters; `sim/flpmux`,
+   `sim/machine`.
+   **Done 2026-10-05.** `se30_flp_dkmux` serves eight requesters,
+   numbered so the even ones write (the loaders, the decoders) and the
+   odd ones read (the encoders, the SD writers): `dk_we = !owner[0]` as
+   before, a generic round robin. `sim/flpmux` (now eight requesters,
+   eleven phases) 13 PASS in 29 s, 3/3 mutants (the new requesters'
+   direction, the decoder's data, a fixed priority that starves). The
+   machine passes the drives' recording, arcs and `trk_cells` out and
+   takes `disk_wprot` (the loader's `readonly`); the top builds a decoder
+   and an SD writer per drive (the external one's inside
+   `SE30_EXT_DRIVE`), the encoder lays out by `ds_eff`, slot 0's `sd_wr`,
+   `sd_buff_din` and - while the writer presents - `sd_lba` are the
+   writer's; `files.qip` lists the two new files. A new probe **`PFWR`**
+   (64 bits: the decoder's commits, refusals and arcs, the writer's
+   blocks, flushes, retries and queue depth; `read_probes.tcl` decodes
+   it) - PFLP was full. `sim/machine` 17 PASS; Quartus analysis 0 errors,
+   7,439 warnings, none from the floppy files.
+7. `sim/gcrwrite`, the write seam.
+   **Done 2026-10-05: 9 PASS (164 s), 2/2 seam mutants** (the SWIM
+   shifting LSB first, the drive losing an early toggle). The real SWIM,
+   drive, encoder and decoder wired as the machine and top wire them,
+   driven at the register level by the ROM's sequences at its pace (the
+   write strobe 15 FCLK after the poll): the drive spun up and cylinder 0
+   built; sector 5 written from just after its address field ($FF, the
+   sync, D5 AA AD, 703 codes, DE AA FF FF, L7 cleared at once so the last
+   FF is cut) - no underrun, committed to block 5 with its tags, nothing
+   else changed; side 0 formatted (1,200 sync bytes and twelve zero
+   sectors, more than a revolution) - all twelve committed once as zeros.
+8. Quartus analysis; the warning count against compile 41's; then a
+   compile (measured against compile 40 for the probes' and this step's
+   costs, kept apart) and the board gates of 5.15.10.
+   **Compile 42 (Daniel's go-ahead 2026-10-05; tag `a1d606aa`, 36 min,
+   `output_files/MacSE30_a1d606aa_fwrite.rbf`): 37,769 ALMs (compile 41:
+   38,758), 314 RAM blocks; timing met at every corner** - our clocks'
+   worst setup +0.472 ns (PLL output 1, slow 100C; compile 41's clk_mem
+   +0.536), worst hold +0.116; the capture by A or B at every corner; the
+   flow's +0.017 is the framework's HDMI scaler (KNOWN ISSUES item 6).
+   The first attempt (tag `f380d1ef`) failed in synthesis: the track
+   buffer read the cell it wrote on the same port, which an M10K in
+   true dual-port mode cannot do, and was not inferred - fixed at
+   `a1d606a` (a port reads only when not writing); the elaboration checks
+   do not reach that stage. **The cost, per entity**: the decoder 395, the
+   SD writer 333, the encoder 423 (+33 on compile 29's ~390), the drive
+   178 (+40), the SWIM 138 (+15), the mux 20, the loader 304 - writing
+   about **840 ALMs**, the low end of 10.4's 800-1,200. So the three
+   measurement probes freed about 1,800 (989 net; the fitter's packing
+   moves a few hundred between builds). The probe deck is now 1,445.
+   Headroom under the ~38.3k ceiling: about 500. Synthesis 0 errors,
+   7,504 warnings (compile 41's count was not kept, so no comparison).
+   **Next: the board gates of 5.15.10 (Daniel).**
+   **Board, gate 1 (raw 800K), Daniel 2026-10-05 ~13:55: PASS.** Compile
+   42; TattleTech 2.17 and Disk First Aid 7.2.2 copied in the Finder to a
+   blank raw 800K image (`C:\temp\Mac\Test disks\Written\SE30\
+   Blank800K_clean.dsk`), the disk unmounted and remounted, TattleTech
+   run from it (it wrote a report onto the disk). On the PC, from a copy:
+   `hfs_check` - volume consistent, 4 files, every fork readable;
+   `hfs_fork_diff` - Disk First Aid identical to its source on the SCSI
+   boot disk (`boo_.vhd`, the header's $30-$7D directory copy aside);
+   TattleTech's resource fork differs from `tattletech2.17.dsk` by
+   design: resource by resource 250 identical, and the 4 that differ are
+   TattleTech saving its own settings when run - DLOG/DITL 15989 refitted
+   to the 512x342 screen (the window's right edge $35F -> $154, every
+   item moved by the same amount, the item texts unchanged), STR 15992
+   the saved name "System 7.5.5 80MB" (was "I-Sys9500", the previous
+   owner's), STR 15991 "1073" (was "18").
+   **Board, gate 2 (Finder erase of the same raw 800K image), Daniel
+   2026-10-05 ~14:00: PASS** (`Blank800K_clean_formatted.dsk`).
+   `hfs_check`: volume "Formatted" consistent, one file (Desktop, rsrc 286
+   bytes), the bitmap's 25 used blocks agreeing. The census: 1,593 of
+   1,600 sectors zero - all 1,569 free allocation blocks and both boot
+   blocks; the seven others are exactly a fresh volume's (the MDB at 2,
+   the bitmap at 3, the extents tree's header at 4, the catalog's header
+   and leaf at 16-17, the Desktop fork at 28, the alternate MDB at 1598).
+   No sector of the copied files survives; the one sector equal before
+   and after (4) is the empty extents tree's header, the same on any
+   fresh 800K volume. So every track of both sides was formatted and
+   decoded.
+   **Board, gate 3 (DiskCopy 4.2 800K with tags), Daniel 2026-10-05
+   ~14:05: PASS** (`Blank800K (DC42).baseline.dsk`, 838,484 bytes; the
+   same files copied, ejected from the Mac). The header: data size
+   819,200, tag size 19,200, format $22, magic $0100; **both checksums
+   recomputed on the PC match the header** (data $565A3056, tags
+   $84EF2B37, the tags past the first 12 bytes) - with new files on the
+   disk the header can only match if the eject flush rewrote it. The
+   payload: `hfs_check` consistent (4 files); Disk First Aid identical to
+   its source; TattleTech the same 250-identical / 4-settings picture as
+   gate 1 (against the raw disk's copy only its window rectangle differs,
+   by 3 and 1 pixels - it saved its window again). **The tags reached the
+   image**: 965 of 1,600 blocks carry non-zero tags, against 967 blocks of
+   non-zero data (the File Manager's tags: file number, fork and logical
+   block, e.g. block 16 `00000004 00000000 00000036`).
+   **Board, gate 4 (read-only), Daniel 2026-10-05: PASS** - the core has
+   no write switch of its own; Main mounts an image read-only when it is
+   inside a zip or its file lacks the owner-write bit (`FileCanWrite()`,
+   Main's file_io.cpp: on the card's FAT/exFAT the DOS read-only
+   attribute) and sends `img_readonly`; the disk mounted with the
+   Finder's lock icon (/WRTPRT 0), and a Finder copy onto it was refused
+   ("locked"). Afterwards (`Written\SE30\Blank800K_clean_RO.dsk`) the
+   image is byte-identical (MD5 `2a787634...`) to its read-only source of
+   17 Sep, and its MDB still reads created = modified = 2026-09-09 23:23:
+   mounted, browsed and copied to, nothing reached it.
+   **Board, gate 5a (a larger copy), Daniel 2026-10-05 ~14:25: PASS** -
+   PowerPoint's Presentation Library (21 files in 4 folders, ~330 KB on
+   the floppy) copied from the SCSI boot disk onto the formatted raw 800K
+   image (`Blank800K_clean_powerpoint.dsk`): `hfs_check` consistent (22
+   files, 4 folders, the catalog agreeing with the MDB); `hfs_fork_diff`
+   **21 of 21 identical** to their sources. (Over 700 KB on the hard disk
+   against ~330 KB here is the boot volume's 24,064-byte allocation
+   block - 65,358 blocks, HFS's 16-bit block count - against the
+   floppy's 512.)
+   **Board, gate 5b (delete and recopy), Daniel 2026-10-05 ~14:35: PASS**
+   (`Blank800K_clean_delete.dsk`): the Sample Presentations folder (7
+   files) deleted and the Trash emptied, the Presentation Templates'
+   two layout files copied in. `hfs_check` consistent (17 files); 16 of
+   16 identical to their sources; the new files went into the freed
+   space (blocks 25 and 33, where the deleted "(MacII) Presenting
+   PowerPoint" began); the volume bitmap's 170 set blocks are exactly the
+   forks' and trees' extents (none set unused, none used unset) and the
+   MDB's free count (1,424) agrees; the catalog's second extent (blocks
+   600-611, from gate 5a's growth) reads back. **800K/400K GCR writing is
+   done on the board** except the one-sided erase (needs a System before
+   7.5; not blocking). Next per Daniel's order: 5.13, the ISM's MFM read
+   (1.44 MB and 720K) - about 500 ALMs of headroom left. Still to run: the one-sided erase
+   (needs a System before 7.5), the soak.
+   **Board, gate 3 (the one-sided erase, under System 7.1), Daniel 2026-10-05 ~16:25:
+   PASS** (`Written\SE30\Formatted\`; host-checked with an MFS checker
+   written for it - the volumes are MFS, signature `$D2D7`, which the
+   Finder makes of a 400K disk, so `hfs_check` does not apply).
+   `Blank400K.dsk` (a 409,600-byte image erased as 400K): a consistent
+   MFS volume - 391 allocation blocks of 1K, the map's free count (390)
+   agreeing with the MDB, one file (the Desktop) on a valid chain, no
+   block shared or orphaned; every free block zero (the format reached
+   the surface); the spare MDB at block 798 is the initialisation
+   snapshot (391 free, before the Desktop), as MFS keeps it.
+   `Blank800Kas400K.dsk` (an 819,200-byte image erased as 800K, then as
+   400K): the same consistent 400K MFS volume in the file's first 800
+   blocks (sidedness item 7: the decoder followed the `$02` format byte
+   and placed side 0's sectors at the 400K block numbers); blocks
+   800-1599 as the 800K format left them - zeros and, at block 1598, the
+   old HFS volume's alternate MDB (`BD`, 1,594 allocation blocks) -
+   untouched; and **still 400K after a remount** (Daniel). Left: the
+   soak.
+
+## 5.16 MFM writing and formatting - 1.44 MB and 720K (2026-10-06)
+
+Opened 2026-10-06 on `floppy-write`, the third step of Daniel's order
+(5.15: GCR writing, then MFM reading, then MFM writing), after GCR writing
+finished on the board (5.15.10 gate 5, the soak) and the 1.44 MB read was
+host-checked (5.13.11). Daniel: "Let's proceed with MFM write."
+
+**The budget (Daniel, 2026-10-06).** No measurement compile first. The
+estimate is 350-700 ALMs (by part, 5.16.9), against compile 44's 39,149
+with the probe deck (2,074 of it the deck and hub; a release build is
+estimated at 35,700-36,900). Features stay removable: Daniel wants to be
+able to drop a part - all floppy writing, say - from a debug build so the
+probes can be spent on something else, since no build needs every feature
+probed at once (10.4.2's profiles). So every block this section adds sits
+behind a module parameter, which 10.4.2's `SE30_FLOPPY_WRITE` will drive
+together with GCR writing. An audit of what is already built (10.4.1 items
+2-3) stays open as a further lever.
+
+### 5.16.1 Sources, and their standing
+
+| source | what | standing |
+|---|---|---|
+| The SWIM drawing 343S0061-A, sheets 21-29 (6.2, "MFM WRITE") | the write chain: the FIFO and its IN/OUT, the shift register, the CRC register, the trans-space machine (Table 13), pre-compensation, the half write | **primary**; it repeats the ISM spec's section 3 (read side by side: no difference found) |
+| `ISM_ASIC_spec_198707.pdf` 3.1-3.6, 5.1, pp. 42-46 | the same chain with its figures (6, 8, 10, 11, 12); the IBM drive option (4-clock pulses); the registers: Error bit 0 underrun and bit 2 overrun in write mode, "Write CRC", handshake bits 7/6 as FIFO space in write mode, "**the Action bit will be cleared any time there is any Error while writing**", two bytes in the FIFO before ACTION, "**an IN occurs at the instant that Action is set when writing**" | primary |
+| `SWIM_Chip_Users_Ref_198801` pp. 12-13, 19-24 | the write parameters (TIME0, TIME1, EARLY/NORMAL/LATE) and the 2/3/4-us intervals they build; the Mark register "will cause a byte to be written that has a transition missing between two adjacent zero-bits"; the CRC register with ACTION | primary for behaviour as software sees it |
+| `SWIM_regs.txt` (SWIM III, a later chip) | "Dat1byte ... is gated with error in write mode so that if a write error occurs the SWIM will appear empty so to not cause the software to hang" | a later chip's documented behaviour - used only where our chip's documents are silent and the ROM needs it (5.16.3 item 6) |
+| The ROM: **the sector writer** `$4082EB3E`-`$4082EC0A`, **the track formatter** `$4082EC5E`-`$4082EE40`, the drive-register select `$4082E8E0` | what the machine does: 5.16.2 | documentation tier (1.11) |
+| `Apple_drive_command_and_status_codes.txt` | the drive registers by {SEL, CA2, CA1, CA0}: `rRdData0`/`rRdData1` "selects head 0/1", `rIndexPulse` "MFM: 1 - index pulse" | secondary (a SWIM3 driver's table) |
+| MacLC `rtl/mfm_write_decoder.v` | Daniel's MFM write parse, board-gated | donor for the image half only (its capture taps the guest's bytes and is not lifted); its checks become ours |
+
+### 5.16.2 What the ROM does
+
+The ISM registers are base + n x `$200` (writes 0-7, reads 8-F); `A4` is
+the handshake (`$1E00`), `A3` the base. Every byte waits on the handshake
+(`tst.b (A4); bpl`) with **no timeout**, and between polls the driver
+saves any SCC byte waiting (`tst.b (A5); bmi; move.b (A6),-(A7)`), so the
+byte loop is not uniform.
+
+1. **A sector write** (`$4082EB3E`, after the address field was read,
+   5.13.2 item 3): phases `$F5`; the error register read (cleared); mode
+   zeros `$18` (write and ACTION off), ones `$10` (write mode), ones then
+   zeros `$01` (Clear FIFO); a delay of `$758E` x TimeSCCDB (`$D02`) /
+   65,536 loops of a VIA read, **0.459 ms**; two `$00` into the FIFO; ones
+   `$08` (**ACTION**); ten more `$00`; `A1 A1 A1` through the Mark register
+   (`$200`); `FB`; the 512 bytes; **the CRC** (a write to `$400`); four
+   `4E`; then the handshake's error bit (bit 5 -> `wrUnderrun`, -74) and
+   mode zeros `$18`, which ends the write with bytes still in the FIFO.
+   The write starts 0.46 ms after the address field's CRC: 352 us is gap 2
+   (22 x `4E`), so it lands in the old 12 x `00` sync, about 100 us before
+   the old data mark (the splice).
+2. **A track format** (`$4082EC5E`), one side a call, side 0 then side 1:
+   the head selected through `$4082E0EC` (register `$1`/`$3`, RDDATA0/1,
+   which "selects head 0/1" - in the ISM set `$4082E8E0` writes phases
+   `$F4` and sets SEL); write mode, Clear FIFO, two `4E`, ACTION; then `4E`
+   after `4E` while polling **handshake bit 3 (SENSE): first until it reads
+   0, then until it reads 1** - up to 13,500 bytes, else `fmt2Err` (-83);
+   then phases `$F5`, 32 x `4E`, and for R = 1..18 (or 9): 12 x `00`, `A1 A1
+   A1 FE` C H R `02` CRC, 22 x `4E`, 12 x `00`, `A1 A1 A1 FB`, 512 x `F6`,
+   CRC, gap 3 of 108 (or 80) x `4E`; then `4E` with phases `$F4` again,
+   until SENSE reads 1 - **side 1 up to 1,000 bytes (`fmt2Err` if it never
+   does), side 0 only about seven bytes**, whatever SENSE says. The
+   handshake's bit 5 decides `wrUnderrun`.
+3. **What SENSE shows while it formats.** The phases select RDDATA0/1 the
+   whole time it waits (`$F4`), and it waits for a 0-then-1 edge once a
+   revolution, then writes until the next 1 - the index. **So the
+   SuperDrive in MFM mode must put the index on the RDDATA registers while
+   the write gate is low.** No drive document is in hand (5.13.4: bitsavers
+   has only photos of the MP-F75W); this is an inference from the ROM, the
+   documentation tier. The index's polarity is `$E`'s (1 in the pulse):
+   the rising edge starts the track, which is where the encoder lays cell 0
+   (5.13.12 item 3), and side 1's tail ends in it.
+4. **The track's length**: 32 + 18 x 682 = 12,308 bytes from the index, of
+   the revolution's 12,500 at 500 kbit/s (196,928 cells of 200,000). Side 1
+   writes on to the index; side 0 stops about 192 bytes short, and the old
+   cells there stay (gap 4, read by nobody). With the wait before the
+   index the gate is open for between 12,308 bytes and about a revolution
+   more: **an arc of a whole revolution or less**, depending on where the
+   disk was when the write began.
+
+### 5.16.3 The ISM's write chain (the drawing 6.2, the ISM spec 3)
+
+1. **The FIFO** is the read path's two entries, each a byte, a mark bit and
+   a CRC bit. In write mode a processor write is an OUT: the Data register
+   pushes the byte, the Mark register the byte with its mark bit, the CRC
+   register (with ACTION) an entry with the CRC bit. A push into a full
+   FIFO is **overrun** (error bit 2) and is lost. Clear FIFO empties it
+   (the drawing's "preset to ones" for write: two places free). The
+   handshake in write mode: **bit 7 a place free, bit 6 two**, bit 5 an
+   error, bits 3/2 SENSE, bit 4 the motor, bits 1 and 0 read 0.
+2. **ACTION** in write mode: "an IN occurs at the instant that Action is
+   set" - the head entry moves to the shift register at once, so the
+   ROM's two bytes are the first written. /WRREQ is low while write mode
+   and ACTION are both set.
+3. **The shift register** sends its byte MSB first; its last bit taken,
+   the next IN moves the FIFO's head in. **An IN with the FIFO empty is an
+   underrun** (error bit 0). A CRC entry shifts the CRC register's 16 bits
+   instead, MSB first, and the CRC does not take its own bits.
+4. **The CRC** (CCITT-16, the read path's) takes every data and mark bit as
+   it leaves the shift register. "The CRC is cleared to ones just prior to
+   writing the Mark byte": **our reading - at the IN of a mark byte that
+   follows a non-mark byte**, so it covers the three `A1`s and the field
+   (`$CDB4` after them), the same reading as the read path's (5.13.12 item
+   4) and the encoder's, and the only one that gives the fields' CRCs the
+   ROM reads back.
+5. **The trans-space machine** (Table 13): the current bit c and the next
+   n give 1 for (0,0), 01 for (0,1), 0 for (1,0), 1 for (1,1); in a mark
+   byte, at the pattern 1 0 0 0 (two bits back, one back, c, n), (0,0)
+   gives 00 - the dropped clock, `$4489`. **A trans-space 1 presets the
+   counter to TIME1 and toggles WRDATA at its terminal count; a 0 presets
+   TIME0 and does not.** With the ROM's parameters (TIME1 `$3B`, TIME0
+   `$1B`, in half-clocks, plus the two clocks the User's Reference takes
+   off: 31.5 and 15.5 FCLK) the intervals are 31.5, 47 and 62.5 FCLK - the
+   2, 3 and 4 units, which the drive's interval recording keeps (5.13.5).
+   **The half clock** (3.6) is kept as a remainder: the toggle lands on
+   the FCLK, the half carried into the next interval, so no error
+   accumulates; the drive counts in FCLK and cannot see the half.
+6. **Errors stop the write**: any error in write mode clears ACTION (so
+   /WRREQ rises and WRDATA stops). **The handshake then shows the FIFO
+   empty** (bits 7 and 6 set): the ROM's byte loops have no timeout, so
+   an underrun mid-sector would hang it on the chip as the ISM spec
+   describes it, yet the ROM reads the error bit after the field to report
+   `wrUnderrun` - it expects to get there. SWIM III's register document
+   states this gating; our chip's documents are silent. Engineering, from
+   the ROM and the later chip.
+7. **The IBM drive option** (Setup bit 5, the ROM's): WRDATA is a 4-FCLK
+   pulse at each toggle (5.1, figure 32) instead of a level change; the
+   drive takes the pulse's first edge (it already ignores a second edge
+   within half a cell, 5.13.12 item 2). The half-clock-late pulse ("4 1/2
+   clocks when Long") is the remainder of item 5.
+8. **Not built**: pre-compensation - EARLY 5 / NORMAL 7 / LATE 9 move a
+   transition by 2 clocks; at worst a 2-unit interval becomes 27.5 FCLK
+   (1.76 cells) and a 4-unit 66.5 (4.24 cells), so every interval rounds
+   to the same cell count in the drive and the medium is unchanged; the
+   parameters are stored and read back as now. Setup bit 6 (trans-space
+   bypassed) and bit 2 (GCR through the ISM), which the ROM never sets, as
+   on the read side.
+
+### 5.16.4 The drive (`se30_fdhd.v`)
+
+- **The index on RDDATA while writing** (5.16.2 item 3): in MFM mode with
+  /WRTGATE low and the drive enabled, registers `$1` and `$3` read the
+  index (as `$E` does) instead of the read pulses. Our inference from the
+  ROM; to KNOWN ISSUES as an inferred behaviour once built.
+- Recording is unchanged: interval recording in both modes, the arc
+  reported when the gate rises (5.15.3, 5.13.5).
+
+### 5.16.5 The decoder (`se30_flp_decoder.v`, an MFM parse beside the GCR one)
+
+1. **The window.** A sector write's arc holds only the data field: its
+   address field was on the track already, read by the ROM 0.46 ms
+   earlier. So for an arc shorter than a revolution the parse starts
+   **1,024 cells before the arc** - the address field ends 460-550 cells
+   before it (the delay and the ROM's own time), and a write later than 544
+   cells after it would have missed the old data mark on a real disk -
+   and runs to the arc's end. An arc of a revolution or more is parsed, as
+   for GCR, from the cell after its end for a revolution and one sector
+   (11,264 cells, more than a sector's 682 bytes).
+2. **The marks.** A 16-cell shift register finds `$4489` at any cell; a run
+   of exactly three (16 cells apart) and the next 16 cells' data bits (every
+   second cell, the clock first) give the mark byte: `FE` an address field,
+   `FB` a data field, anything else back to hunting. The CRC is preset with
+   the run (`$443B` after the first `A1`, our constant from all ones) and
+   takes every data bit; a field is good when it is zero after its two CRC
+   bytes. Exactly three, as the ROM's reader compares `A1 A1 A1 FE`.
+3. **An address field** `FE C H R N`: a good one is remembered; any data
+   mark, and a bad address field, forget it.
+4. **A data field** `FB` + 512 + CRC is committed when: its CRC is good; the
+   field before it was a good address field; N is 2 (512 bytes); **C is the
+   head's cylinder and H the arc's side**; 1 <= R <= 18 (or 9); the image
+   is writable; and - for an arc shorter than a revolution - its marks
+   start inside the written cells (not in the 1,024 looked back at). The
+   block is the encoder's own expression, (2C + H) x spt + R - 1
+   (`se30_flp_encoder.v`'s `mblk`), and the 512 bytes go to BASE + 256 x
+   block in words, through the committer the GCR path uses (no tags). A
+   sector committed once from an arc is not committed again (`seen` grows
+   to 18 bits).
+5. **Refused, as 5.15.6**: a field the image cannot place - C or H not
+   where the head is, R out of range, N not 2 - or with a bad CRC stays in
+   the track buffer until the head leaves, then the image's sector returns.
+   A real disk would keep it. **Accepted deviation**, to KNOWN ISSUES with
+   5.15.6's.
+6. **Widths**: the block becomes 12 bits (2,880 blocks) through the decoder
+   and the SD writer (`cm_blk`); the writer's file blocks are 13 bits
+   already, and its DC42 flush reads the data size from the header, so a
+   1.44 MB DiskCopy image needs no other change.
+
+### 5.16.6 The top
+
+`disk_wprot = flp_readonly || img_mfm` (5.13.12 item 5) becomes
+`flp_readonly`: MFM disks become writable. The external drive's chain
+(`SE30_EXT_DRIVE`) gets the same.
+
+### 5.16.7 The benches (seam benches, then the board)
+
+1. **`sim/swim`**, a write section: the ROM's sector write in its register
+   order at the paced kernel's pace; WRDATA's intervals measured (31/32,
+   47, 62/63 FCLK, the half carried) and decoded by the bench's own MFM
+   reference into `00` x 12, `A1 A1 A1` as `$4489`, `FB`, the bytes and the
+   CRC, then `4E`; the first byte at ACTION; the handshake's places in
+   write mode; overrun (and ACTION cleared); underrun (error bit 0, ACTION
+   cleared, /WRREQ high, the handshake empty); the CRC preset at the first
+   mark only; IBM pulses 4 FCLK wide; /WRREQ low only with write mode and
+   ACTION.
+2. **`sim/fdhd`**: the index on `$1`/`$3` with the gate low in MFM mode;
+   read pulses there with the gate high, and in GCR mode either way.
+3. **`sim/flpdec`**, an MFM section: a sector written into an
+   encoder-laid track (the address field found in the look-back); a format
+   as a whole arc and as a short one; refused - a bad CRC, no address
+   field, a bad address field, C or H elsewhere, R 0 or 19, N 3, a data
+   field wholly in the look-back, a read-only image; 720K's geometry; the
+   block numbers against the encoder's; one commit per sector an arc.
+4. **`sim/flpwr`**: block 2,879 of a raw and a DC42 1.44 MB image (the
+   12-bit block).
+5. **`sim/mfmwrite`** (new, the seam, as `sim/gcrwrite`): SWIM + drive +
+   encoder + decoder + committer on an SDRAM model, driven by the ROM's
+   sequences at its pace - a sector write after its address-field read,
+   then both sides of a cylinder formatted (the index waits included), then
+   every sector read back through the ISM's read chain and compared with
+   the image in SDRAM.
+6. Reruns: `sim/swim` (all), `sim/mfmread`, `sim/gcrwrite`, `sim/flpenc`,
+   `sim/machine`; mutants for every new check (the standing method).
+
+### 5.16.8 The board (host-checked gates, scratch copies of every image)
+
+1. A 1.44 MB raw image: copy a folder onto it, eject, compare on the PC
+   (`tools/hfs/fork_cmp.py`); remount, Disk First Aid.
+   **PASS 2026-10-06 (Daniel, compile 45)**: `C:\temp\Mac\Test
+   disks\Written\SE30\MFM\Blank1440K.dsk` (raw, 1,474,560 bytes), the
+   whole of the System 7.5.5 Update's disk 1 copied onto it from a DC42
+   copy of `System 7.5.5 Update - 1.dsk`: **24 files identical in both
+   forks** (all of them but the Finder's own Desktop file), 25 folders,
+   the volume consistent - ownership, threads, the bitmap, the MDB's
+   free count. One checker fault on the way: `tools/hfs/soak.py`'s audit
+   read the catalog through the MDB's three extents only. This volume's
+   catalog is 26 nodes in seven extents, four of them in the extents
+   overflow file, so the audit reported missing threads, no files and
+   2,747 unowned blocks. Fixed to follow the catalog's overflow records;
+   `soak.py selftest` passes. **Disk First Aid** (7.3.5) then reported
+   "Invalid thread record length, 2, 4" and could not repair it - **a
+   fault of the blank image, not of the core**: the root folder's thread
+   (CNID 2) has 26 data bytes and the Desktop file's (CNID 16) 22, where
+   HFS's thread records are 46 (*Inside Macintosh: Files* 2-88); every
+   thread the Mac wrote during the copy is 46, and the untouched starting
+   image `Test disks\MFM\Blank1440K.dsk` and its `.baseline` (2026-09-18)
+   carry the same two short threads. **They were minted on the host with
+   `machfs`** (Daniel; the LC's `floppy-write` branch,
+   `docs/floppy_write_plan.md`, "Images (minted 2026-09-18)":
+   `Volume.write(size=1474560, bootable=False)`, then `scripts/mk_dc42.py`
+   for the DC42), which sizes the root's and the Desktop file's threads
+   to their names. Mac OS mounts and uses such a volume (the copy worked);
+   only Disk First Aid objects. Every blank minted that way draws the
+   same report. The DC42 blank beside them has the same; the 720K blanks
+   there hold no volume. Next (Daniel): the
+   Finder's Erase of the same disk, the same copy, Disk First Aid
+   (gate 2, which also rebuilds the catalog with the Mac's own records).
+2. The Finder's Erase of a 1.44 MB disk (a format: both sides of every
+   cylinder), then a copy onto it; host-check the volume (`hfs_check`).
+   **PASS 2026-10-06 (Daniel, compile 45)**: gate 1's disk erased, the
+   same files copied, **Disk First Aid OK**;
+   `Test disks\Written\SE30\MFM\Blank1440K-2.dsk` host-checked: all 25
+   files (4 at the root, 19 one folder down, 2 in `English:UK`/`:US`;
+   the MDB's `drFilCnt` 25) identical to the source but the Finder's own
+   Desktop file, the volume consistent, every thread record 46 bytes (the
+   Mac's own catalog now). **The format census**: all 61 free allocation
+   blocks and the last sector hold the formatter's `512 x F6`; the 22
+   in-use blocks still `F6` are the catalog's unused nodes; sector 2878
+   the alternate MDB. So the ROM's formatter found the index on RDDATA on
+   both sides of every cylinder (5.16.2 item 3's inference holds against
+   the ROM on the board) and every sector reached the image.
+3. A 1.44 MB DiskCopy 4.2 image written: both checksums right after the
+   eject (DiskCopy or our checker).
+   **FAIL 2026-10-06 (Daniel, compile 45), FIXED in the SD writer.**
+   `Test disks\Written\SE30\MFM\Blank1440K (DC42).dsk` (the same files
+   copied onto the machfs DC42 blank) mounted and worked on the Mac - it
+   was reading the image in SDRAM - but **the card's file was wrong**:
+   the header's data sum (`92F53AA7`, rewritten at the eject) did not
+   match the file's data (`53A59436`), the catalog would not parse, and
+   of the source's file sectors found by their last 84 bytes **2,309 had
+   their first 428 bytes wrong** (351 whole). **The cause, ours (5.15.5
+   item 6's design):** a commit queues the file blocks its sector
+   touches - two in a DC42, the 84-byte header shifting sector n across
+   file blocks n and n + 1 - and the writer skipped a block equal to the
+   one last queued. MFM writes 1:1, so sector n + 1's commit (~11 ms
+   later) found file block n + 1 "already queued" and skipped it, though
+   the writer had long since taken that block from SDRAM to the card with
+   sector n + 1's old first 428 bytes. GCR's 2:1 interleave never commits
+   adjacent sectors, which is why the GCR soak's DC42 rounds passed; raw
+   images have one block a sector (gates 1 and 2 were raw). **The fix**
+   (`se30_flp_sdwriter.v`): the skip applies only while the last block
+   queued still waits in the queue. `sim/flpwr` 35 PASS, failing first
+   with the board's exact signature (file block 101 stale from byte 84):
+   adjacent sectors with the writer idle between, and six back to back.
+   Mutants: the old rule caught; two equivalent - the `push` term (it
+   saves only a duplicate write) and a pop guard, dropped (a block the
+   writer takes is read after the commit's words reached SDRAM).
+   **The exposure, for the record**: any two commits in a row touching
+   one file block - tagless DC42s (1.44 MB, 720K, a tagless 800K) on
+   every run of consecutive sectors; any image, raw included, when one
+   sector was committed twice in a row (an MDB or bitmap rewrite); a
+   DC42 with tags only that way too (its tag block breaks the run).
+   **Compile 46, 2026-10-06**: tag `d56cab1a`,
+   `output_files/MacSE30_d56cab1a_dc42fix.rbf`, 40.8 min. **38,893 ALMs
+   (93 %)**, 343 M10K. Our timing met at every corner, the SDRAM capture
+   met at every corner by A or B; the only failing paths `ascal`'s,
+   -0.036 ns at slow -40C and -0.021 at slow 100C (KNOWN ISSUES 6); no
+   combinational loop. Next: gate 3 again on a fresh copy of the DC42
+   blank (Disk First Aid will report the machfs blank's short threads
+   again) - judged by the file contents on the card.
+   **PASS on compile 46, 2026-10-06 (Daniel)**: a fresh copy of the DC42
+   blank, the same files copied, ejected -
+   `Test disks\Written\SE30\MFM\Blank1440K (DC42).baseline.dsk` (Daniel's
+   name for the run's output). **The data sum the eject wrote
+   (`52E9CD07`) matches the file's data; the tag sum 0**; only header
+   bytes 72-75 differ from the blank's. All 24 files identical in both
+   forks (the Desktop file aside), the volume consistent. By sector,
+   2,649 of the source's file sectors whole on the card (compile 45:
+   351); the 11 the tail-located check still flags are resource forks'
+   File Manager bytes `$30`-`$7D`, which `fork_cmp` excuses.
+4. 720K: the read gate first (still owed, 5.13.11), then a copy onto it.
+   **720K is DOS only** (Daniel, 2026-10-06: the Mac formats double-density
+   media as 800K GCR; it never made 720K HFS volumes, so none is tested).
+   So, through PC Exchange: read `Test disks\Phase6\P6_DOS720K.img`'s
+   files to the SCSI disk; copy files onto a scratch copy of `Test
+   disks\MFM\Blank720K.img` (FAT12) and check it on the PC with the LC's
+   `scripts/fat_diff.py` (its `floppy-write` branch); and the LC's two
+   cross-encoding erases (its plan 6C.4, gate 4a: an 800K image erased as
+   DOS 720K hung the LC until fixed) - `P6_Cross800K.dsk` erased as DOS
+   720K, `P6_Cross720K.img` erased as Macintosh 800K. Here the drive spins
+   in whichever mode the ROM asks for, so a hang is not expected; the risk
+   is the other way - a format the image's fixed size cannot hold that
+   looks finished, then reverts after a seek (5.16.5 item 5's deviation).
+   What the board shows decides whether such a write should be refused
+   up front (the disk reading write-protected in the other encoding).
+5. PC Exchange on a DOS disk (KNOWN ISSUES 9, FUTURE BOARD TESTS item 7):
+   the copy and the TeachText open that failed on a locked volume.
+
+### 5.16.9 The budget, by part (estimates; the fit decides)
+
+The ISM write chain in `se30_swim.v` 120-250 (the FIFO and the CRC are
+the read path's, shared; new: the IN logic, the trans-space machine with
+its 4-bit history, the TIME0/TIME1 counter with the half carry, the
+pulse); the MFM parse in the decoder 200-350 (the mark hunt, the 16-cell
+framing, the field states, the remembered address field, the block
+expression - the committer, the sector buffer and the SD writer are
+shared); the drive's index-on-RDDATA, the 12-bit block, the top 30-100.
+**Total 350-700.** Each behind a module parameter (5.16, the budget).
+
+### 5.16.10 Risks and open items
+
+- **The index on RDDATA while writing** is an inference (5.16.2 item 3).
+  If the board's formats fail with `fmt2Err`, that is the first suspect.
+- **The look-back** (5.16.5 item 1) depends on the ROM's 0.46 ms delay
+  reaching the board as it reaches the bench: the delay is calibrated by
+  TimeSCCDB at boot, and the paced kernel holds the 030's times (1.17).
+- **The underrun handshake** (5.16.3 item 6) is engineering.
+- **Decode time**: an MFM side is 211,264 cells at two clocks each, about
+  13.5 ms, plus 18 commits; the format writes the next side for 200 ms
+  meanwhile, and a seek waits for the decode (`hold`), inside the step's
+  settle.
+
+### 5.16.11 The work
+
+1. ~~Write this section.~~ **Done 2026-10-06.**
+2. `sim/swim` write checks (5.16.7 item 1), failing, then the ISM write
+   chain in `se30_swim.v`.
+   **Done 2026-10-06: `sim/swim` 207 PASS (~3.5 min; 175 as before, 32
+   new in section 18), failing first (18 of the new checks on the old
+   RTL).** The bench's own MFM reference decodes WRDATA's intervals into
+   cells and bytes. 13 mutants (scratchpad `mut_ismw.py`): 12 caught -
+   the CRC preset at every mark, no dropped clock, the clock dropped in
+   every byte, the half lost, no IN at ACTION, an error keeping ACTION,
+   no empty-gating (survived the first bench: an underrun leaves the
+   FIFO empty anyway; caught after a check with the FIFO full and an
+   error held), a 3-FCLK pulse, TIME0 for a 1, no write overrun, (1,0)
+   as 1, /WRREQ blind to ACTION. **One equivalent**: the CRC taking its
+   own bits (the bytes leave from a copy, and the next mark presets
+   it). Each new block is behind `MFM_WRITE` (default 1).
+3. `sim/fdhd` checks, then the index on RDDATA while writing.
+   **Done 2026-10-06: section 13 (four checks), failing first on the
+   old RTL (the two index checks).** The checks time a revolution in
+   FCLK, not by `trk_addr`: with the gate low `trk_addr` is the write
+   cursor, which can trail the head by a cell (the first version timed
+   by it and missed a rise - a bench slip).
+4. `sim/flpdec` MFM checks, then the decoder's MFM parse; `sim/flpwr` and
+   the SD writer's 12-bit block.
+   **Done 2026-10-06: `sim/flpdec` 70 PASS; with `MFM_WRITE` = 0 (the
+   parse left out) 13 of the MFM checks fail.** The bench has its own MFM
+   cell encoder and CRC; the image memory grew to 2,880 blocks. 14
+   mutants (`mut_dec.py`), all caught: no look-back, marks in the
+   look-back accepted, the address field kept after a data field, no C,
+   H, N or upper-R check, the CRC preset from all ones, two marks
+   accepted, 9 sectors on HD, `seen` not set, a GCR-sized whole window,
+   a bad address field kept, CRC over the clock cells. Three survived the
+   first bench and made it stronger: a whole arc ending at cell 511 (the
+   window opens on a sector and reads it twice), one ending at cell
+   1,000 (a sector read whole only in the window's extra), and a good
+   data field after a bad one with no address field between.
+   **`sim/flpwr` 33 PASS** (section 10: blocks 2,879 and 2,048 of a
+   1.44 MB DiskCopy image, the partial last file block, the eject's sums;
+   block 2,879 of a raw image).
+5. The top: MFM disks writable.
+   **Done 2026-10-06**: `disk_wprot = flp_readonly` (and the external
+   drive's), the 12-bit block wires, the decoders' `img_mfm`/`img_hd`.
+   `sim/gcrwrite` 9 PASS (its decoder's new ports tied off),
+   `sim/mfmread` 22 PASS, `sim/machine` 17 PASS (ModelSim).
+6. `sim/mfmwrite`, the seam.
+   **Done 2026-10-06: 20 PASS (~15 min alone).** The ROM's sector write
+   of cylinder 0 R 7 after its address-field read: no underrun, block 6
+   committed once, nothing else changed, read back byte for byte by the
+   ROM's reads, R 8 after it untouched. The ROM's format of cylinder 1:
+   the index found on RDDATA0/1 while writing (4,848 and 10,746 bytes of
+   `4E` before it), side 1's tail ending at the next index (169 bytes
+   after the fixed five; the arithmetic's 192 less the cursor's drift),
+   36 sectors committed as F6, read back by the ROM's reads. One bench
+   slip on the way: the write leaves phases `$F5`, and the read-back must
+   select the head again (the ROM's reads do).
+7. The reruns; `build_only.sh --check` (a RAM's ports may change); then
+   a compile when Daniel says.
+   **Daniel, 2026-10-06: "You can proceed with the compilation when
+   necessary."** The synthesis check is folded into the compile (it
+   fails early in Analysis & Synthesis if a RAM does not infer).
+   Seam mutants (`mut_seam.py`), all caught: no index on RDDATA (the
+   formatter's wait runs out, `fmt2Err`), no look-back (the sector write
+   not committed), the CRC preset at every mark (the field refused).
+   **Compile 45, 2026-10-06**: tag `3cf41753`,
+   `output_files/MacSE30_3cf41753_mfmwrite.rbf`, 34.8 min. **39,047 ALMs
+   (93 %), 102 fewer than compile 44**; 343 M10K. By entity MFM writing
+   cost **about +270**: the decoder +160 (566), the SWIM +94 (407), the
+   SD writer +23, the drive +5, the encoder, loader and mux -14 - under
+   5.16.9's 350-700; the total fell because the CPU (-223) and FPU (-142)
+   packed smaller this fit. **Our timing met at every corner**
+   (`sta_corners.tcl`; the SDRAM capture met at every corner by A or B);
+   every failing setup path is the framework's `ascal` (`o_vcpt_pre3`,
+   `o_hacc`, `o_radl3`): -0.193 ns at slow -40C, -0.026 at slow 100C
+   (KNOWN ISSUES 6, the accepted precedent). No combinational loop in
+   STA; synthesis lists the decoder's eight `Add2` cells, as at compile
+   44. Compile 45 also carries the PSTA fix (KNOWN ISSUES 10, FUTURE
+   BOARD TESTS item 6).
+8. The board (5.16.8).
 
 # Section 6 - The ADB and the RTC
 
@@ -14943,6 +16510,144 @@ bitmap, the MDB's counts):
      target is not the lever. GLUE's DRQ wait shows how much of the
      bus time the CPU actually spends held.
 
+**END OF SESSION 2026-10-06 (evening, closed ~19:15) - READ THIS TO RESUME**
+(supersedes the blocks below; the afternoon block's items 1-3, 5 and 6
+still stand). Branch `floppy-write` at the commit after this one, tree
+clean, nothing pushed (Daniel pushes). **Daniel: the core is FEATURE
+COMPLETE EXCEPT CD-ROM; the next session is the CD-ROM session, on a
+branch cut from `dev` at `c3c3a0f`** - dev now holds the four non-floppy
+fixes of item 3a (its plan has the note); `C:\Git\MacSE30_mode32` is the
+worktree that has dev checked out. **Current bitstream: compile 47,
+`output_files/MacSE30_dd2dfe39_cmpmfix.rbf`** (38,825 ALMs; timing missed
+by two routing detours, item 3a - Daniel: closure on the merged release
+netlist after CD-ROM; the SDRAM half is done, the ATC-hit chain is the
+open one). Still owed on floppy-write: 5.16.8 gate 4 (720K, DOS - now
+unblocked); the floppy-writing RTL merges into dev at the end.
+0. **KNOWN ISSUES 9 RESOLVED ON THE BOARD (compile 47, ~19:00): TeachText
+   opens NETWORKS.TXT from the DOS disk, a Finder copy to the hard disk
+   succeeds, Get Info works.** The kernel fix dd2dfe3 is
+   board-proven; compile 47 misses timing on two routing detours (item
+   3a's compile record) - the timing work is next, Daniel's call on the
+   ATC-hit path; the dev cherry-picks (3a) now include a proven fix.
+1. **KNOWN ISSUES 9 (PC Exchange per-file operations) worked offline**:
+   PC Exchange 2.0.5 is an FSM foreign file system; its name lookup was
+   read from the disassembly (`EXFS 16` $70D2 -> $8070 -> $C056 / $69B6 /
+   $E9E) - everything after the mount runs in memory, so the open fails
+   without disk I/O by design. The whole account is in KNOWN ISSUES 9
+   under "2026-10-06 (evening)".
+2. **A deterministic board test is ready**: `C:\temp\Mac\Test disks\DOSTest\DOSTest.img`
+   (built by `tools/hfs/make_dostest.py`) holds
+   `DOSTest`, `CacheOff` and `CacheOn`. DOSTest makes the Finder's and
+   TeachText's File Manager calls against the PC Exchange volume and
+   writes the result codes as file names (`DT V/N/R/S/C ...`), the last
+   set with the 68030 caches off; validated in MAME's SE/30 (every call
+   noErr; the decoding table and the board procedure are in KNOWN ISSUES
+   9). **Next: Daniel runs it on compile 46** - one floppy drive in the
+   build, so: mount DOSTest.img, copy the three apps to the hard disk,
+   eject, mount the DOS scratch copy, double-click DOSTest on the hard
+   disk, read the `DT` names beside it; then CacheOff + TeachText open +
+   CacheOn.
+3. What the result decides (KNOWN ISSUES 9, last bullet): caches (plan
+   1.16) if `DT C` passes while `DT R` fails; otherwise a kernel
+   instruction or state fault, to be localised by a MAME instruction
+   trace of the GetCatInfo call replayed against our kernel (sim/cpfpu
+   loads a program image; MAME's debugger traces headless - see the MAME
+   memory note). The cputest 030 corpus passing makes a plain
+   instruction-semantics fault the less likely of the two.
+3a. **Daniel (2026-10-06 evening): compile 47 with the kernel fix - yes;
+   sim/system (18 min) - yes, running. INTO `dev` BEFORE THE CD-ROM BRANCH
+   IS CUT: everything on `floppy-write` that is NOT floppy writing** - the
+   floppy-writing RTL itself stays on this branch and merges at the end,
+   to keep the logic budget free while CD-ROM is developed. The non-floppy
+   list (cherry-picks onto `dev`, in order): `e074dd5` the 53C80 parity
+   line (a SCSI-bus fact every target scan sees), `d2291f6` the kernel
+   loop fix (BUG #388's carry as a flip-flop), `dd2dfe3` this kernel fix
+   (CMPM/ADDX upper word, with sim/cpfpu PROG=cmpm). Daniel's call: the
+   PBER probe `144c4b8` (+1,405 ALMs, a probe - 10.4.2's release profile
+   drops it) and the host tools (`tools/hfs/*`, `make_dostest.py`, no
+   logic). Not: `d56cab1` (SD writer), `3cf4175`/`a1d606a`/`f380d1e` and
+   the rest of 5.15/5.16 (floppy writing).
+3b. **Upstreaming the kernel fixes - AFTER THE FIRST RELEASE (Daniel
+   2026-10-06 evening: "we'll think about sharing code after the first
+   release")** - to `apolkosnik/Minimig-AGA_MiSTer@030_mmu2` (the kernel's
+   source, `rtl/tg68k/README.md`), once each is board-proven. Upstream's
+   kernel has no 32-bit port (16-bit bus, a long in two beats), so
+   **today's CMPM/ADDX fix does not apply there** (it is a 1.15 beat-engine
+   consequence) - mention it only as a note for anyone widening the bus.
+   Candidates that are 68030 behaviour, bus width aside: `b9003c8` (a bus
+   error completed in software is not re-run - the RTE's DF bit, plan
+   1.18), `91f5645` (an external bus error on a data read restarts the
+   instruction), `84a72aa` (CLR/Scc/MOVE from SR,CCR read no destination
+   on the 68030), `d2291f6` (BUG #388's carry as a flip-flop - their
+   combinational loop); larger features (the 68882 coprocessor interface
+   of 8.9.4, the caches of 1.16) as separate offers. Mechanics: Daniel's
+   account, issues or PRs per fix with the bench that proves it; nothing
+   until the fix has run on the board.
+4. MAME lessons (also in the memory note): a disk inserted while an
+   application is in front mounts only inside that application's
+   GetNextEvent (the fidtest-style app had to initialise the Toolbox and
+   poll events; error type 25 at launch = GetNextEvent before InitGraf);
+   `-autoboot_script` Lua can insert a floppy at a chosen emulated time
+   (`manager.machine.images[':fdc:0:35hd']:load(path)`); the ROM ejects a
+   non-bootable floppy present at power-on, so insert after boot.
+
+**END OF SESSION 2026-10-06 (afternoon) - READ THIS TO RESUME** (supersedes
+the blocks below). Branch `floppy-write`, tree clean after this commit,
+nothing pushed (Daniel pushes). Another session works the ALM budget and
+CD-ROM (on a branch from `dev`); do not edit 10.4 or the budget memory.
+1. **Current bitstream: compile 46**, `output_files/MacSE30_d56cab1a_
+   dc42fix.rbf` (38,893 ALMs; our timing met at every corner; `ascal`
+   only, KNOWN ISSUES 6). Compile 45 (`3cf41753_mfmwrite`) is superseded
+   (its SD writer loses DC42 data).
+2. **MFM writing and formatting: BUILT (5.16) and 1.44 MB board-proven.**
+   Gates (5.16.8): 1 raw copy PASS, 2 Finder erase + copy PASS (every
+   free sector the formatter's F6 - the index-on-RDDATA inference holds),
+   3 DC42 FAILED on compile 45 (the SD writer's dedupe race - fixed
+   d56cab1, see 5.16.8 gate 3) and PASSED on compile 46. MFM writing cost
+   ~+270 ALMs by entity (compile 45).
+3. **Lessons**: a floppy that mounts and lists proves only the catalog -
+   check the files' CONTENTS on the card (`tools/hfs/fork_cmp.py`, and
+   `tools/hfs/split_check.py` for the DC42 head/tail signature); the
+   machfs-minted blanks (`Test disks\MFM\Blank1440K*`) draw a Disk First
+   Aid "Invalid thread record length" by themselves (`tools/hfs/
+   threads.py`); `soak.py`'s audit now follows the catalog's overflow
+   extents. New host tools in `tools/hfs`: `census.py` (the formatter's
+   fill in unused sectors), `threads.py`, `split_check.py`, `cat_dump.py`,
+   `node_check.py`.
+4. **Open: KNOWN ISSUES 9, PC Exchange** - writes work, the directory
+   lists, but every per-file operation fails (open "in use", Get Info
+   "can't be found") with no I/O; MAME opens and copies. Next steps (a)-(d)
+   are listed there; (a) the PC Exchange disassembly was proposed first.
+5. **Still owed on the board (compile 46)**: gate 4, 720K - DOS only
+   (Daniel: the Mac never made 720K HFS): read `Test disks\Phase6\
+   P6_DOS720K.img`, write a copy of `Test disks\MFM\Blank720K.img`, the
+   LC's two cross-encoding erases (`P6_Cross800K.dsk` as DOS 720K,
+   `P6_Cross720K.img` as Mac 800K) - but 720K goes through PC Exchange,
+   so it waits for item 4 (Daniel). FUTURE BOARD TESTS item 6 (PSTA vs
+   PBER) can be read on compile 46 any time.
+6. **After the gates**: merge `floppy-write` into `dev` (Daniel's call),
+   then the MVP's persistent PRAM.
+
+**END OF SESSION 2026-10-06 (early) - READ THIS TO RESUME** (superseded by
+the afternoon block above). Branch `floppy-write` at the commit after this one, tree
+clean, nothing pushed (Daniel pushes).
+1. **Current bitstream: compile 44**, `output_files/MacSE30_144c4b8d_
+   stabilise1.rbf` (39,149 ALMs with the PBER probe; our timing met at
+   every corner).
+2. **Done 2026-10-05/06**: GCR writing FINISHED on the board - the soak
+   (5.15.10 gate 5, 3 rounds, `tools/hfs/soak.py`) passed, every copy
+   exact against the seed; 1.44 MB MFM read host-checked (5.13, 24/24
+   files, `tools/hfs/fork_cmp.py`); KNOWN ISSUES 9 (PC Exchange) PARKED,
+   judgement reserved until MFM writing (FUTURE BOARD TESTS item 7).
+3. **Next (Daniel): MFM writing, then CD-ROM support (data)** - the MVP's
+   remaining features with persistent PRAM. **First, measure how much
+   will really fit**: compile 42 was 37,769 ALMs without PBER, ~530
+   under the ~38.3k practical ceiling; the levers are in 10.4.1 (probes
+   out for the release profile, 10.4.2) - Daniel decides.
+4. Still owed: 720K MFM read on the board; KNOWN ISSUES 10's board
+   reading (FUTURE BOARD TESTS item 6) needs a compile carrying the PSTA
+   fix; no compile on this branch without Daniel's word.
+
 **END OF SESSION 2026-10-04 (evening) - READ THIS TO RESUME** (supersedes
 the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
 1. **Current good bitstream: compile 40**, `output_files/MacSE30_f7c95109_
@@ -14996,7 +16701,11 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
      release build (no probe deck) has ~2k under the ~38.3k ceiling,
      shared with floppy writing.
    - The options: the colour card in the PDS pseudo-slots, 128 MB with a
-     clean ROM (MODE32 test first), an OSD unpaced switch.
+     clean ROM (MODE32 test first). ~~An OSD unpaced switch~~ **dropped
+     (Daniel, 2026-10-05): not in the first release, and probably never -
+     the timing faults before the pacing (1.17: the floppy regression,
+     the short chime) are what an unpaced mode would bring back.
+     `pace_en` stays tied high in the top.**
    **How they are built (Daniel, 2026-10-04): floppy writing and CD-ROM
    each on its own branch, developed and probed separately (each fits on
    its own with the probe deck); then the probes come out and the two are
@@ -15028,6 +16737,46 @@ the 12:30 block below). Branch `dev`, nothing pushed (Daniel pushes).
    moving its register bank into MLABs), the build settings - to find
    room before anything is given up. (Daniel will not mention space in his
    forum post: "we simply don't know yet".)
+
+**FIRST RELEASE (MVP) AND UPGRADES (Daniel, 2026-10-05).** The first
+release is a complete stock SE/30, built as the `release` profile (10.4.2:
+no probes, timing met at every corner on its own fit) and gated by the
+board regression list on that build.
+- **In the MVP:**
+  - the machine as it stands: the 68030 (PMMU, caches, paced to the
+    manual), the 68882, video, ADB, the RTC, the SCC, the ASC, SCSI hard
+    disks at IDs 0 and 1, MODE32 32-bit mode;
+  - floppies: GCR read, write and format (board-proven, the soak left);
+    MFM read (compile 43 on the board); **MFM write and format**;
+  - **CD-ROM** (the AppleCD at SCSI ID 3, data; 10.4's "features still
+    to build");
+  - **persistent PRAM** ("one thing we should consider for the first
+    release"): the RTC's 256 bytes kept on the SD card, as the LC core
+    keeps them (`MacLC.sv`: an `SC` save-image slot, `NVR`, one 512-byte
+    sector at LBA 0; loaded at mount with the machine held until it lands
+    or a timeout - a missing image never hangs the boot, and a late load
+    restarts the machine; written back after PRAM settles and when the
+    OSD opens; an OSD "wipe PRAM" item). The real machine keeps PRAM on
+    its battery, so persistence is the authentic behaviour and the
+    volatile PRAM of 6 the deviation; 6.12's later item becomes MVP work.
+    Lift the LC's image handling (the SD side is MiSTer engineering, not
+    SE/30 behaviour); the SE/30 side is our RTC model's 256 bytes.
+- **Upgrades, after the first release:** CD audio (an option - or not at
+  all if it does not fit); the 128 MB clean-ROM option; the colour card.
+- **Dropped:** the OSD unpaced switch (Daniel: not in the first release,
+  probably never - the pre-pacing timing faults).
+- **Not yet decided:** the second floppy drive (built, out of builds since
+  compile 37).
+- **If there is no room, the drop order (Daniel, 2026-10-05):** first
+  **CD audio**; second **DiskCopy 4.2 support** (10.4.1 item 6: -150 to
+  -250 - the loader's header parse and strip, the SD writer's checksum
+  rewrite, and the tags in the encoder, decoder and writer, which only
+  DC42 files carry; images would have to be raw, as the MacPlus core
+  has always had them - its loader, our loader's ancestor, has no DC42
+  strip; the LC added it; Daniel: "I don't believe that will gain us
+  much space"); third **floppy writing** (GCR
+  and MFM - the read-only switch of 10.4.1 item 4); **CD-ROM is never
+  dropped** - it is how software is installed.
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
@@ -15131,8 +16880,23 @@ Daniel - add to it, move items out when fixed).**
    SE/30 ROM and System 7.5.5 leaves the same orphans; the MacLC's newer
    ROM removes them. Test image `tools/hfs/make_fidtest.py`; harmless to
    data: Disk First Aid removes the orphans.
-4. **Floppy writing and formatting are not built** - the drives read only
-   (10.4: next after the open items).
+4. ~~**Floppy writing and formatting are not built**~~ **GCR writing and
+   formatting built and board-proven 2026-10-05** (5.15, compile 42;
+   only the soak is left). **MFM disks (720K, 1.44 MB) are
+   write-protected** until MFM writing is built (5.13.12 item 5); MFM
+   reading is on the board with compile 43. **2026-10-06: MFM writing
+   and formatting built (5.16), benched; the write-protect lifted;
+   board gates 5.16.8 to come.** Two things go with it:
+   - **Inferred: the SuperDrive puts the index on RDDATA0/1 while
+     /WRTGATE is low in MFM mode** (5.16.2 item 3). No drive document;
+     the ROM's formatter needs it. An `fmt2Err` (-83) from a 1.44 MB
+     erase on the board points here first.
+   - **Accepted deviation: an MFM field the image cannot hold is
+     refused** (5.16.5 item 5): a data field whose address field names
+     another cylinder or side, an R past the track's count, N not 2, or
+     a bad CRC stays in the track buffer until the head leaves, then the
+     image's sector returns. A real disk keeps it. GCR's twin is
+     5.15.6.
 5. **The 68882's atypical operands** (special values, denormals, rare
    rounding cases) may run up to ~13 clocks over the 68881's per-case
    figures: no document gives the 68882's own (8.9.7).
@@ -15146,6 +16910,427 @@ Daniel - add to it, move items out when fixed).**
    before and after 1.18). Pre-existing; the Mac's software completes
    reads only (the ROM's and MODE32's Memory Manager checks). Found
    2026-10-05 while fixing the read side (1.18.4).
+8. **The game Operation Intercept gives a bus error** (Daniel, board,
+   2026-10-05). Open, not yet investigated: Daniel is running it on the
+   other cores first (MacPlus, LC) to tell a core fault from the game's
+   own behaviour on this machine, before any debugging here. **The probe
+   deck afterwards**: PBLD `a1d606aa` (compile 42 - before the 1.18 bus
+   error fix, merged into `floppy-write` for compile 43); PSTA: the BERR
+   line never asserted since power-on (`berr_seen` 0, count 0); PEXC:
+   bus-error exceptions saturated at 255, the last eight non-interrupt,
+   non-A-line vectors all 2. So the CPU raised them itself - the PMMU, an
+   access the ROM's 24-bit table does not map - not GLUE; how many are
+   the game's and how many the boot's (slot probing) the counters cannot
+   say, and the deck keeps no bus-error PC. Two readings: the game
+   touches a Plus/SE address that an SE/30 does not map (it would fail
+   on a real SE/30 too, and likely run on the MacPlus core), or our
+   kernel (1.18 concerned bus errors completed in software) - worth one
+   try on compile 43. **A rerun, probed** (compile 42): the machine alive in ROM code
+   (the alert), BERR still never asserted, the last vectors bus errors;
+   the last 16 A-line traps, newest first, `A853 A851 A8B0 A853 A855
+   AB1D A868 A868 A869 A869 A868 A868 A869 A869 A869 A836` - the newest
+   five the System Error alert's drawing (ShowCursor, SetCursor,
+   FrameRoundRect, ShieldCursor), before them `_QDExtensions` (`AB1D`)
+   and a run of `_FixMul`/`_FixRatio` (the game's maths). So the fault
+   came at or just after a `_QDExtensions` call, on an access the PMMU
+   refused. The deck keeps no bus-error PC or fault address; if the
+   other cores do not settle it, a probe for the last bus error's PC
+   and access address is the next step (a compile, with 10.4.2's work). **It crashes on the MODE32-fix build too** (`b9003c88`, Daniel,
+   2026-10-05): the 1.18 kernel fix is not the answer. Left: the other
+   cores (the game on SE/30 hardware, or another core fault). **And the counter is not the game's**: compile 43 just booted, no
+   game run, already shows bus-error exceptions saturated at 255 with
+   BERR never asserted - the ROM's start-up probing (PMMU-raised) fills
+   it, so PEXC's count says nothing about the game. **It runs on the LC core** (Daniel, 2026-10-05) - but the LC is a
+   68020 without a PMMU and another memory map, so it cannot take a
+   PMMU-raised bus error at all: not yet proof that a real SE/30 runs it.
+   Next: MAME's `macse30` (the real ROM, a 68030 with its PMMU - a
+   software cross-check, not evidence) to tell the game's own SE/30
+   behaviour from ours; and a probe of the last bus error's PC and fault
+   address (the 68030 stacks both) in the next compile. **It runs in MAME's SE/30** (Daniel, 2026-10-05: 0.289, the real ROM,
+   8 MB, the same disk - a copy of `Mister MacLC backup\boot.vhd`, as
+   `C:\temp\Mac\mame\opint\opint.chd`; a software cross-check): the
+   game works with the SE/30's memory map and PMMU tables, so **the bus
+   error is our core's**. Next: the bus-error probe. **Compile 44 runs it** (Daniel,
+   2026-10-05 evening; compiles 42 and `b9003c88` both crashed). Of
+   compile 44's three changes the kernel's (d2291f6) is the one that
+   bears on it: the combinational latch on BUG #388's carry sat on the
+   PMOVE <MMU>,Dn path that also missed timing - and the crash came just
+   after `_QDExtensions` (32-bit QuickDraw's GWorlds, which in 24-bit
+   mode switch modes with `SwapMMUMode`, PMOVEs to and from the PMMU on
+   a 68030). The most likely cause, not proven instruction by
+   instruction; **to confirm: longer play and a rerun after a restart**
+   (PBER catches the PC if it recurs). Anything using GWorlds in 24-bit
+   mode could have met it. **Stable over a longer play** (Daniel,
+   2026-10-05: "the kind of random but deterministic errors that we had
+   on the LC, that were due to timing errors in the core"). **Closed.**
+   Lesson, added to the build ritual: after the STA corners, grep
+   `MacSE30.sta.rpt` for "combinational loop" - a loop in our logic is a
+   defect, not a warning (this one sat in the reports unread).
+9. **RESOLVED 2026-10-06 evening (compile 47, dd2dfe39): TeachText opens
+   NETWORKS.TXT on the DOS disk, a Finder copy from the diskette to
+   the hard disk succeeds and Get Info works (Daniel, ~19:00) - the
+   per-file failures
+   were the kernel's CMPM.L/ADDX.L upper-word loss, found with the DOSTest
+   floppy and sim/cpfpu PROG=cmpm (the account at the end of this item);
+   the Options hang was the 53C80 parity line (compile 44). **DOSTest on
+   compile 47 (Daniel's screenshot 18:49): `DT V FFFD 4953 0001 0000`,
+   `DT N IO.SYS`, `DT R 0000 0000 0000 0000`, `DT S 002A 0000 FFD5` (42
+   entries: this disk carries `!README` beside the 41 - MAME's fresh copy
+   gave 41), `DT C 0000 0000` - every call as MAME's 68030 answers it.**
+   Next: 5.16.8 gate 4 (720K, DOS).**
+   The history: **PC Exchange's Options button never finishes "searching
+   for SCSI devices"** (Daniel, board, compile 43, 2026-10-05). The probes: the
+   CPU alive in the ROM's SCSI Manager, every A-line trap `A815`
+   (`_SCSIDispatch`, ~30,000 calls a second), the PCs in the dispatcher
+   (`$408266A4`) and selector 10's routine (`$40826706`: `SCSIStat`,
+   reading the 53C80's registers 4 and 5); the bus idle throughout (no
+   SEL, no BSY, no target waiting, no sectors moved). Our idle registers
+   look right (register 4 = `$01`, the parity bit; register 5 phase
+   match only). What it waits for is not visible: the selector mix and
+   the compared value are not probed. One candidate: the SCSI Manager's
+   busy flag (`$61` in its globals) left set, so the ROM's `SCSIGet`
+   fails at once forever. Next: the same on the LC core (another SCSI
+   model); a probe of the 53C80's register reads (which, and the value).
+   It matters for the CD-ROM: SCSI utilities and CD drivers scan the bus
+   the same way. **SCSI Probe scans the bus correctly** (Daniel, the same build:
+   both hard disks found, the scan finishes): our SCSI handles a full
+   scan, absent IDs included - the hang is PC Exchange's own search.
+   Left: PC Exchange's Options on the LC core; the register-read probe if
+   it is to be chased. **Stuck again after a restart; probed faster** (400 samples of PIFA
+   and PLAS): a loop in application RAM (`$4D20C`-`$4D22C`) reading
+   `Ticks` (`$16A`) and calling `SCSIStat`, whose reads land at
+   `$50F10040`/`$50F10050` (registers 4 and 5 through the `$50F10000`
+   mirror - decoded). **A deviation found by reading the manual for
+   it**: register 4's bit 0 is "the data bus parity bit" (SP-1051 6.5) -
+   the DBP line, which "is also generated and asserted" only by whoever
+   drives the data bus (6.2 bit 0, 4.2); ours computed it from the data
+   lines always, so **a free bus read `$01`, not `$00`**. A loop waiting
+   for register 4 to read all-clear (a free bus) never ends on our core;
+   SCSI Probe and the ROM never wait for that. **Fixed in the RTL**
+   (2026-10-05, not yet compiled): `se30_scsi.v` drives the parity line
+   only with the data bus (the initiator's `c_db_en`, or a target in an
+   input phase) and the 53C80 reads it (`b_dbp`). `sim/ncr53c80` 107
+   PASS (a new check: register 4 on a free bus reads `$00`; the old
+   parity fails it), `sim/scsi_seam` 97, `sim/machine` 17. **Whether it
+   is PC Exchange's loop the board decides** - our best candidate, not a
+   proven cause. **The LC core** (Daniel, the same PC Exchange): copies from a locked
+   DOS disk, and its Options do not hang - so both PC Exchange faults are
+   ours. The LC's `ncr5380.sv` returns 0 for register 4's bit 0 ("we
+   don't do parity"): a free bus reads `$00` there, as ours now does.
+   **One reading covers both faults**: the stuck loop polls `SCSIStat`
+   and reads `Ticks` - a wait with a timeout; if PC Exchange waits for an
+   all-clear bus when it opens a file, the open times out on the old
+   model ("cannot be found", TeachText's "in use") while listing, which
+   opens nothing, works; the Options search waits the same way per ID.
+   A second difference, held in reserve: the LC sets register 5's END OF
+   DMA whenever the bus is not in a data phase (a Snow convention, not a
+   document); ours never sets it (no EOP on the SE/30, SP-1051 6.7). **Compile 44 on the board** (Daniel): **PC Exchange's Options no
+   longer hang - the DBP fix was it.** The copy and open failures remain:
+   a separate cause. PBER read before and after a TeachText open: the
+   bus-error count unchanged (514), so the open does not bus-error. (The
+   514 themselves: all four newest at PC `$000A4596` (a NOP), no PMMU
+   fault latched since power-on and BERR never asserted - the wrapper's
+   own bus errors for CPU-space cycles other than an interrupt
+   acknowledge or the 68882 (a coprocessor ID with no chip, a breakpoint
+   acknowledge, a MOVES to FC 7); boot alone takes 255 or more. Their
+   source is open; the earlier "PMMU-raised" reading of item 8 assumed
+   it, and is withdrawn - PBER now shows no PMMU fault at all.) Next for
+   the open failure: PC Exchange in MAME's SE/30 with the same DOS image
+   (`-flop1`), to see its driver calls on an open. **MAME's SE/30** (Daniel,
+   2026-10-05 late: 0.289, the real ROM, booted from a copy of `MiSTer
+   SE30 Backup\mac_80mb-restored.vhd` - the System and PC Exchange
+   Daniel uses - with a copy of `Disk1.img` in the internal SuperDrive):
+   mounted read-only (MAME showed no lock icon - the Mac saw a writable
+   disk whose writes failed), the open fails as on our core; mounted
+   **read-write, the TeachText open gets through** (a genuine "too large"
+   for the 60 KB `README.TXT`), **but a Finder copy still fails, "cannot
+   be found"**. So: the open failure on our core is the lock (MFM disks
+   are write-protected until MFM writing - it goes with it); the copy
+   failure reproduces on an independent 68030/SWIM with the same ROM,
+   System and PC Exchange - **not our core** (the LC's success: its newer
+   ROM, or its own System/PC Exchange). The Options hang was ours
+   (fixed, DBP). **The open and copy failures: JUDGEMENT RESERVED until
+   MFM writing is built** (Daniel, 2026-10-05): MAME gives the same
+   errors with the disk locked, and the copy failure once with it
+   writable - one MAME run, on a disk MAME showed as unlocked while its
+   writes failed, is not enough to call it the software's. Item 9 stays
+   open, parked; the test is FUTURE BOARD TESTS item 7.
+   **RE-OPENED 2026-10-06 on compile 46 (MFM writing built; the DOS disk
+   WRITABLE, no lock icon): STILL OURS, NOT THE LOCK.** Board (Daniel),
+   a scratch copy of `Test disks\DOS\Disk1.img` as
+   `Test disks\Written\SE30\DOS\Disk1.img`:
+   - **Writing through PC Exchange works**: its mount-time files
+     (`DESKTOP`, `FINDER.DAT`, `RESOURCE.FRK/DESKTOP`) and a Finder copy
+     of a Mac file `README` (`!README`, data 8,672 + resource 8,858) all
+     on the card, both FATs equal, only the FATs, the root directory and
+     the new clusters changed (LC `scripts/fat_diff.py`, `floppy-write`
+     branch; it needs that branch's `hfs_check.py`/`hfs_fork_diff.py`).
+   - **The directory lists** (names, sizes) - **but every operation on a
+     named file fails**: TeachText's open of `NETWORKS.TXT` (17,465 B),
+     `README.TXT` (60,646 B) and the just-written `!README` all "may be
+     in use by someone else", **immediately** (no timeout); **Get Info on
+     a file: "can't be found"**; a Finder copy to the hard disk fails.
+     None of the files carries the DOS read-only bit (all `$20`).
+   - **No I/O during the refused open**: PSCS's SCSI sector count 569
+     before and after (no hard-disk traffic at all), PFWR's floppy
+     counters unchanged (97 arcs, 3,425 commits, 0 refused).
+   - **MAME's SE/30** (the same ROM, System - `pcx80.chd` - and PC
+     Exchange, a fresh copy of `Disk1.img` inserted READ-WRITE through
+     its File Manager): **the TeachText open of `NETWORKS.TXT` works,
+     and a Finder copy of it to the hard disk works** (yesterday's MAME
+     "cannot be found" was its disk effectively read-only). **But MAME's
+     write-back corrupted the floppy** (both FATs differ, a garbage root
+     entry, broken chains) - MAME's own write emulation; its Mac read its
+     in-memory cache. So MAME is a reference for reads and opens only
+     (Daniel: "MAME is very buggy, just differently").
+   **Reading**: enumeration works, a lookup by name fails, apparently in
+   memory - that points away from the floppy (the same sectors serve
+   both) and toward the CPU: an instruction our 68030 kernel gets wrong
+   in PC Exchange's name conversion/comparison, or a cache serving a
+   stale table or patched code. Not proven; MAME's independent 68030
+   running the same software is the contrast. **Next** (the next session
+   chose neither yet):
+   (a) disassemble PC Exchange's lookup path from the image MAME uses
+   (`C:\temp\Mac\mame\opint\pcx80.chd` = a copy of `MiSTer SE30
+   Backup\mac_80mb-restored.vhd`), list the instructions it relies on
+   (68020/030-only forms, `MULU.L`/`DIVU.L`, bit fields, `CMP2`/`CHK2`,
+   `CAS`), run them through the cputest corpus / `sim/cpfpu`;
+   (b) a debug compile with the 68030 caches forced off (~40 min) and the
+   open again - settles the cache question alone;
+   (c) on the board, a fresh mount with the TeachText open as the first
+   act (does the refusal exist from the mount?);
+   (d) the same image on the LC core with TeachText (Daniel: the LC
+   copies from a DOS disk; its open not yet tried).
+   **2026-10-06 (evening): the lookup read, and a deterministic test
+   app built, validated in MAME, waiting for the board.**
+   - **What PC Exchange 2.0.5 is** (from its resources in the boot image,
+     `System Folder:Control Panels:PC Exchange`, vers 2.0.5 / System
+     7.5.3): a File System Manager (FSM) foreign file system - its 52 KB
+     `EXFS 16` code calls `_FSMDispatch` ($A824; `UTResolveFCB` selector 5,
+     `UTCheckVolOffline` $18 ...), its volumes carry FSID `$4953` ('IS'),
+     and its `lpch 31/32/63` resources are linked ROM patches by ROM class
+     (31 = Plus/SE/II/Portable/IIci class, 675 bytes; 32 = the LC class,
+     13 bytes) - the SE/30 runs the big one, the LC core the stub. Compiled
+     MPW C, plain 68000 forms (no 020/030-only instructions in the code).
+   - **The lookup path** (`EXFS 16`, offsets): the main handler `$2C`
+     resolves every named call through `$70D2` (the only routine that
+     returns fnfErr $FFD5, at three sites), which calls `$8070`
+     "FindEntry(vol, index, out, macName, allowDirs)": a Mac name goes to
+     `$C056` (Mac -> DOS 8.3: first the long-name database `$68CE`, else
+     manual upper-casing with `CharacterByteType`, ScriptUtil $C2060010),
+     then `$69B6` consults the database built from FINDER.DAT (`$93D4`
+     by DOS name) - if a record exists, the requested Mac name must
+     `_CmpString` ($A03C, the ROM's case- and diacritical-insensitive
+     compare, as HFS uses) with the record's Mac name or the lookup is
+     refused - then a linear scan of the directory's 32-byte entries
+     (`$1358` fetches the sector, entries skipped: $E5, '.', the volume
+     label, FILEID.DAT / FINDER.DAT / RESOURCE.FRK) comparing the 11 DOS
+     bytes with `$E9E` (CMPM.L x2, CMPM.W, CMPM.B - the entry buffer at
+     vol+$176 is 2 mod 4, so these are misaligned longword reads).
+     Enumeration (`$7D88`, ioFDirIndex > 0) scans the same entries and
+     names them through `$BF6C`, which reads the SAME database record -
+     so a correct listing means the database's names are right; what the
+     lookup adds is the Mac->DOS conversion, the database veto and the
+     11-byte compare, all in memory (no disk I/O - as PFWR/PSCS showed).
+   - FINDER.DAT on the board-written image (`Test disks\Written\SE30\
+     DOS\Disk1.img`): 92-byte records, 5 per 512-byte sector, the 52
+     padding bytes of each sector left as whatever PC Exchange's buffer
+     held (the boot sector's tail) - benign; one odd record (Mac name
+     `$7F $A9 _Apple.Com`) before the DESKTOP records, origin unknown.
+   - **The test: `tools/hfs/make_dostest.py`** builds a 1.44 MB HFS
+     floppy (`C:\temp\Mac\Test disks\DOSTest\DOSTest.img`) with
+     three hand-assembled applications (the make_fidtest.py method):
+     `DOSTest` finds the first volume with a non-zero ioVFSID (waits up
+     to 120 s, calling GetNextEvent so an inserted disk mounts), then
+     makes the calls the Finder and TeachText make and writes the results
+     as the NAMES of files next to itself: `DT V vRefNum FSID drive r`
+     (r = PBGetCatInfo ioFDirIndex 1), `DT N <that name>`, `DT R a b c d`
+     (GetCatInfo by that name, dirID 2; by "NETWORKS.TXT"; PBHOpenDF
+     fsRdPerm; _HOpen fsRdPerm - each open closed again), `DT S n e f`
+     (n = root entries enumerated; "NETWORKS.TXT" with dirID 0; the
+     control "NOSUCH.TXT", fnfErr FFD5 expected), `DT C b c` (GetCatInfo
+     and HOpenDF of NETWORKS.TXT with CACR $0808 - both 68030 caches off -
+     then CACR $2909). `CacheOff` and `CacheOn` only write CACR ($0808 /
+     $2909) and quit, for a TeachText open with the caches off. Hex words:
+     0000 noErr, FFD5 fnfErr -43, FFCF opWrErr -49, FFCA permErr -54,
+     FFD1 fBsyErr -47, FFC6 extFSErr -58.
+   - **MAME (headless, the app in Startup Items of a copy of the boot
+     image, the DOS floppy inserted by Lua at 100 s)**: `DT V FFFE 4953
+     0001 0000`, `DT N IO.SYS`, `DT R 0000 0000 0000 0000`, `DT S 0029
+     0000 FFD5` (41 entries; the hidden IO.SYS/MSDOS.SYS enumerate, the
+     label and PC Exchange's own files do not), `DT C 0000 0000` - the
+     independent 68030 passes every call, caches on or off.
+   - **THE BOARD (compile 46, Daniel; one floppy drive in the build -
+     the second is out since compile 36)**: mount `DOSTest.img`, copy
+     its three apps to the hard disk (any folder), eject it; mount a
+     scratch copy of `Test disks\DOS\Disk1.img`; double-click `DOSTest`
+     on the hard disk, wait for it to quit (immediate with the DOS disk
+     mounted; else it polls for 120 s), read the `DT ...` names that
+     appear next to it (a photo is enough). Then `CacheOff`, TeachText's
+     open of NETWORKS.TXT, `CacheOn`. What the names decide: `DT R`
+     a/b = FFD5 with `DT S` e the same -> the by-name lookup itself fails
+     in a bare app (no Finder, no AppleEvents); `DT C` b = 0000 while
+     `DT R` b = FFD5 -> the 68030 data/instruction cache (plan 1.16);
+     `DT C` b = FFD5 too -> not the caches: next a MAME instruction trace
+     of the GetCatInfo call replayed against our kernel in sim/cpfpu.
+   - **BOARD RESULT (compile 46, Daniel, 2026-10-06 15:44, the apps run
+     from the DOSTest floppy, DOS disk mounted)**: `DT V FFFD 4953 0001
+     0000`, `DT N IO.SYS`, **`DT R FFD5 FFD5 0000 0000`**, **`DT S 002C
+     FFD5 FFD5`**, **`DT C FFD5 0000`**; CacheOff then TeachText: still
+     "may be in use by someone else". So: PBGetCatInfo BY NAME fails with
+     fnfErr for every name and dirID (MAME 0000), while PBHOpenDF and
+     _HOpen of the same name SUCCEED; enumeration returns 44 entries where
+     MAME returns 41; the caches change nothing (not plan 1.16). The 3
+     extra entries are the count of reserved names (FILEID.DAT,
+     FINDER.DAT, RESOURCE.FRK) that `$8070`'s scan filters with the
+     11-byte compare at `$E9E` - the same routine that matches a looked-up
+     name. One failing primitive explains both: **`$E9E` (CMPM.L x2,
+     CMPM.W, CMPM.B, one operand at 2 mod 4) returning "unequal" for equal
+     names on our kernel.** Why the opens still succeed is not understood
+     (a different resolution inside PC Exchange, to be read if the kernel
+     fix does not clear the opens' callers too). The cputest corpus is the
+     68882's (tools/cputest/README.md) - the kernel's integer instructions
+     were never corpus-tested. **Test: `sim/cpfpu` PROG=cmpm** (the
+     compare at every alignment, its CCR, pointers and a misaligned long
+     read) - result below.
+   - **FOUND AND FIXED IN THE KERNEL (2026-10-06 evening).** `sim/cpfpu`
+     PROG=cmpm reproduced it at once: "FINDER  DAT" compared unequal to
+     itself whenever the SOURCE long of CMPM.L was aligned (one 32-bit
+     beat); CMPM.B, CMPM.W and a misaligned source (two beats) were right;
+     paced or unpaced the same. The widening of the program found the
+     mechanism: ADDX.L -(A0),-(A1) added only the LOW word of its source
+     ('FIND' + 'FIND' = $46499C88, not $8C929C88) - the first operand of a
+     read-read instruction (held in `last_data_read` for the direct-data
+     path) lost its upper word. In `TG68KdotC_Kernel.vhd`'s stream latch,
+     after `last_data_read <= data_read`, the upper word was re-extended
+     from the sign when `memread(1)='1'` - "the previous beat strobed
+     nothing", which on the 16-bit kernel meant a byte or word read (a
+     long took two beats) but on the 32-bit port is also a long in one
+     beat. `data_read` itself had been converted to the size-based rule
+     in 1.15 item 5; this latch had not. Fix: the data-read term is gone
+     (data_read already carries the right extension); a fetch keeps its
+     old treatment. Exposure: CMPM.L, ADDX.L/SUBX.L/ABCD/SBCD's memory
+     forms with an aligned long source - rare in compiled code, which is
+     why the machine ran; MPW's memcmp is CMPM, hence PC Exchange. The
+     first candidate (the PMOVE (An)+ "BUG FIX" override at the top of the
+     OP1out mux) was tested and is NOT involved - excluding CMPM from it
+     changed nothing, so it stays as imported. **Bench**: PROG=cmpm 23
+     checks (the compare at six alignments, unequal, CCR, pointers, two
+     misaligned long reads, CMPM.B/W/L and NOP/MOVE controls, ADDX.L,
+     SUBX.L, ABCD) - all pass after the fix, 8 fail before it. Why the
+     opens succeeded on the board is now plain: PBHOpenDF/_HOpen resolve
+     through PC Exchange's FCB/long-name path, not the 11-byte scan.
+     **Gate (all PASS, 2026-10-06 evening, ~6 min)**: sim/cpfpu all 14
+     programs (cmpm 24, b1 9, b2 28, b3a 20, b3b 15, b3c 13, b4 24, b5a
+     15, b5b 18, b5c 26, b5d 19, b7e 15, mmu 11, full 15); kernel_bus
+     PORT=16/32/8 (338/237/520); busfault 14; busfault_dib 18; machine 17
+     (93 s); upstream's suite verdicts identical to ours.txt (21 benches,
+     the known three); sim/system all eight PASS (24/24/24/28, vramtest 4,
+     berrtest 3, timetest 35, clrtest 35; 17.9 min). **Compile 47, first
+     attempt (16:05-17:16): STOPPED by agreement** - synthesis 9:15 (beside
+     the system bench), fitter preparation 4:30 as usual, then placement
+     with Advanced Physical Opt ran 55 minutes without ending (compile 46:
+     4:25 + 2:44); CPU-bound throughout, no paging (2.3 GB free), working
+     set falling from 3.6 to 2.0 GB late on; no fitter report exists for
+     a stopped run. db/incremental_db removed, rerun with identical
+     settings at 17:17 to see whether it repeats (not a seed change). If
+     it repeats, the new netlist is the cause and the RTL is read before
+     another compile. **Second attempt (17:17-18:37, the machine idle,
+     81 % memory at the start): DONE, tag `dd2dfe39`,
+     `output_files/MacSE30_dd2dfe39_cmpmfix.rbf`, 80 min** - synthesis
+     8 min, fitter preparation 4:30, placement 4:41 + 2:14 (normal),
+     **routing 49:38 (compile 46: 8:49)**, Router Timing Optimization
+     Level MAXIMUM as always. **38,825 ALMs (93 %, 68 fewer than compile
+     46)**, 343 M10K, no combinational loop. **TIMING NOT MET, and it is
+     the fit, not the logic**: slow 100C design setup -1.929 (the
+     framework's `ascal`, KNOWN ISSUES 6, usually ~-0.1); **ours: -0.323
+     in clk_sys, kernel `memaddr_delta_regb[0]` -> `OP1out[2]` - 17 logic
+     levels, 31.6 ns of which 24.3 is interconnect (77 %), ONE hop of
+     9.8 ns (`Add47~73` X51_Y19 -> `ea_data[2]~46` X40_Y21, fanout 1); and
+     -0.203 in clk_mem, `se30_sdram since_start[4]` -> `cmd[2]` - 4 logic
+     levels, one hop of 5.7 ns into the DDIO output cell at X60_Y0**;
+     slow -40C -1.453 (ascal); both fast corners positive; the SDRAM
+     capture met at every corner by A or B; routing use 52 % block / 63 %
+     C4. Neither failing path touches the 13 changed lines (the SDRAM
+     controller is unchanged); both are routing detours of a congested
+     fit at 93 % - the same netlist minus 68 ALMs met timing as compile
+     46. **Daniel's call** (the no-seed-lottery rule): (a) flash it for
+     the DOSTest confirmation only, as compiles 29 (-0.109) and 33
+     (-0.516, an SDRAM routing path) were run while the remedy was
+     decided - the misses are at the slow corners, the board runs far
+     from 100C; (b) the structural remedy is less congestion - 10.4.2's
+     release profile without the probes (PBER alone is ~1,400 ALMs) - or
+     registering the two paths (since_start -> cmd; the 17-level OP1out
+     cone), kernel surgery with its benches; (c) not a seed. `scripts/
+     build_stages.sh` (new) runs map/fit/asm/sta one at a time so a
+     stopped fitter does not cost the synthesis again. **Daniel (18:45):
+     (a) - flash compile 47 and test the DOS disks; the timing afterwards.
+     The two paths, read for that work: (1) clk_sys -0.323 = the
+     same-clock ATC hit of 1.17.3/1.17.8 - `memaddr_delta` -> Add45/Add47
+     (X31/X51) -> PMMU `debug_pending_flags[0]` -> PMMU `busy` (X50-51)
+     -> `fetch_hit~2` (X30) -> `lane_in[18]` -> `Mux138` -> `data_read[2]`
+     (X23) -> `ea_data[2]~45` (X15) -> 9.8 ns -> `ea_data[2]~46` (X40) ->
+     `OP1out[2]~31` (X33): 17 levels, 7.3 ns of cells, placed across 36
+     columns; a register in that chain (the hit a clock later) or a
+     tighter cone is the structural remedy. (2) clk_mem -0.203 =
+     `since_start` -> the window compares (WIN_LO/WIN_HI/DK_HI, lines
+     606-613) -> the idle arbitration -> `cmd[2]` (an I/O register at the
+     pin, X60_Y0): 4 levels, 2.3 ns of cells, a 5.7 ns wire into the pin -
+     registering the two window flags a clock ahead (since_start counts by
+     one; start_rise clears them) takes the comparators out of the path -
+     **DONE (Daniel's go, 2026-10-06 ~19:00): `win_ref`/`win_dk` registered
+     from `next_start` in `se30_sdram.v`; sim/sdram 195 + the three
+     training runs, sim/flpload 53, sim/machine 17 all PASS; no compile of
+     its own, it rides on the next.** The ATC-hit chain waits for the
+     merged release netlist (Daniel: CD-ROM first, timing on the merge).
+     **BOARD (Daniel, ~19:00): compile 47 opens
+     NETWORKS.TXT in TeachText - KNOWN ISSUES 9 RESOLVED.** The DOSTest
+     names on compile 47 are still worth a reading** -
+     `DT R 0000 0000 0000 0000`, `DT S 0029 0000 FFD5`, then TeachText's
+     open and a Finder copy from the DOS disk (720K gate 4 follows).
+
+10. **The ~514 bus-error exceptions of a boot (PBER; items 8 and 9 read
+    them as "the wrapper's own, CPU-space")** - re-read 2026-10-05
+    (Daniel: "we need to know if it's dangerous or not"). **Not our
+    core's fault by this evidence: they are the SE/30's designed SCSI
+    handshake timeouts (GLUE's UI6 bus error on a blind transfer whose
+    first byte waits for DRQ past 18-63 us, 2.11.3 row 5 / 9.3), handled
+    by the ROM's SCSI Manager handler `$40826B26` and its RAM copy.** The
+    earlier reading rested on two probe artefacts:
+    - **PSTA's "BERR never asserted" was a blind spot.** GLUE (c16_en =
+      phi1) raises BERR after a phi1 edge; the wrapper's bus FSM runs on
+      phi2 and negates AS* at the next edge; the line is high for one
+      clock, and PSTA sampled it on phi1 only. Proven in `sim/system`
+      berrtest (new counters: 2 assertions seen at every clock, 0 at
+      phi1). **Fixed in `rtl/dbg_probes.sv`** (every clock; parsed with
+      vlog, no bench instantiates the deck) - in the next compile.
+    - **PBER's "a NOP" is the kernel's exception bubble**, not the
+      faulting instruction: on `setinterrupt` (the path `make_berr`
+      takes) the kernel loads `opcode <= $4E71`; A-line traps dispatch
+      through `trapmake` and keep theirs, which is why PTRP shows `A815`.
+      `opcode_pc` is not touched by the bubble, so PBER's PC
+      (`$000A4596`, RAM) is the faulting instruction's.
+    Ruled out by reading: the wrapper's CPU-space bus errors reach the
+    kernel only on a coprocessor dialog's initiating access, which the
+    kernel turns into the F-line exception (UM 10.5.2.8, 8.9 B5), never
+    vector 2; the IACK address is sign-extended to `$FFFFFFFx`; the
+    PMMU latch (`debug_pmmu_fault` = `pmmu_fault`) never fired, and an
+    invalid-page fault would have shown as PBER's `bus=1 mmu=0` with the
+    fault fields filled. What fits every fact is an external BERR: `bus=1
+    mmu=0`, fault fields empty, a RAM PC in the System heap (the patched
+    SCSI Manager lives there: MAME's copy at `$11898` saves the vector
+    exactly as the ROM at `$40826A36`), the count static across a
+    TeachText open from the floppy (no SCSI traffic), and PSCT's GLUE
+    DRQ wait of 1.75 s over 6,153 commands (10.4). MAME is no census:
+    its SE/30 takes **no** bus-error exception in 20 s of this System's
+    boot (its map acknowledges everything; the 9,304 reads of `$8` were
+    the Memory Manager's handle checks at `$4080E5AA`/`$4080E5F2` and the
+    SCSI Manager saving the vector), and its heap layout differs (its
+    `$A4596` is a BNE). **Board confirmation (FUTURE BOARD TESTS 6):**
+    compile 45's PSTA count against PBER's, and a peek at PBER's PC.
+    Headless MAME recipe (`-video none -sound none -debugger none`, a Lua
+    `autoboot_script` that issues debugger commands) is in the memory
+    note `reference-mame-se30`.
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
@@ -15182,6 +17367,24 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    core) - leftovers there = 7.5.5's own behaviour; clean there = our
    core's fault, then localise it (the ROM's delete path, a PC probe).
 
+6. **The boot's bus errors are the SCSI handshake timeouts (KNOWN ISSUES
+   10)** - on the compile carrying the PSTA fix: read PSTA and PBER after
+   the boot and again after a minute of disk traffic (copy a folder on
+   the SCSI disk): PSTA's BERR count should be nonzero and both counts
+   should rise together; `read_probes.tcl peek <PBER's PC - $10> 16`
+   should show the SCSI Manager's blind MOVE.L at `$50F06000`/`$50F06060`
+   at that PC. If PSTA stays at 0 while PBER rises, the errors are
+   internal after all and KNOWN ISSUES 10 reopens.
+
+7. **PC Exchange on a writable DOS disk (KNOWN ISSUES 9)** - once MFM
+   writing is built (Daniel, 2026-10-05: judgement reserved until then):
+   a scratch copy of `C:\temp\Mac\Test disks\DOS\Disk1.img`, mounted
+   writable; TeachText opens `README.TXT`; a Finder copy of several
+   files (small near the start, large far out) to the SCSI disk,
+   host-checked against the image. Both work = item 9's failures were the
+   lock, closed; the copy still "cannot be found" = compare with MAME
+   writable again before calling it the software's.
+
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
 unpushed (Daniel pushes).
@@ -15217,7 +17420,8 @@ unpushed (Daniel pushes).
    - The full floppy test, as a whole, later (sim/gcrread with both
      drives, `EXT_DRIVE` = 1 in the benches).
    - Options when the base is done: the colour card, the 128 MB clean
-     ROM, an OSD "unpaced" switch (`pace_en`).
+     ROM. (An OSD "unpaced" switch, `pace_en`, was listed here: dropped
+     by Daniel 2026-10-05 - see the features list above.)
 4. **Housekeeping**: the `wpb` worktree at `C:\Git\MacSE30_wpb` (branch
    `wpb` = dev at 243581e, scratch logs only) is still to be removed -
    `git worktree remove --force C:/Git/MacSE30_wpb && git branch -d wpb`;
@@ -15230,6 +17434,182 @@ unpushed (Daniel pushes).
 Options (the colour card, the 128 MB clean ROM) are decided when the base
 machine's real numbers are in. Each section's measured cost replaces its
 estimate here.
+
+### 10.4.1 The budget at compile 42, and the options (2026-10-05, discussion only)
+
+Daniel opened the budget again on 2026-10-05: the FPGA is filling, not
+everything will fit. **Nothing has been changed yet; these are the
+options under discussion.** The figures are compile 42's per-entity table
+(`floppy-write`, tag `a1d606aa`, GCR writing, one drive): **37,769 of
+41,910 ALMs (90 %), 314 of 553 M10K; ~530 under the ~38.3k ceiling.**
+
+| Block | ALMs |
+|---|---:|
+| 68030 (`tg68k:cpu`): kernel own 7,467, PMMU 5,011, ALU 1,798, caches 1,049, wrapper 533, pace 221 | 16,078 |
+| MiSTer framework outside `emu` (ascal 2,001, audio_out 929, sys_top 750, OSDs 533 + 484, pll_hdmi_adj 535, ALSA 257, yc_out 238, the rest ~370) | 6,688 |
+| 68882 (`se30_fpu`): APU 4,348, top 1,968, unpack 140 | 6,458 |
+| Debug: the probe deck 1,445 (27 probes) + JTAG hub 339 | 1,784 |
+| Floppy, one drive: encoder 423, decoder 395, SD writer 333, loader 304, drive 178, SWIM 138, mux 20 | 1,789 |
+| SCC (A 501, B 511, top 69) | 1,082 |
+| SCSI: target 0 372, target 1 387, top 88, 53C80 63 | 910 |
+| ADB: keyboard 286, PIC1654 265, mouse 214 | 766 |
+| hps_io | 545 |
+| ASC | 453 |
+| SDRAM controller | 402 |
+| VIA1 + VIA2 | 332 |
+| GLUE 151, RTC 119, video 90, top glue ~125 | ~485 |
+
+Still to build: MFM (800-1,400, read and write), CD-ROM and CD audio
+(600-900). Neither fits in ~530.
+
+**The options (estimates; the fitter's packing moves a few hundred
+between builds, so each is confirmed by the total of a compile):**
+
+1. **The probe deck out of release builds** (Daniel: obviously the first
+   stage): **-1,700 to -2,100**. The deck and hub are 1,784 measured; the
+   logic that exists only to feed them goes too (the cache hit counters,
+   the pace profile, the exception trace, the D6/D7 tap, the SDRAM
+   poke/raw port), perhaps 100-300. A build option, as `SE30_EXT_DRIVE`,
+   so a debug build keeps the deck.
+2. **Audit the CPU: -300 to -1,000, low confidence.** The CPU type is
+   already a constant (`CPU(2'b10)`), so the 68000/010 paths are pruned.
+   The register file stays in flip-flops: it is read directly outside
+   the read ports (PMOVE's Dn, RTE's A7) and has a full second copy
+   (`regfile_shadow`, the bus-fault restart), so moving it to MLABs is a
+   rewrite of the most fragile paths. The ATC keeps the real 030's 22
+   entries (authenticity). Candidates: the ATC's fields the chip does not
+   keep (a cached 16-bit fault status, a `shift` that repeats the page
+   size; ~150-400 over 22 entries), the kernel's inherited duplication
+   (100-500), the caches and wrapper (50-150). Keep clear of the restart
+   and register paths (the bus-fault and MOVEM fixes).
+3. **Audit the 68882: -100 to -400, low confidence.** The Quadra's
+   ~1,500 lever (its register bank into MLABs) is already taken here:
+   the FP registers, the temporaries and the microcode are in M10K. What
+   is left is the datapath (APU 4,348) and the control and bus interface
+   (1,968).
+4. **Read-only floppy, the writing kept behind a switch: ~-800
+   (700-850), measured** (5.15.12 item 8: writing cost ~840 - decoder
+   395, SD writer 333, encoder +33, drive +40, SWIM +15, mux 20, the
+   loader's header store), plus 4 M10K. With it off the drive reports
+   every disk locked, so the ROM and Finder refuse writes cleanly; the
+   SWIM's 15 can stay. **It also takes MFM writing off the list**, so
+   MFM costs only its read half (the low end of 800-1,400). Lost:
+   saving to and formatting floppies, installers that write to their
+   own disk, key disks. The LC core shipped read-only floppies for a
+   long time.
+5. **One hard disk: ~-380 (350-400), plus 16 M10K** (target 1 measured
+   387; the SCSI top's mux and hps_io's slot a few tens). **Alternative,
+   keeping two disks:** one `scsi.v` engine answering IDs 0 and 1 (and
+   3 for the CD later), switching image and personality by the selected
+   ID - only one target is ever on the bus - with a small per-ID store
+   (sense data, unit attention) and an image select toward hps_io. That
+   keeps two disks at about one target's cost, and takes the target
+   engine out of the CD-ROM's 600-900. A change in a part that works
+   (host-checked byte-exact), so it carries risk.
+6. Earlier levers still open: DC42 support (-150 to -250); the
+   framework's options (`MISTER_DISABLE_ALSA` ~257,
+   `MISTER_DOWNSCALE_NN`, `MISTER_DISABLE_ADAPTIVE` ~535), each giving up
+   a framework feature.
+
+**Where they lead** (from ~530 now): probes out ~2,200-2,600, enough
+for MFM read and CD-ROM at the low-middle of their estimates; with the
+read-only floppy ~3,000-3,400; the CPU/FPU audits add 400-1,400 of
+margin, which matters because timing gets harder above ~85-88 % fill,
+not only at the ceiling. The single disk (or the shared engine) is held
+in reserve, for a CD-ROM heavier than estimated. **Daniel's decisions:
+to come.**
+
+**Daniel, 2026-10-06:** no measurement compile yet (compile 44's per-entity
+table puts the deck and hub at 2,074 and a release build at an estimated
+35,700-36,900). Keep parts removable - all floppy writing, for one - so a
+debug build can drop them and spend the room on probes for something
+else; no build needs every feature probed at once. The audit (items 2-3)
+stays an option. MFM writing goes ahead (5.16), each new block behind a
+module parameter.
+
+### 10.4.2 Build profiles: features tested with the probes, released without (2026-10-05, proposed)
+
+Daniel, 2026-10-05: "we need a modular approach, so that we can test
+features with the probes working, and then merge everything together
+with no probes." The probe deck (1,784 ALMs at compile 42, more with the
+logic that only feeds it) is the largest lever in 10.4.1, but it is also
+how every board fault so far has been found. So: one tree, two kinds of
+build, chosen at build time - not branches.
+
+**What exists.** Three switches, in three places: `USE_DBG_PROBES` (a
+`VERILOG_MACRO` in `MacSE30.qsf`, on: the deck and the JTAG hub),
+`SE30_PERF_PROBES` (a `define` in `MacSE30.sv`, off: PSCT, PFPU, PPRF),
+`SE30_EXT_DRIVE` (a `define` in `MacSE30.sv`, off since compile 37: the
+second drive's chain; its `noext` block ties the outputs to "no drive").
+Changing a build means editing a source or the qsf, and
+`stamp_build_tag.ps1` refuses a dirty tree, so today a debug or release
+choice needs a commit.
+
+**Proposed:**
+
+1. **The switches in one file**, `rtl/se30_build_cfg.vh`, included by
+   `MacSE30.sv` as `build_id.v` is; `USE_DBG_PROBES` moves there from the
+   qsf. One switch per optional block:
+
+   | switch | what it builds | ALMs (measured or estimated) |
+   |---|---|---:|
+   | `SE30_PROBES` | the deck, the JTAG hub, PBLD, PPEK/PRAW (the SDRAM poke and raw port), and the logic that only feeds them (cache counters, pace profile, exception trace, taps) | 1,784 + ~100-300 |
+   | `SE30_PERF_PROBES` | PSCT, PFPU, PPRF (under `SE30_PROBES`) | measured at compile 41 |
+   | `SE30_EXT_DRIVE` | the second floppy chain | 577 |
+   | `SE30_FLOPPY_WRITE` | the decoder, the SD writer, the drive's recording (off: every disk write-protected) | ~800 |
+   | `SE30_FLOPPY_MFM` | the ISM's read path, the encoder's MFM track, the loader's MFM geometries (off: MFM images load but are not a disk) | compile 43 measures |
+   | later: `SE30_CDROM`, `SE30_COLOUR` | | |
+
+2. **Profiles**: `profiles/<name>.vh`, one set of switches each;
+   `build_only.sh --profile <name>` copies it over `se30_build_cfg.vh`
+   before Quartus runs, and the ritual restores the committed file
+   afterwards, as it does `build_tag.v` (the stamp's dirty check skips
+   the profile file the way it skips the tag). The archive is labelled
+   with the profile (`MacSE30_<sha>_<profile>.rbf`).
+   - **`release`**: every built and board-proven feature, no probes.
+     The build that ships, and the one the ~38.3k ceiling applies to.
+   - **`debug-<feature>`**: the probes, the feature under test, and only
+     what it needs - free to drop other features to make room.
+
+3. **Every switch has a stub**, the `noext` pattern: a feature that is
+   off ties its outputs to the state of absent hardware (no disk, no
+   request, write-protected), so the rest of the machine behaves as if
+   it were not fitted. Probes are read-only observers, so taking them out
+   cannot change the machine - except PPEK/PRAW, which write SDRAM and
+   go under the same switch. The benches instantiate modules directly
+   and are unaffected; a module with a feature switch takes it as a
+   parameter, and its bench runs both settings.
+
+4. **The workflow**:
+   - develop: benches; the board on `debug-<feature>`;
+   - integrate: a `release` compile on `dev`, **timing met at every
+     corner on its own** - each profile is its own fit, and one
+     profile's closure says nothing of another's (no seed lottery, per
+     profile); then the board regression list on that build;
+   - a fault in `release`: build the `debug` profile with the features
+     involved and probe it there.
+
+5. **The budget**: plan 10.4's table gets a column per profile in use.
+   The ceiling binds `release`; a debug profile must fit and close too,
+   by dropping what it does not need.
+
+**For Daniel to decide:**
+- which features a debug profile may drop: the second drive (577) and
+  floppy writing (~800) are cheap; **the 68882 (6,458) is the big one,
+  but without it the ROM and System see no FPU** - a different machine,
+  acceptable for a floppy or SCSI debug build, never for anything near
+  Math;
+- what `release` holds today: GCR writing (board-proven), MFM reading
+  (after its board gates, 5.13.11), the second drive (built, off since
+  compile 37 - the LC has one drive);
+- whether the committed `se30_build_cfg.vh` is `release` or the current
+  debug set.
+
+**The work** (after compile 43's figures): the switch file and the
+profiles, `build_only.sh --profile`, the stamp and archive changes, the
+stubs for the floppy switches (`SE30_PROBES` and `SE30_EXT_DRIVE`
+mostly exist), the benches of the switched modules in both settings;
+then a `release` compile, which measures the probe deck's true cost.
 
 ## 10.5 The design (2026-10-03)
 
@@ -16119,6 +18499,48 @@ byte-exact.**
 - a boot with a disc in;
 - eject and remount;
 - a Finder copy, checked on the PC.
+
+(All four done; see the board results above.)
+
+## 12.7 CD-ROM and floppy writing merged into `dev` (2026-10-07)
+
+Daniel, 2026-10-07: merge floppy writing and the CD-ROM into `dev`, then
+cut the release from it (a `release` branch; `main` waits for the public
+repository and the MiSTer-devel question). PBER as option (a): "Go with
+(a) and do the merge".
+
+- **`dev` fast-forwarded to `cdrom`** (`c74a83c`), then **`floppy-write`
+  merged** (87 commits).
+  - The four fixes already cherry-picked into `dev` (53C80 DBP, the kernel
+    loop, CMPM/ADDX, the SDRAM window flags) merged without conflict:
+    identical on both sides.
+  - Conflicts resolved by hand:
+    - `MacSE30.sv`: the floppy SD writers' slots 0/1 beside the CD's slot
+      4 (`sd_wr = {0, SCSI disks, floppy 2, floppy 1}`);
+    - `rtl/se30_scsi.v`: the CD-ROM version, which carries the DBP fix;
+    - `sim/machine/tb_se30_machine.v`: the second drive's write ports and
+      the three-slot SCSI ports.
+  - `rtl/se30_machine.v` and this plan merged by themselves.
+- **PBER behind `SE30_PBER`** (`MacSE30.sv`, `dbg_probes.sv` parameter
+  `PBER`, a generate block): off by default, so a probe build leaves out
+  its ~1,405 ALMs. `read_probes.tcl` already skips an absent PBER. The
+  kernel's and `tg68k.v`'s `dbg_mmuf` stay and fold away when unread.
+- **Against `floppy-write`, only the CD files, the top, the machine and the
+  deck differ.** Every floppy module is byte-identical to the version its
+  benches passed, so the long floppy unit benches (`flpenc`, `flpload`,
+  16-18 min each) were not rerun.
+- **Benches on the merged tree:**
+  - `sim/scsi_seam` 298 PASS;
+  - `sim/machine` 17 PASS;
+  - `sim/scc_seam` PASS;
+  - `sim/system` all eight PASS (17.7 min: the program 24, berrtest 3,
+    cacheon 24, cachetest 28, cachewa 24, clrtest 35, timetest 35,
+    vramtest 4).
+- **Next:**
+  - a debug compile (deck in, no PBER; estimated ~39,100 ALMs, 93 %) on
+    Daniel's go-ahead;
+  - then the release profile (plan 10.4.2: no probes, no raw SDRAM
+    experiment port, `SE30_PBER` off) on a `release` branch.
 
 ---
 

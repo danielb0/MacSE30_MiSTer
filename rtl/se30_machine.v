@@ -127,9 +127,19 @@ module se30_machine #(
   output  [6:0] disk_cyl,              // the head's cylinder
   input   [6:0] trk_cyl,               // the encoder: the cylinder its buffers hold
   input         trk_valid,
-  output [16:0] trk_addr,              // the cell under the head
+  output [17:0] trk_addr,              // the cell under the head
   output        trk_side,
   input         trk_bit,               // its bit, a clock after trk_addr
+  input         disk_wprot,            // the image is read-only: /WRTPRT (plan 5.15.3)
+  input         disk_hd,               // the medium is high-density: $F (plan 5.13)
+  output        trk_we,                // the drive records trk_wbit at trk_addr (5.15.3)
+  output        trk_wbit,
+  output [17:0] trk_cells,             // the head's revolution, in cells
+  output        arc_done,              // a recording ended: its side, cells, whole revolution
+  output        arc_side,
+  output [17:0] arc_start,
+  output [17:0] arc_end,
+  output        arc_whole,
 
   // the external drive's disk: the same interface (plan 5.14)
   input         disk2_in,
@@ -137,9 +147,19 @@ module se30_machine #(
   output  [6:0] disk2_cyl,
   input   [6:0] trk2_cyl,
   input         trk2_valid,
-  output [16:0] trk2_addr,
+  output [17:0] trk2_addr,
   output        trk2_side,
   input         trk2_bit,
+  input         disk2_wprot,
+  input         disk2_hd,
+  output        trk2_we,
+  output        trk2_wbit,
+  output [17:0] trk2_cells,
+  output        arc2_done,
+  output        arc2_side,
+  output [17:0] arc2_start,
+  output [17:0] arc2_end,
+  output        arc2_whole,
 
   // the SCSI disks' images: hps_io slots, one per disk (plan 9.5)
   input   [2:0] scsi_img_mounted,      // {CD, disk 1, disk 0}
@@ -171,6 +191,7 @@ module se30_machine #(
   output [31:0] dbg_via,               // {overlay, ramsiz, vsyncen_n, VIA1 IER, IFR, VIA2 IER, IFR} (plan 4.8)
   output [63:0] dbg_regs,              // {D6, D7}: the test manager's failure code and flags (plan 3.8 item 23)
   output [56:0] dbg_exc,               // {an exception taken, its vector, the opcode, its PC}: PEXC and PTRP (plan 5.12.12 item 8)
+  output [55:0] dbg_mmuf,              // the PMMU's last fault: PBER (KNOWN ISSUES 8)
   output [63:0] dbg_cache,             // {CDIS*, 0, CACR[13:0], instruction hits, data hits}: PCCH (plan 1.16.3)
   output [63:0] dbg_swim,              // {the SWIM's 48, the drive's 16} (plan 5.8)
   output [15:0] dbg_fdhd2,             // the external drive's 16, as dbg_swim's low word (plan 5.14)
@@ -198,7 +219,7 @@ module se30_machine #(
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(cpu_cdis), .pace_en(pace_en), .post_en(1'b1), .reset_out_n(reset_out_n), .halted(halted),
-    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_pace(dbg_pace));
+    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_pace(dbg_pace), .dbg_mmuf(dbg_mmuf));
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;
   assign dbg_rw_n = cpu_rw_n;  assign dbg_dsack_n = dsack_n;  assign dbg_berr = berr;
@@ -386,6 +407,7 @@ module se30_machine #(
   // ------------------------------------------------------------ SWIM
   wire  [3:0] swim_ph, swim_ph_oe;
   wire        enbl1_n, enbl2_n, fdhd_sense, fdhd2_sense;
+  wire        swim_wrdata, swim_wrreq_n;                          // WR and /WRREQ, to both drives (5.15)
   wire [47:0] swim_dbg;
   wire [15:0] fdhd_dbg;
   wire  [3:0] swim_ph_pin = (swim_ph_oe & swim_ph) | ~swim_ph_oe;   // a line the ISM makes an input reads its pull-up
@@ -397,7 +419,7 @@ module se30_machine #(
     .sel(swim_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .wdata(dev_wdata), .rdata(swim_rdata),
     .ph_out(swim_ph), .ph_oe(swim_ph_oe), .ph_in(swim_ph_pin),
     .enbl1_n(enbl1_n), .enbl2_n(enbl2_n), .sense(swim_sense),
-    .wrdata(), .wrreq_n(), .hdsel(),                                // HEDSEL goes to TP3 only
+    .wrdata(swim_wrdata), .wrreq_n(swim_wrreq_n), .hdsel(),        // HEDSEL goes to TP3 only
     .dbg(swim_dbg), .dbg_vread(dbg_swim_vread));
 
   se30_fdhd fdhd_int (
@@ -405,6 +427,9 @@ module se30_machine #(
     .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
     .sense(fdhd_sense), .disk_in(disk_in), .eject(disk_eject),
     .cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
+    .hd(disk_hd), .wprot(disk_wprot), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata),
+    .trk_we(trk_we), .trk_wbit(trk_wbit), .trk_cells(trk_cells),
+    .arc_done(arc_done), .arc_side(arc_side), .arc_start(arc_start), .arc_end(arc_end), .arc_whole(arc_whole),
     .dbg(fdhd_dbg));
 
   // the external drive is a build option (plan 10.4 item 3, compile 37):
@@ -417,14 +442,25 @@ module se30_machine #(
       .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
       .sense(fdhd2_sense), .disk_in(disk2_in), .eject(disk2_eject),
       .cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
+      .hd(disk2_hd), .wprot(disk2_wprot), .wrreq_n(swim_wrreq_n), .wrdata(swim_wrdata),
+      .trk_we(trk2_we), .trk_wbit(trk2_wbit), .trk_cells(trk2_cells),
+      .arc_done(arc2_done), .arc_side(arc2_side), .arc_start(arc2_start), .arc_end(arc2_end), .arc_whole(arc2_whole),
       .dbg(dbg_fdhd2));
   end else begin : noext
     assign fdhd2_sense = 1'b1;
     assign disk2_eject = 1'b0;
     assign disk2_cyl   = 7'd0;
-    assign trk2_addr   = 17'd0;
+    assign trk2_addr   = 18'd0;
     assign trk2_side   = 1'b0;
     assign dbg_fdhd2   = 16'd0;
+    assign trk2_we     = 1'b0;
+    assign trk2_wbit   = 1'b0;
+    assign trk2_cells  = 18'd0;
+    assign arc2_done   = 1'b0;
+    assign arc2_side   = 1'b0;
+    assign arc2_start  = 18'd0;
+    assign arc2_end    = 18'd0;
+    assign arc2_whole  = 1'b0;
   end endgenerate
 
   // ------------------------------------------------------------ video

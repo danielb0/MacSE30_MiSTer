@@ -104,8 +104,12 @@ module tg68k (
                                        //   the probe deck's PEXC and PTRP (plan 5.12.12 item 8)
   output [35:0] dbg_pace,              // one instruction released by the pace: {release (one clk), its decoder row[7:0],
                                        //   clocks it took[8:0], its budget[9:0], its fetches' wait states[7:0]} (PPRF, plan 10.4 item 4)
-  output [63:0] dbg_cache              // {CDIS*, 1'b0, CACR[13:0], instruction hits[23:0], data hits[23:0]}:
+  output [63:0] dbg_cache,             // {CDIS*, 1'b0, CACR[13:0], instruction hits[23:0], data hits[23:0]}:
                                        //   the probe deck's PCCH (plan 1.16.3); the counts wrap
+  output [55:0] dbg_mmuf               // the PMMU's last fault, for PBER (KNOWN ISSUES 8): {1'b0, the bus BERR
+                                       //   pending, an MMU bus error pending, then as latched at the fault: an
+                                       //   instruction fetch, read, FC[2:0], its MMUSR-coded status[15:0], the
+                                       //   logical address[31:0]}
 );
 
   // ------------------------------------------------------------- kernel
@@ -117,6 +121,10 @@ module tg68k (
   wire  [2:0] k_fc;
   wire        k_pmmu_busy, k_pmmu_fault, k_make_berr, k_trap_berr, k_halted;
   wire        k_exc_take;
+  wire [31:0] k_f_addr;
+  wire [15:0] k_f_mmusr;
+  wire  [2:0] k_f_fc;
+  wire        k_f_rw, k_f_insn, k_trap_mmu_berr;
   wire        k_decode;                // the kernel's decode beat is next (decodeOPC)
   wire        pace_stall;              // ... and the pace withholds it (below)
   wire [31:0] k_trap_vector;
@@ -143,8 +151,16 @@ module tg68k (
     .debug_make_berr(k_make_berr), .debug_trap_berr(k_trap_berr), .debug_cpu_halted(k_halted),
     .debug_regfile_d6(dbg_d6), .debug_regfile_d7(dbg_d7),
     .debug_exc_take(k_exc_take), .debug_trap_vector(k_trap_vector), .debug_opcode(k_opcode), .debug_opcode_pc(k_opcode_pc),
-    .debug_decodeOPC(k_decode)
+    .debug_decodeOPC(k_decode),
+    .debug_pmmu_fault_addr(k_f_addr), .debug_pmmu_fault_mmusr(k_f_mmusr), .debug_pmmu_fault_fc(k_f_fc),
+    .debug_pmmu_fault_rw(k_f_rw), .debug_pmmu_fault_is_insn(k_f_insn), .debug_trap_mmu_berr(k_trap_mmu_berr)
   );
+  // the fault as the PMMU raises it: its status register is rewritten by
+  // every later translation (the exception's own stack pushes), so it is
+  // latched while the fault line is up; the address register holds anyway
+  reg  [52:0] mmuf_q = 53'd0;
+  always @(posedge clk) if (k_pmmu_fault) mmuf_q <= {k_f_insn, k_f_rw, k_f_fc, k_f_mmusr, k_f_addr};
+  assign dbg_mmuf = {1'b0, k_trap_berr, k_trap_mmu_berr, mmuf_q};
   assign dbg_exc = {k_exc_take, k_trap_vector[9:2], k_opcode, k_opcode_pc};
   assign reset_out_n = k_nreset_out;
   assign halted = k_halted;
