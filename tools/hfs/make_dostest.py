@@ -32,9 +32,11 @@ A 1.44 MB HFS floppy image holding three hand-assembled applications:
 
 Usage: python make_dostest.py out.img [--hd source.vhd out.vhd]
   out.img  the floppy (raw 1,474,560 bytes; our core and MAME's SE/30 both take it)
-  --hd     also a copy of a System 7.5.5 HD image with DOSTest in Startup Items (for a
-           MAME run with no mouse: -flop1 dos.img, the app runs at startup; results in
-           Startup Items). The HFS volume is re-laid by machfs as in make_fidtest.py.
+  --hd     also a copy of a System 7.5.5 HD image with the three apps at the root (for a
+           board without a second floppy drive: boot from it, mount the DOS disk, run
+           DOSTest; the results appear at the root). --startup adds DOSTest to Startup
+           Items for a MAME run with no mouse. The HFS volume is re-laid by machfs as in
+           make_fidtest.py (CNIDs renumbered, Desktop DB fresh; the boot blocks kept).
 The CODE 1 of DOSTest is also written beside out.img as out.img.code1 (unidasm -arch m68030).
 """
 import sys, struct, machfs
@@ -220,9 +222,13 @@ def main():
         base, size = start * 512, cnt * 512
         hv = machfs.Volume(); hv.read(bytes(img[base:base + size]))
         hv.name = bytes(img[base + 1024 + 37:base + 1024 + 37 + img[base + 1024 + 36]]).decode("mac-roman")
-        hv["System Folder"]["Startup Items"]["DOSTest"] = make_app(code1, b"DOST")
-        for folder, name in (("Control Panels", "Extensions Manager"), ("Extensions", "EM Extension")):
-            if name in hv["System Folder"][folder]: del hv["System Folder"][folder][name]
+        hv["DOSTest"] = make_app(code1, b"DOST")
+        hv["CacheOff"] = make_app(cacr_app(0x0808), b"CAC0")
+        hv["CacheOn"] = make_app(cacr_app(0x2909), b"CAC1")
+        if "--startup" in sys.argv:              # the MAME run: no mouse, so DOSTest runs itself at boot
+            hv["System Folder"]["Startup Items"]["DOSTest"] = make_app(code1, b"DOST")
+            for folder, name in (("Control Panels", "Extensions Manager"), ("Extensions", "EM Extension")):
+                if name in hv["System Folder"][folder]: del hv["System Folder"][folder][name]
         vol = hv.write(size=size, align=512, desktopdb=True, bootable=True)
         vol = img[base:base + 1024] + vol[1024:]
         img[base:base + size] = vol
