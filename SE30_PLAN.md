@@ -16539,6 +16539,35 @@ Branch `floppy-write`, tree clean after this commit, nothing pushed
    loads a program image; MAME's debugger traces headless - see the MAME
    memory note). The cputest 030 corpus passing makes a plain
    instruction-semantics fault the less likely of the two.
+3a. **Daniel (2026-10-06 evening): compile 47 with the kernel fix - yes;
+   sim/system (18 min) - yes, running. INTO `dev` BEFORE THE CD-ROM BRANCH
+   IS CUT: everything on `floppy-write` that is NOT floppy writing** - the
+   floppy-writing RTL itself stays on this branch and merges at the end,
+   to keep the logic budget free while CD-ROM is developed. The non-floppy
+   list (cherry-picks onto `dev`, in order): `e074dd5` the 53C80 parity
+   line (a SCSI-bus fact every target scan sees), `d2291f6` the kernel
+   loop fix (BUG #388's carry as a flip-flop), `dd2dfe3` this kernel fix
+   (CMPM/ADDX upper word, with sim/cpfpu PROG=cmpm). Daniel's call: the
+   PBER probe `144c4b8` (+1,405 ALMs, a probe - 10.4.2's release profile
+   drops it) and the host tools (`tools/hfs/*`, `make_dostest.py`, no
+   logic). Not: `d56cab1` (SD writer), `3cf4175`/`a1d606a`/`f380d1e` and
+   the rest of 5.15/5.16 (floppy writing).
+3b. **Upstreaming the kernel fixes - AFTER THE FIRST RELEASE (Daniel
+   2026-10-06 evening: "we'll think about sharing code after the first
+   release")** - to `apolkosnik/Minimig-AGA_MiSTer@030_mmu2` (the kernel's
+   source, `rtl/tg68k/README.md`), once each is board-proven. Upstream's
+   kernel has no 32-bit port (16-bit bus, a long in two beats), so
+   **today's CMPM/ADDX fix does not apply there** (it is a 1.15 beat-engine
+   consequence) - mention it only as a note for anyone widening the bus.
+   Candidates that are 68030 behaviour, bus width aside: `b9003c8` (a bus
+   error completed in software is not re-run - the RTE's DF bit, plan
+   1.18), `91f5645` (an external bus error on a data read restarts the
+   instruction), `84a72aa` (CLR/Scc/MOVE from SR,CCR read no destination
+   on the 68030), `d2291f6` (BUG #388's carry as a flip-flop - their
+   combinational loop); larger features (the 68882 coprocessor interface
+   of 8.9.4, the caches of 1.16) as separate offers. Mechanics: Daniel's
+   account, issues or PRs per fix with the bench that proves it; nothing
+   until the fix has run on the board.
 4. MAME lessons (also in the memory note): a disk inserted while an
    application is in front mounts only inside that application's
    GetNextEvent (the fidtest-style app had to initialise the Toolbox and
@@ -17169,8 +17198,46 @@ Daniel - add to it, move items out when fixed).**
      15, b5b 18, b5c 26, b5d 19, b7e 15, mmu 11, full 15); kernel_bus
      PORT=16/32/8 (338/237/520); busfault 14; busfault_dib 18; machine 17
      (93 s); upstream's suite verdicts identical to ours.txt (21 benches,
-     the known three). Not run: sim/system (18 min, Daniel's call). **Next:
-     a compile with the fix; on the board the DOSTest floppy decides** -
+     the known three); sim/system all eight PASS (24/24/24/28, vramtest 4,
+     berrtest 3, timetest 35, clrtest 35; 17.9 min). **Compile 47, first
+     attempt (16:05-17:16): STOPPED by agreement** - synthesis 9:15 (beside
+     the system bench), fitter preparation 4:30 as usual, then placement
+     with Advanced Physical Opt ran 55 minutes without ending (compile 46:
+     4:25 + 2:44); CPU-bound throughout, no paging (2.3 GB free), working
+     set falling from 3.6 to 2.0 GB late on; no fitter report exists for
+     a stopped run. db/incremental_db removed, rerun with identical
+     settings at 17:17 to see whether it repeats (not a seed change). If
+     it repeats, the new netlist is the cause and the RTL is read before
+     another compile. **Second attempt (17:17-18:37, the machine idle,
+     81 % memory at the start): DONE, tag `dd2dfe39`,
+     `output_files/MacSE30_dd2dfe39_cmpmfix.rbf`, 80 min** - synthesis
+     8 min, fitter preparation 4:30, placement 4:41 + 2:14 (normal),
+     **routing 49:38 (compile 46: 8:49)**, Router Timing Optimization
+     Level MAXIMUM as always. **38,825 ALMs (93 %, 68 fewer than compile
+     46)**, 343 M10K, no combinational loop. **TIMING NOT MET, and it is
+     the fit, not the logic**: slow 100C design setup -1.929 (the
+     framework's `ascal`, KNOWN ISSUES 6, usually ~-0.1); **ours: -0.323
+     in clk_sys, kernel `memaddr_delta_regb[0]` -> `OP1out[2]` - 17 logic
+     levels, 31.6 ns of which 24.3 is interconnect (77 %), ONE hop of
+     9.8 ns (`Add47~73` X51_Y19 -> `ea_data[2]~46` X40_Y21, fanout 1); and
+     -0.203 in clk_mem, `se30_sdram since_start[4]` -> `cmd[2]` - 4 logic
+     levels, one hop of 5.7 ns into the DDIO output cell at X60_Y0**;
+     slow -40C -1.453 (ascal); both fast corners positive; the SDRAM
+     capture met at every corner by A or B; routing use 52 % block / 63 %
+     C4. Neither failing path touches the 13 changed lines (the SDRAM
+     controller is unchanged); both are routing detours of a congested
+     fit at 93 % - the same netlist minus 68 ALMs met timing as compile
+     46. **Daniel's call** (the no-seed-lottery rule): (a) flash it for
+     the DOSTest confirmation only, as compiles 29 (-0.109) and 33
+     (-0.516, an SDRAM routing path) were run while the remedy was
+     decided - the misses are at the slow corners, the board runs far
+     from 100C; (b) the structural remedy is less congestion - 10.4.2's
+     release profile without the probes (PBER alone is ~1,400 ALMs) - or
+     registering the two paths (since_start -> cmd; the 17-level OP1out
+     cone), kernel surgery with its benches; (c) not a seed. `scripts/
+     build_stages.sh` (new) runs map/fit/asm/sta one at a time so a
+     stopped fitter does not cost the synthesis again. **On the board the
+     DOSTest floppy decides** -
      `DT R 0000 0000 0000 0000`, `DT S 0029 0000 FFD5`, then TeachText's
      open and a Finder copy from the DOS disk (720K gate 4 follows).
 
