@@ -3562,6 +3562,23 @@ not a verdict.
     0.6 then over 1.1 and 1.3 - the SD card, KNOWN ISSUES 2); QuarkXPress
     stable under random typing; Lode Runner fine; boots in 32-bit mode.
     One unreproduced bus error at Restart (KNOWN ISSUES 12).
+- **THE RELEASE BUILD (2026-10-07 evening, Daniel: "Proceed with the
+  release").** Branch `release` (worktree `C:\Git\MacSE30_release`), cut
+  from dev `309bcd7`: benches, scripts, plan, docs, the probe deck, the
+  unused `TG68K_Cache_030.vhd` and most of `tools/` removed (kept: the
+  68882 microcode source and the files its assembler needs - they rebuild
+  `rtl/fpu/ucode` exactly); comments cut to a line per file (to be
+  revisited: other authors' comments are restored before `main`, Daniel);
+  every HDL file token-identical to dev except `MacSE30.sv` (deck and
+  debug wiring out), by an independent tokeniser; benches on the stripped
+  RTL all PASS; README in the other Mac cores' style; `releases/`:
+  boot0-2.rom (= MAME's dumps; MacPlus/MacLC/MacIIvi ship ROMs too),
+  a blank `MacSE30.nvr`, and **`MacSE30_20261007.rbf`** (md5 `151b48c6...`):
+  37,602 ALMs (90 %, the deck was 1,878), our timing met at every corner
+  (only the framework's ascal fails), the capture by A or B everywhere, no
+  STA loop. Its debug twin is compile 54 (dd3e3881). Daniel's board test:
+  benchmarks practically identical to compile 49; the rest tomorrow, then
+  the squashed "Release 20261007" commit on `main`.
     After it, Daniel: the release ("we will have done what we can").
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
