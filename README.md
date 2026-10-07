@@ -71,8 +71,9 @@ Memory control panel. Older software often fails in 32-bit mode, as on a real SE
 
 ## PRAM
 
-Mount a PRAM image (`MacSE30.nvr`) with `Mount PRAM` to keep the Mac's settings. It is
-loaded at core start, and changes are saved automatically. `Mount PRAM` and
+Copy the blank `MacSE30.nvr` from [releases](releases) to `games/MACSE30` and mount it with
+`Mount PRAM` to keep the Mac's settings. It is loaded at core start, and changes are saved
+automatically. `Mount PRAM` and
 `Wipe PRAM` restart the Mac. The clock is set from MiSTer's time.
 
 ## Keyboard
