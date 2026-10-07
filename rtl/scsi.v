@@ -1,4 +1,4 @@
-// scsi.v - SCSI target: hard disks and the AppleCD SC (from the MiSTer MacPlus core)
+// scsi.v - SCSI target: hard disks and the AppleCD SC (Daniel Baum's rewrite of the MacPlus core's)
 
 module scsi
 (

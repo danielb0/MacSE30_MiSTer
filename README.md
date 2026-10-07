@@ -5,8 +5,9 @@ An emulation core for the **Apple Macintosh SE/30** running on MiSTer FPGA.
 The core is built from the SE/30's documentation (the *Guide to the Macintosh Family
 Hardware*, Apple's schematic and the chips' manuals), with MAME and WinUAE used as
 cross-checks. The CPU is Tobias Gubener's TG68K core with apolkosnik's 68030 PMMU, extended
-here to the full 68030 bus and caches; the SCSI target comes from the
-[MacPlus MiSTer core](https://github.com/MiSTer-devel/MacPlus_MiSTer) by Sorgelig. Bolle's
+here to the full 68030 bus and caches. The SCSI target (hard disks and CD-ROM) is Daniel
+Baum's rewrite of the one in the [MacPlus MiSTer core](https://github.com/MiSTer-devel/MacPlus_MiSTer),
+which came from the MiST port of Plus Too. Bolle's
 reproduction of the SE/30's video PALs made the video readable.
 
 ## Status
