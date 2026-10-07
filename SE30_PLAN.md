@@ -17374,12 +17374,15 @@ suspect until shown otherwise:
 
 | Title (version, source) | Compile | Mode | Result | Notes |
 |---|---|---|---|---|
-| QuarkXPress | 31 | 24-bit | runs, stable | the LC's old crash case |
-| Prince of Persia | 31 | 24-bit | runs, music plays | ASC (Section 11) |
+| QuarkXPress 3.2 | 31; recent | 24-bit | runs, stable | the LC's old crash case |
+| Microsoft Word 5 | recent | ? | runs | Daniel, 2026-10-07 |
+| Microsoft Excel 4 | recent | ? | runs | Daniel, 2026-10-07 |
+| Lemmings | recent | ? | runs | Daniel, 2026-10-07 |
+| Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
 | TattleTech 2.17 | 50 | 32-bit | runs | General Hardware screen in 13.4.3 |
 | PC Exchange (DOS floppies) | 47 | 24-bit | **was a core bug**, fixed | kernel CMPM.L (KNOWN ISSUES 9) |
-| Operation Intercept | 42-43 | 24-bit | **was a core bug**, fixed | kernel combinational loop, d2291f6 |
+| Operation Intercept | 42-43; recent | 24-bit | **was a core bug**, fixed; runs now | kernel combinational loop, d2291f6 |
 | Lode Runner 1.0 (MacPack `Games:1984`) | 51 | 24-bit | **was a core bug**: bus error on clicking the title screen; fix in compile 52 | GLUE A17 windows (2.11) |
 | Lode Runner 1.0 | 51 | 32-bit | bus error, **authentic** | 32-bit dirty: writes `$FFFFAE28` |
 | Lode Runner 1.2 (MacPack `Games:1985`) | 51 | 24-bit | same crash as 1.0 | MAME: the same write from the same PC |
