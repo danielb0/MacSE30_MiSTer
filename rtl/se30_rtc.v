@@ -55,6 +55,14 @@
 // NO RESET
 //   The chip is battery-backed and has no reset pin (sheet 4): the machine's
 //   resets never reach it.  Its RAM is zero when the core loads (plan 6.5.3).
+//
+// THE HOST PORT (persistent PRAM, plan 13.2; se30_pram.v)
+//   h_we/h_addr/h_wdata write the RAM - the load of a saved PRAM, which runs
+//   while the machine is held, and the OSD's wipe; a host write takes the
+//   write port on its clock.  h_raddr/h_rdata read it, registered, for the
+//   save: a second read port (block RAM keeps a copy).  pram_wr is one
+//   clock for each write the Mac makes to the RAM, so the save knows it
+//   changed.
 
 `timescale 1ns/1ps
 
@@ -69,6 +77,13 @@ module se30_rtc #(
   output reg        d_out,
   output reg        d_oe,
   output reg        one_hz,
+  // the host port (persistent PRAM)
+  input             h_we,
+  input       [7:0] h_addr,
+  input       [7:0] h_wdata,
+  input       [7:0] h_raddr,
+  output reg  [7:0] h_rdata,
+  output            pram_wr,
   // {secs[7:0], last command byte, transactions[7:0], wp, test[6:0] (7:1)}
   output     [31:0] dbg
 );
@@ -128,8 +143,11 @@ module se30_rtc #(
   reg        load = 0, load2 = 0;
   always @(posedge clk) begin
     ram_q <= ram[raddr];
-    if (we) ram[waddr] <= wdat;
+    h_rdata <= ram[h_raddr];
+    if (h_we) ram[h_addr] <= h_wdata;
+    else if (we) ram[waddr] <= wdat;
   end
+  assign pram_wr = we;
 
   reg [2:0] k1;
   reg [7:0] a1;

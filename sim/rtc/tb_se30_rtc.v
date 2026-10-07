@@ -76,7 +76,8 @@ module tb_se30_rtc;
   se30_rtc #(.CLK_HZ(CLK_HZ)) dut (
     .clk(clk), .timestamp(timestamp),
     .cs_n(pin[2]), .sck(pin[1]), .d_in(pin[0]), .d_out(d_out), .d_oe(d_oe),
-    .one_hz(one_hz), .dbg(dbg));
+    .one_hz(one_hz), .h_we(1'b0), .h_addr(8'd0), .h_wdata(8'd0), .h_raddr(8'd0), .h_rdata(), .pram_wr(),
+    .dbg(dbg));
 
   // contention: the chip must never begin to drive while the VIA drives.
   // (The ROM itself makes PB0 an output before raising CS*, so the tail

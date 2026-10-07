@@ -130,9 +130,12 @@ localparam CONF_STR = {
 	"SC4,ISOTO*,Mount CD-ROM;",
 `endif
 	"-;",
+	"SC5,NVR,Mount PRAM;",
+	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"-;",
 	"R[0],Reset;",
+	"R[3],Wipe PRAM (erases settings!);",
 	"v,0;",
 	"V,v",`BUILD_DATE
 };
@@ -153,16 +156,17 @@ wire         ioctl_wait;
 // back by the SD writers (plan 5.15.5 item 6: the slot's lba is the
 // writer's while it presents a block); SC2 and SC3 the SCSI disks at IDs
 // 0 and 1, read and written (plan 9.5); SC4 the CD-ROM at ID 3, read only
-// (plan 12.3; slot 4 is where Main's Mac family keeps its CD).
+// (plan 12.3; slot 4 is where Main's Mac family keeps its CD); SC5 the
+// PRAM save image, one sector (plan 13.2).
 // The data bus is shared; each client takes sd_buff_wr only under its own
 // sd_ack.
-wire   [4:0] img_mounted;
+wire   [5:0] img_mounted;
 wire         img_readonly;
 wire  [63:0] img_size;
-wire  [31:0] sd_lba[5];
-wire   [5:0] sd_blk_cnt[5];
-wire  [15:0] sd_buff_din[5];
-wire   [4:0] sd_rd, sd_wr, sd_ack;
+wire  [31:0] sd_lba[6];
+wire   [5:0] sd_blk_cnt[6];
+wire  [15:0] sd_buff_din[6];
+wire   [5:0] sd_rd, sd_wr, sd_ack;
 wire         sd_buff_wr;
 wire  [12:0] sd_buff_addr;
 wire  [15:0] sd_buff_dout;
@@ -178,20 +182,24 @@ assign sd_lba[1]      = flp2_sd_wr ? flp2_wr_lba : flp2_sd_lba;
 assign sd_lba[2]      = scsi_io_lba[31:0];
 assign sd_lba[3]      = scsi_io_lba[63:32];
 assign sd_lba[4]      = scsi_io_lba[95:64];
+assign sd_lba[5]      = 32'd0;                   // the PRAM image: one sector
 assign sd_blk_cnt[0]  = 6'd0;
 assign sd_blk_cnt[1]  = 6'd0;
 assign sd_blk_cnt[2]  = scsi_io_blk_cnt[5:0];    // a SCSI write request's sectors - 1 (plan 10.4 item 3)
 assign sd_blk_cnt[3]  = scsi_io_blk_cnt[11:6];
 assign sd_blk_cnt[4]  = 6'd0;                    // the CD: reads, one sector a request
+assign sd_blk_cnt[5]  = 6'd0;
 assign sd_buff_din[0] = flp_sd_din;
 assign sd_buff_din[1] = flp2_sd_din;
 assign sd_buff_din[2] = scsi_sd_buff_din[15:0];
 assign sd_buff_din[3] = scsi_sd_buff_din[31:16];
 assign sd_buff_din[4] = scsi_sd_buff_din[47:32];
+assign sd_buff_din[5] = pram_sd_din;
 assign sd_rd[4:2]     = scsi_io_rd;
-assign sd_wr          = {1'b0, scsi_io_wr[1:0], flp2_sd_wr, flp_sd_wr};   // the CD never writes
+assign sd_rd[5]       = pram_sd_rd;
+assign sd_wr          = {pram_sd_wr, 1'b0, scsi_io_wr[1:0], flp2_sd_wr, flp_sd_wr};   // the CD never writes
 
-hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(5)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -262,6 +270,9 @@ always @(posedge clk_sys) lock_s <= {lock_s[0], pll_locked};
 // on the framework's reset, the OSD's and the user button's.  The CPU's
 // RESET instruction resets the peripherals, never this (the ROM executes
 // RESET during boot: feeding it back is an infinite reset loop).
+// Held also until the saved PRAM is in the RTC (se30_pram's ready: a load,
+// no image, or its backstop), and restarted when a late load or the OSD's
+// wipe asks (plan 13.2).
 
 reg rom_loaded = 0;
 always @(posedge clk_sys) if (ioctl_download && ioctl_index[7:0] == 8'h00) rom_loaded <= 1'b1;
@@ -269,12 +280,34 @@ always @(posedge clk_sys) if (ioctl_download && ioctl_index[7:0] == 8'h00) rom_l
 reg        machine_reset_n = 0;
 reg [15:0] rst_cnt = '1;
 always @(posedge clk_sys) begin
-	if (!lock_s[1] || !rom_loaded || !sdram_ready || status[0] || buttons[1] || RESET || ioctl_download || pk_hold) begin
+	if (!lock_s[1] || !rom_loaded || !sdram_ready || status[0] || buttons[1] || RESET || ioctl_download || pk_hold ||
+	    !pram_ready || pram_restart) begin
 		rst_cnt <= '1;
 		machine_reset_n <= 0;
 	end else if (rst_cnt != 0) rst_cnt <= rst_cnt - 1'd1;
 	else machine_reset_n <= 1;
 end
+
+///////////////////////   PERSISTENT PRAM   //////////////////////
+// The RTC's 256 bytes in one sector of the SC5 image (plan 13.2, the LC
+// core's model): loaded when the image mounts, saved ~2 s after the Mac's
+// last PRAM write and when the OSD opens, wiped from the OSD.
+
+wire        pram_sd_rd, pram_sd_wr, pram_ready, pram_restart;
+wire [15:0] pram_sd_din;
+wire        pram_h_we, pram_wr;
+wire  [7:0] pram_h_addr, pram_h_wdata, pram_h_raddr, pram_h_rdata;
+wire [15:0] dbg_pram;
+
+se30_pram pram (
+	.clk(clk_sys), .reset(!lock_s[1]),
+	.osd_open(OSD_STATUS), .wipe(status[3]),
+	.img_mounted(img_mounted[5]), .img_present(img_size != 64'd0),
+	.sd_rd(pram_sd_rd), .sd_wr(pram_sd_wr), .sd_ack(sd_ack[5]), .sd_buff_addr(sd_buff_addr[7:0]),
+	.sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr), .sd_buff_din(pram_sd_din),
+	.h_we(pram_h_we), .h_addr(pram_h_addr), .h_wdata(pram_h_wdata), .h_raddr(pram_h_raddr),
+	.h_rdata(pram_h_rdata), .pram_wr(pram_wr),
+	.ready(pram_ready), .restart(pram_restart), .dbg(dbg_pram));
 
 ///////////////////////   ROM DOWNLOADS   ////////////////////////
 // Main sends bootN.rom with index N << 6 (plan 3.4): boot0.rom, the 256 KB
@@ -620,6 +653,8 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN)) machine
 	.dbg_addr(dbg_addr), .dbg_fc(dbg_fc), .dbg_as_n(dbg_as_n), .dbg_rw_n(dbg_rw_n),
 	.dbg_dsack_n(dbg_dsack_n), .dbg_berr(dbg_berr), .dbg_halted(dbg_halted), .reset_out_n(reset_out_n),
 	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse), .timestamp(TIMESTAMP),
+	.pram_h_we(pram_h_we), .pram_h_addr(pram_h_addr), .pram_h_wdata(pram_h_wdata), .pram_h_raddr(pram_h_raddr),
+	.pram_h_rdata(pram_h_rdata), .pram_wr(pram_wr),
 	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
 	.disk_in(disk_in), .disk_eject(disk_eject), .disk_cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid),
 	.trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),

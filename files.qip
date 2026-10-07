@@ -20,6 +20,7 @@ set_global_assignment -name VERILOG_FILE rtl/se30_pic1654.v
 set_global_assignment -name VERILOG_FILE rtl/se30_adb_xcvr.v
 set_global_assignment -name VERILOG_FILE rtl/se30_adb_dev.v
 set_global_assignment -name VERILOG_FILE rtl/se30_rtc.v
+set_global_assignment -name VERILOG_FILE rtl/se30_pram.v
 set_global_assignment -name VERILOG_FILE rtl/fpu/se30_fpu.v
 set_global_assignment -name VERILOG_FILE rtl/fpu/se30_fpu_apu.v
 set_global_assignment -name VERILOG_FILE rtl/fpu/se30_fpu_unpack.v

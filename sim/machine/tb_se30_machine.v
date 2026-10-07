@@ -135,6 +135,7 @@ module tb_se30_machine;
     .disk2_in(1'b0), .disk2_eject(), .disk2_cyl(), .trk2_cyl(7'h7F), .trk2_valid(1'b0),   // the external drive: no disk
     .trk2_addr(), .trk2_side(), .trk2_bit(1'b0),
     .disk2_wprot(1'b1), .disk2_hd(1'b0), .trk2_we(), .trk2_wbit(), .trk2_cells(), .arc2_done(), .arc2_side(), .arc2_start(), .arc2_end(), .arc2_whole(),
+    .pram_h_we(1'b0), .pram_h_addr(8'd0), .pram_h_wdata(8'd0), .pram_h_raddr(8'd0), .pram_h_rdata(), .pram_wr(),
     .scsi_img_mounted(3'b000), .scsi_img_blocks(32'd0), .scsi_io_lba(), .scsi_io_rd(), .scsi_io_wr(), .scsi_io_blk_cnt(),   // SCSI: no disks
     .scsi_io_ack(3'b000), .scsi_sd_buff_addr(13'd0), .scsi_sd_buff_dout(16'd0), .scsi_sd_buff_din(), .scsi_sd_buff_wr(1'b0),
     .scc_port_in(6'b110_110), .scc_port_out(),

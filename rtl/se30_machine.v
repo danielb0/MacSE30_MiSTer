@@ -115,6 +115,13 @@ module se30_machine #(
   input  [10:0] ps2_key,
   input  [24:0] ps2_mouse,
   input  [32:0] timestamp,
+  // the RTC's host port, for persistent PRAM (plan 13.2: MacSE30.sv's se30_pram)
+  input         pram_h_we,
+  input   [7:0] pram_h_addr,
+  input   [7:0] pram_h_wdata,
+  input   [7:0] pram_h_raddr,
+  output  [7:0] pram_h_rdata,
+  output        pram_wr,             // the Mac wrote PRAM
 
   // the ADB transceiver's program (boot2.rom)
   input         adb_pm_we,
@@ -393,7 +400,9 @@ module se30_machine #(
   se30_rtc rtc (
     .clk(clk), .timestamp(timestamp),
     .cs_n(via1_pb_pin[2]), .sck(via1_pb_pin[1]), .d_in(via1_pb_pin[0]),
-    .d_out(rtc_d_out), .d_oe(rtc_d_oe), .one_hz(rtc_1hz), .dbg(dbg_rtc));
+    .d_out(rtc_d_out), .d_oe(rtc_d_oe), .one_hz(rtc_1hz),
+    .h_we(pram_h_we), .h_addr(pram_h_addr), .h_wdata(pram_h_wdata), .h_raddr(pram_h_raddr),
+    .h_rdata(pram_h_rdata), .pram_wr(pram_wr), .dbg(dbg_rtc));
 
   // ------------------------------------------------------------- ASC
   // the Apple Sound Chip (plan Section 11): the 2 KB buffer as two FIFOs

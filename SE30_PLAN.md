@@ -17448,6 +17448,23 @@ strike what is done).** Each on a scratch copy of the image unless noted.
         image's state on the PC, and that the boot disk and the machine
         carry on.
 
+9. **A/UX - a long-term compatibility target** (Daniel, 2026-10-07: "We
+   should consider this a long-term compatibility target"). Apple's Unix
+   supported the SE/30. Once its kernel is up it drives the hardware
+   itself, so it reaches what Mac OS never does:
+   - the PMMU as a real virtual-memory system: demand paging, with
+     faulted instructions restarted from the 68030's long bus-error frame
+     (format `$B`);
+   - the 68882 and its exceptions, and the caches;
+   - the 53C80, the VIAs and the SCC as a Unix driver uses them (the
+     *Guide*: A/UX may use the SCSI interrupts, 9.3);
+   - RAM well above 8 MB (13.4's 16 MB option).
+   - **Open, from documents first:** the A/UX releases that supported the
+     SE/30, and their RAM and disk minimums. Then an image to test with.
+     Shoebill (plan Appendix) runs A/UX on the IIx, the SE/30's sibling,
+     and can say whether an image is sound before the core runs it.
+   - Not a release blocker.
+
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
 unpushed (Daniel pushes).
@@ -18724,6 +18741,44 @@ Work on branch `pram`, cut from `dev` at `862bdee`.
      the startup disk), reload the core: the setting is kept;
    - wipe: back to defaults;
    - boot with no `.nvr` mounted: as now.
+
+## 13.5 Persistent PRAM as built (2026-10-07)
+
+- **`rtl/se30_pram.v`** to 13.2, the LC's events one for one:
+  - load on the mount;
+  - READY after it, at once with no image, or after the backstop;
+  - the watchdog with three retries;
+  - RESTART for a late load;
+  - save ~2 s after the last write and on the OSD opening;
+  - wipe: zero, save, restart.
+  - Two simple dual-port word buffers: `ld_m` (the HPS writes it, the FSM
+    copies it into the RTC) and `sv_m` (the FSM fills it, the HPS reads
+    it). **A first version had one buffer with two read/write ports,
+    which Quartus built from flip-flops: 3,626 ALUTs.** Split, it is
+    **278 ALUTs, 171 registers and two M10K** (synthesis estimate).
+  - READY rises one clock after the last byte's write (the bench caught
+    it on the same clock).
+- **`rtl/se30_rtc.v`:** the host port (a write that takes the write port
+  on its clock, a second registered read) and `pram_wr`. 251 ALUTs, two
+  M10K (the RAM's copy).
+- **`MacSE30.sv`:**
+  - `"SC5,NVR,Mount PRAM;"`, `"R[3],Wipe PRAM (erases settings!);"`,
+    `VDNUM` 6;
+  - the reset also waits for READY and takes RESTART.
+  - `se30_machine.v` passes the RTC's host port through; `files.qip`
+    lists the new file.
+- **Tests:**
+  - **`sim/pram` 32 PASS** (1 s). Three mutants are caught: the save's
+    bytes shifted by one (5 fail), no retries (1), the settle timer not
+    restarted by each write (1). A fourth mutant, the save loop starting a
+    step early, cannot be caught: its only effect is an extra write that
+    the final word overwrites.
+  - `sim/rtc` PASS; `sim/machine` 17 PASS;
+  - Quartus Analysis & Synthesis: 0 errors.
+- **Next:**
+  - a compile and the board (13.3 item 4);
+  - the release's default `MacSE30.nvr` (512 zero bytes) goes into the
+    `release` branch's files.
 
 ## 13.4 The RAM sizes (8 and 16 MB): after 13.2-13.3
 
