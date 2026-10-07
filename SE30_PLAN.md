@@ -3426,6 +3426,16 @@ would hit them.
       instruction's PC, the traced instruction's address (UM 8.1.7, Table
       8-6). **68 PASS** with the caches off and with CACR `$2101`.
     - `sim/system` is now ten runs.
+- **Compile 53** (`output_files/MacSE30_a9c8d501_wberr.rbf`, 2026-10-07,
+  38 min):
+  - 39,756 ALMs (95 %); no combinational loop.
+  - **The machine's timing is met at every corner**: worst setup
+    +0.540 ns (slow 100 C); every hold positive (the fast -40 C -0.139 ns
+    is capture A, which the training avoids).
+  - Only the framework's `ascal` fails: -0.113 ns setup at slow -40 C.
+  - On the board: a general check (24- and 32-bit boots, a few
+    applications, Lode Runner). No ordinary software takes the changed
+    path.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
