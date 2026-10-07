@@ -17461,7 +17461,7 @@ suspect until shown otherwise:
 | Disk First Aid 7.2.2 | many | 24-bit | runs; checks floppies and the SCSI disk | used throughout the floppy-write and CD-ROM work |
 | Microsoft PowerPoint | 52 | ? | appears to work | Daniel, 2026-10-07 |
 | WordPerfect 3.1 | 52 | ? | appears to work | Daniel, 2026-10-07 |
-| Mathematica 1.2.2 | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
+| Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
 | TattleTech 2.17 | 50 | 32-bit | runs | General Hardware screen in 13.4.3 |
