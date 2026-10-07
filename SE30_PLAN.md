@@ -19010,6 +19010,32 @@ empty-bank question, open since 2026-09-27.
   for the sizing.
 - **`sim/machine` 17 PASS** (1 min 36 s): the ROM, now fetched from 24
   MB, runs from reset into its RAM tests as before.
+- **Compile 51** (`output_files/MacSE30_b09d2869_ram16.rbf`, 2026-10-07,
+  38 min):
+  - **39,861 ALMs (95 %)**, 362 RAM blocks; no combinational loop.
+  - **Our timing met at every corner**: worst setup +0.722 ns (slow
+    100 C), worst hold +0.113 ns (slow -40 C, a probe-deck JTAG
+    register).
+  - **Only the framework fails**: `sys/osd.v`'s HDMI OSD counter
+    (`hdmi_osd|h_cnt[12]` -> `osd_en`, -0.428 ns setup at slow -40 C, the
+    HDMI clock), where compiles 49 and 50 failed in `ascal`. It is the
+    same framework video path with a different placement: flagged, not
+    ours to fix, not serious enough for Sorgelig.
+  - **+852 ALMs on compile 50 is the fitter's packing, not the design.**
+    The change is `se30_simms` (3 ALUTs + 1 register in synthesis) and
+    an address mux. At 95 % the fitter's "ALMs needed" moves by
+    hundreds between fits (this one: 1,541 recoverable by dense packing,
+    856 unavailable); 49/50/51 = 39,285 / 39,009 / 39,861.
+- **On the board:** waiting for Daniel (13.4.2 item 4).
+- **Compile 50, 32-bit mode at 8 MB (Daniel):**
+  - Speedometer shows no significant difference from 24-bit, as
+    expected: at 8 MB only the translation tables differ, never the
+    memory, the CPU path or the caches.
+  - TattleTech General Hardware (`C:\temp\Mac\Screenshots\20261007_110413-screen.png`):
+    Mac SE/30 (ID=9); 32-bit capable; System Zone 32-bit compatible;
+    **booted in 32-bit mode = Yes** (the switch kept by PRAM); MC68030 at
+    16 MHz with the instruction and data caches enabled; MC68882,
+    hardware FPU = Yes.
 
 ---
 
