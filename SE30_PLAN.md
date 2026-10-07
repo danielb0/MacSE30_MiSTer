@@ -19031,8 +19031,12 @@ empty-bank question, open since 2026-09-27.
   About This Macintosh, System 7.5.5 in 32-bit mode: Total Memory
   **16,384K**, System Software 2,485K, Largest Unused Block 13,873K.
   The ROM sized four 4 MB SIMMs in bank A with bank B empty, as
-  `sim/simms` predicts. Not yet reported: 24-bit mode at 16 MB, and the
-  return to 8 MB.
+  `sim/simms` predicts.
+  **24-bit mode at 16 MB** (`C:\temp\Mac\Screenshots\20261007_113342-screen.png`):
+  Total Memory 16,384K, **System Software 10,673K** (+8,188K on 32-bit
+  mode's 2,485K: the memory above 24-bit mode's 8 MB, booked to the
+  System, as MAME showed with 64 MB), Largest Unused Block 5,686K.
+  Not yet reported: the return to 8 MB.
 - **Compile 50, 32-bit mode at 8 MB (Daniel):**
   - Speedometer shows no significant difference from 24-bit, as
     expected: at 8 MB only the translation tables differ, never the
