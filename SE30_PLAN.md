@@ -3506,6 +3506,20 @@ not a verdict.
 - **Speed:** a 150-round batch takes about 2 minutes on one ModelSim
   worker, the same with 8 in parallel (16 logical cores here). Each
   worker's first kernel compile adds a few minutes.
+- **The corpus, generated 2026-10-07 (12 minutes per set):**
+
+| Set | Rounds per form | Records streamed | Forms | Rounds | Batches | Estimate (8 workers) |
+|---|---|---|---|---|---|---|
+| `C:\temp\Mac\SE30\cputest_int\full\hb6` | 6 | 20.7 M (BASIC) + 17.6 k (EXTSRC) + 30.3 k (EXTDST) | 3,518 | 21,096 | 141 | about 40 min |
+| `C:\temp\Mac\SE30\cputest_int\full24\hb24` | 24 | the same | 3,518 | 83,063 | 554 | about 2 h 30 min |
+
+  - Left out by the sampler: 8.3 M traced rounds, 6.3 M exception rounds,
+    1.7 M from the harness-disturbing instructions.
+  - Left out by the harness: 4 and 11 rounds whose addresses clash with
+    its own.
+- **The overnight run:** `sim/cputest_int/night.sh` with both sets in
+  turn. Each gets `summary.txt`, `report.txt` (each failure named) and
+  `timing.txt`; `night_<date>.log` gets one line per set.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
