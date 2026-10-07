@@ -17385,6 +17385,38 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    lock, closed; the copy still "cannot be found" = compare with MAME
    writable again before calling it the software's.
 
+8. **Mounting a floppy image over one already mounted** (Daniel,
+   2026-10-07: "I may have nuked a disk when doing this before. This may
+   be authentic Mac behaviour. If you force-eject a disk with pending
+   writes, it will not be a good day for that disk.")
+   - **What the core does** (read from the code, 2026-10-07; not yet
+     benched or seen on the board):
+     - the new mount pulse clears the drive's disk-in-place the same clock
+       (`se30_flp_loader.v` 213-216), so the old disk leaves without the
+       Mac ejecting it - the paperclip eject of a real drive;
+     - the new image loads, and the drive reports an insertion;
+     - the SD writer drops the old image's queued blocks and cancels its
+       eject flush (`se30_flp_sdwriter.v` 292-298); a block hps_io has
+       already acknowledged completes. So a raw image can lose the last
+       blocks the Mac wrote, and a DiskCopy 4.2 image keeps its old header
+       checksums.
+   - **Expected on the Mac:** the old volume stays mounted with its disk
+     gone ("Please insert the disk..." when next needed), and anything
+     still cached for it is never written.
+   - **The test, on scratch copies:**
+     a. a raw 1.44 MB and a DC42 800K image each mounted writable;
+     b. copy a folder onto it and, at once, mount another image over it
+        in the OSD;
+     c. on the PC: `hfs_check` the first image, compare the copied files,
+        and recompute the DC42 checksums;
+     d. note what the Mac shows.
+   - Then decide: authentic (a real Mac's paperclip eject loses the same
+     writes) and documented, or protected - for example the OSD mount
+     waits for the SD writer to drain and runs the flush first, which
+     keeps the DC42 checksums whatever the Mac does.
+   - The safe order meanwhile: eject in the Finder first, then mount the
+     next image.
+
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
 unpushed (Daniel pushes).
