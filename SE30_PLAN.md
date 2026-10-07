@@ -17611,15 +17611,19 @@ Daniel - add to it, move items out when fixed).**
     chime; then the ADB probe (PADB) during it, and MAME with Shift held.
     Users will try it first when an extension misbehaves - must work.
 
-12. **SEEN ONCE, NOT REPRODUCED (2026-10-07 evening, compile 54): a bus
-    error from Speedometer 4.02 at Restart.** Speedometer had been left
-    running, Lode Runner had been played, and the Memory panel had just
-    been set to 32-bit (still 24-bit until the restart). Not repeated:
-    Speedometer open and Restart in 24-bit mode; nor the whole sequence
-    again with the probe deck logging (Daniel). Lode Runner is 32-bit
-    dirty and pokes low memory, so a one-off from that mix may well be
-    authentic. If it recurs: note what was open, and the MAME Lua taps on
-    the addresses the SE/30 bus-errors (as for Lode Runner) find the access.
+12. **RESOLVED 2026-10-07 evening - AUTHENTIC, NOT THE CORE: a bus error
+    from Speedometer 4.02 at Restart** (compile 54). Reproduced by Daniel:
+    Speedometer's tests, then Lode Runner, then Restart (the Memory panel
+    not needed). The board's probe log: exactly one BERR (count 4099 ->
+    4100), then the System's error dialog. MAME's SE/30 with the same two
+    disks (his backups `mac_80mb-restored.vhd` and `boo_.vhd`) and Lua taps
+    on every address our GLUE refuses: at the same point the ROM's Memory
+    Manager (`$4080EB5A`-`$4080EB5E`) reads a long at physical `$FB0B402E` -
+    slot B's space, 24-bit logical `$BB402E`, a heap pointer gone bad
+    (Lode Runner writes where it should not). No card answers there: a
+    real SE/30 bus-errors, as the board did; MAME acknowledges every
+    address, returned garbage and Speedometer HUNG. Same software fault,
+    the core the more faithful of the two.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
