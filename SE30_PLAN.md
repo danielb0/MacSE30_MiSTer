@@ -17563,6 +17563,10 @@ suspect until shown otherwise:
    especially a bus error in 24-bit mode, is the lead;
 3. MAME's SE/30 with the same image. Remember MAME acknowledges every
    unmapped address, so it is a cross-check, never evidence.
+4. Extensions off (Extensions Manager, "All Off"): System 7 extensions of
+   the time conflicted with games routinely (Shufflepuck Cafe, 2026-10-07).
+   A crash that goes away with them off is checked once in MAME with the
+   SAME System image (a backup of the board's) before it is called authentic.
 
 | Title (version, source) | Compile | Mode | Result | Notes |
 |---|---|---|---|---|
