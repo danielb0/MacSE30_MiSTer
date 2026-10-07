@@ -16986,9 +16986,9 @@ status and where each was decided. Test tooling is not listed here.
 | # | Addition | Status | Recorded |
 |---|---|---|---|
 | 1 | **Programmer's interrupt (NMI)**: the SE/30's interrupt switch, for MacsBug. The level-7 NMI from a key (e.g. Pause/Break, today F15) or an OSD item beside Reset. GLUE already takes `nmi_n` (priority 7 in its encoder); the top ties it high (`MacSE30.sv`, `nmi_n(1'b1)`), and the keyboard map has no ADB Power key, so Command-Power cannot reach it either | **WANTED** (Daniel, 2026-10-07) - authentic: every SE/30 shipped with the switch | here |
-| 2 | **CD audio** | upgrade after the first release; the first to drop if space runs out | MVP and upgrades, above |
+| 2 | **CD audio** | **nice to have** (Daniel, 2026-10-07): does not fit beside the MVP - about 3,000 ALMs (the LC's block measured 2,986) against ~400 free in the release, and CUE/BIN images need Main_MiSTer's support | MVP and upgrades, above |
 | 3 | **128 MB RAM with a 32-bit-clean ROM** (a IIsi / IIfx ROM file) | upgrade after the first release; wanted (Daniel, 2026-09-27) | MVP and upgrades; 3.7 |
-| 4 | **A colour video card** in the PDS pseudo-slots `$9`-`$B`, an OSD option; the card, and one output or two screens, open | upgrade after the first release; wanted (Daniel, 2026-09-30) | MVP and upgrades |
+| 4 | **A colour video card** in the PDS pseudo-slots `$9`-`$B`, an OSD option; the card, and one output or two screens, open | **nice to have** (Daniel, 2026-10-07): does not fit beside the MVP - an estimated 2,000-4,000 ALMs, VRAM in SDRAM, the card's declaration ROM | MVP and upgrades |
 | 5 | **32 and 64 MB RAM**: the SDRAM controller learning the 64 MB modules, the OSD offering only what the fitted module holds | later, a separate decision (Daniel, 2026-10-07) | Section 13 |
 | 6 | **A/UX** | long-term compatibility target (Daniel, 2026-10-07) | FUTURE BOARD TESTS item 9 |
 | 7 | **The second (external) floppy drive**: built (compile 25), out of the builds since compile 37 for space | not yet decided | MVP and upgrades; 5.14 |
