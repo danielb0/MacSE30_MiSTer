@@ -3558,6 +3558,10 @@ not a verdict.
     lists the floppy decoder's eight `Add2` cells, as since compile 44.
     Board check (Daniel): a regression check only - no symptom was ever
     seen; boot, Speedometer unchanged, a few tested apps, a 32-bit boot.
+    **PASSED (Daniel, 20:3x-21:xx):** CPU/Graphics/Math as usual (Disk
+    0.6 then over 1.1 and 1.3 - the SD card, KNOWN ISSUES 2); QuarkXPress
+    stable under random typing; Lode Runner fine; boots in 32-bit mode.
+    One unreproduced bus error at Restart (KNOWN ISSUES 12).
     After it, Daniel: the release ("we will have done what we can").
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
