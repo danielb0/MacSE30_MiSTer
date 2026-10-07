@@ -17392,7 +17392,15 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    removal (a mount over a mounted image, or the OSD's unmount) is the
    paperclip, and it loses what the Mac had not written, as on the real
    machine. Documented here; the user's safe order is a Finder eject
-   first. Was: (Daniel,
+   first.
+   **ONE CASE WILL BE TESTED (Daniel, 2026-10-07):** mounting a floppy
+   image over one already mounted, because a user can do it by accident.
+   It is to be described, and warned against, in the user documentation
+   (the release README). Test: a scratch writable image mounted, a Finder
+   copy onto it, then another image mounted over it. Note what the Mac
+   shows, and check the first image on the PC (volume consistent? the
+   copy complete?) so the warning says what actually happens.
+   **The docs item stands either way.** Was: (Daniel,
    2026-10-07: "I may have nuked a disk when doing this before. This may
    be authentic Mac behaviour. If you force-eject a disk with pending
    writes, it will not be a good day for that disk.")
