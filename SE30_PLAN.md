@@ -17590,6 +17590,7 @@ suspect until shown otherwise:
 | Lode Runner 1.2 (MacPack `Games:1985`) | 51; 52 | 24-bit | same crash as 1.0 on 51; **works on 52** | MAME: the same write from the same PC |
 | Dark Castle | 51 | 24-bit | the demo runs | from a floppy, under System 7.5.5; Daniel, 2026-10-07 |
 | Crystal Raider (1985) | 52/53 | 24-bit | runs on System 6, not on System 7; runs far too fast | the speed is authentic (CPU-loop timing written for an 8 MHz 68000; the core's CPU = the real SE/30's); System 7 failure: how it fails not yet known |
+| Shufflepuck Cafe | 53 | 24-bit | **LEAD**: plays, then crashed when the menu came up after a game; screen full of a repeating pattern | probed 18:28 (`C:\temp\Mac\Screenshots\20261007_182817-screen.png`): CPU halted (double fault); low memory, the vectors included, tiled with one 92-byte format-$B bus-error frame (SR $2218 = IPL 2, PC $6, fault address $6DB6DB6D, SSW $0145): an exception spiral, the stack running down through RAM, wrapping, and down through I/O and video. That is the aftermath; the trigger was already overwritten. IPL 2 hints at a level-2 (VIA2: ASC sound, SCSI) handler. Exceptions ring before the halt: F-line, bus error alternating, then an address error; the F-line ring's FEA1 at $01784EFA does not match RAM there (6006, intact code) |
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
