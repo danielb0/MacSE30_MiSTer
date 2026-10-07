@@ -13,7 +13,7 @@ reproduction of the SE/30's video PALs made the video readable.
 
 ### Working
 
-- Boots **System 6.0.8 and System 7.5.5** from floppy or SCSI, in 24-bit or 32-bit mode
+- Boots **System 6.0.5, 6.0.8, 7.1 and 7.5.5** from floppy or SCSI, in 24-bit or 32-bit mode
 - **68030 CPU with PMMU and caches** at the SE/30's 15.67 MHz, timed to match a real machine
 - **68882 FPU**
 - **Memory:** 8 MB or 16 MB
