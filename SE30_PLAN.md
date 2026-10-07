@@ -19036,7 +19036,8 @@ empty-bank question, open since 2026-09-27.
   Total Memory 16,384K, **System Software 10,673K** (+8,188K on 32-bit
   mode's 2,485K: the memory above 24-bit mode's 8 MB, booked to the
   System, as MAME showed with 64 MB), Largest Unused Block 5,686K.
-  Not yet reported: the return to 8 MB.
+  **Back to 8 MB** (Reset & Apply Memory): 8,192K. **13.4.2 item 4
+  complete: the 8/16 MB option is board-proven.**
 - **Compile 50, 32-bit mode at 8 MB (Daniel):**
   - Speedometer shows no significant difference from 24-bit, as
     expected: at 8 MB only the translation tables differ, never the
