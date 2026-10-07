@@ -4,6 +4,7 @@
 # See the header of tb_busfault.v for what it proves.
 #
 #   N         the handler's retry count (default 3; the ROM uses 100)
+#   WRITE=1   the probe writes instead of reading (KNOWN ISSUES 7)
 #   MODELSIM  the win32aloem bin directory
 #
 # Exit status is the bench's verdict: 0 on "==== PASS".
@@ -13,7 +14,7 @@ cd "$(dirname "$0")"
 MODELSIM=${MODELSIM:-/c/intelFPGA_lite/17.0/modelsim_ase/win32aloem}
 RTL=../../rtl
 
-python gen_program.py "${N:-3}" || exit 1
+python gen_program.py "${N:-3}" "$([ "${WRITE:-0}" = 1 ] && echo write || echo read)" || exit 1
 rm -rf work
 "$MODELSIM/vlib.exe" work >/dev/null || exit 1
 for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; do

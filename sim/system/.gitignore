@@ -9,3 +9,5 @@ vramtest/
 berrtest/
 timetest/
 clrtest/
+tracetest/
+tracecache/

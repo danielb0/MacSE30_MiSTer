@@ -51,6 +51,11 @@
 //     clrtest   gen_clr_program.py's CLR, Scc and MOVE from SR/CCR to every
 //              memory mode (plan 1.17.2): each a write and no read, as the
 //              MC68030 UM's tables list them (a 68000 reads first).
+//     tracetest gen_trace_program.py's single-stepping (T1): every traced
+//              step's six-word frame - format $2, the next instruction's
+//              PC, the traced instruction's address (UM 8.1.7, Table 8-6) -
+//              logged by the handler and compared; tracecache the same
+//              with the caches on.
 //     berrtest  gen_berr_program.py's blind read and write at $50006060 /
 //              $50006000 with GLUE's DRQ tied low: each waits for DRQ and
 //              UI6 bus-errors it; a handler records the frame's format
@@ -64,7 +69,7 @@
 //   ../kernel_bus), +CACHEON (the program enables the cache: it must hit),
 //   +CACHETEST (the cache program's checks), +VRAMTEST (the video-RAM
 //   measurement), +TIMETEST (the timing windows), +CLRTEST (the write-only
-//   instructions), +BERRTEST (the handshake
+//   instructions), +TRACETEST (the trace log), +BERRTEST (the handshake
 //   bus errors); +define+VTRACE
 //   prints the video trace.
 //
@@ -371,6 +376,7 @@ module tb_se30_system;
 `endif
   // ------------------------------------------------------------ the run
   integer n, kk; reg [31:0] stop_at, v, want; integer fd, r;
+  reg tracetest = 0; reg [31:0] tr_want [0:255];
   reg [8*200-1:0] prog_dir; reg [31:0] slot_want [0:31];
   reg done = 0; integer tail = -1;
   always @(posedge clk) if (phi1 && reset_n && !done) begin
@@ -390,6 +396,7 @@ module tb_se30_system;
     post_en  = !$test$plusargs("NOPOST");
     ptrace   = $test$plusargs("PTRACE");
     clrtest = $test$plusargs("CLRTEST");
+    tracetest = $test$plusargs("TRACETEST");
     $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 32768; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
     fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
@@ -428,6 +435,23 @@ module tb_se30_system;
         else begin fails = fails + 1; $display("FAIL: $%04x holds %08x, expected %08x", 32'h3100 + 4*kk, v, slot_want[kk]); end
       end
       if (fails == 0) $display("==== PASS: %0d checks - CLR, Scc and MOVE from SR/CCR write without reading", pass);
+      else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
+      $finish;
+    end
+    if (tracetest) begin                                                // single-stepping (the audit, 2026-10-07)
+      fd = $fopen({prog_dir, "/count.txt"}, "r"); r = $fscanf(fd, "%d", kk); $fclose(fd);   // the longs logged
+      $readmemh({prog_dir, "/want.hex"}, tr_want, 0, kk - 1);
+      for (vk = 0; vk < kk; vk = vk + 1) begin
+        v = ram[(32'h3400 + 4*vk) >> 2];
+        if (v === tr_want[vk]) pass = pass + 1;
+        else begin fails = fails + 1; $display("FAIL: step %0d %s: %08x, expected %08x", vk / 3,
+                   (vk % 3 == 0) ? "format/vector" : (vk % 3 == 1) ? "stacked PC (the next instruction)" : "instruction address",
+                   v, tr_want[vk]); end
+      end
+      v = ram[(32'h3400 + 4*kk) >> 2];
+      if (v == 32'h4E714E71) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: a trace logged beyond the last step: %08x", v); end
+      if (fails == 0) $display("==== PASS: %0d checks - %0d single steps, each frame as the MC68030's", pass, kk / 3);
       else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
       $finish;
     end

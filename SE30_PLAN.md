@@ -3362,6 +3362,71 @@ in 32-bit mode; 32-Bit Addressing off, restart: back in 24-bit mode
 cleanly (Daniel, ~15:45). **The item's whole list is done.** Then the merge with
 floppy-write once that branch's own board test is done.
 
+### 1.18.5 The write side, and trace mode: the audit of 2026-10-07
+
+After Lode Runner (2.11), Daniel asked for an audit of the behaviours the
+plan still left open, assumed or undocumented, ranked by how a program
+would hit them.
+
+- **Address decode:** clean. Every path GLUE and the video take matches
+  Figure 3-6 and the PAL equations: RAM aliasing, the ROM mirror, the
+  I/O wrap, the No-DSACK windows, empty slots, slot `$E`, CPU space.
+- **Undefined reads and undocumented timing:** low risk, left as they
+  are.
+  - Unbuilt devices and the empty expansion window read `$00`.
+  - The VIA timers' reset values and the RTC's test register are not
+    documented.
+  - Four SCSI cases SP-1051 is silent on.
+  - E's duty cycle, the SCC's wait and UI6's timeout have no documented
+    number.
+- **Two CPU items, both done here:**
+  - **A. KNOWN ISSUES 7: an external bus error on a WRITE.**
+    - **The fault:** the frame stacked the prefetch pointer `TG68_PC`.
+      For `MOVE.L D6,$38(A6)` at `$1024` that is `$102A`, inside the next
+      instruction. A handler that completes the write (DF cleared) resumed
+      there and ran garbage. One that leaves DF set to rerun it did the
+      same: **on the old kernel the rerun dies in an illegal-instruction
+      exception after one try**, the board's System Error 3 of 5.11 for
+      writes.
+    - **UM Table 8-6:** the format `$B` PC is "the address of the
+      instruction in execution when the fault occurred".
+    - **The fix:** the external-fault restart path of 5.11 item 5 and
+      1.18.3 covered reads only (`pmmu_rw='1'`). Writes now take it too;
+      locked cycles still do not. The DIB substitution already dropped a
+      matched write.
+    - **Benches:**
+      - `sim/busfault_dib INSTR=write` 18 PASS (5 failures before).
+      - `sim/busfault` gains `WRITE=1`, `move.b d1,(a5)` to an empty slot
+        with the ROM's retry handler: 14 PASS at N = 3 and 100; on the old
+        kernel 5 failures, ending in the illegal-instruction stub.
+      - **The busfault_dib matrix:** cmp/move/write x both handlers x
+        both alignments x MMU and caches on/off, plus SP `$7FFE` and +ipl.
+        54 runs, all PASS.
+      - `sim/kernel_bus`: ports 16, 32 and 8 PASS. `PORT=8 CODE8=1` has
+        the same 3 failures on the old kernel (code on an 8-bit device; no
+        Mac does it).
+      - **Upstream's kernel suite and PMMU suite:** verdicts identical to
+        the baselines (14 + 3 known; 58 + the same 5 known).
+      - `sim/system`: all eight PASS, the timing windows unchanged (GCR
+        87.19 / 87.00, the chime 1.04 s, SCSI 2.98 / 2.89 MB/s).
+  - **B. Trace mode** (upstream's "JMP post-trace returns to the wrong PC",
+    open there, dependent on cumulative state).
+    - **Upstream's four trace benches already pass on our kernel:**
+      `tb_basic_chk_trace`, `tb_basic_div_jmp_trace`,
+      `tb_basic_group2_user_trace` and `tb_trace_post_rte_user`.
+    - **New, on the whole bus:** `sim/system` tracetest and tracecache
+      (`gen_trace_program.py`) single-step 22 instructions with T1:
+      - ADD, LEA, MOVE;
+      - a DBRA loop, taken twice and then not;
+      - BRA, BEQ taken, BNE not taken;
+      - JSR/RTS, JMP, MOVEM both ways, NOP;
+      - a traced STOP (UM 8.1.7: no stop, a trace, execution goes on);
+      - the MOVE to SR that ends tracing.
+    - The handler logs each format `$2` frame: `$2024`, the next
+      instruction's PC, the traced instruction's address (UM 8.1.7, Table
+      8-6). **68 PASS** with the caches off and with CACR `$2101`.
+    - `sim/system` is now ten runs.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
@@ -16944,14 +17009,17 @@ Daniel - add to it, move items out when fixed).**
 6. **The framework's HDMI scaler** (`ascal`) misses timing by tens of ps
    to -0.313 ns at slow -40C on some fits (compiles 18, 20, 25, 37, 39,
    40); not our logic, accepted as precedent. Compile 41 met everywhere.
-7. **A bus error on a WRITE that the handler completes in software** (DF
+7. ~~**A bus error on a WRITE that the handler completes in software**~~
+   **FIXED 2026-10-07 (the audit; 1.18.5).** Was: (DF
    cleared, format $B, RTE): the kernel stacks the continuation PC + 2 for
    an external BERR on a write, so the RTE resumes inside the next
    instruction (`sim/busfault_dib` INSTR=write, 5 failures on the kernel
    before and after 1.18). Pre-existing; the Mac's software completes
    reads only (the ROM's and MODE32's Memory Manager checks). Found
    2026-10-05 while fixing the read side (1.18.4).
-8. **The game Operation Intercept gives a bus error** (Daniel, board,
+8. ~~**The game Operation Intercept gives a bus error**~~ **RESOLVED: the
+   kernel's combinational loop, d2291f6; it runs (Daniel, APPLICATION
+   TESTS).** Was: (Daniel, board,
    2026-10-05). Open, not yet investigated: Daniel is running it on the
    other cores first (MacPlus, LC) to tell a core fault from the game's
    own behaviour on this machine, before any debugging here. **The probe

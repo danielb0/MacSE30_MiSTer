@@ -127,7 +127,7 @@ module tb_busfault;
   // ---------------------------------------------- the frame, as written
   // every supervisor-data write from the first bus error until the
   // handler's first fetch, by byte address (the RAM model's lanes)
-  reg [31:0] probe_pc, h_pc, c_pc; integer n_ret;
+  reg [31:0] probe_pc, h_pc, c_pc; integer n_ret, is_wr;
   reg  [7:0] fbyte [0:32767];
   reg        fset  [0:32767];
   integer    berrs = 0, fetch_h = 0, lo = 32'h7FFFFFFF;
@@ -180,7 +180,7 @@ module tb_busfault;
   initial begin
     $readmemh("program.hex", img);
     for (i = 0; i < 32768; i = i + 1) begin ram[i] = {img[2*i], img[2*i+1]}; fset[i] = 0; fbyte[i] = 0; end
-    fd = $fopen("layout.txt", "r"); r = $fscanf(fd, "%h %h %h %d", probe_pc, h_pc, c_pc, n_ret); $fclose(fd);
+    fd = $fopen("layout.txt", "r"); r = $fscanf(fd, "%h %h %h %d %d", probe_pc, h_pc, c_pc, n_ret, is_wr); $fclose(fd);
     repeat (20) @(posedge clk);
     reset_n = 1;
     n = 0;
@@ -206,7 +206,7 @@ module tb_busfault;
     check({fw(2), fw(4)} == probe_pc, "the PC is the faulting instruction's", {fw(2), fw(4)}, probe_pc);
     ssw = fw(10);
     check(ssw[8] == 1, "SSW DF: a data fault", ssw, 32'h0100);
-    check(ssw[6] == 1 && ssw[5:4] == 2'b01 && ssw[2:0] == 3'd5, "SSW: a byte read in supervisor data space", ssw, 32'h0155);
+    check(ssw[6] == !is_wr && ssw[5:4] == 2'b01 && ssw[2:0] == 3'd5, "SSW: a byte read (WRITE=1: a byte write, RW=0) in supervisor data space", ssw, is_wr ? 32'h0115 : 32'h0155);
     check({fw(16), fw(18)} == 32'hF9FFFFFF, "the data cycle fault address is $F9FFFFFF", {fw(16), fw(18)}, 32'hF9FFFFFF);
     // 7. the unwind
     check(sp1 == sp0, "the SP after the ROM's $5C unwind is the SP before the fault", sp1, sp0);

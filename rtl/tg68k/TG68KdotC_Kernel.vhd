@@ -5354,11 +5354,16 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- read of $F9FFFFFF 100 times (ROM $40804F28); stacking TG68_PC
 					-- resumed one word into the next instruction (System Error 3 on the
 					-- board).  After the no-fault clear above, which sees make_berr still
-					-- 0 on this first-fire clock.  Writes and locked cycles keep the old
-					-- path (sim/busfault covers reads only).
+					-- 0 on this first-fire clock.  A WRITE takes the same path (SE30_PLAN.md
+					-- KNOWN ISSUES 7): the frame's PC is "the address of the instruction in
+					-- execution when the fault occurred" (UM Table 8-6), so a handler that
+					-- completes the write (DF cleared) re-executes it with the write
+					-- dropped by the DIB substitution, and one that leaves DF set reruns
+					-- it.  Before, a write stacked the prefetch pointer and resumed one
+					-- word into the next instruction.  Locked cycles keep the old path.
 					IF berr_k='1' AND make_berr='0' AND trap_berr='0' AND trap_mmu_berr='0' AND
 					   berr_exception_active='0' AND cp_bf_now='0' AND   -- (not a coprocessor dialog's: it goes on from the fault, 7d B5c)
-					   fc_internal(1 downto 0)="01" AND pmmu_rw='1' AND pmmu_rmw='0' THEN
+					   fc_internal(1 downto 0)="01" AND pmmu_rmw='0' THEN
 						mmu_restart_pending <= '1';
 						mmu_restart_soft <= '0';
 						berr_restart_pc <= exe_pc;
