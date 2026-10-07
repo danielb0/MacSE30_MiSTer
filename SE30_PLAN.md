@@ -18641,6 +18641,7 @@ repository and the MiSTer-devel question). PBER as option (a): "Go with
     - The CD was mounted again.
     - The floppy was not: expected, since the ROM ejects a disk with no
       System during the startup search, as on the real machine.
+      Remounted from the OSD afterwards, it mounted cleanly (Daniel).
 - **Next:** the release profile (plan 10.4.2: no probes, no raw SDRAM
   experiment port, `SE30_PBER` off) on a `release` branch.
 
