@@ -18647,6 +18647,95 @@ repository and the MiSTer-devel question). PBER as option (a): "Go with
 
 ---
 
+# Section 13 - persistent PRAM and the RAM sizes (opened 2026-10-07)
+
+Daniel, 2026-10-07: before the release, **persistent PRAM** and a choice
+of **RAM sizes: 8 and 16 MB for the MVP**. 32 and 64 MB are a later and
+separate decision: they need the SDRAM controller to learn the 64 MB
+modules, and the OSD to offer only what the fitted module holds. 128 MB
+is not planned: it needs the ROM image off the SDRAM. Persistent PRAM
+comes first, because the 32-bit addressing switch lives in PRAM. The
+model is the LC core's, "including the OSD item to zap it" (Daniel).
+Work on branch `pram`, cut from `dev` at `862bdee`.
+
+## 13.1 Sources, and their standing
+
+| Source | What it gives | Standing |
+|---|---|---|
+| Plan 6.5 and 6.7 (the RTC, 344S0042-B; the ROM's InitUtil `$4080DBE8`) | 256 bytes of parameter RAM; the ROM validates it by the byte `$A8` (`SysParam`) and the signature `'NuMc'` at xPRAM `$0C`, and writes its defaults when either is missing | **primary** (the ROM, read 2026-09-28) |
+| MacLC `MacLC.sv` (`045f896`), its PRAM block (lines 319-520) | one 512-byte sector in its own hps_io slot (`"SC2,NVR,Mount PRAM;"`); loaded on the slot's mount with the machine held, with a watchdog, retries and a backstop; saved ~2 s after the last PRAM write and when the OSD opens; "WIPE PRAM (erases settings!)" zeroes, saves and resets; a load landing after the release restarts the machine | **donor**, hardware-proven (Daniel's LC work) |
+| MacLC `README.md` "PRAM / NVRAM" | a default image shipped as `releases/MacLC.nvr` | the user-facing model |
+
+## 13.2 Persistent PRAM: the design
+
+1. **`rtl/se30_rtc.v`** gains a host port: one write, used to load and to
+   wipe, and one registered read, used to save. The Mac's own read and
+   write ports are unchanged. The host write shares the RAM's write port
+   only while the machine is held, and the second read port costs one
+   more M10K, a copy of 256 bytes. It also gains a strobe, `pram_wr`, for
+   every write the Mac makes to the RAM.
+2. **`rtl/se30_pram.v`** (new): the LC's FSM, as its own module so a
+   bench can drive it.
+   - **Load** on the slot's mount pulse with a size: read sector 0, copy
+     the first 256 bytes into the RTC.
+   - **Ready**, to the top's reset hold: high after a load, at once when
+     no image is mounted, or after a backstop (~6 s). A missing or slow
+     file never hangs the boot.
+   - **Watchdog:** a read the HPS does not serve is re-asked three times,
+     then given up (the machine boots on zero PRAM, as with no file).
+   - **A late load,** landing after the machine was released, pulses a
+     restart, so the machine comes up on the loaded PRAM.
+   - **Save:** 256 bytes plus padding to sector 0, ~2 s after the last
+     Mac write (each write restarts the timer, so the OS's bursts make one
+     save), and when the OSD opens with PRAM changed.
+   - **Wipe:** zero the RTC's RAM, save the zeros, restart the machine.
+     The ROM then finds neither `$A8` nor `'NuMc'` and writes its
+     defaults, as after a battery change.
+3. **`MacSE30.sv`:**
+   - `"SC5,NVR,Mount PRAM;"`, `VDNUM` 6 (slot 5; slots 0-4 are taken);
+   - `"R[3],Wipe PRAM (erases settings!);"`;
+   - `machine_reset_n` also waits for `ready`.
+   - Only the 256 PRAM bytes persist. The clock still comes from the
+     HPS's TIMESTAMP at core load, as now.
+4. **The release ships `MacSE30.nvr`:** 512 zero bytes. Zero PRAM is
+   exactly what the ROM re-initialises (6.7), so the file needs no
+   content.
+
+## 13.3 The tests
+
+1. **`sim/pram` (new, Icarus):** `se30_pram` and the real `se30_rtc`,
+   with a model hps_io slot, the timers shortened. It checks:
+   - the load reaches the RTC, byte-exact, and `ready` rises after it;
+   - no image: `ready` at once;
+   - an HPS that never answers: the retries, then `ready`;
+   - a write by the Mac over the RTC's serial line (the ROM's own
+     sequence, as `sim/rtc`) makes one save after the settle time,
+     containing it;
+   - a burst of writes makes one save;
+   - the OSD opening saves only if changed;
+   - wipe: zero RAM, a save of zeros, a restart pulse;
+   - a late load gives a restart pulse;
+   - the Mac's reads are unchanged.
+2. `sim/rtc` (the chip's own bench) still passes.
+3. `sim/machine` and Quartus analysis, then a compile on Daniel's
+   go-ahead.
+4. **The board:**
+   - change a setting (the Memory control panel's 32-bit addressing, or
+     the startup disk), reload the core: the setting is kept;
+   - wipe: back to defaults;
+   - boot with no `.nvr` mounted: as now.
+
+## 13.4 The RAM sizes (8 and 16 MB): after 13.2-13.3
+
+Documentation first, as plan 3.7 already asks:
+- how the ROM sizes RAM, and what an empty bank must read as (2.11.6,
+  `$4080366E`, plan 1.5);
+- GLUE's bank decode and VIA2's `RAMSIZ` straps.
+
+Then the SDRAM map: the ROM and floppy images move above 16 MB.
+
+---
+
 ## Appendix - where the sources are
 
 The IIvi core is now cloned durably at `C:/Git/MiSTer-devel/MacIIvi_MiSTer`
