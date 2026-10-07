@@ -19026,7 +19026,13 @@ empty-bank question, open since 2026-09-27.
     an address mux. At 95 % the fitter's "ALMs needed" moves by
     hundreds between fits (this one: 1,541 recoverable by dense packing,
     856 unavailable); 49/50/51 = 39,285 / 39,009 / 39,861.
-- **On the board:** waiting for Daniel (13.4.2 item 4).
+- **On the board (Daniel, 2026-10-07, compile 51,
+  `C:\temp\Mac\Screenshots\20261007_113115-screen.png`): 16 MB WORKS.**
+  About This Macintosh, System 7.5.5 in 32-bit mode: Total Memory
+  **16,384K**, System Software 2,485K, Largest Unused Block 13,873K.
+  The ROM sized four 4 MB SIMMs in bank A with bank B empty, as
+  `sim/simms` predicts. Not yet reported: 24-bit mode at 16 MB, and the
+  return to 8 MB.
 - **Compile 50, 32-bit mode at 8 MB (Daniel):**
   - Speedometer shows no significant difference from 24-bit, as
     expected: at 8 MB only the translation tables differ, never the
