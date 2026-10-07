@@ -18554,8 +18554,17 @@ repository and the MiSTer-devel question). PBER as option (a): "Go with
   - **The release build, estimated from this fit:** 39,285 - 1,825 =
     **~37,460 ALMs (89 %)**, about 840 under the ~38.3k ceiling, before
     the raw SDRAM experiment port comes out.
-- **Next:** the board with compile 49 (floppy writing and the CD together),
-  then the release profile (plan 10.4.2: no probes, no raw SDRAM
+- **On the board (Daniel, 2026-10-07, compile 49):**
+  - the CD mounts and unmounts;
+  - an 800K floppy formatted in the core, with a file copied onto it from
+    the System 7.1 CD's "British" folder ("System 7.1 CD-ROM - Read Me"),
+    checked on the PC (`Test disks\Written\SE30\Blank800K_clean-2.dsk`,
+    819,200 B raw): volume 'Formatted' audits clean (1,594 blocks, 2
+    files); the file is identical to the CD's, both forks (data 1,068,
+    rsrc 8,775, `ttro`/`ttxt`). The British, U.S. and International
+    copies on the CD are byte-identical. **Floppy GCR format and write
+    work beside the CD-ROM.**
+- **Next:** the release profile (plan 10.4.2: no probes, no raw SDRAM
   experiment port, `SE30_PBER` off) on a `release` branch.
 
 ---
