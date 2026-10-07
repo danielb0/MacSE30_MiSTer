@@ -17552,15 +17552,15 @@ suspect until shown otherwise:
 | Title (version, source) | Compile | Mode | Result | Notes |
 |---|---|---|---|---|
 | QuarkXPress 3.2 | 31; recent | 24-bit | runs, stable | the LC's old crash case |
-| Microsoft Word 5.1 | recent | ? | runs | Daniel, 2026-10-07 |
-| Microsoft Excel 4 | recent | ? | runs | Daniel, 2026-10-07 |
-| Lemmings | recent | ? | runs | Daniel, 2026-10-07 |
-| Lemmings 1.5.2 (1993) | 53 | ? | runs | Daniel, 2026-10-07 |
-| Gauntlet | 53 | ? | runs | Daniel, 2026-10-07 |
-| ConcertWare | recent | ? | plays music | the ASC; Daniel, 2026-10-07 |
+| Microsoft Word 5.1 | recent | 24-bit | runs | Daniel, 2026-10-07 |
+| Microsoft Excel 4 | recent | 24-bit | runs | Daniel, 2026-10-07 |
+| Lemmings | recent | 24-bit | runs | Daniel, 2026-10-07 |
+| Lemmings 1.5.2 (1993) | 53 | 24-bit | runs | Daniel, 2026-10-07 |
+| Gauntlet | 53 | 24-bit | runs | Daniel, 2026-10-07 |
+| ConcertWare | recent | 24-bit | plays music | the ASC; Daniel, 2026-10-07 |
 | Disk First Aid 7.2.2 | many | 24-bit | runs; checks floppies and the SCSI disk | used throughout the floppy-write and CD-ROM work |
-| PowerPoint 1.0 (Forethought, 1987, before Microsoft bought it; confirmed from its About box) | 52 | ? | appears to work | Daniel, 2026-10-07 |
-| WordPerfect 3.1 | 52 | ? | appears to work | Daniel, 2026-10-07 |
+| PowerPoint 1.0 (Forethought, 1987, before Microsoft bought it; confirmed from its About box) | 52 | 24-bit | appears to work | Daniel, 2026-10-07 |
+| WordPerfect 3.1 | 52 | 24-bit | appears to work | Daniel, 2026-10-07 |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
@@ -17571,7 +17571,7 @@ suspect until shown otherwise:
 | Lode Runner 1.0 | 51 | 32-bit | bus error, **authentic** | 32-bit dirty: writes `$FFFFAE28` |
 | Lode Runner 1.2 (MacPack `Games:1985`) | 51; 52 | 24-bit | same crash as 1.0 on 51; **works on 52** | MAME: the same write from the same PC |
 | Dark Castle | 51 | 24-bit | the demo runs | from a floppy, under System 7.5.5; Daniel, 2026-10-07 |
-| Crystal Raider (1985) | 52/53 | ? | runs on System 6, not on System 7; runs far too fast | the speed is authentic (CPU-loop timing written for an 8 MHz 68000; the core's CPU = the real SE/30's); System 7 failure: how it fails not yet known |
+| Crystal Raider (1985) | 52/53 | 24-bit | runs on System 6, not on System 7; runs far too fast | the speed is authentic (CPU-loop timing written for an 8 MHz 68000; the core's CPU = the real SE/30's); System 7 failure: how it fails not yet known |
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
