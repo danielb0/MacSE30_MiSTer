@@ -17416,6 +17416,22 @@ strike what is done).** Each on a scratch copy of the image unless noted.
      keeps the DC42 checksums whatever the Mac does.
    - The safe order meanwhile: eject in the Finder first, then mount the
      next image.
+   - **The OSD's unmount is the same paperclip** (Daniel, 2026-10-07: "the
+     exact equivalent of the paper clip"). It sends the slot's mount pulse
+     with size 0, so the floppy takes the path above without a new image.
+     It works on the hard disks too: `scsi.v` drops `mounted` (`scsi.v` 465),
+     and the disk stops answering selection (1599). A command in flight
+     waits on an HPS transfer that no longer comes, and is aborted with
+     CHECK CONDITION by the io-stall watchdog (~516 ms, `IOWDOG_LOG`). The
+     Mac loses the volume and whatever it had not yet written. On the CD
+     an unmount is a medium change, and nothing is lost. **Add to the
+     test:**
+     e. the OSD unmount of a floppy during a copy (as b, with no new
+        image);
+     f. the OSD unmount of the SCSI-1 disk, a scratch copy and not the
+        boot disk, during a Finder copy onto it: the Mac's reaction, the
+        image's state on the PC, and that the boot disk and the machine
+        carry on.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
