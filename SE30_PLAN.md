@@ -18536,11 +18536,27 @@ repository and the MiSTer-devel question). PBER as option (a): "Go with
   - `sim/system` all eight PASS (17.7 min: the program 24, berrtest 3,
     cacheon 24, cachetest 28, cachewa 24, clrtest 35, timetest 35,
     vramtest 4).
-- **Next:**
-  - a debug compile (deck in, no PBER; estimated ~39,100 ALMs, 93 %) on
-    Daniel's go-ahead;
-  - then the release profile (plan 10.4.2: no probes, no raw SDRAM
-    experiment port, `SE30_PBER` off) on a `release` branch.
+- **Compile 49, the merged debug build (Daniel's go-ahead), 2026-10-07:**
+  - tag `2bbc323f`, `output_files/MacSE30_2bbc323f_merged.rbf`, 53.3 min
+    (routing 23:39);
+  - **39,285 ALMs (94 %)**, 359 M10K; no combinational loop.
+  - **Our timing met at every corner:** `clk_mem` +0.652, `clk_sys`
+    +1.009 at slow 100C; the SDRAM capture met at every corner by A or B.
+    Every failing path is the framework's `ascal`: -0.243 at slow 100C,
+    -0.509 at slow -40C (KNOWN ISSUES 6).
+  - **By entity:**
+    - the CD target 742;
+    - the floppy 2,569 (decoder 581, encoder 587, sdwriter 365, loader
+      316, drive 289, SWIM 411, mux 20). Floppy writing measures +1,621
+      against compile 48's read-only 948; 12.6 estimated +1,110 from
+      floppy-write's older entity figures;
+    - the probe deck 1,464 + the hub 361 = 1,825.
+  - **The release build, estimated from this fit:** 39,285 - 1,825 =
+    **~37,460 ALMs (89 %)**, about 840 under the ~38.3k ceiling, before
+    the raw SDRAM experiment port comes out.
+- **Next:** the board with compile 49 (floppy writing and the CD together),
+  then the release profile (plan 10.4.2: no probes, no raw SDRAM
+  experiment port, `SE30_PBER` off) on a `release` branch.
 
 ---
 
