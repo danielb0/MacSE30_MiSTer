@@ -17550,6 +17550,17 @@ Daniel - add to it, move items out when fixed).**
     `autoboot_script` that issues debugger commands) is in the memory
     note `reference-mame-se30`.
 
+11. **OPEN 2026-10-07: holding Shift at start-up does not give Extensions
+    Off** (Daniel, System 7.5.5, compile 53; how he held it - from before
+    the restart or from the chime - to be confirmed). A held key IS seen
+    at start-up elsewhere: Esc held turns 32-bit addressing off (MODE32's
+    check, made later in the boot, when the extensions load). So the
+    question is Shift itself (a modifier) or the moment of the System's
+    check ("Welcome to Macintosh", before any extension). Real Macs: Shift
+    pressed after the chime and held works. Next: Daniel's retry from the
+    chime; then the ADB probe (PADB) during it, and MAME with Shift held.
+    Users will try it first when an extension misbehaves - must work.
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users
