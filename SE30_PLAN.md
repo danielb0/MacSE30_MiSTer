@@ -17542,7 +17542,11 @@ try. It has to work"). One row per title and version; a crash is a core
 suspect until shown otherwise:
 1. try the other mode (24-bit / 32-bit): pre-1987 software is 32-bit dirty,
    and on a real SE/30 it crashes in 32-bit mode too;
-2. MAME's SE/30 with the same image. Remember MAME acknowledges every
+2. try System 6: 1984-86 games often fail on System 7 alone (they assume
+   the whole machine, poke low-memory globals, patch traps); that is
+   authentic, on a real SE/30 too. A failure on System 6 as well,
+   especially a bus error in 24-bit mode, is the lead;
+3. MAME's SE/30 with the same image. Remember MAME acknowledges every
    unmapped address, so it is a cross-check, never evidence.
 
 | Title (version, source) | Compile | Mode | Result | Notes |
