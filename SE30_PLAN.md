@@ -17128,6 +17128,12 @@ Daniel - add to it, move items out when fixed).**
    still the closest.
 2. **Disk is faster than a real SE/30** (Speedometer 1.12 against
    0.70-0.77) - by design: full speed, never paced (Daniel, 10.4 item 3).
+   The figure varies run to run: compile 54 (2026-10-07) read 0.6 on the
+   first run after boot, then over 1.1 twice (Daniel). Most likely the
+   HPS side: the first reads of the image's region come from the SD
+   card, repeats from Linux's page cache. Not a regression of the CHK2
+   fix, which touches no disk path; a cold-boot first run on an earlier
+   compile would confirm it, if ever wanted.
 3. **Deleting a file never removes its file thread record** - an
    ACCEPTED DEVIATION FROM INSIDE MACINTOSH, NOT OUR CORE (resolved
    2026-10-04 late evening, 10.4 item 3's block): MAME's 68030 running our
