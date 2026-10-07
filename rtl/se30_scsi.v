@@ -1,80 +1,46 @@
-// se30_scsi.v - the SE/30's SCSI: the 53C80 (se30_ncr53c80.v, ours), the
-// bus, and the drives - the MacPlus core's scsi.v targets (SE30_PLAN.md
-// 9.5): two hard disks at IDs 0 and 1, and the CD-ROM at ID 3, an AppleCD
-// SC (plan Section 12; scsi.v's CDROM personality, data only).
-//
-// THE BUS
-//   Active high inside the core (1 = asserted).  BSY is everyone's; SEL,
-//   ATN, ACK and RST are the initiator's (the targets never arbitrate or
-//   reselect); the phase lines, REQ and the target's data come from the
-//   target holding BSY, as the MacPlus core composes its bus.  The data
-//   bus is the chip's drive OR the selected target's in a data-to-initiator
-//   phase (I/O true); the targets' data input is the bus.
-//
-// REQ AND THE DESKEW
-//   A SCSI target puts its data on the bus and waits a deskew delay before
-//   asserting REQ; the 53C80 latches the byte "when REQ goes active"
-//   (SP-1051 6.1.3, 11.6).  scsi.v's REQ is combinational (`!ack && ...`)
-//   and rises the clock ACK falls, while its data pointer advances on a
-//   registered strobe a clock later and its buffer read takes another:
-//   for two or three clocks REQ is up over the previous byte, and when the
-//   next byte lies in a sector not yet fetched, io_busy pulls REQ down
-//   again.  So the bus REQ here rises only once the target's REQ has been
-//   up for DESKEW clocks, and falls at once.  This is the seam's
-//   adaptation (plan 9.8); the target file stays byte-exact.
-//
-// THE CD-ROM
-//   A drive with no disc still answers selection (the AppleCD driver polls
-//   TEST UNIT READY for a disc going in), so ID 3 is on the bus whenever
-//   CDROM_EN is set, mounted or not.  Its image slot is read only: io_wr[2]
-//   is 0 (the target refuses WRITE).
+// se30_scsi.v - SCSI: the 53C80, the bus, two hard disks and the CD-ROM
 
 `timescale 1ns/1ps
 
 module se30_scsi #(
-  parameter integer DESKEW = 4,         // clocks the target's REQ must hold before the bus sees it
-  parameter integer CDROM_EN = 1,       // the CD-ROM at ID 3
-  parameter integer CD_SPINUP_LOG = 27  // the CD's spin-up, 2^n clocks (~4.3 s at 31.3 MHz); benches shorten it
+  parameter integer DESKEW = 4,
+  parameter integer CDROM_EN = 1,
+  parameter integer CD_SPINUP_LOG = 27
 ) (
   input             clk,
-  input             reset_n,           // RESET*: the 53C80's /RESET (the CPU's RESET instruction included)
-  input             sys_reset_n,       // the core's reset: the drives' (they never see RESET*; a SCSI RST resets them)
+  input             reset_n,
+  input             sys_reset_n,
 
-  // the CPU side, from GLUE
-  input             cs,                // SCSI* ($50010000)
-  input             dack,              // SCSIDACK* ($50012000, $50006000 once DRQ is seen)
-  input             rd, wr,            // one clock per access
-  input       [2:0] rs,                // A6-A4
-  input       [7:0] wdata,             // D31-D24
+  input             cs,
+  input             dack,
+  input             rd, wr,
+  input       [2:0] rs,
+  input       [7:0] wdata,
   output      [7:0] rdata,
-  output            drq,               // SCSIDRQ: GLUE and VIA2 CA2
-  output            irq,               // SCSIIRQ: VIA2 CB2
+  output            drq,
+  output            irq,
 
-  // the images: hps_io slots, one per drive - {CD, disk 1, disk 0}
   input       [2:0] img_mounted,
-  input      [31:0] img_blocks,        // hps_io's img_size in 512-byte blocks
-  output     [95:0] io_lba,            // {CD, disk 1, disk 0}
+  input      [31:0] img_blocks,
+  output     [95:0] io_lba,
   output      [2:0] io_rd,
   output      [2:0] io_wr,
-  output     [17:0] io_blk_cnt,        // {CD, disk 1, disk 0}: hps_io sd_blk_cnt, a write request's sectors - 1
+  output     [17:0] io_blk_cnt,
   input       [2:0] io_ack,
-  input      [12:0] sd_buff_addr,      // hps_io's word address (a multi-block write's runs past 255)
+  input      [12:0] sd_buff_addr,
   input      [15:0] sd_buff_dout,
-  output     [47:0] sd_buff_din,       // {CD, disk 1, disk 0}
+  output     [47:0] sd_buff_din,
   input             sd_buff_wr,
 
-  output     [15:0] dbg                // {target BSY[1:0], REQ raw, REQ bus, ACK, SEL, RST, ATN, MSG, C/D, I/O, chip BSY, DRQ, IRQ, hold-off, 0}
+  output     [15:0] dbg
 );
 
-  // ------------------------------------------------------------ the chip
   wire [7:0] c_db;
   wire       c_db_en, c_bsy, c_sel, c_rst, c_atn, c_ack;
 
   wire [2:0] t_bsy, t_msg, t_cd, t_io, t_req;
   wire [7:0] t_dout [0:2];
 
-  // the target holding the bus (one at a time: each answers selection only
-  // on a free bus)
   wire       t0 = t_bsy[0];
   wire       t1 = t_bsy[1] && !t_bsy[0];
   wire       t2 = t_bsy[2] && !t_bsy[1] && !t_bsy[0];
@@ -85,7 +51,6 @@ module se30_scsi #(
   wire       t_req_b = t0 ? t_req[0] : t1 ? t_req[1] : t2 ? t_req[2] : 1'b0;
   wire [7:0] t_db_b  = t0 ? t_dout[0] : t1 ? t_dout[1] : t2 ? t_dout[2] : 8'h00;
 
-  // REQ's deskew: up for DESKEW clocks before the bus sees it, down at once
   reg  [3:0] req_up;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) req_up <= 0;
@@ -94,8 +59,6 @@ module se30_scsi #(
 
   wire       b_bsy = c_bsy | (|t_bsy);
   wire [7:0] b_db  = (c_db_en ? c_db : 8'h00) | (t_any && t_io_b ? t_db_b : 8'h00);
-  // the parity line: odd parity from whoever drives the data bus, released
-  // (0) when no one does (the 53C80 manual 4.2, 6.5)
   wire       b_dbp = (c_db_en || (t_any && t_io_b)) && ~^b_db;
 
   se30_ncr53c80 chip (
@@ -105,11 +68,6 @@ module se30_scsi #(
     .b_req(b_req), .b_msg(t_msg_b), .b_cd(t_cd_b), .b_io(t_io_b), .b_sel_other(1'b0),
     .o_db(c_db), .o_db_en(c_db_en), .o_bsy(c_bsy), .o_sel(c_sel), .o_rst(c_rst), .o_atn(c_atn), .o_ack(c_ack));
 
-  // ------------------------------------------------------------ the drives
-  // the targets' data_holdoff: in a data phase and unable to serve the next
-  // byte (a sector not yet fetched, a flush in flight) - not wired to the
-  // bus (GLUE's handshake waits on DRQ), measured only (PSCT, plan 10.4
-  // item 3)
   wire [2:0] t_holdoff;
 
   genvar i;
@@ -123,8 +81,6 @@ module se30_scsi #(
       .din(b_db), .dout(t_dout[i]),
       .img_mounted(img_mounted[i]), .img_blocks(img_blocks),
       .io_lba(io_lba[32*i +: 32]), .io_rd(io_rd[i]), .io_wr(io_wr[i]), .io_blk_cnt(io_blk_cnt[6*i +: 6]),
-      // as the MacPlus core frames its disks: the ack blanked once the
-      // target has left the bus; the buffer writes framed by this slot's ack
       .io_ack(io_ack[i] & t_bsy[i]),
       .sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_addr_hi(sd_buff_addr[12:8]),
       .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[16*i +: 16]),

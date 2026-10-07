@@ -1,6 +1,4 @@
-# The TG68K.C 68030 kernel as imported (README.md here) and our wrapper.
-# TG68K_Cache_030.vhd is in the directory for reference and is not part of
-# the build: the kernel does not instantiate it (SE30_PLAN.md 1.15 item 9).
+# the 68030: the TG68K.C kernel, its PMMU, and the 68030 bus, caches and timing
 set_global_assignment -name VHDL_FILE    [file join $::quartus(qip_path) TG68K_Pack.vhd ]
 set_global_assignment -name VHDL_FILE    [file join $::quartus(qip_path) TG68K_ALU.vhd ]
 set_global_assignment -name VHDL_FILE    [file join $::quartus(qip_path) TG68K_PMMU_030.vhd ]

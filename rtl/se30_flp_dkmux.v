@@ -1,25 +1,4 @@
-// se30_flp_dkmux.v - the SDRAM disk port shared by the two drives' image
-// loaders, track encoders, written-track decoders and SD writers
-// (SE30_PLAN.md 5.12.5, 5.14, 5.15.5 item 9).
-//
-// WHAT IT DOES
-//   One owner at a time, of eight requesters, numbered so that the even
-//   ones write and the odd ones read: the internal drive's loader (0) and
-//   encoder (1), the external drive's loader (2) and encoder (3), the
-//   internal drive's decoder (4) and SD writer (5), the external drive's
-//   decoder (6) and SD writer (7).  The owner changes only while the port
-//   is quiet - the owner's request down and the controller's acknowledge
-//   down - so a request is never taken from under its requester and an
-//   acknowledge never lands on another; it then passes round robin to the
-//   next requester with a request up, after the owner, or stays if none
-//   has one.  A requester that does not own the port sees no acknowledge
-//   and keeps its request up: every requester holds request, address and
-//   data until acknowledged and raises the next only after the acknowledge
-//   falls, so a quiet clock comes between any two words and none can hold
-//   the port.  One drive's encoder streams while the other's image loads
-//   (5.14); a decoder commits and a writer reads the image back for the
-//   card while the encoders build (5.15).  The direction is the owner's
-//   kind: even writes, odd reads.  Held to sim/flpmux and sim/gcrread.
+// se30_flp_dkmux.v - the SDRAM disk port shared by the floppy image blocks
 
 `timescale 1ns/1ps
 
@@ -27,47 +6,47 @@ module se30_flp_dkmux (
   input             clk,
   input             reset_n,
 
-  input             ld0_req,           // the internal drive's loader: writes
+  input             ld0_req,
   input      [23:0] ld0_addr,
   input      [15:0] ld0_wdata,
   output            ld0_ack,
 
-  input             en0_req,           // the internal drive's encoder: reads
+  input             en0_req,
   input      [23:0] en0_addr,
   output     [15:0] en0_rdata,
   output            en0_ack,
 
-  input             ld1_req,           // the external drive's loader
+  input             ld1_req,
   input      [23:0] ld1_addr,
   input      [15:0] ld1_wdata,
   output            ld1_ack,
 
-  input             en1_req,           // the external drive's encoder
+  input             en1_req,
   input      [23:0] en1_addr,
   output     [15:0] en1_rdata,
   output            en1_ack,
 
-  input             de0_req,           // the internal drive's decoder: writes (5.15)
+  input             de0_req,
   input      [23:0] de0_addr,
   input      [15:0] de0_wdata,
   output            de0_ack,
 
-  input             wr0_req,           // the internal drive's SD writer: reads (5.15)
+  input             wr0_req,
   input      [23:0] wr0_addr,
   output     [15:0] wr0_rdata,
   output            wr0_ack,
 
-  input             de1_req,           // the external drive's decoder
+  input             de1_req,
   input      [23:0] de1_addr,
   input      [15:0] de1_wdata,
   output            de1_ack,
 
-  input             wr1_req,           // the external drive's SD writer
+  input             wr1_req,
   input      [23:0] wr1_addr,
   output     [15:0] wr1_rdata,
   output            wr1_ack,
 
-  output            dk_req,            // se30_sdram's dk_* port
+  output            dk_req,
   output            dk_we,
   output     [23:0] dk_addr,
   output     [15:0] dk_wdata,
@@ -75,10 +54,9 @@ module se30_flp_dkmux (
   input             dk_ack
 );
 
-  reg  [2:0] owner;                    // 0 ld0, 1 en0, 2 ld1, 3 en1, 4 de0, 5 wr0, 6 de1, 7 wr1
+  reg  [2:0] owner;
   wire [7:0] req = {wr1_req, de1_req, wr0_req, de0_req, en1_req, ld1_req, en0_req, ld0_req};
 
-  // the next owner: the first request after the current owner, round robin
   reg  [2:0] nxt;
   reg        found;
   integer    i;

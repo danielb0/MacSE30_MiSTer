@@ -1,37 +1,14 @@
-// pll_0002.v - the altera_pll instance behind rtl/pll.v (SE30_PLAN.md 3.2,
-// 3.8 item 18).  Hand-written in the wizard's shape; the frequencies and
-// phases are the whole specification and Quartus computes the counters.
-// Reference: the DE10-Nano's 50 MHz.  VCO 940.032 MHz = 31.3344 x 30 =
-// 94.0032 x 10, inside Cyclone V's 600-1600 MHz range; the fractional
-// multiplier is 18.80064.
-//
-// The phase shifts are multiples of the VCO phase step, an eighth of the
-// VCO period (1063.8 / 8 = 132.98 ps), so Quartus need not round them,
-// and are given as positive shifts inside one 10.638 ns period:
-//   outclk_2   +1064 ps =  8 steps   the SDRAM chip's clock (inverted at
-//                                    the pin by rtl/se30_sdram.v)
-//   outclk_3  +10372 ps = 78 steps   read-data capture A, 0.266 ns BEFORE
-//                                    clk_mem's edge
-//   outclk_4   +8377 ps = 63 steps   read-data capture B, 2.261 ns before
-// Why these numbers is rtl/se30_sdram.v's header and MacSE30.sdc.
+// pll_0002.v - the altera_pll instance behind pll.v
 
 `timescale 1ns/10ps
 module  pll_0002(
-	// interface 'refclk'
 	input wire refclk,
-	// interface 'reset'
 	input wire rst,
-	// interface 'outclk0'
 	output wire outclk_0,
-	// interface 'outclk1'
 	output wire outclk_1,
-	// interface 'outclk2'
 	output wire outclk_2,
-	// interface 'outclk3'
 	output wire outclk_3,
-	// interface 'outclk4'
 	output wire outclk_4,
-	// interface 'locked'
 	output wire locked
 );
 

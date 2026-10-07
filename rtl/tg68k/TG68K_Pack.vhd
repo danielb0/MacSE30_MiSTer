@@ -1,7 +1,7 @@
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 --                                                                          --
--- Copyright (c) 2009-2020 Tobias Gubener                                   -- 
+-- Copyright (c) 2009-2020 Tobias Gubener                                   --
 -- Patches by MikeJ, Till Harbaum, Rok Krajnk, ...                          --
 -- Subdesign fAMpIGA by TobiFlex                                            --
 --                                                                          --
@@ -20,14 +20,15 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
+
 library IEEE;
 use IEEE.std_logic_1164.all;
 
 package TG68K_Pack is
 
 	type micro_states is (idle, nop, ld_nn, st_nn, ld_dAn1, ld_AnXn1, ld_AnXn2, st_dAn1, ld_AnXnbd1, ld_AnXnbd2, ld_AnXnbd3,
-						  ld_229_1, ld_229_2, ld_229_3, ld_229_4, st_229_1, st_229_2, st_229_3, st_229_4,   
-						  st_AnXn1, st_AnXn2, bra1, bsr1, bsr2, nopnop, dbcc1, movem1, movem2, movem3, 
+						  ld_229_1, ld_229_2, ld_229_3, ld_229_4, st_229_1, st_229_2, st_229_3, st_229_4,
+						  st_AnXn1, st_AnXn2, bra1, bsr1, bsr2, nopnop, dbcc1, movem1, movem2, movem3,
 						  andi, pack1, pack2, pack3, op_AxAy, cmpm, link1, link2, unlink1, unlink2, int1, int2, int3, int4, int5, rte1, rte2, rte3,
 						  rte4, rte5, rte6, rtd1, rtd2, trap00, trap0, trap1, trap2, trap3, cas1, cas2, cas21, cas22, cas23, cas24,
 						  cas25, cas26, cas27, cas28, chk20, chk21, chk22, chk23, chk24,
@@ -37,7 +38,6 @@ package TG68K_Pack is
                           pmmu_ld_nn, pmmu_ld_dAn1, pmmu_ld_AnXn1, pmmu_ld_AnXn2, pmmu_ld_229_1, pmmu_ld_229_2, pmmu_ld_229_3, pmmu_ld_229_4,
                           berr1, berr2, berr3, berr4, berr5, berr6, berr7, berr8, berr_fill, trace_stk_grp2,
                           mul1, mul2, mul_end1,  mul_end2, div1, div2, div3, div4, div_end1, div_end2, rte_mmu_replay, rte_mmu_replay_sync,
-                          -- the MC68882's coprocessor interface (SE30_PLAN.md 8.9.4, item 7d)
                           cp_decode, cp_rsp, cp_rspw, cp_dsp, cp_pcw, cp_xa, cp_done, cp_bcc,
                           cp_tsr, cp_eat, cp_abf, cp_prea, cp_extw, cp_ea1, cp_extw2, cp_xfr, cp_mrdw,
                           cp_ow, cp_oww, cp_ordw, cp_mw, cp_mww, cp_rdreg, cp_imf, cp_imw, cp_rsel,
@@ -46,126 +46,126 @@ package TG68K_Pack is
                           cp_cond, cp_dlw, cp_db, cp_tsk, cp_trp, cp_sccd,
                           cp9a, cp9b, cp9c, cp_rte, cp_rtef, cp_irq,
                           cp_bf, cp_rsm, cp_rsm2);
-	
-	constant opcMOVE				: integer := 0; --
-	constant opcMOVEQ				: integer := 1; --
-	constant opcMOVESR			: integer := 2; --
-	constant opcADD				: integer := 3; --
-	constant opcADDQ				: integer := 4; --
-	constant opcOR					: integer := 5; --
-	constant opcAND				: integer := 6; --
-	constant opcEOR				: integer := 7; --
-	constant opcCMP				: integer := 8; --
-	constant opcROT				: integer := 9; --
-	constant opcCPMAW				: integer := 10;
-	constant opcEXT				: integer := 11; --
-	constant opcABCD				: integer := 12; --
-	constant opcSBCD				: integer := 13; --
-	constant opcBITS				: integer := 14; --
-	constant opcSWAP				: integer := 15; --
-	constant opcScc				: integer := 16; --
-	constant andiSR				: integer := 17; --
-	constant eoriSR				: integer := 18; --
-	constant oriSR					: integer := 19; --
-	constant opcMULU				: integer := 20; --
-	constant opcDIVU				: integer := 21; --
-	constant dispouter			: integer := 22; --
-	constant rot_nop				: integer := 23; --
-	constant ld_rot_cnt			: integer := 24; --
-	constant writePC_add			: integer := 25; --
-	constant ea_data_OP1			: integer := 26; --
-	constant ea_data_OP2			: integer := 27; --
-	constant use_XZFlag			: integer := 28; --
-	constant get_bfoffset		: integer := 29; --
-	constant save_memaddr		: integer := 30; --
-	constant opcCHK				: integer := 31; --
-	constant movec_rd				: integer := 32; --
-	constant movec_wr				: integer := 33; --
-	constant Regwrena				: integer := 34; --
-	constant update_FC			: integer := 35; --
-	constant linksp				: integer := 36; --
-	constant movepl				: integer := 37; --
-	constant update_ld			: integer := 38; --
-	constant OP1addr				: integer := 39; --
-	constant write_reg			: integer := 40; --
-	constant changeMode			: integer := 41; --
-	constant ea_build				: integer := 42; --
-	constant trap_chk				: integer := 43; --
-	constant store_ea_data		: integer := 44; --
-	constant addrlong				: integer := 45; --
-	constant postadd				: integer := 46; --
-	constant presub				: integer := 47; --
-	constant subidx				: integer := 48; --
-	constant no_Flags				: integer := 49; --
-	constant use_SP				: integer := 50; --
-	constant to_CCR				: integer := 51; --
-	constant to_SR					: integer := 52; --
-	constant OP2out_one			: integer := 53; --
-	constant OP1out_zero			: integer := 54; --
-	constant mem_addsub			: integer := 55; --
-	constant addsub				: integer := 56; --
-	constant directPC				: integer := 57; --
-	constant direct_delta		: integer := 58; --
-	constant directSR				: integer := 59; --
-	constant directCCR			: integer := 60; --
-	constant exg					: integer := 61; --
-	constant get_ea_now			: integer := 62; --
-	constant ea_to_pc				: integer := 63; --
-	constant hold_dwr				: integer := 64; --
-	constant to_USP				: integer := 65; --
-	constant from_USP				: integer := 66; --
-	constant write_lowlong		: integer := 67; --
-	constant write_reminder		: integer := 68; --
-	constant movem_action		: integer := 69; --
-	constant briefext				: integer := 70; --
-	constant get_2ndOPC			: integer := 71; --
-	constant mem_byte				: integer := 72; --
-	constant longaktion			: integer := 73; --
-	constant opcRESET				: integer := 74; --
-	constant opcBF					: integer := 75; --
-	constant opcBFwb				: integer := 76; --
-	constant opcPACK				: integer := 77; --
-	constant opcUNPACK			: integer := 78; --
-	constant hold_ea_data		: integer := 79; --
-	constant store_ea_packdata	: integer := 80; --
-	constant exec_BS				: integer := 81; --
-	constant hold_OP2				: integer := 82; --
-	constant restore_ADDR		: integer := 83; --
-	constant alu_exec				: integer := 84; --
-	constant alu_move				: integer := 85; --
-	constant alu_setFlags		: integer := 86; --
-	constant opcCHK2				: integer := 87; --
-	constant opcEXTB				: integer := 88; --
 
-    constant pmmu_rd				: integer := 89; -- PMOVE <MMU>,Dn
-    constant pmmu_wr				: integer := 90; -- PMOVE Dn,<MMU>
-    constant pmmu_ptest			: integer := 91; -- PTEST
-    constant pmmu_pflush			: integer := 92; -- PFLUSH
-    constant pmmu_pload			: integer := 93; -- PLOAD
-    constant to_SSP				: integer := 94; -- Save A7 to SSP (68000/68010)
-    constant from_SSP				: integer := 95; -- Load A7 from SSP (68000/68010)
-    constant to_MSP				: integer := 96; -- Save A7 to MSP (68020/68030)
-    constant from_MSP				: integer := 97; -- Load A7 from MSP (68020/68030)
-    constant to_ISP				: integer := 98; -- Save A7 to ISP (68020/68030)
-    constant from_ISP				: integer := 99; -- Load A7 from ISP (68020/68030)
-    constant use_sfc_dfc			: integer := 100; -- MOVES: Use SFC/DFC for FC
-    constant sfc_not_dfc			: integer := 101; -- MOVES: 1=SFC (read), 0=DFC (write)
-    constant pmmu_addr_inc        : integer := 102; -- PMMU: +4 address increment for 64-bit CRP/SRP second transfer (no reg write-back)
-    constant pmmu_dbl             : integer := 103; -- PMMU: CRP/SRP doubleword size for (An)+/-(An) (updates An by 8)
+	constant opcMOVE				: integer := 0;
+	constant opcMOVEQ				: integer := 1;
+	constant opcMOVESR			: integer := 2;
+	constant opcADD				: integer := 3;
+	constant opcADDQ				: integer := 4;
+	constant opcOR					: integer := 5;
+	constant opcAND				: integer := 6;
+	constant opcEOR				: integer := 7;
+	constant opcCMP				: integer := 8;
+	constant opcROT				: integer := 9;
+	constant opcCPMAW				: integer := 10;
+	constant opcEXT				: integer := 11;
+	constant opcABCD				: integer := 12;
+	constant opcSBCD				: integer := 13;
+	constant opcBITS				: integer := 14;
+	constant opcSWAP				: integer := 15;
+	constant opcScc				: integer := 16;
+	constant andiSR				: integer := 17;
+	constant eoriSR				: integer := 18;
+	constant oriSR					: integer := 19;
+	constant opcMULU				: integer := 20;
+	constant opcDIVU				: integer := 21;
+	constant dispouter			: integer := 22;
+	constant rot_nop				: integer := 23;
+	constant ld_rot_cnt			: integer := 24;
+	constant writePC_add			: integer := 25;
+	constant ea_data_OP1			: integer := 26;
+	constant ea_data_OP2			: integer := 27;
+	constant use_XZFlag			: integer := 28;
+	constant get_bfoffset		: integer := 29;
+	constant save_memaddr		: integer := 30;
+	constant opcCHK				: integer := 31;
+	constant movec_rd				: integer := 32;
+	constant movec_wr				: integer := 33;
+	constant Regwrena				: integer := 34;
+	constant update_FC			: integer := 35;
+	constant linksp				: integer := 36;
+	constant movepl				: integer := 37;
+	constant update_ld			: integer := 38;
+	constant OP1addr				: integer := 39;
+	constant write_reg			: integer := 40;
+	constant changeMode			: integer := 41;
+	constant ea_build				: integer := 42;
+	constant trap_chk				: integer := 43;
+	constant store_ea_data		: integer := 44;
+	constant addrlong				: integer := 45;
+	constant postadd				: integer := 46;
+	constant presub				: integer := 47;
+	constant subidx				: integer := 48;
+	constant no_Flags				: integer := 49;
+	constant use_SP				: integer := 50;
+	constant to_CCR				: integer := 51;
+	constant to_SR					: integer := 52;
+	constant OP2out_one			: integer := 53;
+	constant OP1out_zero			: integer := 54;
+	constant mem_addsub			: integer := 55;
+	constant addsub				: integer := 56;
+	constant directPC				: integer := 57;
+	constant direct_delta		: integer := 58;
+	constant directSR				: integer := 59;
+	constant directCCR			: integer := 60;
+	constant exg					: integer := 61;
+	constant get_ea_now			: integer := 62;
+	constant ea_to_pc				: integer := 63;
+	constant hold_dwr				: integer := 64;
+	constant to_USP				: integer := 65;
+	constant from_USP				: integer := 66;
+	constant write_lowlong		: integer := 67;
+	constant write_reminder		: integer := 68;
+	constant movem_action		: integer := 69;
+	constant briefext				: integer := 70;
+	constant get_2ndOPC			: integer := 71;
+	constant mem_byte				: integer := 72;
+	constant longaktion			: integer := 73;
+	constant opcRESET				: integer := 74;
+	constant opcBF					: integer := 75;
+	constant opcBFwb				: integer := 76;
+	constant opcPACK				: integer := 77;
+	constant opcUNPACK			: integer := 78;
+	constant hold_ea_data		: integer := 79;
+	constant store_ea_packdata	: integer := 80;
+	constant exec_BS				: integer := 81;
+	constant hold_OP2				: integer := 82;
+	constant restore_ADDR		: integer := 83;
+	constant alu_exec				: integer := 84;
+	constant alu_move				: integer := 85;
+	constant alu_setFlags		: integer := 86;
+	constant opcCHK2				: integer := 87;
+	constant opcEXTB				: integer := 88;
+
+    constant pmmu_rd				: integer := 89;
+    constant pmmu_wr				: integer := 90;
+    constant pmmu_ptest			: integer := 91;
+    constant pmmu_pflush			: integer := 92;
+    constant pmmu_pload			: integer := 93;
+    constant to_SSP				: integer := 94;
+    constant from_SSP				: integer := 95;
+    constant to_MSP				: integer := 96;
+    constant from_MSP				: integer := 97;
+    constant to_ISP				: integer := 98;
+    constant from_ISP				: integer := 99;
+    constant use_sfc_dfc			: integer := 100;
+    constant sfc_not_dfc			: integer := 101;
+    constant pmmu_addr_inc        : integer := 102;
+    constant pmmu_dbl             : integer := 103;
 
     constant lastOpcBit			: integer := 103;
 
 	component TG68K_ALU
 	generic(
-		MUL_Mode :integer;			--0=>16Bit,		1=>32Bit,	2=>switchable with CPU(1),		3=>no MUL,  
-		MUL_Hardware :integer;		--0=>no,			1=>yes,  
-		DIV_Mode :integer;			--0=>16Bit,		1=>32Bit,	2=>switchable with CPU(1),		3=>no DIV,  
-		BarrelShifter :integer		--0=>no,			1=>yes,		2=>switchable with CPU(1)  
+		MUL_Mode :integer;
+		MUL_Hardware :integer;
+		DIV_Mode :integer;
+		BarrelShifter :integer
 		);
 	port(
 		clk						: in std_logic;
 		Reset						: in std_logic;
-		CPU						: in std_logic_vector(1 downto 0):="10";  -- 00->68000  01->68010  10->68030
+		CPU						: in std_logic_vector(1 downto 0):="10";
 		clkena_lw				: in std_logic:='1';
 		execOPC					: in bit;
 		decodeOPC				: in bit;
@@ -184,14 +184,13 @@ package TG68K_Pack is
 		reg_QA					: in std_logic_vector(31 downto 0);
 		reg_QB					: in std_logic_vector(31 downto 0);
 		opcode					: in std_logic_vector(15 downto 0);
---		datatype					: in std_logic_vector(1 downto 0);
 		exe_opcode				: in std_logic_vector(15 downto 0);
 		exe_datatype			: in std_logic_vector(1 downto 0);
 		sndOPC					: in std_logic_vector(15 downto 0);
 		last_data_read			: in std_logic_vector(15 downto 0);
 		data_read				: in std_logic_vector(15 downto 0);
 		FlagsSR					: in std_logic_vector(7 downto 0);
-		micro_state				: in micro_states;  
+		micro_state				: in micro_states;
 		bf_ext_in				: in std_logic_vector(7 downto 0);
 		bf_ext_out				: out std_logic_vector(7 downto 0);
 		bf_shift					: in std_logic_vector(5 downto 0);
@@ -200,7 +199,6 @@ package TG68K_Pack is
 		bf_loffset				: in std_logic_vector(4 downto 0);
 		beat_step				: in std_logic_vector(2 downto 0) := "010";
 
-		-- BUG #397: Restore CCR on RTE format error
 		restore_ccr				: in std_logic := '0';
 		restored_ccr_value		: in std_logic_vector(7 downto 0) := "00000000";
 

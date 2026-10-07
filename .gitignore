@@ -43,11 +43,6 @@ c5_pin_model_dump.txt
 __pycache__/
 *.pyc
 
-# local/personal build environment (Quartus path, MiSTer host, ssh key) - never committed
-scripts/local.env
-
-# Apple's ROM images are never in the repo (SE30_PLAN.md 3.4); the benches
-# load local copies
 *.rom
 *.ROM
-sim/cpfpu_cpt*/
+!releases/*.rom

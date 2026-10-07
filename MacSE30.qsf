@@ -73,21 +73,9 @@ set_global_assignment -name SEED 1
 # Disable ALSA audio output to save some resources
 #set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 
-# The bring-up probe deck (rtl/dbg_probes.sv, read with scripts/read_probes.tcl
-# over JTAG): PBLD PIFA PLAS PSTA PACT.  Leave it in until the machine boots;
-# strip it for a release build (SE30_PLAN.md 3.5).  Without this line the deck
-# is not compiled in - compiles 1-3 of 2026-09-27 had no probes.
-set_global_assignment -name VERILOG_MACRO "USE_DBG_PROBES=1"
-# SE30_PLAN.md 3.8 item 18: the SDRAM read capture is timed at chain zero
-# (the phases were placed with no input delay chain); the fitter would
-# otherwise tune the chains for a capture it cannot see (MacSE30.sdc)
+# SDRAM read capture is timed with no input delay chain (MacSE30.sdc)
 set_instance_assignment -name D1_DELAY 0 -to SDRAM_DQ[*]
-# The core's clocks on GLOBAL networks, said outright: compile 7 (2026-09-27)
-# let the fitter choose and it put clk_mem on a regional one, which reaches
-# one quadrant, so the SDRAM_DQ output and output-enable registers on pins
-# outside it could not pack into their I/O cells and the outputs to the chip
-# lost 4 ns of setup.  The capture clock is global by its clock control
-# block's own setting.
+# keep the core's clocks on global networks
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[0]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[1]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[2]"

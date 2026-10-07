@@ -1,9 +1,0 @@
-work/
-results/
-transcript
-*.wlf
-baseline.txt
-ours.txt
-results_baseline/
-work_*/
-results_*/

@@ -1,35 +1,4 @@
-// se30_via.v - Apple's 6523 VIA, the 65C22 at UK12 (VIA1) and UK11 (VIA2),
-// to the contract of SE30_PLAN.md 4.2.
-//
-// WHAT IT IS
-//   The 6522 as Apple's VIA Cell specification (Nov 1989) describes the
-//   6523 in its un-boxed text, with the features its boxes say the cell
-//   dropped restored from the Rockwell R6522 data sheet (Oct 1978): the
-//   two ports with their direction registers and CA1/CB1 latching, the
-//   four control lines as edge inputs and CA2/CB2 as handshake, pulse or
-//   manual outputs, T1 in one-shot and free-run with the PB7 output, T2
-//   in one-shot and PB6 pulse-count, the nine-bit shift register in all
-//   eight modes, the interrupt flag and enable registers.  Held to
-//   sim/via/tb_se30_via.v.
-//
-// THE BUS (plan 4.8)
-//   GLUE's device port: sel follows AS* for this chip; strobe is E's last
-//   high clock while selected, and a write lands there, as do a read's
-//   side effects; rdata is the selected register throughout.  rs is
-//   A12-A9.  E is GLUE's e_clk (plan 4.4); the timers count its falling
-//   edges, seen a clock late on the C16M grid, which is why a load skips
-//   the fall it coincides with ("counting starts on the next clock").
-//
-// THE PINS
-//   pa_out/pb_out with pa_oe/pb_oe are what the chip drives; pa_in/pb_in
-//   are the pins as the board has them (the machine module computes a
-//   pin as OR where DDR says output and the external level otherwise,
-//   plan 4.5).  A read gives the pin for an input bit and OR for an
-//   output bit; a write reaches only the output bits (4.2.3).
-//
-// RESET (4.2.1)
-//   ORA, ORB, DDRA, DDRB, ACR, PCR, IER, IFR to $00.  The timers and the
-//   shift register have no documented reset value; $FFFF and $00 here.
+// se30_via.v - the 6523 VIA (VIA1, VIA2)
 
 `timescale 1ns/1ps
 
@@ -42,7 +11,7 @@ module se30_via (
   input         sel,
   input         strobe,
   input   [3:0] rs,
-  input         rw,                    // 1 = read
+  input         rw,
   input   [7:0] wdata,
   output  [7:0] rdata,
   output        irq_n,
@@ -64,7 +33,7 @@ module se30_via (
   output        cb2_out,
   output        cb2_oe,
 
-  output  [6:0] dbg_ifr,               // for the probe deck (plan 4.8)
+  output  [6:0] dbg_ifr,
   output  [6:0] dbg_ier
 );
 
@@ -72,35 +41,32 @@ module se30_via (
   reg  [6:0] ifr, ier;
   reg [15:0] t1c, t1l, t2c;
   reg  [7:0] t2l;
-  reg  [8:0] sr;                       // sr[8] is CB2out while shifting out
+  reg  [8:0] sr;
   reg  [2:0] srcnt;
-  reg        sr_active;                // an internal-clock transfer in progress
+  reg        sr_active;
   reg        t1_armed, t1_reload, t1_skip, t2_armed, t2_skip;
-  reg        pb7_t1;                   // T1's PB7 output under ACR7
-  reg  [7:0] ira_l, irb_l;             // the input latches under ACR0/ACR1
+  reg        pb7_t1;
+  reg  [7:0] ira_l, irb_l;
   reg        e_q, ca1_q, ca2_q, cb1_q, cb2_q, pb6_q, iclk_q;
-  reg        ca2_hs, cb2_hs;           // the handshake outputs
-  reg  [1:0] ca2_pulse, cb2_pulse;     // the pulse outputs: low while nonzero
-  reg        iclk;                     // the internal shift clock (CB1 out)
+  reg        ca2_hs, cb2_hs;
+  reg  [1:0] ca2_pulse, cb2_pulse;
+  reg        iclk;
 
-  // ------------------------------------------------------------- decode
   wire acc   = c16_en && sel && strobe;
   wire wr    = acc && !rw;
   wire rd    = acc && rw;
-  wire ora_acc = acc && (rs == 4'd1);          // register 15 does not count
+  wire ora_acc = acc && (rs == 4'd1);
   wire orb_acc = acc && (rs == 4'd0);
-  wire ca2_indep = !pcr[3] && pcr[1];          // independent input: port access leaves the flag
+  wire ca2_indep = !pcr[3] && pcr[1];
   wire cb2_indep = !pcr[7] && pcr[5];
 
-  // the shift register's mode (ACR4-2), R6522 table
   wire [2:0] srm     = acr[4:2];
-  wire       sr_out  = srm[2];                 // 100, 101, 110, 111
+  wire       sr_out  = srm[2];
   wire       sr_ext  = (srm == 3'b011) || (srm == 3'b111);
   wire       sr_e    = (srm == 3'b010) || (srm == 3'b110);
   wire       sr_t2   = (srm == 3'b001) || (srm == 3'b100) || (srm == 3'b101);
   wire       sr_free = (srm == 3'b100);
 
-  // --------------------------------------------------------------- edges
   wire e_fall   = c16_en && e_q && !e_clk;
   wire ca1_edge = c16_en && (ca1 != ca1_q) && (ca1 == pcr[0]);
   wire ca2_edge = c16_en && !pcr[3] && (ca2_in != ca2_q) && (ca2_in == pcr[2]);
@@ -112,14 +78,12 @@ module se30_via (
   wire iclk_rise = c16_en && iclk && !iclk_q;
   wire iclk_fall = c16_en && !iclk && iclk_q;
 
-  // T2 in the T2-clocked shift modes lends its low byte as the shift clock
   wire t2_srtick = e_fall && sr_t2 && (t2c[7:0] == 8'h00);
   wire t2_tick   = acr[5] ? pb6_fall : (e_fall && !t2_skip && !sr_t2);
 
   wire shift_out = sr_out && (sr_ext ? cb1_fall : iclk_fall) && (sr_ext || sr_active);
   wire shift_in  = !sr_out && (srm != 3'b000) && (sr_ext ? cb1_rise : iclk_rise) && (sr_ext || sr_active);
 
-  // --------------------------------------------------------------- state
   always @(posedge clk)
     if (!reset_n) begin
       ora <= 0; orb <= 0; ddra <= 0; ddrb <= 0; acr <= 0; pcr <= 0; ifr <= 0; ier <= 0;
@@ -128,7 +92,7 @@ module se30_via (
       t1_armed <= 0; t1_reload <= 0; t1_skip <= 0; t2_armed <= 0; t2_skip <= 0; pb7_t1 <= 1;
       ira_l <= 8'hFF; irb_l <= 8'hFF;
       e_q <= 0; iclk_q <= 1;
-      ca1_q <= ca1; ca2_q <= ca2_in; cb1_q <= cb1_in; cb2_q <= cb2_in; pb6_q <= pb_in[6];   // no edge out of reset
+      ca1_q <= ca1; ca2_q <= ca2_in; cb1_q <= cb1_in; cb2_q <= cb2_in; pb6_q <= pb_in[6];
       ca2_hs <= 1; cb2_hs <= 1; ca2_pulse <= 0; cb2_pulse <= 0; iclk <= 1;
     end else begin
       if (c16_en) begin
@@ -136,7 +100,6 @@ module se30_via (
         pb6_q <= pb_in[6]; iclk_q <= iclk;
       end
 
-      // ---- the access: writes, and the side effects of reads (4.2.2)
       if (wr) case (rs)
         4'd0:  orb <= (orb & ~ddrb) | (wdata & ddrb);
         4'd1, 4'd15: ora <= (ora & ~ddra) | (wdata & ddra);
@@ -164,7 +127,6 @@ module se30_via (
       if (ora_acc) begin ifr[1] <= 0; if (!ca2_indep) ifr[0] <= 0; ca2_pulse <= 2'd2; end
       if (orb_acc) begin ifr[4] <= 0; if (!cb2_indep) ifr[3] <= 0; cb2_pulse <= 2'd2; end
 
-      // ---- the handshake and pulse outputs (R6522 CA2 table, modes 100 and 101)
       if (pcr[3:1] != 3'b100) ca2_hs <= 1;
       else if (ora_acc) ca2_hs <= 0;
       else if (ca1_edge) ca2_hs <= 1;
@@ -176,12 +138,9 @@ module se30_via (
         if (cb2_pulse != 0 && !orb_acc) cb2_pulse <= cb2_pulse - 1'b1;
       end
 
-      // ---- the input latches (ACR0, ACR1)
       if (ca1_edge) ira_l <= pa_in;
       if (cb1_edge) irb_l <= pb_in;
 
-      // ---- T1 (4.2.4): N+1 falls after the load it reads $FFFF, the flag
-      // sets, and a cycle later the latches reload it
       if (e_fall) begin
         if (t1_skip) t1_skip <= 0;
         else if (t1_reload) begin t1c <= t1l; t1_reload <= 0; end
@@ -195,8 +154,6 @@ module se30_via (
         end else t1c <= t1c - 1'b1;
       end
 
-      // ---- T2: one-shot, then a free roll-over; or PB6 pulses; or the
-      // shift clock's divider (low byte reloaded from the latch)
       if (e_fall && t2_skip) t2_skip <= 0;
       if (t2_tick) begin
         if (t2c == 16'h0000 && t2_armed) begin ifr[5] <= 1; t2_armed <= 0; end
@@ -204,7 +161,6 @@ module se30_via (
       end
       if (e_fall && sr_t2) t2c[7:0] <= (t2c[7:0] == 8'h00) ? t2l : t2c[7:0] - 1'b1;
 
-      // ---- the shift register (4.2.5)
       if (sr_e && (sr_active || sr_free) && e_fall) iclk <= ~iclk;
       else if (sr_t2 && (sr_active || sr_free) && t2_srtick) iclk <= ~iclk;
       else if (!(sr_e || sr_t2) || !(sr_active || sr_free)) iclk <= 1;
@@ -218,14 +174,12 @@ module se30_via (
         end
       end
 
-      // ---- the control lines' flags: set after the clears, so a set wins
       if (ca1_edge) ifr[1] <= 1;
       if (ca2_edge) ifr[0] <= 1;
       if (cb1_edge) ifr[4] <= 1;
       if (cb2_edge) ifr[3] <= 1;
     end
 
-  // ---------------------------------------------------------------- read
   wire [7:0] ira   = acr[0] ? ira_l : pa_in;
   wire [7:0] irb   = acr[1] ? irb_l : pb_in;
   wire [7:0] pa_rd = (ora & ddra) | (ira & ~ddra);
@@ -254,7 +208,6 @@ module se30_via (
   assign dbg_ifr = ifr;
   assign dbg_ier = ier;
 
-  // ---------------------------------------------------------------- pins
   assign pa_out  = ora;
   assign pa_oe   = ddra;
   assign pb_out  = {acr[7] ? pb7_t1 : orb[7], orb[6:0]};

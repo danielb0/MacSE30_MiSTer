@@ -1,70 +1,4 @@
-// se30_fpu_apu.v - the 68882's arithmetic processing unit: the two-level
-// microcoded sequencer and the 67-bit datapath of SE30_PLAN.md 8.8.9-
-// 8.8.12, running the microcode of tools/fpu_ucode (plan 8.8.19).
-// tools/fpu_ucode/sim.py is the definition of every field; this file is
-// written against it, and sim/fpu holds it to it - every vector's results
-// and clocks, and on request the state each microinstruction leaves.
-//
-// THE CLOCK (8.8.9, retimed by 8.9.5)
-//   The FPU clock is C16M: ce, an enable every second clk.  An FPU clock
-//   is two clk periods, and one microinstruction completes in each:
-//     at a p1 edge (ce high) - the results, the flags and the next
-//       microword (into uir) are registered, and with that word its
-//       nanoword and its operands - T[ra], T[rb], K, FP - are read from
-//       their RAMs (addresses from the µROM's output; a register written
-//       at this same edge is bypassed from the result register);
-//     at the p0 edge between (ce low) - the next address is chosen from
-//       uir and the flags, and the µROM read for the word after.
-//   So the datapath has the whole FPU clock, two clk, from its operands
-//   to its results, and a microinstruction still branches on, and reads,
-//   what the one before it left, with no delay slots.  Every register the
-//   datapath writes changes only at p1 edges (abort included), so the
-//   constraints give its paths two clk; only the next address, p1 to p0,
-//   is a one-clk path.
-//
-// THE SEQUENCER (8.8.12, fields.SEQ and WAITMODE)
-//   NEXT, JUMP, CALL and RET (a four-deep µPC stack), BRT/BRF on a
-//   condition, DISP (a dispatch key ORed into the target), and WAIT: HOLD
-//   n holds the word n clocks, UNTIL holds it until the instruction's
-//   elapsed clocks reach the budget plus n, ADD adds n to the budget; a
-//   WAIT word's nanoword runs on its last clock.  END (a control code)
-//   accrues AEXC and holds until the elapsed clocks reach the budget
-//   (Tables 8-13 to 8-19, 8.8.19), then the unit is idle.
-//
-// STARTING AN INSTRUCTION
-//   start, sampled at a p1 edge while idle, with the entry-table index
-//   (fields.entry_general/ENTRY_FMOVECR/entry_store), the command word,
-//   the CU's operand and its tags, and the raw operand (packed decimal
-//   and a dynamic k-factor).  Two FPU clocks follow before the first
-//   microinstruction - the entry table and the destination's tags (FP[RY]
-//   through port A), then the first microword - and are not the
-//   instruction's clocks: `clocks` counts from the first microinstruction
-//   to the end, as sim.py's do.  The temporaries are not cleared (the
-//   microcode never reads one it has not written: every vector passes on
-//   the simulator with T0-T31 poisoned at start); every other register is.
-//
-// THE REGISTER FILE (8.8.6)
-//   FP0-FP7, 80 bits, a true dual-port RAM: port A the APU's reads (at
-//   p1 edges, 8.9.5); port B split by phase (7e) - its p1 edges the APU's
-//   writes, its p0 edges the CU's (here the bench's), a read or a write
-//   each.
-//
-// THE CHECKPOINTS AND THE FRAMES (8.8.12, 8.9.3; item 7c)
-//   With save_req set, a CHECKPOINT word completes and the sequencer
-//   stops (S_SUSP; susp); upc then holds the next word's address.  ctx is
-//   what a busy frame keeps of the APU besides T0-T10 - the µPC stack,
-//   LC, SC, the flags, the budget and the elapsed clocks, the command and
-//   the tags; Q, MD, MD3, T11-T31 and the operands are dead at every
-//   checkpoint (the assembler's liveness, 8.9.3).  save_req also ends
-//   END's padding at once (the instruction is finished).  While the unit
-//   is stopped or idle the BIU reads T0-T10 through port A's read
-//   (x_taddr, x_tq, a p0 edge after the address) and writes them, the
-//   exceptional operand and the output buffer; ctx_we loads the context,
-//   and resume restarts the sequencer at upc (from S_SUSP, or from idle
-//   after a load) - two fetch clocks, not counted, as at a start.
-//
-// sim.py's SimError cases (a microcode bug, not a machine state) set
-// `err` and, in simulation, print SIMERR.
+// se30_fpu_apu.v - the 68882's arithmetic processing unit: microcoded sequencer and datapath (microcode: tools/fpu_ucode)
 
 `timescale 1ns/1ps
 `include "fpu_ucode.vh"
@@ -75,15 +9,14 @@ module se30_fpu_apu #(
   parameter ENTRY_HEX = "ucode.entry.hex",
   parameter KROM_HEX  = "ucode.krom.hex",
   parameter NSEL_HEX  = "ucode.nsel.hex",
-  parameter TADJ_HEX  = "ucode.tadj.hex"    // the 68882's clocks against the 68881's phases (8.9.7)
+  parameter TADJ_HEX  = "ucode.tadj.hex"
 ) (
   input             clk,
   input             reset,
   input             ce,
 
   input             start,
-  input             abort,       // stop the instruction at once (the BIU: a protocol
-                                 // violation's acknowledge, AB, a restore)
+  input             abort,
   input      [9:0]  entry_idx,
   input      [15:0] cmd,
   input      [85:0] cu_word,
@@ -92,10 +25,10 @@ module se30_fpu_apu #(
   input             cu_den,
   input             cu_neg,
   input      [95:0] operand,
-  input             cu_dt_v,     // the CU classed FPn already (7e-3): no S_ENT
-  input      [5:0]  cu_dt,       // ... {tag, snan, den, neg}
+  input             cu_dt_v,
+  input      [5:0]  cu_dt,
   output            busy,
-  output reg [15:0] clocks,      // the instruction's clocks so far
+  output reg [15:0] clocks,
   output reg        err,
 
   input             fpcr_we,
@@ -110,13 +43,12 @@ module se30_fpu_apu #(
   input      [79:0] fpb_d,
   output reg [79:0] fpb_q,
 
-  output reg [95:0] obuf,        // a store's operand
-  output reg [79:0] exop,        // the exceptional operand
+  output reg [95:0] obuf,
+  output reg [79:0] exop,
 
-  // the frames (7c)
-  input             save_req,    // stop at the next checkpoint; end END's padding
-  output            susp,        // stopped at a checkpoint
-  output            in_pad,      // in END's padding
+  input             save_req,
+  output            susp,
+  output            in_pad,
   input             resume,
   input             ctx_we,
   input     [162:0] ctx_d,
@@ -130,7 +62,6 @@ module se30_fpu_apu #(
   input             x_obuf_we,
   input      [95:0] x_obuf,
 
-  // the trace (sim/fpu +trace): a microinstruction executed at this p1 edge
   output            t_exec,
   output     [11:0] t_upc
 );
@@ -138,17 +69,16 @@ module se30_fpu_apu #(
 
   localparam [66:0] M67 = {67{1'b1}};
 
-  // -- the ROMs and RAMs -------------------------------------------------------
   reg [`MICRO_W-1:0] urom  [0:4095];
   (* romstyle = "M10K" *) reg [`NANO_W-1:0] nrom [0:1023];
   reg [11:0]         entry [0:1023];
   reg [`KWORD_W-1:0] krom  [0:255];
-  reg [2:0]          nsel  [0:1023];       // each nanoword's {KLC, FPSEL} (asm.py)
-  reg [7:0]          tadj  [0:1023];       // asm.py's .tadj: a signed start for budget or clocks
-  reg [7:0]          tadj_q;               // ... for entry_idx (set clocks before start)
-  reg [7:0]          tadj_e;               // ... for the running command (END's: it survives a frame)
-  reg [85:0]         t_a   [0:31];         // the temporaries: two copies,
-  reg [85:0]         t_b   [0:31];         // one per read port (8.8.10)
+  reg [2:0]          nsel  [0:1023];
+  reg [7:0]          tadj  [0:1023];
+  reg [7:0]          tadj_q;
+  reg [7:0]          tadj_e;
+  reg [85:0]         t_a   [0:31];
+  reg [85:0]         t_b   [0:31];
   reg [79:0]         fp    [0:7];
 
   initial begin
@@ -164,29 +94,25 @@ module se30_fpu_apu #(
   wire p0 = ~ce;
   wire p1 = ce;
 
-  // abort is taken at a p1 edge (a pulse at p0 is held for it), so every
-  // register the datapath writes changes only at p1 edges: the datapath's
-  // paths are two-clk paths, and the constraints say so (8.9.5)
   reg  abort_l;
   wire abort_p = abort || abort_l;
   always @(posedge clk)
     if (reset || p1) abort_l <= 1'b0;
     else if (abort)  abort_l <= 1'b1;
 
-  // -- state ---------------------------------------------------------------------
   localparam S_IDLE = 3'd0, S_ENT = 3'd1, S_FETCH = 3'd2, S_RUN = 3'd3, S_ENDH = 3'd4,
              S_SUSP = 3'd5;
   reg [2:0]  st;
-  reg        rsm;                          // S_FETCH is a resume: fetch at upc
+  reg        rsm;
   assign busy   = (st != S_IDLE);
   assign susp   = (st == S_SUSP);
   assign in_pad = (st == S_ENDH);
 
   reg [`MICRO_W-1:0] uir, urom_q;
-  reg [`NANO_W-1:0]  nw;                   // the nROM's output: uir's nanoword
+  reg [`NANO_W-1:0]  nw;
   reg [11:0] upc, ua, ent_q;
   reg [85:0] ta_q, tb_q;
-  wire [85:0] ta_e, tb_e;                  // the operands, with the bypass (8.9.5)
+  wire [85:0] ta_e, tb_e;
   wire [79:0] fpa_e;
   reg [`KWORD_W-1:0] k_q;
   reg [79:0] fpa_q;
@@ -198,10 +124,7 @@ module se30_fpu_apu #(
   reg [15:0] budget;
   reg        rb;
 
-  // the instruction
   reg [15:0] cmd_r;
-  // the entry index of a command, as the BIU's idx_fn: END looks N up again
-  // from cmd_r, which a busy frame restores
   wire [9:0] idx_r_cmd = (cmd_r[15:13] == 3'd0) ? {4'd0, cmd_r[5:0]}
                        : (cmd_r[15:13] == 3'd2 && cmd_r[12:10] == 3'd7) ? 10'h200
                        : (cmd_r[15:13] == 3'd2) ? {1'b0, cmd_r[12:10] + 3'd1, cmd_r[5:0]}
@@ -214,7 +137,6 @@ module se30_fpu_apu #(
   reg [2:0]  stag, dtag;
   reg        s_snan, s_den, s_neg, d_snan, d_den, d_neg;
 
-  // the datapath's registers (8.8.10)
   reg [66:0] q, md, md3;
   reg        qx;
   reg [6:0]  sc;
@@ -226,13 +148,11 @@ module se30_fpu_apu #(
   reg        rm_set;
   reg [1:0]  rm_val;
 
-  // the context a busy frame keeps (8.9.3), 163 bits
   assign ctx_q = {upc, sp, lc, sc, stack[0], stack[1], stack[2], stack[3],
                   fz, fn, fc, fv, fs, stk, inex, dflag, tiny, huge,
                   lzc, kdir, rprec, rm_set, rm_val, rb, budget, clocks, cmd_r,
                   stag, s_snan, s_den, s_neg, dtag, d_snan, d_den, d_neg};
 
-  // -- the microword and its nanoword -----------------------------------------
   wire [9:0]  u_nano   = uir[`MICRO_NANO];
   wire [4:0]  u_ra     = uir[`MICRO_RA];
   wire [7:0]  u_rb     = uir[`MICRO_RB];
@@ -271,7 +191,6 @@ module se30_fpu_apu #(
   wire [1:0] fpcr_rnd  = fpcr[5:4];
   wire [1:0] rmode = rm_set ? rm_val : fpcr_rnd;
 
-  // The FP register a word reads and writes (fields.FPSEL).
   reg [2:0] fp_sel;
   always @* begin
     case (n_fpsel)
@@ -282,7 +201,6 @@ module se30_fpu_apu #(
     endcase
   end
 
-  // -- the conditions and dispatch keys (sim.Chip.cond, .key) ----------------
   wire [8:0] lc_m_sc = {1'b0, lc} - {2'b0, sc};
   reg cond_v;
   always @* begin
@@ -371,9 +289,8 @@ module se30_fpu_apu #(
     endcase
   end
 
-  // -- the next address (p0) ---------------------------------------------------
   reg [11:0] nxt;
-  reg [15:0] wait_h;               // a WAIT's hold, on its first clock
+  reg [15:0] wait_h;
   reg [15:0] wait_add;
   reg signed [17:0] until_h;
   always @* begin
@@ -397,11 +314,9 @@ module se30_fpu_apu #(
     endcase
   end
 
-  // A word executes on its last clock: at once, or after its WAIT's hold.
   wire exec = (st == S_RUN) && (holding ? (hcnt == 16'd0) : (wait_h == 16'd0));
 
-  // -- the A source and the round logic (sim.Chip.execute, _round) -----------
-  function [85:0] fpw;             // an FP register image as a word
+  function [85:0] fpw;
     input [79:0] x;
     fpw = {x[79], 3'd0, x[78:64], x[63:0], 3'd0};
   endfunction
@@ -447,7 +362,6 @@ module se30_fpu_apu #(
     rmask = M67 << r_lsb;
   end
 
-  // -- the B source ---------------------------------------------------------------
   wire [2:0] booth_q = q[2:0];
   wire signed [3:0] booth_d = -$signed({1'b0, booth_q[2], 2'b00}) + $signed({2'b00, booth_q[1], 1'b0})
                             + $signed({3'b000, booth_q[0]}) + $signed({3'b000, qx});
@@ -489,12 +403,11 @@ module se30_fpu_apu #(
     endcase
   end
 
-  // -- the barrel shifter, on B's mantissa -------------------------------------
   reg [8:0]  sh_amt9;
   reg [6:0]  sh_amt;
   reg [66:0] b_m;
-  reg        sh_out;               // bits shifted out right were nonzero
-  reg        sh_neg;               // LC - SC < 0: a microcode error
+  reg        sh_out;
+  reg        sh_neg;
   always @* begin
     case (n_sha)
       `NANO_SHA_LIT:   sh_amt9 = {1'b0, n_lit};
@@ -524,7 +437,6 @@ module se30_fpu_apu #(
   wire        b_s = b_w[85];
   wire [17:0] b_e = b_w[84:67];
 
-  // -- the ALU (exponent mode: the 18-bit exponents in the same ALU) ----------
   wire exp_mode = (n_emode == `NANO_EMODE_EXP) || (n_emode == `NANO_EMODE_EXPB);
   wire [66:0] ax = exp_mode ? {49'd0, a_e} : a_m;
   wire [66:0] by = exp_mode ? {49'd0, b_e} : b_m;
@@ -533,10 +445,10 @@ module se30_fpu_apu #(
 
   reg        alu_flag;
   reg [3:0]  op;
-  reg [68:0] ru;                   // the result, zero-extended operands
-  reg signed [69:0] rs;            // the result, sign-extended operands
+  reg [68:0] ru;
+  reg signed [69:0] rs;
   reg        arith;
-  reg [66:0] r;                    // the result at the ALU's width
+  reg [66:0] r;
   reg        z_n, n_n, c_n, v_n;
   always @* begin
     case (n_dir)
@@ -576,7 +488,7 @@ module se30_fpu_apu #(
     end
   end
 
-  function [6:0] lzc67;            // leading zeros; 67 for zero
+  function [6:0] lzc67;
     input [66:0] v;
     integer i;
     reg found;
@@ -591,7 +503,6 @@ module se30_fpu_apu #(
     end
   endfunction
 
-  // -- the output shifter and the result word ----------------------------------
   reg [66:0] r2;
   reg [17:0] r2e;
   reg [6:0]  norm;
@@ -633,7 +544,6 @@ module se30_fpu_apu #(
     endcase
     if (n_osh == `NANO_OSH_NORM && !exp_mode)
       res[84:67] = res[84:67] - {11'd0, norm};
-    // Q: the output shifter's, then the Q operation's
     case (n_qop)
       `NANO_QOP_LOAD:  q_n = res[66:0];
       `NANO_QOP_LOADB: begin q_n = b_m; qx_n = 1'b0; end
@@ -659,22 +569,18 @@ module se30_fpu_apu #(
   wire tiny_n = $signed(res_e) < $signed(rlo);
   wire huge_n = $signed(res_e) > $signed(rhi);
 
-  // the result's class (sim.tag), for FPCC and RETAG
   wire [2:0] res_tag = (res_e == 18'h07FFF) ? ((res_m[65:3] != 63'd0) ? `TAG_NAN : `TAG_INF)
                      : (res_m == 67'd0)     ? `TAG_ZERO
                      : res_m[66]            ? `TAG_NORM : `TAG_UNN;
 
-  // SC from the result, saturated to 0-127
   wire signed [66:0] sc_v = exp_mode ? {{49{res_e[17]}}, res_e} : res_m;
   wire [6:0] sc_sat = (sc_v < 0) ? 7'd0 : (sc_v > 127) ? 7'd127 : sc_v[6:0];
 
-  // Table 8-18 (fields.rtime), for ctl=RTIME
   localparam [383:0] RTIME = `FPU_RTIME_TABLE;
   wire [5:0] rtime_v = RTIME[6 * {rprec, rmode[1], n_lit[2:0]} +: 6];
 
   wire inex_n = (n_rnd != `NANO_RND_NONE) ? r_inexact : inex;
 
-  // FPSR after this word's action (the fields.FPSR code), then END's accrual
   reg [31:0] fpsr_n;
   always @* begin
     fpsr_n = fpsr;
@@ -704,32 +610,18 @@ module se30_fpu_apu #(
     endcase
   end
 
-  // the FP register write (sim.word_fp): the exponent must be 0-$7FFF
   wire fp_we = exec && !alu_nop && (n_dst == `NANO_DST_FP);
   wire fp_bad = fp_we && (res_e[17:15] != 3'd0);
 
   assign t_exec = exec && p1;
   assign t_upc  = upc;
 
-  // -- the RAMs' ports (8.9.5) ---------------------------------------------------
-  // A word's operands - T[ra], T[rb], K[rb (+ LC)], FP[its select] - are
-  // read at the p1 edge that loads the word into uir, from the µROM's
-  // output (or, while it holds, from uir): the datapath then has the whole
-  // FPU clock, two clk, from the RAMs to the results.  The K address takes
-  // the LC this edge leaves, and the FP select and whether the constant is
-  // indexed by LC come from nsel, the nanowords' fields by nanoword
-  // address (the nanoword itself is read at the same edge).  A temporary
-  // the word before writes at that edge is taken from the result register
-  // instead (the RAMs' read during a write of the other port is not the
-  // new data); an FP register never is (the assembler's rule).  The FP
-  // file's port A only reads; the APU writes through port B at p1 edges,
-  // and the p0 edges are the CU's.
-  wire        w_load = (st == S_FETCH) || exec;       // uir <= urom_q at this p1 edge
+  wire        w_load = (st == S_FETCH) || exec;
   wire [`MICRO_W-1:0] w_word = w_load ? urom_q : uir;
   wire [4:0]  w_ra   = w_word[`MICRO_RA];
   wire [7:0]  w_rb   = w_word[`MICRO_RB];
   wire [2:0]  w_nsel = nsel[w_word[`MICRO_NANO]];
-  reg  [7:0]  lc_n;                                   // LC after this edge
+  reg  [7:0]  lc_n;
   always @* begin
     lc_n = lc;
     if (exec)
@@ -751,15 +643,15 @@ module se30_fpu_apu #(
       default:         fp_sel_n = w_ra[2:0];
     endcase
   end
-  wire [2:0]  fpa_rd = (st == S_IDLE) ? cmd[9:7] : fp_sel_n;   // at a start, FP[RY] for S_ENT's tags
+  wire [2:0]  fpa_rd = (st == S_IDLE) ? cmd[9:7] : fp_sel_n;
   wire        u_en     = (st == S_FETCH) || exec;
   wire [11:0] u_addr   = (st == S_FETCH) ? (rsm ? upc : ent_q) : nxt;
-  wire        x_port   = (st == S_IDLE) || (st == S_SUSP);    // T0-T10 the BIU's
+  wire        x_port   = (st == S_IDLE) || (st == S_SUSP);
   assign x_tq = ta_q;
 
   always @(posedge clk) begin
     if (p0) begin
-      ent_q <= entry[(st == S_IDLE) ? entry_idx : idx_r];   // (idle: the next start's, 7e-3)
+      ent_q <= entry[(st == S_IDLE) ? entry_idx : idx_r];
       if (u_en) begin
         urom_q <= urom[u_addr];
         ua     <= u_addr;
@@ -772,11 +664,8 @@ module se30_fpu_apu #(
     end
   end
 
-  // the writes this edge, and the bypass for the word that reads them
   wire        t_we_c  = exec && !alu_nop && (n_dst == `NANO_DST_T) && !abort_p;
   wire        fp_we_c = fp_we && !abort_p;
-  // An FP register has no bypass: the assembler refuses a word that reads
-  // FP after one that writes it (7e).
   reg         byp_a, byp_b;
   reg  [85:0] res_r;
   wire [79:0] fpa_d = {res_s, res_e[14:0], res_m[66:3]};
@@ -790,14 +679,8 @@ module se30_fpu_apu #(
   assign tb_e  = byp_b ? res_r : tb_q;
   assign fpa_e = fpa_q;
 
-  // FP port A: the APU's reads, at p1
   always @(posedge clk)
     if (p1) fpa_q <= fp[fpa_rd];
-  // FP port B, split by phase (7e): the p1 edges are the APU's, for its
-  // writes; the p0 edges the CU's, a read or a write each - the CU's
-  // request stands until a p0 edge takes it, and what it read is fpb_q
-  // until the next p1 edge.  A write reads its own data back (the M10K's
-  // true dual port reads new data during a write, not old).
   wire        fpb_w  = p1 ? fp_we_c : fpb_we;
   wire [2:0]  fpb_a  = p1 ? fp_sel : fpb_addr;
   wire [79:0] fpb_dd = p1 ? fpa_d : fpb_d;
@@ -808,8 +691,6 @@ module se30_fpu_apu #(
     end else
       fpb_q <= fp[fpb_a];
 
-  // the temporaries' write, both copies: the datapath's, or the BIU's
-  // (a restore) while the unit is idle
   always @(posedge clk)
     if (p1 && t_we_c) begin
       t_a[u_rd] <= res;
@@ -820,8 +701,6 @@ module se30_fpu_apu #(
     end
 
 `ifdef SIMULATION
-  // A restore that resumes the unit poisons what 8.9.3 says is dead at a
-  // checkpoint, so the benches prove it.
   integer pz;
   always @(posedge clk)
     if (ctx_we && !reset)
@@ -831,17 +710,10 @@ module se30_fpu_apu #(
       end
 `endif
 
-  // the nROM: the next nanoword, read at the p1 edge that loads its
-  // microword into uir (the fetch, or a word executed) - in a block of its
-  // own, without a reset, and marked for M10K: under the sequencer's reset
-  // it was built as logic, and unmarked Quartus judges its ~400 used words
-  // cheaper as some 400 ALMs than as seven M10Ks (the plan's rule: arrays in
-  // block RAM, 8.8.17)
   wire nrom_en = p1 && !reset && !abort_p && ((st == S_FETCH) || exec);
   always @(posedge clk)
     if (nrom_en) nw <= nrom[urom_q[`MICRO_NANO]];
 
-  // -- the sequencer and the datapath's registers (p1) ------------------------
   always @(posedge clk) begin
     if (reset) begin
       st <= S_IDLE;
@@ -856,7 +728,6 @@ module se30_fpu_apu #(
     end else begin
       if (!busy && fpcr_we) fpcr <= fpcr_d;
       if (!busy && fpsr_we) fpsr <= fpsr_d;
-      // a restore (7c): the context, the exceptional operand, the output buffer
       if (!busy && ctx_we) begin
         upc <= ctx_d[162:151];  sp <= ctx_d[150:148];  lc <= ctx_d[147:140];  sc <= ctx_d[139:133];
         stack[0] <= ctx_d[132:121];  stack[1] <= ctx_d[120:109];
@@ -882,8 +753,6 @@ module se30_fpu_apu #(
               st <= S_FETCH;
               rsm <= 1'b1;
             end else if (start) begin
-              // the CU's tags of FPn (UM 5.1.1.2: it tags the operands), or
-              // FP[RY]'s through port A in S_ENT
               if (cu_dt_v) begin
                 st <= S_FETCH;
                 {dtag, d_snan, d_den, d_neg} <= cu_dt;
@@ -901,14 +770,10 @@ module se30_fpu_apu #(
               lzc <= 7'd0; kdir <= 2'd0; rprec <= 2'd0; rm_set <= 1'b0; rm_val <= 2'd0;
               obuf <= 96'd0; exop <= 80'd0;
               sp <= 3'd0; holding <= 1'b0; hcnt <= 16'd0;
-              // Table 8-3's 68882, against the 68881's phases the microcode
-              // pads to: N < 0 starts the elapsed count at -N; N > 0 is added
-              // at END to whichever ends the instruction, its path or its budget
               budget <= 16'd0; rb <= 1'b1;
               clocks <= tadj_q[7] ? {8'd0, -tadj_q} : 16'd0;
             end
           S_ENT: begin
-            // the destination's tags, from FP[RY] on port A
             dtag   <= (fpa_q[78:64] == 15'h7FFF) ? ((fpa_q[62:0] != 63'd0) ? `TAG_NAN : `TAG_INF)
                     : (fpa_q[63:0] == 64'd0)    ? `TAG_ZERO
                     : fpa_q[63]                 ? `TAG_NORM : `TAG_UNN;
@@ -937,7 +802,6 @@ module se30_fpu_apu #(
               holding <= 1'b0;
               uir <= urom_q;
               upc <= ua;
-              // the µPC stack
               if (u_seq == `MICRO_SEQ_CALL) begin
                 if (sp == 3'd4) err <= 1'b1;
                 else begin stack[sp[1:0]] <= upc + 12'd1; sp <= sp + 3'd1; end
@@ -946,7 +810,6 @@ module se30_fpu_apu #(
                 if (sp == 3'd0) err <= 1'b1;
                 else sp <= sp - 3'd1;
               end
-              // the flags
               if (!alu_nop) begin
                 fz <= z_n; fn <= n_n; fc <= c_n; fv <= v_n; fs <= sgn;
                 lzc <= lzc67(res_m);
@@ -955,14 +818,12 @@ module se30_fpu_apu #(
               end
               if (n_rnd != `NANO_RND_NONE) inex <= r_inexact;
               if (n_bsrc == `NANO_BSRC_K || n_bsrc == `NANO_BSRC_KLC) kdir <= k_q[87:86];
-              // sticky, after the round logic has used it
               case (n_stk)
                 `NANO_STK_CLR:   stk <= 1'b0;
                 `NANO_STK_SHIFT: stk <= stk | sh_out | dropped;
                 `NANO_STK_NZ:    stk <= stk | (!alu_nop && r != 67'd0);
                 default: ;
               endcase
-              // the destinations
               if (!alu_nop)
                 case (n_dst)
                   `NANO_DST_MD:    md <= res_m;
@@ -1016,7 +877,6 @@ module se30_fpu_apu #(
               end
               if (n_ctl == `NANO_CTL_CHECKPOINT && save_req)
                 st <= S_SUSP;
-              // sim.py's SimErrors: the microcode did what the hardware cannot
               if (fp_bad || sh_neg ||
                   (alu_nop && (n_dst != `NANO_DST_NONE || n_osh != `NANO_OSH_NONE ||
                                n_fpsr == `NANO_FPSR_FPCC || n_fpsr == `NANO_FPSR_FPCCINEX ||
@@ -1026,7 +886,7 @@ module se30_fpu_apu #(
             end
           end
           S_ENDH:
-            if (save_req)                  // a save waits: the pad is cut short
+            if (save_req)
               st <= S_IDLE;
             else begin
               clocks <= clocks + 16'd1;

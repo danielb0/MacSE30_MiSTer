@@ -1,8 +1,0 @@
-work/
-run.log
-transcript
-*.wlf
-# made by gen_program.py on every run
-program.hex
-expect.txt
-stop_at.txt
