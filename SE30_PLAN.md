@@ -3520,6 +3520,34 @@ not a verdict.
 - **The overnight run:** `sim/cputest_int/night.sh` with both sets in
   turn. Each gets `summary.txt`, `report.txt` (each failure named) and
   `timing.txt`; `night_<date>.log` gets one line per set.
+- **The overnight run's result (2026-10-07, 15:55-19:14):**
+  - First pass (`hb6`): 134 of 141 batches in 40 min; 5 failures were
+    harness artefacts (MOVES; the trace bit set from SR), excluded before
+    the deep pass; 2 were CHK2.
+  - Deep pass (`hb24`, 82,397 rounds): **545 of 550 batches in 158 min**;
+    the 5 failures (batches 162-166) all CHK2.
+  - **The CHK2 fault, ours, fixed.** CHK2.W/.L (and CMP2, the same path)
+    with the bound pair at an address = 3 mod 4 trapped where WinUAE's
+    68030 did not. The upper bound was read one byte low: after the lower
+    bound's last beat the ALU stepped the address by the 16-bit shape's
+    constant +2, but on the 32-bit port a misaligned operand's last beat
+    moves 1 to 3 bytes (`$5FFEFF`: 1 byte, then 3; the upper read at
+    `$5FFF02`, not `$5FFF03`). mikej's unaligned hold, kept for CHK2 at
+    plan 3.8 item 23, never fired on the 32-bit port. Fix (`TG68K_ALU.vhd`):
+    CHK2's bound step takes MOVEM's rule, the bytes the beat moved
+    (`beat_step`). The ALU's range test (the UM's CHK2/CMP2 C formula, its
+    UB < LB wrap term included) was right throughout; round 24407's
+    V-flag mismatch was the same wrong upper bound.
+  - After the fix: the six failing records pass (102 checks, every one as
+    WinUAE's); batches 162-166 rerun in full, **5 of 5, 12,750 checks**, so
+    the deep corpus stands at 550 of 550. Regression: `sim/cputest_int/
+    regress.sh` runs `regress_chk2.txt` (the six records, 10 s; it failed
+    before the fix). kernel_bus 16/32/8 PASS, kernel_upstream verdicts
+    unchanged (its three known failures), busfault, busfault_dib, cpfpu,
+    machine, system PASS. (kernel_bus must not run beside sim/system: that
+    one regenerates kernel_bus's program for port 32.)
+  - CHK2 and CMP2 are 68020-and-later instructions, so 1980s Mac software
+    rarely meets the fault; why no application found it.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 

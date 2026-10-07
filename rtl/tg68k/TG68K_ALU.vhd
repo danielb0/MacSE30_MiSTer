@@ -710,8 +710,7 @@ PROCESS (OP1out, OP2out, execOPC, Flags, long_start, movem_presub, exe_datatype,
 		-- register at A+2 - the ROM's RAM data-bus test (MOVEM.L D0-D1,(A0))
 		-- failed on the board with it (SE30_PLAN.md 3.8 item 23). Odd
 		-- addresses need nothing more: every beat steps by what it moved.
-		-- mikej's unaligned patch below, the 68000 shape's hold on a
-		-- one-byte beat, stays for CHK2 (check_aligned) only.
+		-- CHK2/CMP2's bound pair (check_aligned) takes the same rule, up.
 		if exec(movem_action)='1' then
 		  if long_start = '0' then
 			if movem_presub = '0' then
@@ -722,20 +721,15 @@ PROCESS (OP1out, OP2out, execOPC, Flags, long_start, movem_presub, exe_datatype,
 			  addsub_b <= "00000000000000000000000000000100" - ("00000000000000000000000000000" & beat_step);
 			end if;
 		  end if;
-		-- patch for un-aligned movem --mikej
+		-- CHK2/CMP2: from the lower bound's last beat to the upper bound, the
+		-- bytes that beat moved. The default +2 is the 16-bit shape's; on the
+		-- 32-bit port a misaligned bound's last beat moves 1 to 3 bytes, and
+		-- +2 read the upper bound from the wrong address (the integer corpus,
+		-- SE30_PLAN.md 1.18.6: CHK2.W/.L with bounds at an address = 3 mod 4).
+		-- No predecrement form exists (control addressing only).
 		elsif check_aligned='1' then
-		  if (movem_presub = '0') then -- up
-			if (non_aligned = '1') and (long_start = '0') then -- hold
-			  addsub_b <= (others => '0');
-			end if;
-		  else
-			if (non_aligned = '1') and (long_start = '0') then
-			  if (exe_datatype = "10") then
-				addsub_b <= "00000000000000000000000000001000";
-			  else
-				addsub_b <= "00000000000000000000000000000100";
-			  end if;
-			end if;
+		  if long_start = '0' then
+			addsub_b <= "00000000000000000000000000000" & beat_step;
 		  end if;
 		end if;
 
