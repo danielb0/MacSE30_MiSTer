@@ -17562,7 +17562,7 @@ suspect until shown otherwise:
 | PowerPoint 1.0 (Forethought, 1987, before Microsoft bought it; confirmed from its About box) | 52 | 24-bit | appears to work | Daniel, 2026-10-07 |
 | WordPerfect 3.1 | 52 | 24-bit | appears to work | Daniel, 2026-10-07 |
 | ClarisWorks 3.0 (1994) | 53 | 24-bit | works | Daniel, 2026-10-07 |
-| HyperCard 2.1 | 53 | 24-bit | stacks load, buttons work; Message Box `beep` sounds, `put 2^32` = 4294967296 | Daniel, 2026-10-07; `play "boing"` (its sampled sound) not yet reported |
+| HyperCard 2.1 | 53 | 24-bit | stacks load, buttons work; Message Box `beep` sounds, `put 2^32` = 4294967296; **`play "boing"` is SILENT - a core suspect** | its code calls both the Sound Manager (22 `_SndDoCommand`, `_SndNewChannel`) and the old Sound Driver (13 `_StartSound`); `Boing` is a format 2 `snd ` starting `soundCmd` ($8050): the sample as an INSTRUMENT for the sampled synthesizer, unlike the beep's straight `bufferCmd`. The ASC path the beep uses works; this one does not. To investigate (MAME `-wavwrite` as the reference; the core's PASC) |
 | HyperCard Player 2.4.1 | 53 | 24-bit | works | Daniel, 2026-10-07 |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
