@@ -17607,6 +17607,16 @@ Daniel - add to it, move items out when fixed).**
     chime; then the ADB probe (PADB) during it, and MAME with Shift held.
     Users will try it first when an extension misbehaves - must work.
 
+12. **SEEN ONCE, NOT REPRODUCED (2026-10-07 evening, compile 54): a bus
+    error from Speedometer 4.02 at Restart.** Speedometer had been left
+    running, Lode Runner had been played, and the Memory panel had just
+    been set to 32-bit (still 24-bit until the restart). Not repeated:
+    Speedometer open and Restart in 24-bit mode; nor the whole sequence
+    again with the probe deck logging (Daniel). Lode Runner is 32-bit
+    dirty and pokes low memory, so a one-off from that mix may well be
+    authentic. If it recurs: note what was open, and the MAME Lua taps on
+    the addresses the SE/30 bus-errors (as for Lode Runner) find the access.
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users
