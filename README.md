@@ -1,122 +1,88 @@
 # Macintosh SE/30 for the [MiSTer Board](https://github.com/MiSTer-devel/Main_MiSTer/wiki)
 
-A Macintosh SE/30, built from the machine's documentation - the *Guide to
-the Macintosh Family Hardware*, Apple's schematic 050-0253-01, the chips'
-own manuals and the SE/30 ROM - with emulators used only as cross-checks.
-It runs at the real machine's speed.
+An emulation core for the **Apple Macintosh SE/30** running on MiSTer FPGA.
 
-## The machine
+The core is built from the SE/30's documentation (the *Guide to the Macintosh Family
+Hardware*, Apple's schematic and the chips' manuals), with MAME and WinUAE used as
+cross-checks. The CPU is Tobias Gubener's TG68K core with apolkosnik's 68030 PMMU, extended
+here to the full 68030 bus and caches; the SCSI target comes from the
+[MacPlus MiSTer core](https://github.com/MiSTer-devel/MacPlus_MiSTer) by Sorgelig. Bolle's
+reproduction of the SE/30's video PALs made the video readable.
 
-- **68030 at 15.6672 MHz** with its PMMU and on-chip caches, timed to the
-  MC68030 User's Manual
-- **68882 floating-point coprocessor**, microcoded
-- **8 MB or 16 MB of RAM** (OSD option)
-- **Built-in video**: 512 x 342, one bit
-- **SWIM floppy controller and SuperDrive**: 400K and 800K (GCR), 720K and
-  1.44 MB (MFM) disks, read and write
-- **SCSI**: two hard disks (IDs 0 and 1) and an AppleCD SC CD-ROM (ID 3)
-- **Apple Sound Chip**
-- **ADB**: Apple Extended Keyboard and mouse, through Apple's own
-  transceiver program
-- **Clock chip and PRAM**, with the PRAM kept in an image file
-- System 6 and System 7, in 24-bit or 32-bit mode
+## Status
+
+### Working
+
+- Boots **System 6.0.8 and System 7.5.5** from floppy or SCSI, in 24-bit or 32-bit mode
+- **68030 CPU with PMMU and caches** at the SE/30's 15.67 MHz, timed to match a real machine
+- **68882 FPU**
+- **Memory:** 8 MB or 16 MB
+- **Display:** the built-in 512×342 black-and-white screen
+- **Sound** (Apple Sound Chip)
+- **Floppy disks (read/write):** 400K/800K GCR and 720K/1.44 MB MFM, raw or DiskCopy 4.2
+- **SCSI hard disks** on IDs 0 and 1 (read/write, boot)
+- **CD-ROM drive** on SCSI ID 3 (data discs)
+- **ADB keyboard and mouse**
+- **PRAM:** saved to an image file, loaded at core start, and wipeable from the OSD
+
+### Not included
+
+- Serial ports / LocalTalk
+- CD audio
+- External floppy drive
+- Expansion (PDS) cards
+- The programmer's switch (NMI)
+
+## Usage
+
+1. Copy the `*.rbf` to the root of your MiSTer SD card.
+2. Copy `boot0.rom`, `boot1.rom` and `boot2.rom` from [releases](releases) to the `MACSE30` folder.
+3. Place a bootable SCSI hard-disk image (`.vhd` / `.img`) or floppy image in the `MACSE30` folder.
+
+Open the on-screen display with **F12** to mount images and change options.
 
 ## ROMs
 
-Copies are in `releases/`. Put them in the core's folder on the SD card
-(`games/MACSE30`):
+| file | contents |
+|---|---|
+| `boot0.rom` | the 256 KB SE/30 ROM (checksum `$97221136`) |
+| `boot1.rom` | the 8 KB video declaration ROM |
+| `boot2.rom` | the 1 KB ADB transceiver firmware (342S0440-B); without it the keyboard and mouse do not work |
 
-| file | what | size |
-|---|---|---|
-| `boot0.rom` | the SE/30 ROM (checksum `97221136`, shared with the IIx, IIcx and II FDHD) | 256 KB |
-| `boot1.rom` | the video declaration ROM, Apple 341-0650 | 8 KB |
-| `boot2.rom` | the ADB transceiver's program, Apple 342S0440-B (MAME's `342s0440-b.bin`) | 1 KB |
+## Floppy disks
 
-Without `boot2.rom` the keyboard and mouse do not work.
+The internal drive takes raw (`.dsk` / `.img`) or DiskCopy 4.2 images. Writes go back to
+the image on the SD card. Eject a disk from within the Mac before mounting another one,
+or unsaved changes to it are lost.
 
-## Using the core
+## Hard disks and CD-ROM
 
-### Disks
+`Mount SCSI-0` and `Mount SCSI-1` are hard disks at IDs 0 and 1. `Mount CD-ROM` takes ISO
+or Toast images at ID 3; the System needs Apple's CD-ROM extension to read them.
 
-- **Mount Internal Floppy**: raw `.dsk`/`.img` images or DiskCopy 4.2
-  images. Changes are written back to the image.
-- **Mount SCSI-0 / SCSI-1**: hard disk images (`.img`, `.vhd`), read and
-  written.
-- **Mount CD-ROM**: data CDs as ISO or Toast images. There is no CD audio.
+## Memory and 32-bit mode
 
-Mounting a floppy while another is mounted is like ejecting a real disk
-with a paperclip: anything the Mac had not yet written to the old disk is
-lost. Eject it in the Finder first.
+Select 8 MB or 16 MB in the OSD and use **Reset & Apply Memory**. In 24-bit mode the Mac
+uses at most 8 MB. The SE/30 ROM is not 32-bit clean: for 32-bit addressing install
+Apple's **MODE32** extension (with its installer) and turn 32-Bit Addressing on in the
+Memory control panel. Older software often fails in 32-bit mode, as on a real SE/30.
 
-### Memory and 32-bit mode
+## PRAM
 
-**Memory** selects 8 MB or 16 MB; **Reset & Apply Memory** restarts the
-Mac with it. In 24-bit mode the Mac uses 8 MB at most. The SE/30 ROM is not
-32-bit clean, so 32-bit mode needs Apple's **MODE32** extension (use its
-installer), then 32-Bit Addressing on in the Memory control panel. Much
-software from before 1988 does not run in 32-bit mode, on a real SE/30 or
-here.
+Mount a PRAM image (`MacSE30.nvr`) with `Mount PRAM` to keep the Mac's settings. It is
+loaded at core start, and changes are saved automatically. `Mount PRAM` and
+`Wipe PRAM` restart the Mac. The clock is set from MiSTer's time.
 
-### PRAM
+## Keyboard
 
-The Mac's settings (startup disk, 32-bit addressing, volume, mouse and
-keyboard settings, and so on) live in the clock chip's 256 bytes of PRAM.
-Mount a PRAM image (`MacSE30.nvr`, 512 bytes; an empty file is fine) in the
-**Mount PRAM** slot to keep them:
-
-- the image is read when it is mounted, and the Mac waits for it before
-  starting, so start-up takes a moment longer;
-- changes are saved about two seconds after the Mac makes them, and when
-  the OSD opens;
-- **Mount PRAM** and **Wipe PRAM** restart the Mac at once; after a wipe
-  the ROM writes its defaults, as after a battery change;
-- with no image mounted, settings last until the core is reloaded.
-
-The clock is set from MiSTer's time when the core loads.
-
-### Notes
-
-- Holding **Shift** right after the startup chime starts System 7 with its
-  extensions off. As in the period, extensions conflict with some games.
-- Disk access is faster than on a real SE/30; the CPU, graphics and FPU
-  run at its speed.
-
-## Not included
-
-Serial ports and LocalTalk, the external floppy drive, CD audio, the
-programmer's switch (NMI), and expansion cards.
+Alt is the Command (⌘) key and the Windows key is Option (⌥). Hold Shift after the startup
+chime to start System 7 with extensions off.
 
 ## Building
 
-Intel Quartus Prime 17.0.2 Lite Edition: open `MacSE30.qpf` and compile.
-
-The 68882's microcode (`rtl/fpu/ucode`) is assembled from
-`tools/fpu_ucode/ucode/*.uc` with `tools/fpu_ucode/asm.py` (Python 3):
-
-```bash
-cd tools/fpu_ucode
-python asm.py ucode/fpu.uc -o out/ucode
-```
-
-then the `.hex` files and `fpu_ucode.vh` in `out/` are copied to
-`rtl/fpu/ucode`.
-
-## Lineage and thanks
-
-The MiSTer framework (`sys/`) is Sorgelig's, from
-[Template_MiSTer](https://github.com/MiSTer-devel/Template_MiSTer). The CPU
-is the TG68K.C kernel by Tobias Gubener, with the 68030 PMMU by apolkosnik
-([Minimig-AGA_MiSTer](https://github.com/apolkosnik/Minimig-AGA_MiSTer),
-branch `030_mmu2`), by way of Dani Sarfati's
-[MacIIvi_MiSTer](https://github.com/danifunker/MacIIvi_MiSTer); see
-`rtl/tg68k/README.md`. The SCSI target comes from Sorgelig's
-[MacPlus_MiSTer](https://github.com/MiSTer-devel/MacPlus_MiSTer), which
-descends from Steve Chamberlin's [Plus Too](http://www.bigmessowires.com/plus-too/),
-and lessons from Dani Sarfati's [MacLC_MiSTer](https://github.com/MiSTer-devel/MacLC_MiSTer)
-shaped the rest. Bolle's reproduction of the SE/30 video PALs and the
-`macse30mlb` schematic redraw made the video and GLUE readable.
+Quartus Prime 17.0.2 Lite: open `MacSE30.qpf` and compile. The 68882 microcode in
+`rtl/fpu/ucode` is built from `tools/fpu_ucode/ucode` with `tools/fpu_ucode/asm.py`.
 
 ## Licence
 
-GPL-2.0-or-later, as the framework and the donor cores are. The TG68K
-kernel, ALU and PMMU are LGPL-3.0-or-later.
+GPL-2.0-or-later. The TG68K files are LGPL-3.0-or-later.
