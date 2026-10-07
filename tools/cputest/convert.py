@@ -53,6 +53,9 @@ def parse(line):
     rec['post'] = state(t[k + 1:k + 1 + NSTATE])
     a, b = t[k + 1 + NSTATE][4:].split(',')
     rec['exc'], rec['excx'] = int(a), int(b)
+    if len(t) > k + 2 + NSTATE and t[k + 2 + NSTATE] == 'sp':           # the integer corpus's (se30dump.py)
+        sp = t[k + 3 + NSTATE:k + 8 + NSTATE]
+        rec['sp'] = [int(x, 16) for x in sp[:4]] + [int(sp[4])]
     w = rec['op']
     rec['words'] = [int(w[i:i + 4], 16) for i in range(0, len(w), 4)]
     return rec

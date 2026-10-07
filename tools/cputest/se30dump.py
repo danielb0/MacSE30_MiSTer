@@ -11,6 +11,11 @@ it without the 030's (the effective address, the dialog):
     mem       the instruction's top-level data reads and writes, in order:
               r<addr>:<size>:<value> or w<addr>:<size>:<value>
     exc       test_exception and test_exception_extra as the .dat stores them
+    sp        (after exc; the integer corpus, plan 1.18.6) USP, ISP and MSP
+              before, the ACTIVE A7 after and SR's S bit after: the A7 in
+              pre/post is the USP (execute_ins applies SR, and so picks the
+              ISP or MSP, only after the snapshot, and puts the USP back in
+              A7 on exit)
 
 A round the generator drops later (every round of an opcode skipped) is
 dropped here too.  Reads: the generator's get_byte/word/long_test, which the
@@ -26,6 +31,8 @@ GLOBALS = r'''
 // (tools/cputest/se30dump.py patched this in; not part of WinUAE)
 static FILE *se30_f;
 static int se30_on, se30_depth;
+static uae_u32 se30_post_a7;
+static int se30_post_s;
 static std::string se30_acc, se30_pending;
 static struct regstruct se30_pre;
 static void se30_log(char k, uaecptr a, int s, uae_u32 v)
@@ -80,8 +87,11 @@ RECORD = r'''								{	// SE/30 (plan 8.9.8)
 									s += se30_acc;
 									s += " post";
 									se30_state(s, &regs, regs.pc - extraopcodeendsize);
-									snprintf(b, sizeof b, " exc=%d,%d\n", test_exception, test_exception_extra);
+									snprintf(b, sizeof b, " exc=%d,%d", test_exception, test_exception_extra);
 									s += b;
+									char bs[96];	// its own: b[32] would cut it, and its newline
+									snprintf(bs, sizeof bs, " sp %08x %08x %08x %08x %d\n", se30_pre.usp, se30_pre.isp, se30_pre.msp, se30_post_a7, se30_post_s);
+									s += bs;
 									se30_pending += s;
 								}
 '''
@@ -119,6 +129,9 @@ def main(path):
             '\t\t\t\t\t\ttest_count_missed = 0;\n'
             '\t\t\t\t\t\tif (se30_f) fputs(se30_pending.c_str(), se30_f);\n'
             '\t\t\t\t\t\tse30_pending.clear();\n')
+    t = sub(t, '\tif (regs.s) {\n\t\tregs.regs[15] = regs.usp;\n\t}\n}\n',
+            '\tse30_post_a7 = regs.regs[15]; se30_post_s = regs.s;\n'
+            '\tif (regs.s) {\n\t\tregs.regs[15] = regs.usp;\n\t}\n}\n')
     t = sub(t, '\tstruct ini_data *ini = ini_load(_T("cputestgen.ini"), false);\n',
             '\tse30_f = fopen("se30_vectors.txt", "w");\n'
             '\tstruct ini_data *ini = ini_load(_T("cputestgen.ini"), false);\n')

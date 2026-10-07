@@ -3437,6 +3437,76 @@ would hit them.
     applications, Lode Runner). No ordinary software takes the changed
     path.
 
+### 1.18.6 The 68030 integer corpus (opened 2026-10-07, for an overnight run)
+
+**Why** (the audit's follow-up, Daniel: "At this stage, this kind of test
+is appropriate"): the 68882 was held to a corpus instruction by
+instruction (8.9.8), the integer side never was. Two of the three
+app-found bugs were integer instructions: CMPM.L (PC Exchange) and the
+combinational loop (Operation Intercept). WinUAE's `cputest` generates
+68030 integer rounds from its validated CPU: **a regression against
+WinUAE's 68030, not silicon** - a disagreement is a lead for the manual,
+not a verdict.
+
+**The tools:**
+- **`tools/cputest/se30dump.py`** (the generator patch) also writes `sp`:
+  USP, ISP and MSP before, the active A7 after, and S after. The record's
+  A7 is always the USP: `execute_ins` applies SR only after our snapshot
+  and puts the USP back on exit (`cputest.cpp` 4402, 4696). The generator
+  sets USP = the record's A7, ISP = `super_stack_memory - $80`, MSP =
+  `super_stack_memory`.
+  - A first version cut the field in the record's 32-byte buffer and lost
+    its newline: 148 MB of records with no line breaks; it now has its own
+    buffer.
+  - The rebuilt generator is `~/winuae_se30b/cputestgen` in WSL (WinUAE
+    `12ad6ac`). The FPU corpus's `~/winuae_se30` is untouched.
+- **`gen_ini_int.py`:** the 68020+ presets BASIC (every integer
+  instruction, all SR T/S/M combinations), EXTSRC and EXTDST (the full
+  extension word's addressing modes); cpu 68030, no FPU.
+- **`sample_int.py`:** the records stream through a pipe; it keeps up to N
+  rounds per form (the directory, the opcode with its register numbers
+  masked, S), a reservoir. Left out: traced rounds, exception rounds, and
+  instructions that would disturb the harness (control registers, the
+  PMMU, STOP, RESET).
+  - Six instruction groups gave 4.4 million records (about 4 GB) in 42 s;
+    every round is stored once per input-flag combination.
+  - `generate_int.sh` runs the three presets this way.
+- **`harness_i.py`, `sim/cputest_int` (`tb_cpu_int.v`, `run.sh`),
+  `hi_report.py`:**
+  - The bench: the kernel, the wrapper and GLUE with **8 MB of RAM decoded
+    in full**, so every round runs at its own addresses, with no
+    relocation (Harness B's 128 KB had to relocate).
+  - Each round:
+    - its input bytes are stored;
+    - its instruction is copied to the PC WinUAE ran it at, with a JMP back
+      at the PC WinUAE ended at, so PC-relative modes and branches run as
+      recorded;
+    - USP, ISP and MSP are loaded by MOVEC, then SR (which picks the active
+      stack) and D0-A6;
+    - afterwards SR (the CCR in user mode), D0-A7 and a copy of every
+      written byte are saved at once; a user-mode round comes back through
+      TRAP #15.
+  - A per-round watchdog (50,000 clocks) stops a batch that leaves the
+    harness.
+  - `hi_report.py` names each failure's round, instruction and field.
+- **Two harness mistakes the sample found (none was the CPU):**
+  - **A7 for supervisor rounds** was the USP: 20 failures, all byte
+    operands through A7; hence the `sp` field.
+  - **A taken branch's recorded PC is its target - 2, the target or the
+    target + 2.**
+    - The generator puts a NOP/ILLEGAL pair, in either order, after the
+      instruction and at a target.
+    - Its post PC subtracts the END pair's NOP (`extraopcodeendsize`)
+      whether or not that fits the target's pair (`BVC.S` gave target + 2,
+      `BGE.S` target - 2).
+    - So a round that leaves the straight path (post PC R) gets the
+      generator's NOP (`$2048`, MOVEA.L A0,A0, which touches nothing) at
+      R - 2 and R, and its JMP back at R + 2. Wherever the CPU really
+      landed, it slides into the JMP.
+- **Speed:** a 150-round batch takes about 2 minutes on one ModelSim
+  worker, the same with 8 in parallel (16 logical cores here). Each
+  worker's first kernel compile adds a few minutes.
+
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
 Opened 2026-09-25. This is the first cut from one research pass; it records
