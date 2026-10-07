@@ -4602,7 +4602,7 @@ assuming it, so a slower port costs clocks, never data.
       - a JTAG hold, -0.027 ns, on the probe deck's own `altsource_probe`
         shift register (`cp_pfln`, the JTAG clock). It touches only the
         probe readout and goes with the probes in the release.
-    - Waiting for the board: Lode Runner 1.0 and 1.2 in 24-bit mode.
+    - **On the board (Daniel): Lode Runner works in 24-bit mode.**
 - *Interrupt acknowledge* is decoded on `A17-A16` = 11 with FC = 7, the
   bits GLUE has (2.11.2); everything else in CPU space gets no answer
   and no timeout (1.4 item 4, 2.11.4).
@@ -17396,7 +17396,7 @@ suspect until shown otherwise:
 | TattleTech 2.17 | 50 | 32-bit | runs | General Hardware screen in 13.4.3 |
 | PC Exchange (DOS floppies) | 47 | 24-bit | **was a core bug**, fixed | kernel CMPM.L (KNOWN ISSUES 9) |
 | Operation Intercept | 42-43; recent | 24-bit | **was a core bug**, fixed; runs now | kernel combinational loop, d2291f6 |
-| Lode Runner 1.0 (MacPack `Games:1984`) | 51 | 24-bit | **was a core bug**: bus error on clicking the title screen; fix in compile 52 (`MacSE30_1d3c7276_a17mirror.rbf`) | GLUE A17 windows (2.11) |
+| Lode Runner 1.0 (MacPack `Games:1984`) | 51; 52 | 24-bit | **was a core bug**: bus error on clicking the title screen; **fixed in compile 52, plays** (Daniel) | GLUE A17 windows (2.11) |
 | Lode Runner 1.0 | 51 | 32-bit | bus error, **authentic** | 32-bit dirty: writes `$FFFFAE28` |
 | Lode Runner 1.2 (MacPack `Games:1985`) | 51 | 24-bit | same crash as 1.0 | MAME: the same write from the same PC |
 | Dark Castle | 51 | 24-bit | the demo runs | from a floppy, under System 7.5.5; Daniel, 2026-10-07 |
