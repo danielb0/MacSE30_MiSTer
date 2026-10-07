@@ -17375,7 +17375,7 @@ suspect until shown otherwise:
 | Title (version, source) | Compile | Mode | Result | Notes |
 |---|---|---|---|---|
 | QuarkXPress 3.2 | 31; recent | 24-bit | runs, stable | the LC's old crash case |
-| Microsoft Word 5 | recent | ? | runs | Daniel, 2026-10-07 |
+| Microsoft Word 5.1 | recent | ? | runs | Daniel, 2026-10-07 |
 | Microsoft Excel 4 | recent | ? | runs | Daniel, 2026-10-07 |
 | Lemmings | recent | ? | runs | Daniel, 2026-10-07 |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
