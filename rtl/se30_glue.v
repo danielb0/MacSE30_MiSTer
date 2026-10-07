@@ -162,7 +162,10 @@ module se30_glue (
   wire       low_sp = (cpu_addr[31:30] == 2'b00);
   wire       d_ram  = !fc7 && low_sp && !overlay;
   wire       d_rom  = !fc7 && ((cpu_addr[31:28] == 4'h4) || (low_sp && overlay));
-  wire       d_io   = !fc7 && (cpu_addr[31:24] == 8'h50) && !cpu_addr[17];
+  // A23-A17 ignored: Figure 3-6's reserved space "presently wraps $5000 0000-
+  // $5001 FFFF" (plan 2.11.2); A17 = 1 once bus-errored (Lode Runner's
+  // stray write to 24-bit $FFAE28)
+  wire       d_io   = !fc7 && (cpu_addr[31:24] == 8'h50);
   wire [3:0] win    = cpu_addr[16:13];
   wire       d_via1 = d_io && (win == 4'h0);
   wire       d_via2 = d_io && (win == 4'h1);

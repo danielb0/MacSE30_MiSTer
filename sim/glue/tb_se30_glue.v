@@ -12,7 +12,8 @@
 //     3. RAM banks: bank B starts at 1, 4, 16 or 64 MB by RAMSIZ;
 //        the bits above the two banks are ignored                      2.11.2
 //     4. I/O decode: every window of Figure 3-6 selects its device,
-//        at $5000xxxx and at $50F0xxxx alike; A23-A18 are ignored;
+//        at $5000xxxx and at $50F0xxxx alike; A23-A17 are ignored (the
+//        reserved space wraps $50000000-$5001FFFF, Figure 3-6);
 //        $50008000 and $51000000 get nothing                            2.11.2, rows 6, 13
 //     5. wait states: SWIM, SCSI, pseudo-DMA, expansion 4 clocks;
 //        ASC 5 read / 4 write; SCC >= 4 plus a 34-clock hold-off
@@ -375,6 +376,12 @@ module tb_se30_glue;
     rd_byte(32'h50F16000, 100); check(swim_strobes == t0 + 1 || swim_strobes == t0 + 2, "SWIM at $50F16000", 1, 1);
     rd_byte(32'h50008000, 2000); check(n == 0, "$50008000: no acknowledge, bus error", n, 0);
     rd_byte(32'h51000000, 2000); check(n == 0, "$51000000: no acknowledge, bus error", n, 0);
+    // A17 = 1: Figure 3-6's "Reserved for future expansion (presently wraps
+    // $5000 0000-$5001 FFFF)" - the devices again, not a bus error
+    t0 = via_strobes;  rd_byte(32'h50020000, 100); check(via_strobes == t0 + 1 && n > 0, "VIA1 at $50020000 (A17 ignored: the reserved space wraps)", via_strobes - t0, 1);
+    t0 = asc_strobes;  rd_byte(32'h50034005, 100); check(asc_strobes == t0 + 1 && rd[31:24] == 8'hA5, "ASC at $50034005 (A17 ignored)", rd[31:24], 8'hA5);
+    wr_word(32'h50FFAE28, 16'h1234); check(n > 0, "a word write to $50FFAE28 (24-bit $FFAE28, Lode Runner): acknowledged", n, 4);
+    rd_byte(32'h50028000, 2000); check(n == 0, "$50028000 (the $50008000 window, wrapped): bus error", n, 0);
     check(idle_asserts == 0, "no DSACK/BERR while AS* is high", idle_asserts, 0);
 
     // ---- 5. wait states

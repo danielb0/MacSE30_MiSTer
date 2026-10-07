@@ -4558,10 +4558,40 @@ assuming it, so a slower port costs clocks, never data.
   arrives in the four clocks after it waits, so the stall is at most one
   access (row 17). The core's SDRAM does its own refresh; the pulse is
   the pacing GLUE would have imposed.
-- *I/O windows with `A17` = 1* (`$50020000`-`$5003FFFF` and mirrors) get
+- ~~*I/O windows with `A17` = 1* (`$50020000`-`$5003FFFF` and mirrors) get
   nothing - a bus error. Figure 3-6 lists only the `A17` = 0 windows and
   the ROM addresses nothing there; **open** whether the real GLUE mirrors
-  them.
+  them.~~ **CLOSED 2026-10-07: they mirror.**
+  - **The evidence** is Figure 3-6 itself, read from the page image
+    (PDF page 172) rather than the text dump. Above `$50020000` its label
+    reads "Reserved for future expansion (Presently wraps $5000 0000-$5001
+    FFFF eight times)". Only `$51000000`-`$5FFFFFFF` is "Undecoded address
+    space (No DSACKx)". The text beneath says "The GLUE responds to any
+    I/O device address with a /DSACK0 signal".
+  - The figure also confirms the core's `$50008000`-`$5000FFFF`
+    "Expansion address space (No DSACKx)", a bus error, and its
+    `$50018000`-`$5001FFFF` "Expansion address space (One wait state)".
+  - "**Eight times**" does not fit a simple wrap of `$50020000`-
+    `$50FFFFFF` (that would be 127 copies). The core wraps the whole
+    reserved region, as the figure's boundaries show; how GLUE repeats
+    within it is not documented.
+  - **Found by Lode Runner 1.0** (1984, MacPack `Games:1984`; Daniel,
+    compile 51). Clicking its title screen makes a word write to 24-bit
+    `$FFAE28`, which is -`$51D8`, apparently a negative offset from a nil
+    pointer; MAME, PC `$006F37A8` in the game's heap. That is
+    `$50FFAE28`, A17 = 1, so the core bus-errored: "bus error", ID 01, in
+    24-bit mode under System 6 and 7. In 32-bit mode the same write goes
+    to `$FFFFAE28`, an unused slot, and bus-errors on the real machine
+    too: the game is 32-bit dirty.
+  - **MAME** (`macii.cpp`, `macii_map`) maps the devices with
+    `.mirror(0x00f00000)` (A20-A23) plus a VIA1 copy at `$50040000`, and
+    leaves the rest unmapped. Its 68030 never bus-errors there, so it
+    agrees with the figure on the A17 = 1 write and disagrees on
+    `$50008000`. A cross-check, not evidence.
+  - **Fix:** `se30_glue.v` `d_io` drops `!cpu_addr[17]`. `sim/glue` gains
+    four checks: VIA1 at `$50020000`; the ASC at `$50034005`; the word
+    write to `$50FFAE28` acknowledged; `$50028000` still a bus error. The
+    first three fail on the old RTL; 102 PASS.
 - *Interrupt acknowledge* is decoded on `A17-A16` = 11 with FC = 7, the
   bits GLUE has (2.11.2); everything else in CPU space gets no answer
   and no timeout (1.4 item 4, 2.11.4).
