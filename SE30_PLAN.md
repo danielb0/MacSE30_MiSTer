@@ -16963,6 +16963,7 @@ board regression list on that build.
     SE/30 behaviour); the SE/30 side is our RTC model's 256 bytes.
 - **Upgrades, after the first release:** CD audio (an option - or not at
   all if it does not fit); the 128 MB clean-ROM option; the colour card.
+  **All future additions are now gathered in FUTURE ADDITIONS, below.**
 - **Dropped:** the OSD unpaced switch (Daniel: not in the first release,
   probably never - the pre-pacing timing faults).
 - **Not yet decided:** the second floppy drive (built, out of builds since
@@ -16977,6 +16978,20 @@ board regression list on that build.
   much space"); third **floppy writing** (GCR
   and MFM - the read-only switch of 10.4.1 item 4); **CD-ROM is never
   dropped** - it is how software is installed.
+
+**FUTURE ADDITIONS (the list, opened 2026-10-07 by Daniel; add to it,
+strike what is built).** Features beyond the first release, with their
+status and where each was decided. Test tooling is not listed here.
+
+| # | Addition | Status | Recorded |
+|---|---|---|---|
+| 1 | **Programmer's interrupt (NMI)**: the SE/30's interrupt switch, for MacsBug. The level-7 NMI from a key (e.g. Pause/Break, today F15) or an OSD item beside Reset. GLUE already takes `nmi_n` (priority 7 in its encoder); the top ties it high (`MacSE30.sv`, `nmi_n(1'b1)`), and the keyboard map has no ADB Power key, so Command-Power cannot reach it either | **WANTED** (Daniel, 2026-10-07) - authentic: every SE/30 shipped with the switch | here |
+| 2 | **CD audio** | upgrade after the first release; the first to drop if space runs out | MVP and upgrades, above |
+| 3 | **128 MB RAM with a 32-bit-clean ROM** (a IIsi / IIfx ROM file) | upgrade after the first release; wanted (Daniel, 2026-09-27) | MVP and upgrades; 3.7 |
+| 4 | **A colour video card** in the PDS pseudo-slots `$9`-`$B`, an OSD option; the card, and one output or two screens, open | upgrade after the first release; wanted (Daniel, 2026-09-30) | MVP and upgrades |
+| 5 | **32 and 64 MB RAM**: the SDRAM controller learning the 64 MB modules, the OSD offering only what the fitted module holds | later, a separate decision (Daniel, 2026-10-07) | Section 13 |
+| 6 | **A/UX** | long-term compatibility target (Daniel, 2026-10-07) | FUTURE BOARD TESTS item 9 |
+| 7 | **The second (external) floppy drive**: built (compile 25), out of the builds since compile 37 for space | not yet decided | MVP and upgrades; 5.14 |
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
