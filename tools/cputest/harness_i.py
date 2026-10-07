@@ -67,6 +67,10 @@ def prepare(rec):
     """The round's facts, or None when the harness cannot run it."""
     if rec['exc'] != 4 or len(rec['mem']) < 3 or 'sp' not in rec:
         return None
+    if rec['post']['sr'] & 0xC000:
+        return None                             # it turns tracing on: the harness's next instruction would trace
+    if '/MOVES' in rec['dir']:
+        return None                             # SFC/DFC are not in the record
     acc = rec['mem'][:-3]                       # the end marker's frame: the last three writes
     pc0, pc1 = rec['pre']['pc'], rec['post']['pc']
     n = len(rec['words'])
