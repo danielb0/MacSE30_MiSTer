@@ -17379,6 +17379,7 @@ suspect until shown otherwise:
 | Microsoft Excel 4 | recent | ? | runs | Daniel, 2026-10-07 |
 | Lemmings | recent | ? | runs | Daniel, 2026-10-07 |
 | ConcertWare | recent | ? | plays music | the ASC; Daniel, 2026-10-07 |
+| Disk First Aid 7.2.2 | many | 24-bit | runs; checks floppies and the SCSI disk | used throughout the floppy-write and CD-ROM work |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
 | TattleTech 2.17 | 50 | 32-bit | runs | General Hardware screen in 13.4.3 |
