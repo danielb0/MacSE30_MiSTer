@@ -3548,6 +3548,17 @@ not a verdict.
     one regenerates kernel_bus's program for port 32.)
   - CHK2 and CMP2 are 68020-and-later instructions, so 1980s Mac software
     rarely meets the fault; why no application found it.
+  - **Compile 54, 2026-10-07 19:43-20:19 (Daniel: "Compile when the
+    benches pass"):** tag `dd3e3881`, archived
+    `output_files/MacSE30_dd3e3881_chk2.rbf`; 39,480 ALMs (94 %). Our
+    timing met at every corner (`sta_corners.tcl`; the capture by A or B
+    everywhere); every failing setup path is the framework's `ascal`
+    (`o_h_lum_pix` -> `o_poly_lum`): -0.461 ns at slow -40C, -0.278 at
+    slow 100C (KNOWN ISSUES 6). No combinational loop in STA; synthesis
+    lists the floppy decoder's eight `Add2` cells, as since compile 44.
+    Board check (Daniel): a regression check only - no symptom was ever
+    seen; boot, Speedometer unchanged, a few tested apps, a 32-bit boot.
+    After it, Daniel: the release ("we will have done what we can").
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
