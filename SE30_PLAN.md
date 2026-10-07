@@ -17385,7 +17385,14 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    lock, closed; the copy still "cannot be found" = compare with MAME
    writable again before calling it the software's.
 
-8. **Mounting a floppy image over one already mounted** (Daniel,
+8. ~~**Mounting a floppy image over one already mounted**~~ **CLOSED, NOT
+   TO BE TESTED (Daniel, 2026-10-07): "There is no point testing this if
+   it's just for curiosity. I don't see how we can safeguard against
+   damage in those cases; the Mac didn't, and nor can we."** A forced
+   removal (a mount over a mounted image, or the OSD's unmount) is the
+   paperclip, and it loses what the Mac had not written, as on the real
+   machine. Documented here; the user's safe order is a Finder eject
+   first. Was: (Daniel,
    2026-10-07: "I may have nuked a disk when doing this before. This may
    be authentic Mac behaviour. If you force-eject a disk with pending
    writes, it will not be a good day for that disk.")
