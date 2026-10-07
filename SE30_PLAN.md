@@ -18633,6 +18633,14 @@ repository and the MiSTer-devel question). PBER as option (a): "Go with
     blocks, 2 files); the file is identical to the CD's, both forks; the
     formatter's fill is there: 2,809 of 2,880 sectors all `$F6` against
     2,808 free blocks. **MFM format and write work beside the CD-ROM.**
+  - a boot from the hard disk with the CD and a floppy (no System) both
+    mounted, by the OSD Reset: **fine**.
+    - Longer than usual, because the reset left the hard disk not
+      unmounted cleanly (as the reset switch would), so System 7.5.5
+      checked the volume.
+    - The CD was mounted again.
+    - The floppy was not: expected, since the ROM ejects a disk with no
+      System during the startup search, as on the real machine.
 - **Next:** the release profile (plan 10.4.2: no probes, no raw SDRAM
   experiment port, `SE30_PBER` off) on a `release` branch.
 
