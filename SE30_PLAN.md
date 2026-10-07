@@ -4592,6 +4592,17 @@ assuming it, so a slower port costs clocks, never data.
     four checks: VIA1 at `$50020000`; the ASC at `$50034005`; the word
     write to `$50FFAE28` acknowledged; `$50028000` still a bus error. The
     first three fail on the old RTL; 102 PASS.
+  - **Compile 52** (`output_files/MacSE30_1d3c7276_a17mirror.rbf`,
+    2026-10-07, 38 min):
+    - 39,280 ALMs (94 %); no combinational loop.
+    - **The machine's timing is met at every corner:** worst setup
+      +0.320 ns (slow 100 C).
+    - **Failing, none of it the machine:**
+      - the framework's `ascal`, -0.560 ns setup at slow -40 C;
+      - a JTAG hold, -0.027 ns, on the probe deck's own `altsource_probe`
+        shift register (`cp_pfln`, the JTAG clock). It touches only the
+        probe readout and goes with the probes in the release.
+    - Waiting for the board: Lode Runner 1.0 and 1.2 in 24-bit mode.
 - *Interrupt acknowledge* is decoded on `A17-A16` = 11 with FC = 7, the
   bits GLUE has (2.11.2); everything else in CPU space gets no answer
   and no timeout (1.4 item 4, 2.11.4).
@@ -17385,10 +17396,10 @@ suspect until shown otherwise:
 | TattleTech 2.17 | 50 | 32-bit | runs | General Hardware screen in 13.4.3 |
 | PC Exchange (DOS floppies) | 47 | 24-bit | **was a core bug**, fixed | kernel CMPM.L (KNOWN ISSUES 9) |
 | Operation Intercept | 42-43; recent | 24-bit | **was a core bug**, fixed; runs now | kernel combinational loop, d2291f6 |
-| Lode Runner 1.0 (MacPack `Games:1984`) | 51 | 24-bit | **was a core bug**: bus error on clicking the title screen; fix in compile 52 | GLUE A17 windows (2.11) |
+| Lode Runner 1.0 (MacPack `Games:1984`) | 51 | 24-bit | **was a core bug**: bus error on clicking the title screen; fix in compile 52 (`MacSE30_1d3c7276_a17mirror.rbf`) | GLUE A17 windows (2.11) |
 | Lode Runner 1.0 | 51 | 32-bit | bus error, **authentic** | 32-bit dirty: writes `$FFFFAE28` |
 | Lode Runner 1.2 (MacPack `Games:1985`) | 51 | 24-bit | same crash as 1.0 | MAME: the same write from the same PC |
-| Dark Castle | 51 | ? | the demo runs | Daniel, 2026-10-07 |
+| Dark Castle | 51 | 24-bit | the demo runs | from a floppy, under System 7.5.5; Daniel, 2026-10-07 |
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
