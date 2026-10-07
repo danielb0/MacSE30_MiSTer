@@ -17362,6 +17362,29 @@ Daniel - add to it, move items out when fixed).**
     `autoboot_script` that issues debugger commands) is in the memory
     note `reference-mame-se30`.
 
+**APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
+further application testing ("Random testing of apps has yielded real bugs
+several times now"; "Lode Runner ... will be one of the first things users
+try. It has to work"). One row per title and version; a crash is a core
+suspect until shown otherwise:
+1. try the other mode (24-bit / 32-bit): pre-1987 software is 32-bit dirty,
+   and on a real SE/30 it crashes in 32-bit mode too;
+2. MAME's SE/30 with the same image. Remember MAME acknowledges every
+   unmapped address, so it is a cross-check, never evidence.
+
+| Title (version, source) | Compile | Mode | Result | Notes |
+|---|---|---|---|---|
+| QuarkXPress | 31 | 24-bit | runs, stable | the LC's old crash case |
+| Prince of Persia | 31 | 24-bit | runs, music plays | ASC (Section 11) |
+| Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
+| TattleTech 2.17 | 50 | 32-bit | runs | General Hardware screen in 13.4.3 |
+| PC Exchange (DOS floppies) | 47 | 24-bit | **was a core bug**, fixed | kernel CMPM.L (KNOWN ISSUES 9) |
+| Operation Intercept | 42-43 | 24-bit | **was a core bug**, fixed | kernel combinational loop, d2291f6 |
+| Lode Runner 1.0 (MacPack `Games:1984`) | 51 | 24-bit | **was a core bug**: bus error on clicking the title screen; fix in compile 52 | GLUE A17 windows (2.11) |
+| Lode Runner 1.0 | 51 | 32-bit | bus error, **authentic** | 32-bit dirty: writes `$FFFFAE28` |
+| Lode Runner 1.2 (MacPack `Games:1985`) | 51 | 24-bit | same crash as 1.0 | MAME: the same write from the same PC |
+| Dark Castle | 51 | ? | the demo runs | Daniel, 2026-10-07 |
+
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
 1. ~~**32-bit mode with MODE32**~~ **DONE 2026-10-05 on the mode32-berr compile** (Daniel, 2026-10-04): install MODE32 with
