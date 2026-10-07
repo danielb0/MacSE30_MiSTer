@@ -17555,7 +17555,7 @@ suspect until shown otherwise:
 | Microsoft Word 5.1 | recent | ? | runs | Daniel, 2026-10-07 |
 | Microsoft Excel 4 | recent | ? | runs | Daniel, 2026-10-07 |
 | Lemmings | recent | ? | runs | Daniel, 2026-10-07 |
-| Lemmings (a later version) | 53 | ? | runs | Daniel, 2026-10-07 |
+| Lemmings 1.5.2 (1993) | 53 | ? | runs | Daniel, 2026-10-07 |
 | Gauntlet | 53 | ? | runs | Daniel, 2026-10-07 |
 | ConcertWare | recent | ? | plays music | the ASC; Daniel, 2026-10-07 |
 | Disk First Aid 7.2.2 | many | 24-bit | runs; checks floppies and the SCSI disk | used throughout the floppy-write and CD-ROM work |
