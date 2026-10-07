@@ -17400,6 +17400,18 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    copy onto it, then another image mounted over it. Note what the Mac
    shows, and check the first image on the PC (volume consistent? the
    copy complete?) so the warning says what actually happens.
+   **RESULT (Daniel, compile 49, 2026-10-07): no damage.** The 800K image
+   mounted over the 1.44 MB one (both carried Finder copies made earlier
+   in the session; no copy was in flight - Daniel: "That is actually
+   impossible in System 7"). Host check of both, kept at
+   `Test disks\Written\SE30\Clash\`: `hfs_vol` 0 problems each, bitmap
+   = blocks in use (66 and 46); the copied "System 7.1 CD-ROM - Read Me"
+   is identical to the CD's in type, data fork and resource fork on both.
+   (`node_check` flags node 0 on these and on a known-good image alike:
+   it is the B-tree header node, unkeyed - the tool's false alarm.) So a
+   mount over an idle disk loses nothing; the case that can lose data is
+   a write still pending, which this did not exercise and which stays
+   untested by Daniel's decision above. The README warning stands.
    **The docs item stands either way.** Was: (Daniel,
    2026-10-07: "I may have nuked a disk when doing this before. This may
    be authentic Mac behaviour. If you force-eject a disk with pending
