@@ -17391,6 +17391,8 @@ suspect until shown otherwise:
 | Lemmings | recent | ? | runs | Daniel, 2026-10-07 |
 | ConcertWare | recent | ? | plays music | the ASC; Daniel, 2026-10-07 |
 | Disk First Aid 7.2.2 | many | 24-bit | runs; checks floppies and the SCSI disk | used throughout the floppy-write and CD-ROM work |
+| Microsoft PowerPoint | 52 | ? | appears to work | Daniel, 2026-10-07 |
+| WordPerfect 3.1 | 52 | ? | appears to work | Daniel, 2026-10-07 |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
 | TattleTech 2.17 | 50 | 32-bit | runs | General Hardware screen in 13.4.3 |
@@ -17398,7 +17400,7 @@ suspect until shown otherwise:
 | Operation Intercept | 42-43; recent | 24-bit | **was a core bug**, fixed; runs now | kernel combinational loop, d2291f6 |
 | Lode Runner 1.0 (MacPack `Games:1984`) | 51; 52 | 24-bit | **was a core bug**: bus error on clicking the title screen; **fixed in compile 52, plays** (Daniel) | GLUE A17 windows (2.11) |
 | Lode Runner 1.0 | 51 | 32-bit | bus error, **authentic** | 32-bit dirty: writes `$FFFFAE28` |
-| Lode Runner 1.2 (MacPack `Games:1985`) | 51 | 24-bit | same crash as 1.0 | MAME: the same write from the same PC |
+| Lode Runner 1.2 (MacPack `Games:1985`) | 51; 52 | 24-bit | same crash as 1.0 on 51; **works on 52** | MAME: the same write from the same PC |
 | Dark Castle | 51 | 24-bit | the demo runs | from a floppy, under System 7.5.5; Daniel, 2026-10-07 |
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
