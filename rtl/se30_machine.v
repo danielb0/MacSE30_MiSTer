@@ -22,8 +22,9 @@
 //   32-bit port: mem_start is the 68030's ECS with a RAM or ROM address
 //   (GLUE's decode without AS*), mem_req is GLUE's request, and the
 //   acknowledge with its data is the cycle's (plan 3.2, 3.3).  The
-//   address is a longword address in the 32 MB: RAM at 0 (8 MB, GLUE's
-//   flat address truncated), the ROM's 64K longwords at $200000.
+//   address is a longword address in the 32 MB: RAM at 0 (8 or 16 MB,
+//   GLUE's flat address through the SIMMs, se30_simms, plan 13.4), the
+//   ROM's 64K longwords at $600000 (word $C00000, 24 MB).
 //
 // THE VIAs (plan 4.5, 4.7)
 //   A port pin is OR where DDR says output and the external driver
@@ -84,6 +85,7 @@ module se30_machine #(
   input         phi1,
   input         phi2,
   input         reset_n,
+  input         ram16,                 // the SIMMs: 0 = 8 MB, 1 = 16 MB (se30_simms; the top latches it at reset)
 
   // the memory port, to se30_sdram
   output        mem_start,
@@ -236,6 +238,9 @@ module se30_machine #(
   wire        mem_early, rom_early;
   wire        ram_req, ram_we, ram_ack, rom_req, rom_ack, ram_refresh;
   wire [24:0] ram_addr;
+  wire [31:0] ram_rdata;                   // mem_rdata, all ones from an empty bank (se30_simms);
+                                           // GLUE's RAM and ROM data both: their acknowledges are
+                                           // one signal, and GLUE takes the ROM's last
   wire  [3:0] ram_be;
   wire [31:0] ram_wdata;
   wire [15:0] rom_addr;
@@ -265,8 +270,8 @@ module se30_machine #(
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n),
     .mem_early(mem_early), .rom_early(rom_early),
     .ram_req(ram_req), .ram_we(ram_we), .ram_addr(ram_addr), .ram_be(ram_be), .ram_wdata(ram_wdata),
-    .ram_rdata(mem_rdata), .ram_ack(ram_ack), .ram_refresh(ram_refresh),
-    .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(mem_rdata), .rom_ack(rom_ack),
+    .ram_rdata(ram_rdata), .ram_ack(ram_ack), .ram_refresh(ram_refresh),
+    .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(ram_rdata), .rom_ack(rom_ack),
     .via1_sel(via1_sel), .via2_sel(via2_sel), .scc_sel(scc_sel), .scsi_sel(scsi_sel), .scsi_dack(scsi_dack),
     .asc_sel(asc_sel), .swim_sel(swim_sel), .exp_sel(exp_sel), .dev_strobe(dev_strobe), .dev_addr(dev_addr),
     .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(scsi_drq),
@@ -304,8 +309,22 @@ module se30_machine #(
   // ROM's RAM tests failed into the serial test manager on the board, and
   // the bench hid it behind unwritten RAM reading X. A ROM write stays a
   // no-op (GLUE acknowledges it).
-  assign mem_we    = !rom_early && ram_we;
-  assign mem_addr  = rom_early ? {2'b01, 5'b00000, rom_addr} : {2'b00, ram_addr[20:0]};
+  // The SIMMs (plan 13.4): RAM at longwords $000000-$3FFFFF of the SDRAM,
+  // 8 or 16 MB; an access to an empty bank goes as a read and hands the
+  // CPU all ones.  The ones go onto the data GLUE takes for RAM and ROM
+  // alike (both acknowledges are mem_ack, and GLUE's din_r takes the ROM
+  // port's data last), so empty_q is latched on every access and cleared
+  // by a ROM one.  The ROM at word $C00000 (24 MB), above the largest RAM
+  // and the floppy images (16 and 18 MB).
+  wire [21:0] ram_phys;
+  wire        ram_empty, ram_empty_q;
+  se30_simms simms (
+    .clk(clk), .big(ram16), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(mem_start), .sel(!rom_early),
+    .phys(ram_phys), .empty(ram_empty), .empty_q(ram_empty_q));
+  assign ram_rdata = mem_rdata | {32{ram_empty_q}};
+
+  assign mem_we    = !rom_early && ram_we && !ram_empty;
+  assign mem_addr  = rom_early ? {2'b11, 5'b00000, rom_addr} : {1'b0, ram_phys};
   assign mem_be    = ram_be;
   assign mem_wdata = ram_wdata;
   assign ram_ack   = mem_ack;

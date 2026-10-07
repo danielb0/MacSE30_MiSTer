@@ -104,7 +104,7 @@ module tb_se30_machine;
   assign dq_chip = oe_c ? dq_out_c : 16'hzzzz;
   assign #(DQ_TO_REG) sd_dq = sdram.dq_oe ? 16'hzzzz : dq_chip;
 
-  sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'h400000), .FILL_UNWRITTEN(1)) chip (
+  sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1)) chip (
     .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
     // the chip's DQM is the A12/A11 traces, as on the MiSTer modules (the
     // controller header's THE MASK); dqm_c, the FPGA's DQM pins, reaches nothing
@@ -118,7 +118,7 @@ module tb_se30_machine;
   wire        cpu_as_n, cpu_rw_n, berr, halted, reset_out_n;
 
   se30_machine #(.DECLROM_HEX("declrom.hex"), .FPU_UCODE("../../rtl/fpu/ucode/")) machine (
-    .clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
+    .clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .ram16(1'b0),
     .mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
     .mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
     .declrom_we(1'b0), .declrom_waddr(13'd0), .declrom_wdata(8'd0),

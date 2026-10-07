@@ -18671,6 +18671,29 @@ repository and the MiSTer-devel question). PBER as option (a): "Go with
     - The floppy was not: expected, since the ROM ejects a disk with no
       System during the startup search, as on the real machine.
       Remounted from the OSD afterwards, it mounted cleanly (Daniel).
+- **Speedometer 4.02 on compile 49** (Daniel, 2026-10-07,
+  `C:\temp\Mac\Screenshots\20261007_101258-screen.png`; Comparison -
+  Machine Records against the built-in "Mac SE/30"; Quadra 605 = 1.0; the
+  compile 30 column is the 2026-10-03 table of 1.16.3's era, before the
+  paced kernel):
+
+  | Test | Real SE/30 (record) | Compile 30 | Compile 49 | 49 / real |
+  |---|---|---|---|---|
+  | CPU | 0.27 | 0.32 | **0.27** | 1.00 |
+  | Graphics | 0.23 | 0.16 | 0.16 | 0.70 (Low End Mac's real SE/30: 0.16 - closed) |
+  | Disk | 0.57 | 0.48 | 1.14 | 2.0 (the SD at full speed, authentic by Daniel's rule) |
+  | Math | 0.97 | 1.08 | 1.12 | 1.15 (KNOWN ISSUES, accepted) |
+  | PR | 0.31 | 0.27 | 0.27 | 0.87 |
+  | KWhet / Dhry / Towers | 0.21 / 0.22 / 0.24 | 0.23 / 0.20 / 0.20 | 0.25 / 0.18 / 0.22 | 1.19 / 0.82 / 0.92 |
+  | Quicksort / Bubble / Queens | 0.25 / 0.26 / 0.24 | 0.32 / 0.33 / 0.27 | 0.27 / 0.26 / 0.25 | 1.08 / 1.00 / 1.04 |
+  | Puzzle / Permute / Int. Matrix / Sieve | 0.24 / 0.24 / 0.23 / 0.28 | 0.31 / 0.22 / 0.33 / 0.28 | 0.25 / 0.26 / 0.25 / 0.26 | 1.04 / 1.08 / 1.09 / 0.93 |
+  | Bench. Ave. | 0.24 | 0.27 | **0.25** | 1.04 |
+  | FPU FFT / KWhet / Matrix / Ave. | 0.09 / 0.19 / 0.10 / 0.12 | 0.07 / 0.17 / 0.09 / 0.11 | 0.08 / 0.17 / 0.09 / 0.11 | 0.89 / 0.89 / 0.90 / 0.92 |
+
+  - **CPU matches the real machine** (it was +19 % before the paced
+    kernel). The integer tests now run from -18 % to +19 %, most within
+    10 %; before pacing they ran up to +43 % (Int. Matrix).
+  - Nothing moved with the CD-ROM and floppy-write merge.
 - **Next:** the release profile (plan 10.4.2: no probes, no raw SDRAM
   experiment port, `SE30_PBER` off) on a `release` branch.
 
@@ -18787,8 +18810,34 @@ Work on branch `pram`, cut from `dev` at `862bdee`.
     the final word overwrites.
   - `sim/rtc` PASS; `sim/machine` 17 PASS;
   - Quartus Analysis & Synthesis: 0 errors.
+- **Compile 50** (`output_files/MacSE30_f2237328_pram.rbf`, 2026-10-07,
+  36 min):
+  - **39,009 ALMs (93 %)**, 362 of 553 RAM blocks;
+  - no combinational loop;
+  - **our timing met at every corner**: worst setup +0.493 ns and hold
+    +0.241 ns at slow -40 C, positive at both fast corners; the capture
+    has A or B met at every corner;
+  - **only the framework's `ascal` fails** (-0.139 ns setup at slow
+    -40 C, `o_vpix_inner` -> `o_poly_lum`), as on compile 49.
+  - **A flow incident, mine:** I added `se30_simms.v` to `files.qip`
+    while the fitter ran. Quartus logged Error 125085, rewrote the qsf
+    from its in-memory settings, then crashed on exit after "Fitter was
+    successful" (Error 293007), so the flow ran neither the assembler nor
+    STA. The fit was complete. `quartus_asm` (27 s) and `quartus_sta` +
+    `sta_corners.tcl` were run on it by hand; the qsf was restored. The
+    netlist is `f2237328`'s: synthesis had finished before any edit.
+- **On the board (Daniel, 2026-10-07): "It works"** (13.3 item 4, with
+  `C:\temp\Mac\MacSE30.nvr`). His notes:
+  - **start-up takes marginally longer**: the machine is held until the
+    image's load lands (READY), by design;
+  - **Mount PRAM and Wipe PRAM both restart the machine at once**: the
+    late-load RESTART and the wipe's restart, both the LC's model, by
+    design.
+  - "This should be in the docs": **README.md now has a "Using the core"
+    section** covering PRAM (load, save, the two restarts, the start-up
+    wait, no image, the clock not kept) and the floppy-over-floppy
+    warning (FUTURE BOARD TESTS item 8).
 - **Next:**
-  - a compile and the board (13.3 item 4);
   - the release's default `MacSE30.nvr` (512 zero bytes) goes into the
     `release` branch's files.
 
@@ -18800,6 +18849,167 @@ Documentation first, as plan 3.7 already asks:
 - GLUE's bank decode and VIA2's `RAMSIZ` straps.
 
 Then the SDRAM map: the ROM and floppy images move above 16 MB.
+
+### 13.4.1 How the ROM sizes RAM (read 2026-10-07)
+
+Read from the ROM with Capstone (68030 mode). This answers 3.7's
+empty-bank question, open since 2026-09-27.
+
+- **Where.** In the test manager's start-up path:
+  - the prelude at `$4083F8C8`, 128 longword reads at 1 MB steps with
+    `RAMSIZ` = 11 (reads only: a DRAM wake-up);
+  - the RAM test of `$0-$400` (`$40802B28`);
+  - then **`jmp $408035A4` at `$40802B4E`, on every reset**. Its result
+    (`D6`, the top of RAM) becomes the stack, then `A6`, the start-up
+    chain's memory top.
+  - The warm-start flag (`'WLSC'` at `$CFC`, tested at `$408000E4`)
+    skips only the second full RAM test (`$40802BBC`), never the sizing.
+  - **So an OSD reset after the memory option changes is sized
+    afresh.**
+- **Phase 1, the bank size** (`$408035A4`): pairs (probe address in MB,
+  `RAMSIZ`) from `$40803664`: (32, 11), (8, 10), (2, 01), (1, 00), `FF`.
+  For each pair, VIA2 DDRA |= `$C0` and ORA's top two bits := `RAMSIZ`,
+  then the probe below with the reference longword at 0. **The first
+  probe that passes keeps its `RAMSIZ`.**
+- **Phase 2, the total** (`$408035E0`): the size table at `$4080366E`
+  (`01 02 04 05 08 10 11 14 20 40 41 44 50 80`) with a reference address
+  per entry from `$40803682` (0 for most; 4 MB for 5; 16 MB for 17 and 20;
+  64 MB for 65, 68 and 80). Probes in order; **the installed size is the
+  first entry whose probe fails** (128 MB if all pass).
+- **The probe** (`$40803610`, size S MB, reference R):
+  - pattern = S's byte in all four lanes; address A = S << 20;
+  - `CLR.L (R)`;
+  - 8 times:
+    - write the pattern at A;
+    - **fail if (R) is no longer 0** (A aliased onto R);
+    - **write `$FFFFFFFF` to `$4` twice**;
+    - read A: pass if **any one byte lane** matches the pattern;
+    - rotate the pattern left by 1.
+  - The two writes of all ones are the ROM's own answer to the floating
+    bus. **An empty bank's read returns the ones the ROM just drove: an
+    empty bank reads `$FFFFFFFF`**, and the core models exactly that (no
+    pattern the probe uses has an `$FF` byte).
+- **What it needs from the hardware:**
+  - **bank A aliases modulo its chips' size inside GLUE's bank-A range;**
+  - bank B starts at the `RAMSIZ` boundary (2.11.2, as GLUE has it);
+  - an empty bank reads all ones and keeps nothing;
+  - GLUE acknowledges an empty bank like a full one (no bus error: GLUE
+    cannot know).
+- **The two configurations, walked through:**
+
+| | 8 MB (as now) | 16 MB |
+|---|---|---|
+| SIMMs | 4 x 1 MB (1 Mbit) in each bank | 4 x 4 MB (4 Mbit) in bank A, bank B empty |
+| phase 1 (32, 11) | 32 MB aliases onto 0: fail | 32 MB aliases onto 0: fail |
+| phase 1 (8, 10) | 8 MB aliases onto 0 (4 MB bank A): fail | inside bank A: **pass, `RAMSIZ` = 10** |
+| phase 1 (2, 01) | **pass, `RAMSIZ` = 01** | - |
+| phase 2 | 1, 2, 4, 5 pass; 8 aliases (bits above the banks ignored): **8 MB** | 1-8 pass; 16 is bank B, empty, reads ones: **16 MB** |
+
+### 13.4.2 The design
+
+1. **`rtl/se30_simms.v`** (new), between GLUE's `ram_addr` and the
+   SDRAM: the SIMMs on the board.
+   - Input `big` (0 = 8 MB, 1 = 16 MB) and `RAMSIZ`.
+   - Bank B is GLUE's boundary bit: A20, A22, A24, A26 for `RAMSIZ`
+     00-11 (`ram_addr` bit 18 + 2 x `RAMSIZ`).
+   - The offset is the bits below that boundary, masked to the bank's
+     chip size: 4 MB (8 MB config) or 16 MB (bank A, 16 MB config).
+   - 8 MB: `{bank B, offset[19:0]}`.
+   - 16 MB: `offset[21:0]` for bank A; bank B empty.
+   - An access to an empty bank goes to the SDRAM as a read (writes
+     lost) and the CPU is handed `$FFFFFFFF` (a flag registered with the
+     access).
+   - **Undocumented and unreachable:** what GLUE drives on a chip's top
+     address pins when `RAMSIZ` is below the chips' size. The walk above
+     never settles there (it would need phase 1 to fail first), so the
+     model drives 0.
+   - **Unchanged for 8 MB in the state the ROM leaves** (`RAMSIZ` = 01):
+     the same physical address as today's `ram_addr[20:0]`, for every
+     address. During phase 1 (`RAMSIZ` 11, 10) it now aliases at 4 MB,
+     like the real 1 Mbit chips, instead of at 8 MB. The probes give the
+     same verdicts either way (table above).
+2. **The SDRAM map:**
+   - RAM at longwords `$000000-$3FFFFF` (up to 16 MB);
+   - **the ROM moves from word `$400000` (8 MB) to word `$C00000`
+     (24 MB)**;
+   - the floppy images stay at words `$800000` and `$900000` (16 and
+     18 MB), already above 16 MB of RAM;
+   - the read-capture training pair stays at the top (word `$FFFFFE`).
+   - **It still fits the 32 MB module**, the smallest MiSTer SDRAM.
+   - Changes: `se30_machine.v` (the ROM's prefix), `MacSE30.sv` (the
+     download's base), the sim/machine bench (preload base).
+     `sim/gcrread` and `sim/system` wire GLUE to their own memory and
+     keep the old flat 8 MB map, consistent within each bench; for 8 MB
+     the ROM's verdicts are the same under it (13.4.3, mutant F).
+3. **The OSD:**
+   - `"O[4],Memory,8 MB,16 MB;"`: status bit 4, default 0 = 8 MB, so
+     existing configurations keep today's machine;
+   - latched while the machine is held in reset, as fitting SIMMs is a
+     power-off job;
+   - `"R[0],Reset & Apply Memory;"`, the LC's wording ("Reset & Apply
+     CPU+Memory"); the ROM re-sizes on that reset (13.4.1).
+4. **The tests:**
+   - **`sim/simms` (new):** the ROM's sizing (phases 1 and 2 and the
+     probe, step for step as read above) run against `se30_simms` and a
+     RAM model. It must find `RAMSIZ` 01 and 8 MB, and `RAMSIZ` 10 and
+     16 MB. Further checks:
+     - for 8 MB with `RAMSIZ` 01, every address maps as `ram_addr[20:0]`
+       (sweep plus random);
+     - an empty bank's write is lost and its read is all ones;
+     - mutants: no alias in bank A, an empty bank reading zero, or one
+       echoing the last write. Each should make the ROM find the wrong
+       size.
+   - `sim/glue` unchanged (GLUE is not touched); `sim/machine` with the
+     new ROM base.
+   - **The board:**
+     - 8 MB: About This Macintosh shows 8,192K as now;
+     - 16 MB + OSD reset: 16,384K. In 24-bit mode the System uses 8 MB
+       and books the rest to itself (as MAME showed with 64 MB);
+     - 32-bit addressing on (Memory control panel, MODE32 where needed),
+       which persistent PRAM now keeps: all 16 MB available;
+     - back to 8 MB: sized down cleanly.
+
+### 13.4.3 As built (2026-10-07, during the PRAM compile)
+
+- **`rtl/se30_simms.v`** as 13.4.2 item 1. In `se30_machine.v` it sits
+  between GLUE's `ram_addr` and `mem_addr`:
+  - `start` = `mem_start`, `sel` = a RAM access; `empty_q` is latched on
+    every access and cleared by a ROM one;
+  - `mem_we` is dropped for an empty bank;
+  - **both** of GLUE's data inputs take `mem_rdata | {32{empty_q}}`.
+    **A first version ORed the ones into `ram_rdata` only, and Quartus
+    A&S removed `empty_q` ("Lost fanout"; `se30_simms` 1 ALUT).** In
+    the machine, `ram_ack` and `rom_ack` are both `mem_ack`, and GLUE's
+    `din_r` takes `rom_rdata` last (`se30_glue.v` 264-265), so its
+    `ram_rdata` input is dead. Hence one data bus, and the flag cleared
+    by every ROM access. The bench models the OR itself, so it could not
+    see this; A&S's fanout warnings are the check.
+- **The ROM** at longword `$600000` (word `$C00000`), in
+  `se30_machine.v` and the download in `MacSE30.sv`.
+- **`MacSE30.sv`:** `"O[4],Memory,8 MB,16 MB;"`, `"R[0],Reset & Apply
+  Memory;"`, `ram16` latched from status bit 4 while `machine_reset_n` is
+  low.
+- **`sim/simms` 10 PASS** (4 s): the ROM's sizing finds RAMSIZ 01 and 8 MB,
+  and RAMSIZ 10 and 16 MB. For 8 MB at RAMSIZ 01, 100,030 addresses all
+  map as `ram_addr[20:0]`. Bank B reads ones and keeps nothing; bank A
+  repeats above the banks. **Mutants:**
+
+| mutant | result |
+|---|---|
+| A: 16 MB with 4 MB chips | **the ROM's sizing finds 4 MB** (RAMSIZ 01): caught |
+| B: the RAMSIZ 10 boundary a bit low | **the ROM finds 4 MB in both configs**: caught |
+| C: an empty bank reads what the SDRAM holds | the ROM still finds 16 MB; caught only by check 4 |
+| D: bank B mirrors bank A (writes land) | the ROM still finds 16 MB; caught by check 4 |
+| E: 8 MB without the 4 MB alias | the ROM still finds 8 MB; caught by check 3 |
+| F: today's flat 8 MB map (`ram_addr[20:0]`) | **passes all 9** (run before check 10 existed): the 8 MB machine's sizing verdicts are unchanged |
+| G: `empty_q` not cleared by a ROM access | caught by check 10 (a ROM read after an empty-bank read would return ones) |
+
+  C and D show that **the ROM cannot tell an empty bank from an aliased
+  one**: the 16 MB probe fails on either. The all-ones read is what the
+  hardware does, and it stays on that ground, but it is not load-bearing
+  for the sizing.
+- **`sim/machine` 17 PASS** (1 min 36 s): the ROM, now fetched from 24
+  MB, runs from reset into its RAM tests as before.
 
 ---
 

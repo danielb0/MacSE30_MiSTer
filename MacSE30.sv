@@ -133,8 +133,9 @@ localparam CONF_STR = {
 	"SC5,NVR,Mount PRAM;",
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"O[4],Memory,8 MB,16 MB;",
 	"-;",
-	"R[0],Reset;",
+	"R[0],Reset & Apply Memory;",
 	"R[3],Wipe PRAM (erases settings!);",
 	"v,0;",
 	"V,v",`BUILD_DATE
@@ -288,6 +289,12 @@ always @(posedge clk_sys) begin
 	else machine_reset_n <= 1;
 end
 
+// The memory option (plan 13.4): the SIMMs change only while the machine is
+// held, as fitting them is a power-off job; the ROM sizes RAM afresh on
+// every reset (plan 13.4.1), so "Reset & Apply Memory" is enough.
+reg ram16 = 0;
+always @(posedge clk_sys) if (!machine_reset_n) ram16 <= status[4];
+
 ///////////////////////   PERSISTENT PRAM   //////////////////////
 // The RTC's 256 bytes in one sector of the SC5 image (plan 13.2, the LC
 // core's model): loaded when the image mounts, saved ~2 s after the Mac's
@@ -343,7 +350,7 @@ always @(posedge clk_sys) begin
 	declrom_we <= 0;
 	if (ioctl_wr && ioctl_download && boot0) begin
 		dl_req  <= 1;
-		dl_addr <= 24'h400000 + ioctl_addr[18:1];
+		dl_addr <= 24'hC00000 + ioctl_addr[18:1];       // word $C00000: 24 MB, above 16 MB of RAM (plan 13.4)
 		dl_data <= {ioctl_dout[7:0], ioctl_dout[15:8]};   // byte 0 is the low half of the HPS word
 	end else if (dl_req && dl_ack) dl_req <= 0;
 
@@ -643,7 +650,7 @@ end
 
 se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN)) machine
 (
-	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n),
+	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram16(ram16),
 	.mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
 	.mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
 	.declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),

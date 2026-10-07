@@ -23,6 +23,39 @@ folder on the SD card:
 | `boot1.rom` | the video declaration ROM, Apple part 341-0650 | 8 KB |
 | `boot2.rom` | the ADB transceiver's program, Apple part 342S0440-B (a PIC1654S; MAME's `342s0440-b.bin`, CRC32 `cffb33eb`). Without it the keyboard and mouse do not work and start-up waits in the ADB initialisation | 1 KB |
 
+## Using the core
+
+### PRAM (parameter RAM)
+
+The SE/30 keeps its settings in the clock chip's 256 bytes of PRAM: the
+startup disk, 32-bit addressing, the sound volume, the mouse and keyboard
+settings, and so on. The core keeps them in a PRAM image, `MacSE30.nvr`
+(512 bytes; a blank image is all zeros), in the OSD's **Mount PRAM** slot:
+
+- **Load:** the image is read when it is mounted. MiSTer mounts it again
+  each time the core starts, and the Mac waits for it before booting, so
+  start-up takes a moment longer than without one.
+- **Save:** a change the Mac makes is written back about two seconds
+  later, and again whenever the OSD opens.
+- **Mount PRAM restarts the Mac at once**, so that it comes up on the
+  settings it has just loaded.
+- **Wipe PRAM (erases settings!)** zeroes the PRAM, saves the zeros to
+  the image and restarts the Mac at once. The ROM then writes its
+  defaults, as on a real SE/30 after a battery change.
+- **With no image mounted** the Mac starts at once. Its settings last
+  until the core is reloaded, as if the battery were flat.
+
+The clock is set from MiSTer's time each time the core loads; it is not
+kept in the image.
+
+### Floppy disks
+
+Mounting a floppy image in the OSD while another is still mounted is the
+same as ejecting a real disk with a paperclip: the old disk leaves the
+drive without the Mac being told. A disk the Mac had finished with comes
+to no harm, but anything the Mac had not yet written to it is lost. Eject
+the disk in the Finder first, then mount the next one.
+
 ## Building
 
 Intel Quartus Prime 17.0.2 Lite Edition. Open `MacSE30.qpf` in the GUI, or
