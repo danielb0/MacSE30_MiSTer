@@ -17705,6 +17705,7 @@ suspect until shown otherwise:
 | Title (version, source) | Compile | Mode | Result | Notes |
 |---|---|---|---|---|
 | QuarkXPress 3.2 | 31; recent; 54 | 24-bit | runs, stable; on 54 stable under aggressive random typing (Daniel) | the LC's old crash case |
+| QuarkXPress 3.2 | release `be58952` (dev `ea3066d`) | 32-bit, 16 MB | loads with no errors (Daniel, 2026-10-08) | Illegal Instruction before the fix: KNOWN ISSUES 13, the Amiga trapdoor |
 | Microsoft Word 5.1 | recent | 24-bit | runs | Daniel, 2026-10-07 |
 | Microsoft Excel 4 | recent | 24-bit | runs | Daniel, 2026-10-07 |
 | Lemmings | recent | 24-bit | runs | Daniel, 2026-10-07 |
