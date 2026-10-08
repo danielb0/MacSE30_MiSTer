@@ -17641,7 +17641,14 @@ Daniel - add to it, move items out when fixed).**
     real SE/30 bus-errors, as the board did; MAME acknowledges every
     address, returned garbage and Speedometer HUNG. Same software fault,
     the core the more faithful of the two.
-13. **FIXED IN THE RTL 2026-10-08 (board check pending): a Sad Mac at 16 MB
+13. **FIXED 2026-10-08, BOARD-VERIFIED on the release build `be58952`
+    (`releases/MacSE30_20261008.rbf`; Daniel): the 16 MB cold boot after
+    8 MB reaches the desktop; QuarkXPress loads in 32-bit mode at 16 MB;
+    a cold boot works in every mode (FUTURE BOARD TESTS 10); memory filled
+    at 32-bit/16 MB (11); Speedometer at 32-bit/16 MB as usual (CPU 0.27,
+    Graphics 0.16, Disk 1.15, Math 1.11); 24-bit apps with Lode Runner,
+    a floppy, a CD-ROM and PRAM across a core reload all as before.** Was:
+    a Sad Mac at 16 MB
     after a cold start, and QuarkXPress's Illegal Instruction in 32-bit
     mode at 16 MB** (Daniel, 2026-10-07 late; present since compile 51,
     so not a regression). The Sad Mac: D7 `$00020003` (bank A), D6
@@ -17893,6 +17900,12 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     Word, Excel, ClarisWorks) until About This Macintosh shows little
     free, work in each, and quit them; no crash. A RAM test utility, if
     one is to hand, does it more thoroughly.
+    **DONE 2026-10-08 (Daniel), release build `be58952`:** ClarisWorks
+    3.0 (975K), Excel (1,500K), Word (5,000K) and QuarkXPress (3,000K)
+    open together with the System (2,630K): 13.1 MB of 16,384K in use,
+    largest unused block 3,254K - application partitions are placed from
+    the top down, so the old 8 KB at 13.8 MB lies inside one of them. No
+    crash (`C:\temp\Mac\Screenshots\20261008_135702-screen.png`).
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
