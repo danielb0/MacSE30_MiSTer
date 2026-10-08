@@ -1118,9 +1118,7 @@ BEGIN
   pmmu_req      <= '1' when (state /= "01" and pmmu_tc_en = '1'
                              and (mmu_restart_pending = '0' or mmu_restart_soft = '1')
                              and not (state = "00" and TG68_PC(0) = '1')
-                             and not (state = "00" and berr_stack_fetch_squash = '1')
-                             and not (pmmu_addr_log_int(31 downto 16) = x"00DD" and
-                                      pmmu_addr_log_int(15 downto 13) = "010")) else '0';
+                             and not (state = "00" and berr_stack_fetch_squash = '1')) else '0';
   pmmu_is_insn  <= '1' when state = "00" else '0';
   pmmu_rw       <= '0' when state = "11" else '1';
   locked_rmw_active <= '1' when berr_exception_active = '0' and
