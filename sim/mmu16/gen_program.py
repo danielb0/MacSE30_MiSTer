@@ -36,7 +36,7 @@ ORG, EXC = 0x1000, 0x1E00
 # $00DD4000-$00DD5FFF, untranslated before 2026-10-08: D6 $DAE5D8EC)
 RUNS = [
     (0x00DD3000, 0x00DD7000, "32"),
-    (0x00DD6000, 0x00DD7000, "32"),
+    (0x00DE0000, 0x00DE1000, "32"),          # clear of the first: each run's pushes sit below its start
     (0x00100000, 0x00101000, "32"),
     (0x007FF000, 0x00801000, "32"),
     (0x00C00000, 0x00C01000, "off"),

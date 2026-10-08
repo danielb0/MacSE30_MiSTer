@@ -17670,8 +17670,19 @@ Daniel - add to it, move items out when fixed).**
       (`TG68KdotC_Kernel.vhd`). `sim/mmu16` then passes that region.
       Gate: `sim/busfault_dib` 48 runs (cmp/move/write x handlers x
       alignments x plain/MMU+caches/SP `$7FFE`/+ipl), `sim/busfault` N 3
-      and 100 read and write, `sim/cpfpu` mmu/b5c/b5d - all PASS; the rest
-      below as it completes.
+      and 100 read and write, `sim/cpfpu` mmu/b5c/b5d, `sim/kernel_bus`
+      ports 16/32/8 (338/237/520), `sim/system` all ten (timing windows
+      unchanged: GCR 87.19, the chime 1.04 s, SCSI 2.98/2.89 MB/s),
+      upstream's kernel and PMMU suites identical to the baselines (14 + 3
+      known; 58 + 5 known), `sim/mmu16` seven regions (30 min) - all PASS.
+    - **Compile 55 (the debug build, tag `ea3066dd`) ABANDONED** at 12:15
+      after 2 h 07 min, still routing (routing alone 1 h 45; compile 54's
+      took 5 min). The debug build is at ~39,500 ALMs (94 %), past the
+      practical ceiling: compiles 47 (80 min, routing 50) and 55 are the
+      router failing to close, not the logic (this change only removes a
+      term). The fix goes to the board in the RELEASE profile instead (no
+      probe deck, 90 %): branch `release` `be58952`, HDL token-identical to
+      dev `ea3066d` except `MacSE30.sv`. The debug build's size is open.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
