@@ -17737,6 +17737,14 @@ Daniel - add to it, move items out when fixed).**
     untouched); `sim/gcrread` builds both ways (`mount_start` ejects at
     the loader first; its ten-hour run is for a night). Release worktree:
     the same code, token-identical to dev (`tokcmp`).
+    **Compiled 2026-10-08** (release `f8d213a`, 32.7 min):
+    `releases/MacSE30_20261008b.rbf` (md5 52214ea6...), 37,372 ALMs (89 %).
+    Our logic met at every corner (`emu|*` register-to-register: setup
+    +0.790 slow 100C, hold +0.115 fast -40C); the capture met by A or B at
+    every corner; no STA loop (synthesis lists the decoder's eight `Add2`
+    cells, as since compile 44). The framework's `ascal` misses by -0.163 ns
+    at slow -40C (`o_hacc_next`, the HDMI clock), as on `aa93122`. Board
+    test pending (Daniel).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
