@@ -17738,7 +17738,7 @@ Daniel - add to it, move items out when fixed).**
     the loader first; its ten-hour run is for a night). Release worktree:
     the same code, token-identical to dev (`tokcmp`).
     **Compiled 2026-10-08** (release `f8d213a`, 32.7 min):
-    `releases/MacSE30_20261008b.rbf` (md5 52214ea6...), 37,372 ALMs (89 %).
+    `releases/MacSE30_prerelease2_20261008.rbf` (md5 52214ea6...), 37,372 ALMs (89 %).
     Our logic met at every corner (`emu|*` register-to-register: setup
     +0.790 slow 100C, hold +0.115 fast -40C); the capture met by A or B at
     every corner; no STA loop (synthesis lists the decoder's eight `Add2`
@@ -17757,7 +17757,7 @@ Daniel - add to it, move items out when fixed).**
     newer than 2026-10-06. The dialogs are the honest cost of a disk that
     goes read-only in the drive (no real SE/30 can do it); the other way,
     accepting and dropping the writes, would make a copy look good and lose
-    it. Rebuilt as `releases/MacSE30_prerelease2_20261008b.rbf` (the OSD
+    it. Committed as `releases/MacSE30_prerelease2_20261008.rbf` (the OSD
     drops a trailing `_2026...`, so the name must differ before it).
     README: the swap rule (dev and release).
 
