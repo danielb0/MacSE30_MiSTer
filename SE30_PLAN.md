@@ -17691,6 +17691,28 @@ Daniel - add to it, move items out when fixed).**
       probe deck, 90 %): branch `release` `be58952`, HDL token-identical to
       dev `ea3066d` except `MacSE30.sv`. The debug build's size is open.
 
+14. **OPEN 2026-10-08: mounting a floppy image over one the Mac has
+    mounted can corrupt the NEW image** (Daniel's suspicion; the clash test
+    of FUTURE BOARD TESTS 8 checked both images, but the Mac made no write
+    in between). Read from the ROM: the floppy VBL task (`$4082E444`, every
+    30 ticks) reads disk-in-place (`$2`) only for a drive it believes
+    empty; for a drive holding a disk it reads only the eject latch (`$C`,
+    `$4082E4E2`: set -> reset with `$3`, post event 7 for the drive). The
+    latch is "on (eject button has been pushed)" (`Docs\swim\Apple_drive_
+    command_and_status_codes.txt`, secondary). `se30_fdhd.v` sets it only
+    on the Mac's own eject command (`$D`), so an OSD mount over a disk
+    leaves the Mac believing the old disk is in: its next write (a Finder
+    update, a flush) puts the old volume's catalog, bitmap or MDB on the
+    new image. A real SE/30 does the same after a paperclip eject and a
+    quick swap, but on MiSTer the OSD mount is the normal swap.
+    **Proposed (Daniel to decide):** an OSD mount over a mounted disk sets
+    the eject latch (the documented "eject button pushed"), and the new disk
+    stays out until the Mac's eject command or a timeout; the old disk's
+    unwritten changes are still lost (the slot is the new file). First:
+    MAME, what the System does with the latch's event; then a failing
+    bench, the fix, a board test (mount A, copy a file, mount B over it,
+    make the Finder write, check both on the PC).
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users
@@ -17730,6 +17752,7 @@ suspect until shown otherwise:
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
 | TattleTech 2.17 | 50 | 32-bit | runs | General Hardware screen in 13.4.3 |
 | PC Exchange (DOS floppies) | 47 | 24-bit | **was a core bug**, fixed | kernel CMPM.L (KNOWN ISSUES 9) |
+| PC Exchange 2.0.5, 720K DOS floppy | release `be58952` | 24-bit | **formats and writes** (Daniel, 2026-10-08): a blank 720K image formatted as DOS, TeachText and a text file copied on | host check of `Test disks\Written\SE30\DOS\Blank720K.img`: FAT12 by "PCX 2.0", both FATs identical, 65 clusters allocated = 65 referenced (none lost or cross-linked); the text file reads "This is a tiny text file"; TeachText's resource fork in `RESOURCE.FRK` consistent, all 24 types |
 | Operation Intercept | 42-43; recent | 24-bit | **was a core bug**, fixed; runs now | kernel combinational loop, d2291f6 |
 | Lode Runner 1.0 (MacPack `Games:1984`) | 51; 52 | 24-bit | **was a core bug**: bus error on clicking the title screen; **fixed in compile 52, plays** (Daniel); no crash on 54 | GLUE A17 windows (2.11) |
 | Lode Runner 1.0 | 51 | 32-bit | bus error, **authentic** | 32-bit dirty: writes `$FFFFAE28` |
