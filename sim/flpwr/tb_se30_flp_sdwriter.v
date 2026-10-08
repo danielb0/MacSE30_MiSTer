@@ -28,7 +28,10 @@
 //        never written into the new one; a block being presented is
 //        withdrawn and no disk-port request is left up (found by this
 //        bench: a mount on the clock a request rose left it up, and the
-//        next block's first word took the stale acknowledge's data)
+//        next block's first word took the stale acknowledge's data).  The
+//        mount is over the disk in, so the loader holds it until the
+//        Mac's eject (KNOWN ISSUES 14); that eject's flush writes nothing
+//        into the new file, which then loads untouched
 //     9. the disk port's handshake: no request torn down before its
 //        acknowledge, its address held, none raised over a stale one
 //    10. 1.44 MB (plan 5.16.5 item 6): image blocks 2,879 and 2,048 of a
@@ -91,6 +94,7 @@ module tb_se30_flp_sdwriter;
   wire [15:0] hdr_data;
   wire [12:0] file_blks;
   reg         cm_done = 0, flush_req = 0;
+  reg         ld_eject = 0;           // the loader's eject (the writer's is flush_req)
   reg  [11:0] cm_blk = 0;
   wire        cm_ready, wbusy;
   wire [31:0] wdbg;
@@ -101,7 +105,7 @@ module tb_se30_flp_sdwriter;
     .sd_lba(ld_lba), .sd_rd(sd_rd), .sd_ack(sd_ack),
     .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr),
     .mem_req(ld_req), .mem_addr(ld_addr), .mem_wdata(ld_wdata), .mem_ack(ld_ack),
-    .eject(1'b0),
+    .eject(ld_eject), .mac_reset_n(1'b1),
     .disk_in(disk_in), .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags),
     .readonly(readonly), .loading(loading),
     .hdr_addr(hdr_addr), .hdr_data(hdr_data), .is_dc42(is_dc42), .file_blks(file_blks),
@@ -246,7 +250,15 @@ module tb_se30_flp_sdwriter;
       for (i = 0; i < fsize; i = i + 1) begin file[i] = ((i * 5) ^ (i >> 8)) & 8'hFF; expf[i] = file[i]; end
     end
   endtask
+  // a mount into an empty drive: a disk still in is ejected first, at the
+  // loader only, as the Mac's eject would (a mount over it is held)
   task mount(input integer size, input ro);
+    begin
+      if (disk_in) begin @(posedge clk); #1 ld_eject = 1; @(posedge clk); #1 ld_eject = 0; end
+      mount_over(size, ro);
+    end
+  endtask
+  task mount_over(input integer size, input ro);
     begin
       @(posedge clk); #1 img_size = size; img_readonly = ro; img_mounted = 1;
       @(posedge clk); #1 img_mounted = 0; img_size = 64'hDEAD;
@@ -416,11 +428,22 @@ module tb_se30_flp_sdwriter;
     commit(10, 40); commit(20, 41);
     repeat (200) @(posedge clk);
     make_dc42;                                      // the slot now names a new file
-    mount(fsize, 0);
+    @(posedge clk); #1 img_size = fsize; img_readonly = 0; img_mounted = 1;   // over the disk in: held
+    @(posedge clk); #1 img_mounted = 0; img_size = 64'hDEAD;
+    repeat (20) @(posedge clk);
     check(dut.pst == 0 && !sd_wr && !wr_req, "the writer idle after the mount: the old block withdrawn, no request left up", dut.pst, 0);
+    check(disk_in && readonly && loader.held, "the mount held: the old disk still in, locked", disk_in, 1);
     #1 hps_on = 1;
+    repeat (2000) @(posedge clk);
+    check(wr_xfers == 0, "nothing written while the mount is held", wr_xfers, 0);
+    @(posedge clk); #1 ld_eject = 1; flush_req = 1; @(posedge clk); #1 ld_eject = 0; flush_req = 0;   // the Mac's eject
+    t0 = cyc;
+    repeat (8) @(posedge clk);
+    while (loading && cyc - t0 < 20000000) @(posedge clk);
+    repeat (20) @(posedge clk);
+    check(disk_in && !readonly && !loader.held, "the eject: the new disk loaded, writable", readonly, 0);
     drain;
-    check(wr_xfers == 0, "nothing queued for the old file is written to the new", wr_xfers, 0);
+    check(wr_xfers == 0, "nothing queued for the old file is written to the new, nor its flush", wr_xfers, 0);
     compare_file;
     check(diffs == 0, "the new file untouched", diffs, 0);
 

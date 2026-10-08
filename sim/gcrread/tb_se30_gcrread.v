@@ -220,6 +220,7 @@ module tb_se30_gcrread;
 
   // ------------------------------------------------------------ the loader, the encoder, the port
   reg         img_mounted = 0, img_mounted2 = 0, img_readonly = 0;
+  reg         tb_eject = 0, tb_eject2 = 0;   // the loaders' eject before a remount
   reg  [63:0] img_size = 0;
   wire [31:0] sd_lba, sd_lba2;
   wire        sd_rd, sd_rd2;
@@ -240,7 +241,7 @@ module tb_se30_gcrread;
     .sd_lba(sd_lba), .sd_rd(sd_rd), .sd_ack(sd_ack),
     .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr),
     .mem_req(ld_req), .mem_addr(ld_addr), .mem_wdata(ld_wdata), .mem_ack(ld_ack),
-    .eject(fdhd_eject),
+    .eject(fdhd_eject | tb_eject), .mac_reset_n(1'b1),
     .disk_in(disk_in), .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags),
     .readonly(readonly), .loading(loading), .hdr_addr(6'd0), .hdr_data(), .is_dc42(), .file_blks(), .dbg());
 
@@ -259,7 +260,7 @@ module tb_se30_gcrread;
     .sd_lba(sd_lba2), .sd_rd(sd_rd2), .sd_ack(sd_ack2),
     .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr),
     .mem_req(ld2_req), .mem_addr(ld2_addr), .mem_wdata(ld2_wdata), .mem_ack(ld2_ack),
-    .eject(fdhd2_eject),
+    .eject(fdhd2_eject | tb_eject2), .mac_reset_n(1'b1),
     .disk_in(disk2_in), .img_ds(img2_ds), .img_800k(img2_800k), .img_tags(img2_tags),
     .readonly(readonly2), .loading(loading2), .hdr_addr(6'd0), .hdr_data(), .is_dc42(), .file_blks(), .dbg());
 
@@ -1219,8 +1220,14 @@ module tb_se30_gcrread;
   // ------------------------------------------------------------ mounting
   // mount_start: the slot's mount pulse only (the load runs on); mount: and
   // wait for it
+  // (a disk still in is ejected first, at the loader, as the Mac's eject
+  // would: a mount over it is held - KNOWN ISSUES 14)
   task mount_start(input integer w, input integer size);
     begin
+      if (w ? disk2_in : disk_in) begin
+        @(posedge clk); #1 if (w) tb_eject2 = 1; else tb_eject = 1;
+        @(posedge clk); #1 tb_eject = 0; tb_eject2 = 0;
+      end
       @(posedge clk); #1 img_size = size; img_readonly = 0;
       if (w) img_mounted2 = 1; else img_mounted = 1;
       @(posedge clk); #1 img_mounted = 0; img_mounted2 = 0; img_size = 64'hDEAD;

@@ -21,12 +21,26 @@
 //        byte says GCR, a file a block short; a GCR image after an MFM
 //        one clears img_mfm and img_hd
 //     6. the disk counts as in only when its last word is written; a
-//        mount during a load takes the new image (between sectors), the
-//        old disk out from the pulse; unmount; the drive's eject;
-//        readonly latched at the slot's own mount pulse
+//        mount during a load takes the new image (between sectors); a
+//        mount over the disk in is held until the eject (item 9);
+//        unmount; the drive's eject; readonly latched at the slot's own
+//        mount pulse
 //     7. the HPS side: each sector transferred once (sd_rd dropped when
 //        the transfer is picked up); the disk port: no request torn, none
 //        moved, none raised over the last acknowledge
+//     9. a mount over the disk the Mac holds (SE30_PLAN.md KNOWN ISSUES
+//        14): the Mac's floppy driver lets a disk go only on its own eject
+//        or on an access that finds the drive empty, so a new image that
+//        appeared at once would be taken for the old volume and written
+//        with its catalog and bitmap.  The mount is held: the old disk
+//        stays in, write-protected, `loading` up (no commit, no write-back:
+//        the slot names the new file now), no sector read and no word
+//        written; at the drive's eject the held image loads, read-only as
+//        at its own pulse; a second mount replaces the held one; an
+//        unmount takes the old disk out and cancels it; the machine's
+//        reset loads it (the escape when the Mac cannot eject); a mount
+//        into an empty drive loads at once.  `+SWAPONLY` runs this item
+//        alone (a minute or two).
 //     8. a real image, if present (Daniel's C:\temp\Mac\SE30\Disk605.dsk):
 //        resident byte for byte - a smoke test only, nothing fitted to it
 //
@@ -63,6 +77,7 @@ module tb_se30_flp_loader;
   wire [15:0] mem_wdata;
   reg         mem_ack = 0;
   reg         eject = 0;
+  reg         mac_reset_n = 1;                 // the machine's reset (the escape for a held swap)
   wire        disk_in, img_ds, img_800k, img_tags, img_mfm, img_hd, readonly, loading;
   wire [15:0] dbg;
 
@@ -72,7 +87,7 @@ module tb_se30_flp_loader;
     .sd_lba(sd_lba), .sd_rd(sd_rd), .sd_ack(sd_ack),
     .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_wr(sd_buff_wr),
     .mem_req(mem_req), .mem_addr(mem_addr), .mem_wdata(mem_wdata), .mem_ack(mem_ack),
-    .eject(eject),
+    .eject(eject), .mac_reset_n(mac_reset_n),
     .disk_in(disk_in), .img_ds(img_ds), .img_800k(img_800k), .img_tags(img_tags),
     .img_mfm(img_mfm), .img_hd(img_hd),
     .readonly(readonly), .loading(loading), .dbg(dbg));
@@ -220,19 +235,100 @@ module tb_se30_flp_loader;
     begin for (i = 0; i <= MAXF / 2; i = i + 1) mem[i] = 16'hXXXX; end
   endtask
 
-  // one load and its verdict
+  // one load and its verdict, into an empty drive: a disk still in is
+  // ejected first, as the Mac's eject would (a mount over it is held)
+  task empty_drive;
+    begin if (disk_in) begin @(posedge clk); #1 eject = 1; @(posedge clk); #1 eject = 0; repeat (2) @(posedge clk); end end
+  endtask
   task load(input integer size, input ro);
     begin
-      clear_mem; mount(size, ro); wait_load;
+      empty_drive; clear_mem; mount(size, ro); wait_load;
     end
   endtask
 
   integer x0, fd, r, i, n, sniffs_bad;
   reg [8*96-1:0] what;
 
+  // ---- 9. a mount over the disk the Mac holds (the header's item 9)
+  integer x1, w1;
+  task new_image(input [7:0] k);                           // the slot's next file: the last one xor k
+    begin
+      for (i = 0; i < 819200; i = i + 1) file[i] = file[i] ^ k;
+      put_mdb(0, 16'h4244, 16'd1594, 32'd512);
+    end
+  endtask
+  task pulse_eject;
+    begin @(posedge clk); #1 eject = 1; @(posedge clk); #1 eject = 0; repeat (2) @(posedge clk); end
+  endtask
+  task swap_tests;
+    begin
+      $display("---- 9. a mount over the disk the Mac holds (KNOWN ISSUES 14)");
+      clear_file(819200); put_mdb(0, 16'h4244, 16'd1594, 32'd512);
+      load(819200, 0);
+      check(disk_in && !readonly, "(A in, writable)", {disk_in, readonly}, 2'b10);
+      new_image(8'hA5);                                    // B on the slot
+      x1 = xfers; w1 = writes;
+      mount(819200, 1); repeat (2) @(posedge clk);
+      check(disk_in, "a mount over the disk in: the old disk stays in", disk_in, 1);
+      check(readonly, "  write-protected at once (the slot names the new file)", readonly, 1);
+      check(loading, "  loading up: no commit, no write-back", loading, 1);
+      repeat (200000) @(posedge clk);
+      check(xfers == x1 && writes == w1 && disk_in, "  held: no sector read, no word written, still in",
+            (xfers - x1) + (writes - w1), 0);
+      new_image(8'h3C);                                    // C replaces B, writable
+      mount(819200, 0); repeat (2000) @(posedge clk);
+      check(xfers == x1 && disk_in && readonly, "a second mount while held: still held, still protected",
+            {xfers == x1, disk_in, readonly}, 3'b111);
+      pulse_eject;
+      check(!disk_in, "the drive's eject: the old disk out", disk_in, 0);
+      wait_load;
+      compare(0, 819200, 0);
+      check(mism == 0, "  and the held image (the second) loads, resident", mism, 0);
+      check(disk_in && !readonly && !loading, "  and comes in, writable as at its own pulse", {disk_in, readonly, loading}, 3'b100);
+      x1 = xfers;
+      @(posedge clk); #1 mac_reset_n = 0; repeat (8) @(posedge clk); #1 mac_reset_n = 1;
+      repeat (2000) @(posedge clk);
+      check(disk_in && xfers == x1, "the machine's reset with nothing held: the disk stays, no reload",
+            {disk_in, xfers == x1}, 2'b11);
+
+      new_image(8'h11); mount(819200, 1); repeat (2) @(posedge clk);
+      check(disk_in && readonly, "(held again)", {disk_in, readonly}, 2'b11);
+      x1 = xfers;
+      mount(0, 0); repeat (4) @(posedge clk);
+      check(!disk_in, "an unmount while held: out at once", disk_in, 0);
+      repeat (200000) @(posedge clk);
+      check(!disk_in && !loading && xfers == x1, "  and the held image never loads", {disk_in, loading, xfers == x1}, 3'b001);
+
+      load(819200, 0);
+      new_image(8'h77); mount(819200, 1); repeat (2) @(posedge clk);
+      check(disk_in && readonly, "(held once more)", {disk_in, readonly}, 2'b11);
+      @(posedge clk); #1 mac_reset_n = 0; repeat (8) @(posedge clk); #1 mac_reset_n = 1;
+      repeat (2) @(posedge clk);
+      check(!disk_in, "the machine's reset while held: the old disk out", disk_in, 0);
+      wait_load;
+      compare(0, 819200, 0);
+      check(mism == 0, "  and the held image loads, resident", mism, 0);
+      check(disk_in && readonly, "  and comes in, read-only as at its own pulse", {disk_in, readonly}, 2'b11);
+
+      pulse_eject;
+      check(!disk_in, "(ejected: the drive empty)", disk_in, 0);
+      new_image(8'h5A); x1 = xfers;
+      mount(819200, 0); repeat (200000) @(posedge clk);
+      check(xfers > x1, "a mount into the empty drive loads at once", xfers - x1, 1);
+      wait_load;
+      check(disk_in && !readonly, "  and comes in", {disk_in, readonly}, 2'b10);
+    end
+  endtask
+
   initial begin
     repeat (10) @(posedge clk); #1 reset_n = 1;
     repeat (5) @(posedge clk);
+    if ($test$plusargs("SWAPONLY")) begin
+      swap_tests;
+      if (fails == 0) $display("==== PASS: %0d checks, item 9 alone", checks);
+      else            $display("==== FAIL: %0d of %0d checks (item 9 alone)", fails, checks);
+      $finish;
+    end
 
     // ---- 1. raw images
     $display("---- 1. raw 800K and 400K");
@@ -334,7 +430,7 @@ module tb_se30_flp_loader;
     // ---- 6. mounts, unmount, eject, readonly
     $display("---- 6. a mount during a load, unmount, eject, readonly");
     clear_file(819200); put_mdb(0, 16'h4244, 16'd1594, 32'd512);
-    clear_mem; mount(819200, 0);
+    empty_drive; clear_mem; mount(819200, 0);
     repeat (400000) @(posedge clk);                            // well into the load
     check(loading && !disk_in, "(mid-load: loading, not in)", {loading, disk_in}, 2'b10);
     clear_file(409600); put_mdb(0, 16'hD2D7, 16'd391, 32'd1024);   // the second image
@@ -352,9 +448,10 @@ module tb_se30_flp_loader;
     load(819200, 1);
     check(disk_in && readonly, "(in again, read-only as at its own pulse)", {disk_in, readonly}, 2'b11);
     mount(409600, 0); repeat (2) @(posedge clk);
-    check(!disk_in, "a new mount takes the old disk out at its pulse", disk_in, 0);
+    check(disk_in && readonly && loading, "a new mount over the disk in is held (item 9)", {disk_in, readonly, loading}, 3'b111);
+    @(posedge clk); #1 eject = 1; @(posedge clk); #1 eject = 0;
     wait_load;
-    check(disk_in && !readonly, "  and the new one comes in, writable as at its pulse", {disk_in, readonly}, 2'b10);
+    check(disk_in && !readonly, "  and after the eject the new one comes in, writable as at its pulse", {disk_in, readonly}, 2'b10);
     @(posedge clk); #1 eject = 1; @(posedge clk); #1 eject = 0;
     repeat (2) @(posedge clk);
     check(!disk_in, "the drive's eject: out", disk_in, 0);
@@ -363,7 +460,7 @@ module tb_se30_flp_loader;
 
     // a mount pulse on the very clock a load completes supersedes it
     clear_file(819200); put_mdb(0, 16'h4244, 16'd1594, 32'd512);
-    clear_mem; mount(819200, 0);
+    empty_drive; clear_mem; mount(819200, 0);
     @(posedge clk); #1;
     while (!(dut.state == 3'd5 && !dut.mul_busy && !mem_req && !mem_ack)) begin @(posedge clk); #1; end
     img_size = 409600; img_readonly = 0; img_mounted = 1;           // sampled on the completing edge
@@ -372,6 +469,8 @@ module tb_se30_flp_loader;
     clear_file(409600); put_mdb(0, 16'hD2D7, 16'd391, 32'd1024);
     wait_load;
     check(disk_in && !img_ds, "  and the new one loads and comes in", {disk_in, img_ds}, 2'b10);
+
+    swap_tests;
 
     // ---- 7. the HPS side and the port
     $display("---- 7. the HPS side and the disk port");

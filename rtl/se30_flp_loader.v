@@ -18,8 +18,11 @@
 //   (low) - the payload being the file, or a DC42's file without its
 //   84-byte header, so a DC42's tags follow its data.  disk_in rises only
 //   when the whole image is resident (MacPlus phase 1: the Mac must never
-//   see a partial image) and falls at the next mount pulse, an unmount, or
-//   the drive's eject.
+//   see a partial image) and falls at an unmount or the drive's eject.
+//   A mount while a disk is in is held until the drive's eject (or the
+//   machine's reset): the old disk stays in, write-protected, and only
+//   then does the new image load (KNOWN ISSUES 14 - the Mac's driver
+//   would take a disk that appeared at once for the old volume).
 //
 // WHAT DISK IT IS (MacPlus phase 7's three ceilings)
 //   img_800k  the file's data is 819,200 bytes (raw, or a DC42's $40)
@@ -70,6 +73,7 @@ module se30_flp_loader #(
   input             mem_ack,
 
   input             eject,             // the drive's eject: one clock
+  input             mac_reset_n,       // the machine's reset (a held mount's escape)
 
   output reg        disk_in,
   output reg        img_ds,
@@ -127,6 +131,7 @@ module se30_flp_loader #(
   reg        mount_pending;
   reg [63:0] pend_size;
   reg        pend_ro;
+  reg        held;                     // a mount over the disk in, held until the eject (KNOWN ISSUES 14)
 
   // file block 0's first 42 words, as they stream in (byte-swapped like
   // the payload: file byte 2k in the high half)
@@ -200,7 +205,7 @@ module se30_flp_loader #(
       loading <= 0; disk_in <= 0; img_ds <= 0; img_800k <= 0; img_tags <= 0; readonly <= 0;
       img_mfm <= 0; img_hd <= 0;
       dc42 <= 0; dc42_name_ok <= 0; dc42_fmt <= 0; dc42_dsize <= 0; dc42_tsize <= 0;
-      mount_pending <= 0; pend_size <= 0; pend_ro <= 0; size_l <= 0;
+      mount_pending <= 0; pend_size <= 0; pend_ro <= 0; size_l <= 0; held <= 0;
       sec_total <= 0; file_word <= 0; drain_idx <= 0; old_ack <= 0;
       mdb_seen <= 0; mdb_sig <= 0; mdb_nalbk <= 0; mdb_absz_h <= 0; mdb_absz_l <= 0;
       vol_blocks <= 0; mul_cand <= 0; mul_mult <= 0; mul_step <= 0; mul_busy <= 0;
@@ -209,13 +214,28 @@ module se30_flp_loader #(
 
       // a mount pulse is kept; the disk in goes out at once, and `loading`
       // (a load under way or waiting) rises with it, so it never dips
-      // between an abandoned load and its successor
+      // between an abandoned load and its successor.
+      // A mount over the disk in is HELD (KNOWN ISSUES 14): the Mac's
+      // floppy driver lets a disk go only on its own eject or on an
+      // access that finds the drive empty, so a new image appearing at
+      // once would be written as the old volume.  The old disk stays in,
+      // write-protected (`readonly`) with `loading` up - the slot names
+      // the new file now, so nothing may be committed or written back -
+      // until the drive's eject or the machine's reset loads the held
+      // image.  A newer mount replaces it; an unmount cancels it.
       if (img_mounted) begin
-        mount_pending <= 1; pend_size <= img_size; pend_ro <= img_readonly;
-        disk_in <= 0;
-        if (img_size != 64'd0) loading <= 1;
+        pend_size <= img_size; pend_ro <= img_readonly;
+        if (img_size != 64'd0 && !eject && (disk_in || held)) begin   // (an eject this clock: the drive empties, load at once)
+          held <= 1; readonly <= 1; loading <= 1;
+        end else begin
+          held <= 0; mount_pending <= 1;
+          disk_in <= 0;
+          if (img_size != 64'd0) loading <= 1;
+        end
+      end else if (held && (eject || !mac_reset_n)) begin
+        held <= 0; mount_pending <= 1;
       end
-      if (eject) disk_in <= 0;
+      if (eject || (held && !mac_reset_n)) disk_in <= 0;
 
       // ── capture the DC42 signature and sizes as sector 0 streams in ──
       if (state == S_RD && sd_buff_wr && sd_ack && sd_lba == 32'd0) begin
