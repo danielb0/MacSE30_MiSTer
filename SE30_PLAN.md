@@ -17883,6 +17883,9 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     SE/30 cold-starts at every power-on. For 8 MB and 16 MB, 24-bit and
     32-bit: Shut Down, then reset (or set the option and Reset & Apply
     after a Shut Down). The machine reaches the desktop each time.
+    **DONE 2026-10-08 (Daniel), release build `be58952`: a cold boot
+    works in every mode** - 8 and 16 MB, 24-bit and 32-bit (16 MB after
+    8 MB included: the original failure).
 
 11. **Fill the memory in 32-bit mode at 16 MB** (from KNOWN ISSUES 13).
     The trapdoor hid in 8 KB at 13.8 MB, which the System uses only when
