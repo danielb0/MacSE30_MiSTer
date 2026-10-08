@@ -54,8 +54,10 @@ Open the on-screen display with **F12** to mount images and change options.
 ## Floppy disks
 
 The internal drive takes raw (`.dsk` / `.img`) or DiskCopy 4.2 images. Writes go back to
-the image on the SD card. Eject a disk from within the Mac before mounting another one,
-or unsaved changes to it are lost.
+the image on the SD card. Eject a disk from within the Mac before mounting another one.
+A disk mounted while another is still in the drive waits until the Mac ejects the old
+one (or restarts). Meanwhile the old disk is read-only: anything written to it fails
+with a disk error, and the Mac may then eject it by itself.
 
 ## Hard disks and CD-ROM
 
