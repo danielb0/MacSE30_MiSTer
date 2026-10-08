@@ -17691,7 +17691,7 @@ Daniel - add to it, move items out when fixed).**
       probe deck, 90 %): branch `release` `be58952`, HDL token-identical to
       dev `ea3066d` except `MacSE30.sv`. The debug build's size is open.
 
-14. **FIX BUILT 2026-10-08 (benches; compile and board pending):
+14. **FIXED 2026-10-08, board-verified (release `bd9bdc6`):
     mounting a floppy image over one the Mac has
     mounted can corrupt the NEW image** (Daniel's suspicion; the clash test
     of FUTURE BOARD TESTS 8 checked both images, but the Mac made no write
@@ -17743,8 +17743,23 @@ Daniel - add to it, move items out when fixed).**
     +0.790 slow 100C, hold +0.115 fast -40C); the capture met by A or B at
     every corner; no STA loop (synthesis lists the decoder's eight `Add2`
     cells, as since compile 44). The framework's `ascal` misses by -0.163 ns
-    at slow -40C (`o_hacc_next`, the HDMI clock), as on `aa93122`. Board
-    test pending (Daniel).
+    at slow -40C (`o_hacc_next`, the HDMI clock), as on `aa93122`.
+    **Board (Daniel, 2026-10-08):** `Blank800K_clean.dsk` mounted, its
+    window open; `Disk1.img` (DOS 1.44 MB) mounted over it; a Finder copy
+    to the 800K: "The file couldn't be verified because a disk error
+    occurred", Stop, then "The disk cannot be used, because an error of
+    type -127 occurred" (fsDSIntErr) - the File Manager gave the volume
+    up and ejected it, and the eject loaded the held Disk1, which came up
+    on the desktop. Host-checked (`Test disks\Written\SE30\Clash`): the
+    800K changed only in block 2, its MDB (drWrCnt 20 -> 23, the mount's
+    writes; the clean-unmount bit clear, the eject's flush refused); no
+    copied file; Disk1's FATs identical and its directory intact, nothing
+    newer than 2026-10-06. The dialogs are the honest cost of a disk that
+    goes read-only in the drive (no real SE/30 can do it); the other way,
+    accepting and dropping the writes, would make a copy look good and lose
+    it. Rebuilt as `releases/MacSE30_prerelease2_20261008b.rbf` (the OSD
+    drops a trailing `_2026...`, so the name must differ before it).
+    README: the swap rule (dev and release).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs

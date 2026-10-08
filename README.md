@@ -50,11 +50,12 @@ kept in the image.
 
 ### Floppy disks
 
-Mounting a floppy image in the OSD while another is still mounted is the
-same as ejecting a real disk with a paperclip: the old disk leaves the
-drive without the Mac being told. A disk the Mac had finished with comes
-to no harm, but anything the Mac had not yet written to it is lost. Eject
-the disk in the Finder first, then mount the next one.
+Eject a disk in the Finder before mounting the next one. A disk mounted
+while another is still in the drive waits until the Mac ejects the old
+one (or restarts). Meanwhile the old disk is read-only: anything written
+to it fails with a disk error, and the Mac may then eject it by itself.
+(The Mac's floppy driver lets a disk go only on its own eject, so a new
+image appearing at once would take the old volume's next write.)
 
 ## Building
 
