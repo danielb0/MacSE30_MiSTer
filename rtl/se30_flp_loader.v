@@ -25,6 +25,7 @@ module se30_flp_loader #(
   input             mem_ack,
 
   input             eject,
+  input             mac_reset_n,
 
   output reg        disk_in,
   output reg        img_ds,
@@ -75,6 +76,7 @@ module se30_flp_loader #(
   reg        mount_pending;
   reg [63:0] pend_size;
   reg        pend_ro;
+  reg        held;                     // a mount over the disk in, held until the eject
 
   reg [15:0] hdr_ram [0:63];
   always @(posedge clk) begin
@@ -128,19 +130,28 @@ module se30_flp_loader #(
       loading <= 0; disk_in <= 0; img_ds <= 0; img_800k <= 0; img_tags <= 0; readonly <= 0;
       img_mfm <= 0; img_hd <= 0;
       dc42 <= 0; dc42_name_ok <= 0; dc42_fmt <= 0; dc42_dsize <= 0; dc42_tsize <= 0;
-      mount_pending <= 0; pend_size <= 0; pend_ro <= 0; size_l <= 0;
+      mount_pending <= 0; pend_size <= 0; pend_ro <= 0; size_l <= 0; held <= 0;
       sec_total <= 0; file_word <= 0; drain_idx <= 0; old_ack <= 0;
       mdb_seen <= 0; mdb_sig <= 0; mdb_nalbk <= 0; mdb_absz_h <= 0; mdb_absz_l <= 0;
       vol_blocks <= 0; mul_cand <= 0; mul_mult <= 0; mul_step <= 0; mul_busy <= 0;
     end else begin
       old_ack <= sd_ack;
 
+      // a mount over the disk in is held, the old disk in and write-protected,
+      // until the drive's eject or the machine's reset loads it
       if (img_mounted) begin
-        mount_pending <= 1; pend_size <= img_size; pend_ro <= img_readonly;
-        disk_in <= 0;
-        if (img_size != 64'd0) loading <= 1;
+        pend_size <= img_size; pend_ro <= img_readonly;
+        if (img_size != 64'd0 && !eject && (disk_in || held)) begin
+          held <= 1; readonly <= 1; loading <= 1;
+        end else begin
+          held <= 0; mount_pending <= 1;
+          disk_in <= 0;
+          if (img_size != 64'd0) loading <= 1;
+        end
+      end else if (held && (eject || !mac_reset_n)) begin
+        held <= 0; mount_pending <= 1;
       end
-      if (eject) disk_in <= 0;
+      if (eject || (held && !mac_reset_n)) disk_in <= 0;
 
       if (state == S_RD && sd_buff_wr && sd_ack && sd_lba == 32'd0) begin
         case (sd_buff_addr)
