@@ -393,8 +393,10 @@ if {$op ne ""} {
 	# refresh runs, the overdue-refresh flag then blocks every new start, and
 	# a request is acknowledged with the old data - one read behind for the
 	# whole session.  A write's acknowledge clears that state.  The scratch
-	# longword is above the RAM image and below the training pair.
-	pk_poke 0x3FFFFE 0 0xF
+	# longword is above 16 MB of RAM and the floppy images, below the ROM
+	# image (longword $600000) and the training pair (was $3FFFFE: inside
+	# RAM since the 16 MB option, plan 13.4).
+	pk_poke 0x5FFFFE 0 0xF
 	switch -- $op {
 		peek {
 			set a0   [expr 0x[lindex $opargs 0]]

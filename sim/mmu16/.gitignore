@@ -1,0 +1,9 @@
+work/
+rom.hex
+program.hex
+stop_at.txt
+regions.txt
+dump.txt
+run.log
+transcript
+*.wlf

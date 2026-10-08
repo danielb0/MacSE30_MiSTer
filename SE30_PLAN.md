@@ -17641,6 +17641,37 @@ Daniel - add to it, move items out when fixed).**
     real SE/30 bus-errors, as the board did; MAME acknowledges every
     address, returned garbage and Speedometer HUNG. Same software fault,
     the core the more faithful of the two.
+13. **FIXED IN THE RTL 2026-10-08 (board check pending): a Sad Mac at 16 MB
+    after a cold start, and QuarkXPress's Illegal Instruction in 32-bit
+    mode at 16 MB** (Daniel, 2026-10-07 late; present since compile 51,
+    so not a regression). The Sad Mac: D7 `$00020003` (bank A), D6
+    `$DAE5D8EC`, only after Shut Down (or with 'WLSC' cleared at `$CFC`);
+    a plain reset boots.
+    - **The cause: upstream TG68K's Amiga "trapdoor".** The kernel never
+      asked the PMMU to translate logical `$00DD4000`-`$00DD5FFF` (the
+      Minimig's MiSTer shared-memory window, `extra/MiSTerFileSystem.c`).
+      On the SE/30 that is RAM. With the MMU on, an access there took the
+      PMMU's last physical address - often an instruction fetch in the ROM -
+      so writes vanished and reads returned wrong data. Only 16 MB in
+      32-bit mode puts RAM there under translation.
+    - **Why the cold start:** MODE32 7.5 (an INIT on the boot disk) tests
+      the RAM the ROM left untested, `[8 MB, 16 MB)`, with the ROM's
+      mod-3 routine (`$40802BBC`), on a cold start only. MAME with Daniel's
+      `mac_80mb-restored.vhd` and 16 MB shows the call (a0 `$00800000`,
+      a1 `$01000000`, the ROM's 32-bit table, TC `$80F04D00`, SR `$2700`).
+      The test crosses the 8 KB and fails.
+    - **The evidence:** a JTAG marker written over `$DD3000`-`$DD7000`
+      before a forced cold boot survived exactly `$DD4000`-`$DD5FFF`; the
+      new bench `sim/mmu16` (kernel + wrapper + GLUE + VIA2 + se30_simms,
+      the ROM on its port, the PMMU set up as `_SwapMMUMode` does)
+      reproduced D6 `$DAE5D8EC` over `[$DD3000, $DD7000)`, a MOVEM's beats
+      going to `$DD3FFC` and then to `$40803744`.
+    - **The fix:** the trapdoor term removed from `pmmu_req`
+      (`TG68KdotC_Kernel.vhd`). `sim/mmu16` then passes that region.
+      Gate: `sim/busfault_dib` 48 runs (cmp/move/write x handlers x
+      alignments x plain/MMU+caches/SP `$7FFE`/+ipl), `sim/busfault` N 3
+      and 100 read and write, `sim/cpfpu` mmu/b5c/b5d - all PASS; the rest
+      below as it completes.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
