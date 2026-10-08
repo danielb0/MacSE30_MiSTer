@@ -17691,7 +17691,8 @@ Daniel - add to it, move items out when fixed).**
       probe deck, 90 %): branch `release` `be58952`, HDL token-identical to
       dev `ea3066d` except `MacSE30.sv`. The debug build's size is open.
 
-14. **OPEN 2026-10-08: mounting a floppy image over one the Mac has
+14. **FIX BUILT 2026-10-08 (benches; compile and board pending):
+    mounting a floppy image over one the Mac has
     mounted can corrupt the NEW image** (Daniel's suspicion; the clash test
     of FUTURE BOARD TESTS 8 checked both images, but the Mac made no write
     in between). Read from the ROM: the floppy VBL task (`$4082E444`, every
@@ -17705,13 +17706,37 @@ Daniel - add to it, move items out when fixed).**
     update, a flush) puts the old volume's catalog, bitmap or MDB on the
     new image. A real SE/30 does the same after a paperclip eject and a
     quick swap, but on MiSTer the OSD mount is the normal swap.
-    **Proposed (Daniel to decide):** an OSD mount over a mounted disk sets
-    the eject latch (the documented "eject button pushed"), and the new disk
-    stays out until the Mac's eject command or a timeout; the old disk's
-    unwritten changes are still lost (the slot is the new file). First:
-    MAME, what the System does with the latch's event; then a failing
-    bench, the fix, a board test (mount A, copy a file, mount B over it,
-    make the Finder write, check both on the PC).
+    **The latch idea is ruled out** (MAME, Daniel's `mac_80mb-restored.vhd`,
+    24-bit, a floppy mounted, the latch path forced once at `$0082E4EE`):
+    the ROM posts its event for drive 1 and System 7.5.5 does nothing - no
+    eject command, the disk stays on the desktop. **What does let a disk
+    go** (ROM): the driver's read/write entry (`$4082DBB0`) reads
+    disk-in-place before every access, and if the drive is empty clears its
+    disk-in-place byte (`clr.b 3(a1,d1)`) and returns offLinErr (-65); and
+    its own eject. So a new disk is safe only after one of those.
+    **DECIDED (Daniel, 2026-10-08): option B** - a mount over the disk in
+    is held: the old disk stays in, write-protected, until the Mac ejects it
+    (or the machine resets); then the new image loads. (Option A, holding
+    the new disk out until the Mac sees an empty drive, was declined: an
+    idle Mac would need a "Please insert the disk" dialog cancelled.)
+    **Built** in `rtl/se30_flp_loader.v` (`held`; a new input `mac_reset_n`
+    = `machine_reset_n`): at a mount pulse with a disk in, `held`,
+    `readonly` (the drive's write-protect, and the decoder and writer's
+    `write_ok`) and `loading` (no commit, no write-back: the slot names the
+    new file) rise and nothing else moves; the eject or the machine's reset
+    starts the held load; a newer mount replaces it, an unmount cancels it;
+    an eject on the pulse's own clock loads at once. The writer was already
+    safe (a mount pulse empties its queue and cancels the flush; it moves
+    nothing while `loading`). `sim/flpload` item 9 (20 checks; `+SWAPONLY`
+    alone, 2.5 min): 6 fail on the old loader, all pass on the new.
+    The benches that mounted image after image now eject a disk still in
+    first, as the Mac would (a remount would be held): `sim/flpload` 73
+    PASS (item 6 asserts the held path); `sim/flpwr` 38 PASS (section 8
+    is now a mount over the disk in: held, nothing written while held,
+    the eject's flush writes nothing into the new file, which loads
+    untouched); `sim/gcrread` builds both ways (`mount_start` ejects at
+    the loader first; its ten-hour run is for a night). Release worktree:
+    the same code, token-identical to dev (`tokcmp`).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
@@ -17745,6 +17770,8 @@ suspect until shown otherwise:
 | PowerPoint 1.0 (Forethought, 1987, before Microsoft bought it; confirmed from its About box) | 52 | 24-bit | appears to work | Daniel, 2026-10-07 |
 | WordPerfect 3.1 | 52 | 24-bit | appears to work | Daniel, 2026-10-07 |
 | ClarisWorks 3.0 (1994) | 53 | 24-bit | works | Daniel, 2026-10-07 |
+| Photoshop 1.0.7 | release `be58952` | 24-bit, 8 MB | seems to work | Daniel, 2026-10-08 |
+| Aldus Super 3D 2.5 | release `be58952` | 24-bit, 8 MB | seems to work | Daniel, 2026-10-08 |
 | HyperCard 2.1 | 53 | 24-bit | stacks load, buttons work; `beep`, `play "boing"` and the audio-player stack sound; `put 2^32` = 4294967296 | Daniel, 2026-10-07 (a silent `play` was the PC speaker switched off, not the core) |
 | HyperCard Player 2.4.1 | 53 | 24-bit | works, sound included | Daniel, 2026-10-07 |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
