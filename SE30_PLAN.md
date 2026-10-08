@@ -17876,6 +17876,21 @@ strike what is done).** Each on a scratch copy of the image unless noted.
      and can say whether an image is sound before the core runs it.
    - Not a release blocker.
 
+10. **Cold-start every memory configuration** (from KNOWN ISSUES 13,
+    2026-10-08). An OSD reset keeps RAM, so the warm-start flag ('WLSC'
+    at `$CFC`) survives and the cold-start tests - the ROM's full RAM
+    test and MODE32's test of `[8 MB, 16 MB)` - are skipped; a real
+    SE/30 cold-starts at every power-on. For 8 MB and 16 MB, 24-bit and
+    32-bit: Shut Down, then reset (or set the option and Reset & Apply
+    after a Shut Down). The machine reaches the desktop each time.
+
+11. **Fill the memory in 32-bit mode at 16 MB** (from KNOWN ISSUES 13).
+    The trapdoor hid in 8 KB at 13.8 MB, which the System uses only when
+    memory fills. Open applications with large partitions (QuarkXPress,
+    Word, Excel, ClarisWorks) until About This Macintosh shows little
+    free, work in each, and quit them; no crash. A RAM test utility, if
+    one is to hand, does it more thoroughly.
+
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
 unpushed (Daniel pushes).
