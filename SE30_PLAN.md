@@ -3593,6 +3593,18 @@ not a verdict.
   `tools/fpu_model` and `tools/fpu_ucode` still carry plan citations
   (Daniel's call); a confirming compile of the final tree; Daniel is asking
   whether he may create `MiSTer-devel/MacSE30_MiSTer`.
+    Done the same day: the tools' plan citations removed (`1272bc5`; code
+  unchanged, the microcode rebuilt byte for byte); the final compile,
+  **`releases/MACSE30_20261009.rbf`** (`0409339`, md5 `938f7b3d...`):
+  37,497 ALMs (89 %), timing met at every corner (worst 0.014 ns, the
+  capture by A or B everywhere, the flow summary clean), no STA loop.
+  **Board-tested, all pass (Daniel)**: boot, Speedometer, 32-bit mode,
+  applications, floppy read/format/write, PC Exchange writing, the floppy
+  swap, CD-ROM, PRAM, Restart and Shut Down. `main` = one squashed commit
+  "Release 20261009" (`0ba3f6b`) on the initial commit - the release tree
+  without the prerelease rbf, which stays on `release`. Release files are
+  `MACSE30_<date>.rbf` (Daniel). Waiting: the MiSTer-devel reply; Daniel
+  pushes `main` and `release` and makes his repo public at the release.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
