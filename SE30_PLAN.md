@@ -19693,7 +19693,21 @@ section records what is read before any RTL.
    630-0153, TFB 344-0001, Bt453 RAMDAC). The file is byte-reversed and
    bit-inverted; undone, its format block reads ByteLanes `$E1` (lane 0),
    test pattern `$5A932BC7`, format 1, revision 1, length `$1000`,
-   directory offset `$FFF014`.
+   directory offset `$FFF014`. **`scripts/se30_declrom.py` reads it (on the
+   un-reversed, inverted image) and the ROM's own CRC recomputes
+   (`729755f8`): the dump is byte-exact.** Board sResource `$01`: "Toby
+   frame buffer card", **BoardId 5**, PrimaryInit `@$0048` (sExecBlock
+   rev 2, cpuID 2, code `$0054-$016E`), VendorInfo "Apple Computer",
+   PartNum "TFB-1", RevLevel "Beta-7.0". Video sResources `$80` (512 KB)
+   and `$81` (256 KB): catDisplay / typeVideo / drSwApple / DrHW 1, name
+   "Display_Video_Apple_TFB", HWDevId 1, MinorBase 0, MinorLength
+   `$40000`; one driver `.Display_Video_Apple_TFB` (2,094 bytes,
+   `drvrFlags $4C00`; Open `@$0254`, Control `@$032C`, Status `@$06D0`,
+   Close `@$02FA`). Modes, all 640 x 480 at 72 dpi with vpBaseOffset 32:
+   `$80` 1-bit rowBytes 128, `$81` 2-bit 256, `$82` 4-bit 512, `$83` 8-bit
+   1024; pages 5/3/2/1 on 512 KB (the 256 KB set: `$80-$82`, 1-bit 4
+   pages). Next: disassemble PrimaryInit and the driver for the TFB's
+   registers.
 6. **A new ROM file reaches the SE/30's folder too.** The distribution
    copies every undated `releases/` file to every home folder of the repo
    (14 FUTURE ADDITIONS 8), so the card ROM (`boot3.rom`) lands in
