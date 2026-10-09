@@ -19794,6 +19794,38 @@ section records what is read before any RTL.
      brings: a 512 KB VRAM region in the SDRAM map and a video read port
      the controller interleaves with the CPU - 640 x 480 x 8 bits at 66.67
      Hz is ~20.5 MB/s of display reads.
+8. **NuBus, as the main logic board drives it** (*Designing Cards*, ch.
+   1-3): the IIcx's bus interface is the **NuChip** (the II and IIx too;
+   the IIci has the NuChip30). The processor-bus-to-NuBus state machine
+   takes any physical address `$60000000-$FFFFFFFF`, synchronises it to the
+   NuBus clock (10 MHz, 100 ns) and runs a transaction: a start cycle, the
+   slave's wait states, an acknowledge cycle - two clocks at the least.
+   `$F0xxxxxx` gives an immediate bus error, no transaction. A fourth state
+   machine acknowledges any start after **256 clocks (25.6 µs)** with a
+   timeout status; the processor takes a bus error and VIA2 PB5/PB4 hold
+   the status (item 3). The book gives no figure for the processor-side
+   synchronisation through the NuChip, so the card's speed from the CPU
+   needs a measured reference (a real IIcx's Speedometer Graphics with
+   this card, 8-bit) - to find. The Toby card itself (item 5): its RAM
+   state machine runs on a 20 MHz clock, twice the NuBus clock.
+9. **Soft power** (*Guide* ch. 6, schematic sheet 4): the ADB keyboard's
+   Power key pulls `/POWERON` low and the supply comes up within 1.5 s;
+   Shut Down makes VIA2 PB2 (`/POWEROFF`) low and the supply goes off after
+   2 ms. The IIcx's rear switch acts on the hardware directly (no
+   interrupt) and can be **locked on**: then the machine restarts after a
+   power cut, and Shut Down in the Finder restarts it. On MiSTer: Shut
+   Down = the machine stops (screen dark, the CPU held) until the Power
+   key or the OSD's reset; "locked on" (Shut Down restarts) can be an OSD
+   choice.
+10. **Floppy and RAM: as the SE/30** (*Guide* ch. 1): the IIcx has **one
+   internal FDHD drive** and an external drive connector (the II, IIx and
+   IIfx have none), the SE/30's configuration and our build's (one drive
+   since compile 36); the RAM is the same GLUE's banks A and B with the
+   RAMSIZ bits (Table 4-10), 8 MB in 24-bit mode with this ROM.
+11. **Sound**: VIA2 PB6 `v2SNDEXT` = the external jack's switch on the IIcx
+   (0 = a plug in); the internal speaker is mono, stereo only from the
+   jack. MiSTer's output is the jack, so the IIcx build ties it low (always
+   stereo) - the SE/30's own wiring, so the Sound Manager behaves as now.
 6. **A new ROM file reaches the SE/30's folder too.** The distribution
    copies every undated `releases/` file to every home folder of the repo
    (14 FUTURE ADDITIONS 8), so the card ROM (`boot3.rom`) lands in
@@ -19811,16 +19843,16 @@ section records what is read before any RTL.
    `boot3.rom` in `games/MACSE30`, cold-start the release rbf and the
    prerelease 2 rbf, both boot as before (FUTURE BOARD TESTS).
 
-## 14.3 Still to read
+## 14.3 Still open
 
-- NuBus timing through the NuChip30 (cycle length, wait states, timeout),
-  for an authentic card speed - *Designing Cards and Drivers*.
-- The video card: which one, its declaration ROM, CLUT, timing.
-- Soft power from the keyboard's Power key and the rear switch (sheet 4,
-  `POWERON*` on the ADB connectors), and Shut Down's behaviour on MiSTer.
-- Sound: the IIcx's stereo path and SNDEXT (sheet 10).
-- Floppy: the IIcx's drive bays (one or two internal drives).
-- RAM: the IIcx's SIMM banks against the SE/30's (*Guide* Figure 5-8).
+- A measured reference for the card's speed from the CPU (item 8): a real
+  IIcx's Speedometer 4.02 Graphics with the Macintosh II Video Card.
+- The VBL status level at `$D0000` and register 15's other bits (item 7).
+- The design: the IIcx's build define and top-level wiring; the slot
+  device (NuBus decode `$Fsxxxxxx`/`$sxxxxxxx` for slots `$9-$B`, the
+  timeout, the TM status bits); the card (registers, Bt453, VBL, video
+  out at 30.24 MHz); the SDRAM VRAM region and display read port; soft
+  power; the ALM and M10K budget against the release build.
 
 ---
 
