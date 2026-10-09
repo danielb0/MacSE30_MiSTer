@@ -3619,6 +3619,14 @@ not a verdict.
   Not changed: `sys/` is the Template's, three framework commits behind
   (2026-08-22..26: ascal vsync reset, hps_io frame clocks, yc_out luma) -
   pick them up with the next release's compile.
+    **IN UPDATE_ALL 2026-10-09.** Daniel added the wiki Cores row
+  (`| [Apple Macintosh SE/30](https://github.com/MiSTer-devel/MacSE30_MiSTer)
+  |MACSE30| Yes | |`). MiSTer-devel's Distribution published it at 17:34
+  UTC (rbf, boot0-2.rom, MacSE30.nvr, README); Daniel's MiSTer reads
+  theypsilon's pinned-Linux mirror of it (`MultiDatabases_MiSTer`,
+  `distribution-mister-pinned-linux`, rebuilt every ~7 h), which carried
+  it that evening - **"the MacSE30 has just appeared on update_all"**
+  (Daniel). A new core reaches users in two stages; check both.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
