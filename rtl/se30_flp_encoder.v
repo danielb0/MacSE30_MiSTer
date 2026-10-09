@@ -1,0 +1,414 @@
+// se30_flp_encoder.v - the drive's track buffers: the head's cylinder of the image, read from
+// SDRAM and laid out as the ROM's GCR or MFM formatter lays a track, a bit a cell, both sides.
+
+`timescale 1ns/1ps
+
+module se30_flp_encoder #(
+  parameter [23:0] BASE = 24'h800000
+) (
+  input             clk,
+  input             reset_n,
+
+  input             disk_in,           // a whole image is in SDRAM
+  input             img_ds,            // 1 = double-sided (1600 blocks), 0 = 800
+  input             img_tags,          // the image carries 12 tag bytes a block
+  input             img_800k,          // the FILE's data region is 1600 blocks (its tags follow it)
+  input             img_mfm,           // an MFM disk: the MFM formatter's track
+  input             img_hd,            // ... 1.44 MB (18 sectors, 200,000 cells); else 720K (9, 100,000)
+
+  input       [6:0] cyl,               // the drive's head
+  output reg  [6:0] trk_cyl,           // what the buffers hold
+  output reg        trk_valid,
+  input      [17:0] trk_addr,          // the drive's port
+  input             trk_side,
+  output reg        trk_bit,
+  input             trk_we,            // the drive records trk_wbit there
+  input             trk_wbit,
+
+  input             hold,              // the decoder is busy: no rebuild
+  input      [18:0] dec_addr,          // the decoder's read: side 1 at SIDE1 + cell
+  output reg        dec_bit,           // a clock later, while the encoder is idle
+  output            enc_idle,
+
+  output reg        mem_req,           // the disk port
+  output reg [23:0] mem_addr,
+  input      [15:0] mem_rdata,
+  input             mem_ack,
+
+  output     [15:0] dbg
+);
+
+  // side 1's half of the buffer: a side holds an HD MFM revolution, 200,000
+  // cells; GCR uses the first 74,560 of each
+  localparam [18:0] SIDE1 = 19'd200000;
+
+  // ------------------------------------------------------------ tables
+  function [7:0] gcr(input [5:0] v);
+    case (v)
+      6'h00: gcr = 8'h96; 6'h01: gcr = 8'h97; 6'h02: gcr = 8'h9A; 6'h03: gcr = 8'h9B;
+      6'h04: gcr = 8'h9D; 6'h05: gcr = 8'h9E; 6'h06: gcr = 8'h9F; 6'h07: gcr = 8'hA6;
+      6'h08: gcr = 8'hA7; 6'h09: gcr = 8'hAB; 6'h0A: gcr = 8'hAC; 6'h0B: gcr = 8'hAD;
+      6'h0C: gcr = 8'hAE; 6'h0D: gcr = 8'hAF; 6'h0E: gcr = 8'hB2; 6'h0F: gcr = 8'hB3;
+      6'h10: gcr = 8'hB4; 6'h11: gcr = 8'hB5; 6'h12: gcr = 8'hB6; 6'h13: gcr = 8'hB7;
+      6'h14: gcr = 8'hB9; 6'h15: gcr = 8'hBA; 6'h16: gcr = 8'hBB; 6'h17: gcr = 8'hBC;
+      6'h18: gcr = 8'hBD; 6'h19: gcr = 8'hBE; 6'h1A: gcr = 8'hBF; 6'h1B: gcr = 8'hCB;
+      6'h1C: gcr = 8'hCD; 6'h1D: gcr = 8'hCE; 6'h1E: gcr = 8'hCF; 6'h1F: gcr = 8'hD3;
+      6'h20: gcr = 8'hD6; 6'h21: gcr = 8'hD7; 6'h22: gcr = 8'hD9; 6'h23: gcr = 8'hDA;
+      6'h24: gcr = 8'hDB; 6'h25: gcr = 8'hDC; 6'h26: gcr = 8'hDD; 6'h27: gcr = 8'hDE;
+      6'h28: gcr = 8'hDF; 6'h29: gcr = 8'hE5; 6'h2A: gcr = 8'hE6; 6'h2B: gcr = 8'hE7;
+      6'h2C: gcr = 8'hE9; 6'h2D: gcr = 8'hEA; 6'h2E: gcr = 8'hEB; 6'h2F: gcr = 8'hEC;
+      6'h30: gcr = 8'hED; 6'h31: gcr = 8'hEE; 6'h32: gcr = 8'hEF; 6'h33: gcr = 8'hF2;
+      6'h34: gcr = 8'hF3; 6'h35: gcr = 8'hF4; 6'h36: gcr = 8'hF5; 6'h37: gcr = 8'hF6;
+      6'h38: gcr = 8'hF7; 6'h39: gcr = 8'hF9; 6'h3A: gcr = 8'hFA; 6'h3B: gcr = 8'hFB;
+      6'h3C: gcr = 8'hFC; 6'h3D: gcr = 8'hFD; 6'h3E: gcr = 8'hFE; default: gcr = 8'hFF;
+    endcase
+  endfunction
+  function [7:0] chunk(input [2:0] i);           // FF 3F CF F3 FC FF
+    case (i)
+      3'd1: chunk = 8'h3F; 3'd2: chunk = 8'hCF; 3'd3: chunk = 8'hF3; 3'd4: chunk = 8'hFC;
+      default: chunk = 8'hFF;
+    endcase
+  endfunction
+
+  // ------------------------------------------------------------ the cylinder
+  reg  [6:0] c;                                  // the cylinder being built
+  reg        bside;
+  wire [2:0] grp  = c[6:4];
+  wire [3:0] spt  = 4'd12 - {1'b0, grp};
+  reg [17:0] cells;                              // a revolution of this group (or MFM's)
+  reg  [7:0] lead;                               // its leftover
+  reg  [3:0] lead_m;                             // (leftover - 1) mod 10: the pattern's phase
+  reg  [9:0] gstart;                             // sectors on one side before the group
+  always @* begin
+    case (grp)
+      3'd0:    begin cells = 18'd74558; lead = 8'd62;  lead_m = 4'd1; gstart = 10'd0;   end
+      3'd1:    begin cells = 18'd68476; lead = 8'd188; lead_m = 4'd7; gstart = 10'd192; end
+      3'd2:    begin cells = 18'd62237; lead = 8'd157; lead_m = 4'd6; gstart = 10'd368; end
+      3'd3:    begin cells = 18'd55954; lead = 8'd82;  lead_m = 4'd1; gstart = 10'd528; end
+      default: begin cells = 18'd49790; lead = 8'd126; lead_m = 4'd5; gstart = 10'd672; end
+    endcase
+    if (img_mfm) cells = img_hd ? 18'd200000 : 18'd100000;
+  end
+  wire [10:0] before_c = {1'b0, gstart} + c[3:0] * spt;        // sectors on one side before c
+
+  reg  [4:0] slot;                               // the sector's place on the track
+  wire [3:0] half = (spt - 4'd1) / 2 + 4'd1;
+  wire [3:0] sector = slot[0] ? half + (slot >> 1) : (slot >> 1);   // $408321CA
+  wire [10:0] blk = (img_ds ? {before_c[9:0], 1'b0} : before_c) + (bside ? {7'd0, spt} : 11'd0) + {7'd0, sector};
+  // the tags follow the file's data region, whatever the volume on it is:
+  // an 800K DiskCopy file may carry a 400K volume (img_ds low)
+  wire [23:0] tag_base = BASE + (img_800k ? 24'd409600 : 24'd204800) + {blk, 2'b00} + {blk, 1'b0};
+
+  // the address field: track, sector, side, format, checksum (decoded)
+  wire [5:0] h_trk = c[5:0];
+  wire [5:0] h_sec = {2'b00, sector};
+  wire [5:0] h_sd  = {bside, 4'b0000, c[6]};
+  wire [5:0] h_fmt = img_ds ? 6'h22 : 6'h02;
+  wire [5:0] h_chk = h_trk ^ h_sec ^ h_sd ^ h_fmt;
+
+  // an MFM disk's block: (2c + s) x spt + slot, spt 18 (x16 + x2) or 9 (x8 + x1)
+  wire  [7:0] ts    = {c, bside};
+  wire [11:0] mblk  = (img_hd ? {ts, 4'b0000} + {3'b000, ts, 1'b0} : {1'b0, ts, 3'b000} + {4'd0, ts})
+                      + {7'd0, slot};
+  wire [11:0] fblk  = img_mfm ? mblk : {1'b0, blk};
+  wire  [4:0] mspt  = img_hd ? 5'd18 : 5'd9;
+  wire  [9:0] mlast = img_hd ? 10'd681 : 10'd653;  // a sector's last byte: gap 3 of 108 or 80
+
+  // ------------------------------------------------------------ buffers
+  reg        tbuf [0:399999];                    // both sides' bitstreams
+  reg [15:0] sbuf [0:261];                       // a sector: 6 tag words, 256 data words
+  reg  [7:0] cbuf [0:702];                       // its 703 data-field codes
+
+  // port A, the drive: a cell read, or written by the recording - never both in one clock, so the
+  // buffer stays an M10K in true dual-port mode
+  wire [18:0] pa = trk_side ? SIDE1 + {1'b0, trk_addr} : {1'b0, trk_addr};
+  always @(posedge clk) begin
+    if (trk_we) tbuf[pa] <= trk_wbit;
+    else        trk_bit <= tbuf[pa];
+  end
+
+  // ------------------------------------------------------------ the build
+  localparam S_IDLE = 4'd0, S_SIDE = 4'd1, S_FILL = 4'd2, S_LEAD = 4'd3, S_FETCH = 4'd4,
+             S_NIB = 4'd5, S_SUM = 4'd6, S_EMIT = 4'd7, S_DONE = 4'd8, S_MFM = 4'd9;
+  reg  [3:0] st;
+  reg [17:0] wptr;                               // the cell being written
+  reg  [8:0] widx;                               // FETCH: the sector buffer's word
+  reg  [7:0] lcnt;                               // LEAD: cells left
+  reg  [3:0] lm;                                 // LEAD: the pattern's phase
+  reg  [7:0] g;                                  // NIB: the group
+  reg  [3:0] ns;                                 // NIB, SUM: the step
+  reg  [9:0] bidx;                               // the sector byte being read
+  reg [15:0] sbuf_q;
+  reg        bsel_q;
+  reg  [7:0] A, B;
+  reg  [7:0] ca, cb, cc, Ap, Bp, Cp;
+  reg  [9:0] ci;                                 // codes written
+  reg  [9:0] j;                                  // EMIT: the byte
+  reg  [2:0] bk;                                 // EMIT: its bit, 7 first
+  reg  [2:0] j6;                                 // j mod 6 in the sync chunks
+  reg  [7:0] cur;
+  reg  [7:0] cbuf_q;
+  reg  [9:0] cbuf_ra;
+  // MFM (S_MFM): the part of the side, the cell's half, the last data bit,
+  // a mark byte, the CRC
+  reg  [1:0] mm;                                 // 0 the 32 x 4E, 1 a sector, 2 4E to the end
+  reg        ph;                                 // 0 the clock cell, 1 the data cell
+  reg        pd;
+  reg        mk;
+  reg [15:0] crc;
+  wire [15:0] crc_nx = {crc[14:0], 1'b0} ^ ((crc[15] ^ cur[7]) ? 16'h1021 : 16'h0000);
+
+  wire [7:0] sbyte = bsel_q ? sbuf_q[7:0] : sbuf_q[15:8];
+  wire       last  = (g == 8'd174);
+
+  // one group, the ERS's steps 1-7 on A, B and the byte now read (C)
+  wire [7:0] rot = {cc[6:0], cc[7]};
+  wire [8:0] sa  = {1'b0, ca} + {1'b0, A} + {8'd0, cc[7]};
+  wire [7:0] ap  = A ^ rot;
+  wire [8:0] sb  = {1'b0, cb} + {1'b0, B} + {8'd0, sa[8]};
+  wire [7:0] bp  = B ^ sa[7:0];
+  wire [8:0] sc  = {1'b0, rot} + {1'b0, sbyte} + {8'd0, sb[8]};
+  wire [7:0] cp  = sbyte ^ sb[7:0];
+
+  // the byte the emitter takes next (index jn)
+  wire [9:0] jn = j + 10'd1;
+  reg  [7:0] nbyte;
+  always @* begin
+    if (jn < 10'd48)       nbyte = chunk(j6 == 3'd5 ? 3'd0 : j6 + 3'd1);
+    else if (jn < 10'd59)
+      case (jn - 10'd48)
+        10'd0: nbyte = 8'hD5;       10'd1: nbyte = 8'hAA;       10'd2: nbyte = 8'h96;
+        10'd3: nbyte = gcr(h_trk);  10'd4: nbyte = gcr(h_sec);  10'd5: nbyte = gcr(h_sd);
+        10'd6: nbyte = gcr(h_fmt);  10'd7: nbyte = gcr(h_chk);  10'd8: nbyte = 8'hDE;
+        10'd9: nbyte = 8'hAA;       default: nbyte = 8'hFF;
+      endcase
+    else if (jn < 10'd65)  nbyte = chunk(jn - 10'd59);
+    else if (jn == 10'd65) nbyte = 8'hD5;
+    else if (jn == 10'd66) nbyte = 8'hAA;
+    else if (jn == 10'd67) nbyte = 8'hAD;
+    else if (jn == 10'd68) nbyte = gcr(h_sec);
+    else if (jn < 10'd772) nbyte = cbuf_q;
+    else if (jn == 10'd772) nbyte = 8'hDE;
+    else if (jn == 10'd773) nbyte = 8'hAA;
+    else                   nbyte = 8'hFF;
+  end
+
+  // the MFM sector's byte jn, and whether it is a mark (the CRC's bytes
+  // from crc_nx: the field's last bit goes into the CRC on this clock)
+  reg  [7:0] mbyte;
+  reg        mbmark;
+  always @* begin
+    mbmark = 1'b0;
+    if (jn < 10'd12)                       mbyte = 8'h00;
+    else if (jn < 10'd15) begin            mbyte = 8'hA1; mbmark = 1'b1; end
+    else if (jn == 10'd15)                 mbyte = 8'hFE;
+    else if (jn == 10'd16)                 mbyte = {1'b0, c};
+    else if (jn == 10'd17)                 mbyte = {7'd0, bside};
+    else if (jn == 10'd18)                 mbyte = {3'd0, slot} + 8'd1;
+    else if (jn == 10'd19)                 mbyte = 8'h02;
+    else if (jn < 10'd22)                  mbyte = crc_nx[15:8];
+    else if (jn < 10'd44)                  mbyte = 8'h4E;
+    else if (jn < 10'd56)                  mbyte = 8'h00;
+    else if (jn < 10'd59) begin            mbyte = 8'hA1; mbmark = 1'b1; end
+    else if (jn == 10'd59)                 mbyte = 8'hFB;
+    else if (jn < 10'd572)                 mbyte = sbyte;
+    else if (jn < 10'd574)                 mbyte = crc_nx[15:8];
+    else                                   mbyte = 8'h4E;
+  end
+
+  // port B: the build's writes, or the decoder's reads while idle
+  reg        tb_we, tb_d;
+  reg [18:0] tb_a;
+  // (by the write, not the state: a build abandoned on a seek can leave its
+  // last write for the first idle clock)
+  wire [18:0] pb = tb_we ? tb_a : dec_addr;
+  always @(posedge clk) begin
+    if (tb_we) tbuf[pb] <= tb_d;
+    else       dec_bit <= tbuf[pb];
+  end
+
+  reg        sb_we;
+  reg  [8:0] sb_a;
+  reg [15:0] sb_d;
+  always @(posedge clk) begin
+    if (sb_we) sbuf[sb_a] <= sb_d;
+    sbuf_q <= sbuf[bidx[9:1]];
+    bsel_q <= bidx[0];
+  end
+
+  reg        cb_we;
+  reg  [9:0] cb_a;
+  reg  [7:0] cb_d;
+  always @(posedge clk) begin
+    if (cb_we) cbuf[cb_a] <= cb_d;
+    cbuf_q <= cbuf[cbuf_ra];
+  end
+
+  wire [18:0] wbase = bside ? SIDE1 : 19'd0;
+  wire        mlastcell = (wptr + 1'b1 == cells);
+  wire        leave = !disk_in || cyl != c;     // abandon the build (no request out)
+
+  always @(posedge clk or negedge reset_n) begin
+    if (!reset_n) begin
+      st <= S_IDLE; trk_valid <= 0; trk_cyl <= 7'h7F; mem_req <= 0; mem_addr <= 0;
+      c <= 0; bside <= 0; slot <= 0; wptr <= 0; widx <= 0; lcnt <= 0; lm <= 0; g <= 0; ns <= 0;
+      bidx <= 0; A <= 0; B <= 0; ca <= 0; cb <= 0; cc <= 0; Ap <= 0; Bp <= 0; Cp <= 0;
+      ci <= 0; j <= 0; bk <= 0; j6 <= 0; cur <= 0; cbuf_ra <= 0;
+      mm <= 0; ph <= 0; pd <= 0; mk <= 0; crc <= 16'hFFFF;
+      tb_we <= 0; tb_a <= 0; tb_d <= 0; sb_we <= 0; sb_a <= 0; sb_d <= 0; cb_we <= 0; cb_a <= 0; cb_d <= 0;
+    end else begin
+      tb_we <= 0; sb_we <= 0; cb_we <= 0;
+      if (!disk_in) trk_valid <= 0;
+
+      if (st != S_IDLE && !mem_req && leave) st <= S_IDLE;
+      else case (st)
+        S_IDLE:
+          if (disk_in && !hold && !(trk_valid && trk_cyl == cyl)) begin
+            trk_valid <= 0; c <= cyl; bside <= 0; st <= S_SIDE;
+          end
+
+        S_SIDE: begin                            // a side begins
+          wptr <= 0; slot <= 0; lcnt <= lead; lm <= lead_m;
+          j <= 0; bk <= 0; ph <= 0; pd <= 0; mm <= 0; cur <= 8'h4E; mk <= 0;
+          st <= img_mfm ? S_MFM : (bside && !img_ds) ? S_FILL : S_LEAD;
+        end
+
+        S_FILL: begin                            // side 1 of a single-sided disk: no flux
+          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= 0;
+          wptr <= wptr + 1'b1;
+          if (wptr + 1'b1 == cells) st <= S_DONE;        // FILL is only ever side 1
+        end
+
+        S_LEAD: begin                            // the leftover: groups ending in 00
+          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= (lm >= 4'd2);
+          wptr <= wptr + 1'b1;
+          lm <= (lm == 0) ? 4'd9 : lm - 1'b1;
+          lcnt <= lcnt - 1'b1;
+          if (lcnt == 8'd1) begin widx <= 0; st <= S_FETCH; end
+        end
+
+        S_FETCH: begin                           // the sector's 262 words
+          if (widx < 9'd6 && !img_tags) begin
+            sb_we <= 1; sb_a <= widx; sb_d <= 16'h0000; widx <= widx + 1'b1;
+          end else if (widx == 9'd262) begin
+            g <= 0; ns <= 0; ci <= 0; ca <= 0; cb <= 0; cc <= 0;
+            j <= 0; cur <= 8'h00; mk <= 0; mm <= 2'd1;          // (MFM: the sector's first 00)
+            st <= img_mfm ? S_MFM : S_NIB;
+          end else if (mem_req) begin
+            if (mem_ack) begin
+              mem_req <= 0; sb_we <= 1; sb_a <= widx; sb_d <= mem_rdata; widx <= widx + 1'b1;
+            end
+          end else if (!mem_ack) begin
+            mem_req  <= 1;
+            mem_addr <= (widx < 9'd6) ? tag_base + {15'd0, widx}
+                                       : BASE + {4'd0, fblk, 8'd0} + {15'd0, widx - 9'd6};
+          end
+        end
+
+        S_NIB: begin                             // the 175 groups
+          ns <= ns + 1'b1;
+          case (ns)
+            // the buffer's read is registered: byte bidx is on sbyte the
+            // clock after bidx is set
+            4'd0: bidx <= {g, 1'b0} + {2'b00, g};           // 3g
+            4'd1: bidx <= bidx + 1'b1;
+            4'd2: begin bidx <= bidx + 1'b1; A <= sbyte; end
+            4'd3: B <= sbyte;
+            4'd4: begin                                     // C (or none) on sbyte now
+              ca <= sa[7:0]; cb <= sb[7:0]; Ap <= ap; Bp <= bp;
+              if (last) begin cc <= rot; Cp <= 8'h00; end
+              else begin cc <= sc[7:0]; Cp <= cp; end
+            end
+            4'd5: begin cb_we <= 1; cb_a <= ci; cb_d <= gcr({Ap[7:6], Bp[7:6], Cp[7:6]}); ci <= ci + 1'b1; end
+            4'd6: begin cb_we <= 1; cb_a <= ci; cb_d <= gcr(Ap[5:0]); ci <= ci + 1'b1; end
+            4'd7: begin
+              cb_we <= 1; cb_a <= ci; cb_d <= gcr(Bp[5:0]); ci <= ci + 1'b1;
+              if (last) begin ns <= 0; st <= S_SUM; end
+            end
+            default: begin
+              cb_we <= 1; cb_a <= ci; cb_d <= gcr(Cp[5:0]); ci <= ci + 1'b1;
+              ns <= 0; g <= g + 1'b1;
+            end
+          endcase
+        end
+
+        S_SUM: begin                             // the checksum's four codes
+          ns <= ns + 1'b1;
+          cb_we <= 1; cb_a <= ci; ci <= ci + 1'b1;
+          case (ns)
+            4'd0: cb_d <= gcr({ca[7:6], cb[7:6], cc[7:6]});
+            4'd1: cb_d <= gcr(ca[5:0]);
+            4'd2: cb_d <= gcr(cb[5:0]);
+            default: begin
+              cb_d <= gcr(cc[5:0]);
+              j <= 0; bk <= 0; j6 <= 0; cur <= 8'hFF; cbuf_ra <= 0;
+              st <= S_EMIT;
+            end
+          endcase
+        end
+
+        S_EMIT: begin                            // the sector's 776 bytes, a bit a clock
+          tb_we <= 1; tb_a <= wbase + {1'b0, wptr}; tb_d <= cur[7];
+          wptr <= wptr + 1'b1;
+          cur <= {cur[6:0], 1'b0};
+          bk <= bk + 1'b1;
+          cbuf_ra <= jn - 10'd69;                // the code for the next byte, read ahead
+          if (bk == 3'd7) begin
+            if (j == 10'd775) begin
+              if (slot + 1'b1 == spt) begin
+                if (bside) st <= S_DONE;
+                else begin bside <= 1; st <= S_SIDE; end   // (a single-sided image: FILL)
+              end else begin slot <= slot + 1'b1; widx <= 0; st <= S_FETCH; end
+            end else begin
+              j <= jn; cur <= nbyte;
+              j6 <= (j6 == 3'd5) ? 3'd0 : j6 + 1'b1;
+            end
+          end
+        end
+
+        S_MFM: begin                             // a cell a clock: the clock cell, then the data cell
+          tb_we <= 1; tb_a <= wbase + {1'b0, wptr};
+          wptr <= wptr + 1'b1;
+          ph <= !ph;
+          bidx <= jn - 10'd48;                   // the next data byte, read ahead (sector byte 12 + jn - 60)
+          if (!ph)
+            tb_d <= !pd && !cur[7] && !(mk && bk == 3'd5);  // a mark: no clock before bit 2
+          else begin
+            tb_d <= cur[7]; pd <= cur[7]; crc <= crc_nx;
+            cur <= {cur[6:0], 1'b0};
+            bk <= bk + 1'b1;
+            if (bk == 3'd7)                      // the byte's last cell
+              case (mm)
+                2'd0:                            // the 32 x 4E from the index
+                  if (j == 10'd31) begin widx <= 9'd6; st <= S_FETCH; end
+                  else begin j <= jn; cur <= 8'h4E; end
+                2'd1:                            // a sector
+                  if (j == mlast) begin
+                    if (slot + 1'b1 == mspt) begin mm <= 2'd2; cur <= 8'h4E; mk <= 0; end
+                    else begin slot <= slot + 1'b1; widx <= 9'd6; st <= S_FETCH; end
+                  end else begin
+                    j <= jn; cur <= mbyte; mk <= mbmark;
+                    if (jn == 10'd12 || jn == 10'd56) crc <= 16'hFFFF;   // a field's first A1
+                  end
+                default:                         // 4E to the end of the revolution
+                  if (mlastcell) begin
+                    if (bside) st <= S_DONE;
+                    else begin bside <= 1; st <= S_SIDE; end
+                  end else cur <= 8'h4E;
+              endcase
+          end
+        end
+
+        S_DONE: begin                            // the last bit is in: valid
+          trk_valid <= 1; trk_cyl <= c; st <= S_IDLE;
+        end
+
+        default: st <= S_IDLE;
+      endcase
+    end
+  end
+
+  assign enc_idle = (st == S_IDLE);
+  assign dbg = {trk_valid, bside, st, slot[3:0], c[5:0]};
+
+endmodule
