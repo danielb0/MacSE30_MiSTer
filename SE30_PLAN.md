@@ -18033,6 +18033,7 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     boot and run as before (the chime, the desktop, a floppy and the SCSI
     disk). The MacPlus precedent: a new ROM file broke the original core.
     ~3 minutes.
+    **DONE 2026-10-09 (Daniel): "It works with boot3.rom in the folder."**
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
