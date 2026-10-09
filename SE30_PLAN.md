@@ -20125,6 +20125,12 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    the compacted address and its block-RAM/SDRAM choice, settled before
    the NuChip raises sel. Access time unchanged (7-8 C16M). `sim/nubus` 40,
    `sim/machine` IIcx 17 and SE/30 17 PASS.
+   **The fifth full compile (tag 26b7fe87, 23:57) stalled the same way as
+   the third**: synthesis 8 min, physical synthesis and register packing
+   done by 00:09, then 25+ min single-threaded (3.4 GB) in placement
+   preparation with the log still. Stopped at 00:35 (Daniel ended the
+   session). **So the address path was not the cause, or not the only
+   one** - see the END OF SESSION block below.
 5. Compile, then the board.
 
 ## 14.4 Still open
@@ -20149,6 +20155,71 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
   timeout, the TM status bits); the card (registers, Bt453, VBL, video
   out at 30.24 MHz); the SDRAM VRAM region and display read port; soft
   power; the ALM and M10K budget against the release build.
+
+
+**END OF SESSION 2026-10-10 (00:40) - READ THIS TO RESUME.**
+
+*The SE/30 is released.* Release 20261009: MiSTer-devel/MacSE30_MiSTer
+`master` (= our `main` 3d3f212, the rbf named `MacSE30_20261009.rbf`), the
+wiki Cores row, in update_all (MiSTer-devel's distribution 17:34 UTC, then
+theypsilon's pinned-Linux mirror, which Daniel's MiSTer reads), announced on
+the forum's updates thread. danielb0/MacSE30_MiSTer public.
+
+*Branches.* `dev` is 3 commits ahead of origin (plan records). **`iicx`** =
+dev + 29 commits, all the IIcx work and this session's plan records,
+unpushed (Daniel pushes). `release` still carries the old `MACSE30_` rbf name
+(carry the rename at the next cut). `sim/gcrread/run.sh` and
+`tb_se30_gcrread.v` hold Daniel's pending one-drive change, uncommitted (its
+vr_* tie-off line alone was committed, through the index). Tree otherwise
+clean; db/ and incremental_db/ removed after the stopped compile.
+
+*The IIcx (Section 14).* Steps 1-5 built and benched: the build switch
+(MacIIcx.qpf/qsf/srf, MACIICX), the card `nubus_tfb.v` (with VRAM
+compaction - 14.3 item 4's correction), the NuChip `iicx_nuchip.v`, GLUE
+IICX, the SDRAM `vr_*` port, `pll_vid` (30.24 MHz from clk_mem), soft power
+`iicx_power.v`. Benches: sim/nubus 40, sim/sdram 202, sim/power 8,
+sim/glue 102, sim/machine SE/30 17 and IIcx 17 (`IICX=1`), sim/adb and
+adbdev PASS. Analysis & Synthesis of both builds clean; the SE/30 build's
+memory and PLLs = the release's exactly. The step-1 skeleton (card on
+clk_sys, byte path, no compaction) FIT in 33 min: 38,076 ALMs, 537/553
+M10K, timing met (ascal only).
+
+*THE OPEN PROBLEM: no full compile of the finished IIcx has completed.*
+1. 20:50 failed: `pll_vid` on CLK2_50's PLL (each 50 MHz pin feeds only its
+   own PLL; all three taken) - referenced from a PLL output instead.
+2. 21:01 failed: a fractional PLL's reference must be 50-700 MHz - clk_sys
+   (31.3 MHz) refused; now clk_mem (94.0032 MHz).
+3. 21:11 killed by my 60-min cap, 48 min in placement preparation.
+4. 22:12 placed in 2 m 45 s, then routed single-threaded 1 h 40 min (peak
+   interconnect 81 % at X45-55/Y23-34); stopped (Daniel: "We've never had a
+   successful build take this long").
+5. 23:57, after latching the NuChip and registering the compaction: stalled
+   in placement preparation again (25+ min); stopped 00:35.
+**Next step, proposed and not yet agreed: bisect.** Build once with the
+card on clk_sys (as the skeleton; one line in MacSE30.sv, behind a define),
+everything else as now (~35 min if it fits). It fits fast = the PLL / clock
+domain is the cause (every slow run has `pll_vid`: a PLL fed from another
+PLL's output, a new global clock to ~300 M10K) - then another way to make
+30.24 MHz (e.g. a fractional PLL fed from a reference pin's neighbour that
+can be cascaded properly, or a reconfiguration of the framework's HDMI
+side) is the work. It still stalls = bisect the other changes since the
+skeleton (the NuChip/32-bit GLUE path, the SDRAM port, compaction, power).
+Levers if the device is simply too full: the card ROM to SDRAM (-4 M10K),
+one CLUT copy (-1), the CD-ROM target as an IIcx build option (776 ALMs).
+Rules in force: no seed lottery (fix in the RTL); estimate a compile first;
+consult over 30 min.
+
+*Then:* the board - `games/MACIICX/boot0.rom`, `boot2.rom`, and `boot3.rom`
+= `C:\temp\Mac\ROMS\Mac IIcx\342-0008-a.bin`; the Slot Manager and the
+driver against the card, Monitors' depths, Shut Down, Speedometer Graphics
+against Low End Mac's real IIcx (0.25 at 8-bit) to tune the NuBus timing
+(7-8 C16M now). Still open (14.4): the VBL status level; register 15's
+other bits; `$51000000-$5FFFFFFF` on the IIcx (UI6 stand-in).
+
+*Decisions recorded today:* the IIcx is finished and is the last Mac model
+(FUTURE ADDITIONS 8: every candidate reviewed; the IIci open, low
+priority); the card is Apple's original Macintosh II Video Card, 512 KB
+(8-bit); one repository, two Quartus projects (Atari800's pattern).
 
 ---
 
