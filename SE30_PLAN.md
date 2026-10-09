@@ -19843,10 +19843,28 @@ section records what is read before any RTL.
    `boot3.rom` in `games/MACSE30`, cold-start the release rbf and the
    prerelease 2 rbf, both boot as before (FUTURE BOARD TESTS).
 
+12. **The speed reference: Low End Mac's real IIcx** (the page
+   `lowendmac.com/benchmarks/iicx.shtml`, gone from the live site, read
+   from the Wayback Machine's 2005-12-31 copy): tested 5 October 1998,
+   System 7.5.5, inessential extensions off, 80 MB Quantum ProDrive LPS,
+   **a 640 x 480 monitor on "a NuBus video card"** - the card is not named
+   (8-bit at 640 x 480 needs 512 KB, most likely Apple's card: an
+   inference, so this is a good reference, not an exact one).
+   - Speedometer 4.02 (Quadra 605 = 1.0), 8-bit: **CPU 0.26, Graphics
+     0.25** (0.26 at a 32 KB disk cache), Disk 0.75-0.77, Math 0.96-0.97.
+     "Speedometer 4 shows no perceptible difference at different video
+     settings."
+   - Speedometer 3.06 (Classic = 1.0), 64 KB cache: Graphics **1-bit
+     5.81, 2-bit 5.06, 4-bit 4.84, 8-bit 4.88**; CPU 4.24, Math ~6.8.
+   - CPU and Math equal the real SE/30's (0.26; 0.96-0.98,
+     Low End Mac): the same CPU, as expected,
+     and a second witness for our SE/30 timing. Graphics 0.25 on the IIcx
+     against the SE/30's 0.16 on its built-in screen.
+
 ## 14.3 Still open
 
-- A measured reference for the card's speed from the CPU (item 8): a real
-  IIcx's Speedometer 4.02 Graphics with the Macintosh II Video Card.
+- The card's speed is now targeted at item 12 (Graphics 0.25 at 8-bit
+  on Speedometer 4.02; 3.06's per-depth figures for the shape).
 - The VBL status level at `$D0000` and register 15's other bits (item 7).
 - The design: the IIcx's build define and top-level wiring; the slot
   device (NuBus decode `$Fsxxxxxx`/`$sxxxxxxx` for slots `$9-$B`, the
