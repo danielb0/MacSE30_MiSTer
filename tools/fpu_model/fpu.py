@@ -1,5 +1,5 @@
 """The 68882 as software sees it, one instruction at a time: the
-specification layer of plan 8.7.
+specification layer.
 
 `FPU` holds FP0-FP7, FPCR, FPSR and FPIAR and executes the general
 (type 000) instructions from their command words, the conditionals'
@@ -8,9 +8,9 @@ call returns an `Outcome`: the exception the chip would report (its vector,
 and whether the MPU sees it pre- or mid-instruction), the exceptional
 operand an FSAVE would hold, and any value stored to the MPU.  The dialog
 over the coprocessor interface, the state frames' timing and the CU's
-concurrency are the RTL's (8.6.12, 8.6.14 item 16).
+concurrency are the RTL's.
 
-Citations: plan 8.6.x, and UM pages/sections.  Switches: switches.py.
+Citations: UM pages and sections.  Switches: switches.py.
 """
 
 from dataclasses import dataclass
@@ -27,7 +27,7 @@ import packed
 import transcend
 from switches import Switches, DEFAULT
 
-# FPSR (plan 8.6.2).
+# FPSR.
 CC_N, CC_Z, CC_I, CC_NAN = 1 << 27, 1 << 26, 1 << 25, 1 << 24
 CC_MASK = 0x0F000000
 QUOT_MASK = 0x00FF0000
@@ -42,7 +42,7 @@ BSUN, SNAN, OPERR, OVFL, UNFL, DZ, INEX2, INEX1 = (1 << b for b in
 # AEXC.
 A_IOP, A_OVFL, A_UNFL, A_DZ, A_INEX = (1 << b for b in range(7, 2, -1))
 
-# Vectors (8.6.10) in priority order; INEX is one vector for both bits.
+# Vectors in priority order; INEX is one vector for both bits.
 V_BSUN, V_INEX, V_DZ, V_UNFL, V_OPERR, V_OVFL, V_SNAN = 48, 49, 50, 51, 52, 53, 54
 V_FLINE = 11
 
@@ -60,7 +60,7 @@ class Unmodelled(Exception):
 class Outcome:
     vector: Optional[int] = None    # the exception taken, if any
     when: Optional[str] = None      # 'pre' or 'mid'
-    xop: Optional[Ext] = None       # the exceptional operand (8.6.10)
+    xop: Optional[Ext] = None       # the exceptional operand
     store: object = None            # a value moved to the MPU/memory
     cond: Optional[bool] = None     # a conditional's answer
 
@@ -70,7 +70,7 @@ class FPU:
         self.sw = switches
         self.reset()
 
-    # -- reset (8.6.2): FP0-FP7 nonsignaling NaNs, the control registers 0.
+    # -- reset: FP0-FP7 nonsignaling NaNs, the control registers 0.
     def reset(self):
         self.fp: List[Ext] = [Ext(*self.sw.reset_nan)] * 8
         self.fpcr = 0
@@ -158,7 +158,7 @@ class FPU:
             xop = xop_round
         return Outcome(vector=vec, when='pre' if vec else None, xop=xop)
 
-    # -- operand conversion in (8.6.3) --------------------------------------
+    # -- operand conversion in --------------------------------------
     def convert_in(self, fmt, raw):
         """The source operand of an <ea>-to-register instruction as
         extended: (Ext, INEX1)."""
@@ -177,20 +177,20 @@ class FPU:
     def _pten(self):
         return packed.PTEN_FPSP if self.sw.pten_tables == 'fpsp' else packed.PTEN_ROM
 
-    # -- decode (8.6.7) ----------------------------------------------------
+    # -- decode ----------------------------------------------------
     REDUNDANT = {0x05: 0x04, 0x07: 0x06, 0x0B: 0x0A, 0x13: 0x12, 0x17: 0x16,
                  0x1B: 0x1A, 0x29: 0x28, 0x2A: 0x28, 0x2B: 0x28, 0x2C: 0x28,
                  0x2D: 0x28, 0x2E: 0x28, 0x2F: 0x28, 0x39: 0x38, 0x3C: 0x38,
                  0x3D: 0x38, 0x3B: 0x3A, 0x3E: 0x3A, 0x3F: 0x3A}
 
     def opmode(self, ext):
-        """The operation an opmode names, after 8.6.14 item 6; None for an
+        """The operation an opmode names, after switches.py item 6; None for an
         F-line (opmodes $40-$7F)."""
         if ext >= 0x40:
             return None
         if ext in self.REDUNDANT:
             if self.sw.redundant_opmodes != 'winuae':
-                raise Unmodelled('redundant opmode $%02X (8.6.14 item 6)' % ext)
+                raise Unmodelled('redundant opmode $%02X' % ext)
             return self.REDUNDANT[ext]
         return ext
 
@@ -228,7 +228,7 @@ class FPU:
             return self.fmove_cr_out(rx)
         return self.fmovem(cmd, operand, dreg)
 
-    # -- the arithmetic instructions (8.6.8) --------------------------------
+    # -- the arithmetic instructions --------------------------------
     MONADIC = {0x00, 0x01, 0x02, 0x03, 0x04, 0x06, 0x08, 0x09, 0x0A, 0x0C,
                0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x14, 0x15, 0x16, 0x18,
                0x19, 0x1A, 0x1C, 0x1D, 0x1E, 0x1F, 0x3A} | set(range(0x30, 0x38))
@@ -379,7 +379,7 @@ class FPU:
             return self._rounded_value(dst, x, exc, src, rnd, fmt)
         return self._finish_reg(dst, x, exc, src)
 
-    # The transcendentals (8.6.8's table; the algorithms, transcend.py) ------
+    # The transcendentals (the algorithms, transcend.py) ---------------------
     def _computed(self, r, exc, rnd, fmt):
         """A transcendental's I67 result through the post-processing, with
         the sticky bit set: INEX2 for every computed result (UM 4.3.2).
@@ -408,7 +408,7 @@ class FPU:
         v = transcend.i_from_ext(src)
         if src.s:
             c = transcend.i_add(transcend.ONE_I, v)          # 1 + x
-            if c.is_zero():                                   # 8.6.14 item 2
+            if c.is_zero():                                   # switches.py item 2
                 if self.sw.flognp1_minus_one == 'manual':
                     return self._finish_reg(dst, NAN, exc | DZ, src)
                 return self._finish_reg(dst, inf(1), exc | DZ, src)
@@ -467,7 +467,7 @@ class FPU:
             return self._finish_reg(dst, NAN, exc | OPERR, src)
         s, m, e = src.exact()
         if (m << e if e >= 0 else (m >> -e if not m & ((1 << -e) - 1) else -1)) == 1:
-            # x = +/-1 - 8.6.14 item 1: as printed, +1 gives -inf and -1
+            # x = +/-1 - switches.py item 1: as printed, +1 gives -inf and -1
             # gives +inf; 'ieee', sign(x) x inf.  DZ either way.
             sign = (s ^ 1) if self.sw.fatanh_one == 'manual' else s
             return self._finish_reg(dst, inf(sign), exc | DZ, src)
@@ -619,7 +619,7 @@ class FPU:
 
     def _sgl_trunc(self, m, e):
         """FSGLMUL/FSGLDIV's inputs: the normalized mantissa truncated,
-        unrounded, to sgl_truncate_bits bits (8.6.14 item 9)."""
+        unrounded, to sgl_truncate_bits bits."""
         n = m.bit_length()
         keep = self.sw.sgl_truncate_bits
         if n > keep:
@@ -770,7 +770,7 @@ class FPU:
         if off >= 0x40 and self.sw.fmovecr_undefined == 'winuae':
             # WinUAE: offsets $40-$7F take the F-line on a 6888x - decoded
             # before the instruction starts, like every other F-line, so
-            # EXC is not cleared (fixed 2026-09-29, plan 8.8.19).
+            # EXC is not cleared.
             return Outcome(vector=V_FLINE, when='pre')
         self._begin(pc)
         rnd, fmt = self.rnd, self.prec_fmt
@@ -786,7 +786,7 @@ class FPU:
             return self._finish_reg(dst, res, exc, None, xop)
         if off >= 0x40 or self.sw.fmovecr_undefined != 'winuae':
             if self.sw.fmovecr_undefined != 'winuae':
-                raise Unmodelled('FMOVECR $%02X (8.6.14 item 7)' % off)
+                raise Unmodelled('FMOVECR $%02X' % off)
             # WinUAE: offsets $40-$7F take the F-line on a 6888x.
             return Outcome(vector=V_FLINE, when='pre')
         return self._fmovecr_winuae_undef(off, dst, rnd)
@@ -823,7 +823,7 @@ class FPU:
         return self._finish_reg(dst, x, INEX2 if (inexact or inex2) else 0, None)
 
     def _fmovecr_rom64(self, off, dst, rnd, fmt):
-        # 8.6.14 item 19's third reading: the ROM holds a 64-bit extended
+        # switches.py item 19's third reading: the ROM holds a 64-bit extended
         # constant and which side of it the true value lies (WinUAE's
         # images and adjustments, a lead); 4-72's "rounds it to the
         # precision specified" is then the manual's post-processing, range
@@ -858,7 +858,7 @@ class FPU:
     # -- FMOVE FPm,<ea> (4-64..4-69) ----------------------------------------
     def fmove_out(self, fmt, src_reg, ext, pc=None, dreg=0):
         """The value stored, and any exception - reported mid-instruction,
-        after the store (8.6.10).  FPCC is not changed (2.3.1)."""
+        after the store.  FPCC is not changed (2.3.1)."""
         self._begin(pc)
         x = self.fp[src_reg]
         rnd = self.rnd
@@ -1006,7 +1006,7 @@ class FPU:
             self.fp[r] = ext_bits96(v)          # moved as is, unchecked
         return Outcome()
 
-    # -- the conditionals (8.6.9) -------------------------------------------
+    # -- the conditionals -------------------------------------------
     def condition(self, pred, pc=None):
         """FBcc/FDBcc/FScc/FTRAPcc's predicate: the answer, or BSUN's trap
         instead of it.  Bit 5 of the predicate is ignored."""
@@ -1028,7 +1028,7 @@ class FPU:
 
 
 def evaluate_equation(pred, cc):
-    """The predicates' equations (8.6.9) on N Z I NAN as written."""
+    """The predicates' equations on N Z I NAN as written."""
     N, Z, NAN_ = bool(cc & 8), bool(cc & 4), bool(cc & 1)
     p = pred & 0x0F
     return [
@@ -1040,7 +1040,7 @@ def evaluate_equation(pred, cc):
 
 
 # WinUAE's condition_table_6888x (fpp.cpp, d42db95): 16 FPCC values (N Z I
-# NAN as a nibble) x 32 predicates.  A lead (8.6.14 item 17).
+# NAN as a nibble) x 32 predicates.  A lead.
 WINUAE_CC_TABLE = [int(c) for c in (
     '00110011001100110011001100110011'
     '00000000111111110000000011111111'

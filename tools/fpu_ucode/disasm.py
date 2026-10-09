@@ -1,4 +1,4 @@
-"""The 68882 microcode disassembler (plan 8.8.18): the ROM images back to
+"""The 68882 microcode disassembler: the ROM images back to
 the assembler's source syntax.
 
 The listing uses `format_word`; `disassemble` writes a whole program that

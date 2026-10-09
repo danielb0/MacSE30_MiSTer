@@ -1,17 +1,16 @@
-"""The constant ROM (plan 8.8.10), built from the reference model's own
+"""The constant ROM, built from the reference model's own
 tables so the microcode and the model cannot disagree about a bit.
 
 Layout (256 words of fields.KWORD_BITS):
-  $00-$3F  FMOVECR, by offset: the documented constants as 8.6.14 item 19's
-           `rom64` (a 64-bit image and the direction of the true value -
-           Daniel's decision, 2026-09-29), the undocumented offsets as item
+  $00-$3F  FMOVECR, by offset: the documented constants as switches.py item 19's
+           `rom64` (a 64-bit image and the direction of the true value), the undocumented offsets as item
            7's WinUAE table (the model's default)
   $40-$61  atan(2^-i), i = 0..33       } fixed point, two's complement,
   $62-$83  ln(1 + 2^-i), i = 0..33     } floor(v x 2^(64+i)), so that an
   $84-$A5  ln(1 - 2^-i), i = 0..33     } arithmetic right shift by i - s
                                        } places it in Q2.64 scaled by 2^s
                                        } with the model's truncation
-                                       } toward -infinity (8.7.3)
+                                       } toward -infinity
   $A6-$C7  the CORDIC gain corrections 1/K(i0), i0 = 0..33, in Q2.64
   $C8-     named constants (below)
 The tables stop at 34 words: beyond, the shifter makes the value from
@@ -142,7 +141,7 @@ def build():
     # the mantissa (and a microword that uses a word whole uses a full one).
     exps = [
         # Exponent limits in the internal (extended-biased) exponent, for
-        # 8.6.4's range checks by PREC and destination format.
+        # the range checks by PREC and destination format.
         ('ext_emax', 0x7FFE),
         ('ext_emin', 0),                              # extended is tiny below biased 0 (rounding.py)
         ('dbl_emax', BIAS + 1023),

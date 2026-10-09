@@ -1,7 +1,7 @@
 ; t882.uc - Table 8-3's 68882 against the 68881's phases the microcode pads to
-; (SE30_PLAN.md 8.9.7, 7e-3): each instruction's clocks adjusted, by operation and
-; source class, so that with the table's typical operands (sim/fpu/tb_fpu_timing.v
-; +matrix: 3.0 into 2.25; 2.5 for FINT, 0.5 for the inverse functions, 7.25 for
+; each instruction's clocks adjusted, by operation and
+; source class, so that with the table's typical operands (the timing
+; bench's matrix: 3.0 into 2.25; 2.5 for FINT, 0.5 for the inverse functions, 7.25 for
 ; FMOD and FREM; the MPU reading the response at once, UM 8.4) its head, tail and
 ; total are the table's.  N < 0 starts the APU's elapsed count at -N; N > 0 is
 ; added at END to whichever ends the instruction, its path or its budget.  The

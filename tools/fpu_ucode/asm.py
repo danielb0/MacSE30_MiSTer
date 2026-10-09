@@ -1,6 +1,6 @@
-"""The 68882 microcode assembler: plan 8.8.18, work 6b.
+"""The 68882 microcode assembler.
 
-Source to the four ROM images of plan 8.8.11 - the µROM (4,096 x 49), the
+Source to the four ROM images - the µROM (4,096 x 49), the
 nROM (1,024 nanowords), the entry table (1,024 x 11) and the constant ROM
 (consts.py) - with a listing, a symbol file and a Verilog header, and the
 checks that make the images safe to run:
@@ -8,7 +8,7 @@ checks that make the images safe to run:
   - every target defined, every dispatch table aligned and complete,
     no fall-through off the end of the code;
   - the µPC stack: no recursion, calls nested at most four deep;
-  - checkpoints (8.8.12): only T0-T10 live after one, Q, MD and MD3 dead,
+  - checkpoints: only T0-T10 live after one, Q, MD and MD3 dead,
     by liveness over the whole program (context-insensitive, so it can
     only err towards reporting too much);
   - the entry table: every index filled.
@@ -41,24 +41,24 @@ Directives:
                               `default label`; `KEYS :: microinstruction`
                               puts the word in the slot (it must end in
                               goto or dispatch); an OPMODE table's
-                              `redundant model` copies 8.6.14 item 6's
+                              `redundant model` copies switches.py item 6's
                               opmodes from their bases, as .redundant does)
-                             `cu` (TAGPAIR, inline words: plan 8.9.7): the
+                             `cu` (TAGPAIR, inline words): the
                               conversion the 68882's CU does - each word's
                               budget=N leaves the microword for the CU's
                               table (ucode.cvt.hex), the CU spending it
                               before the hand-off; `hold`: the APU keeps it,
                               and the same N is how long the MPU is held
-                              (an integer source, 8.6.14 item 22)
+                              (an integer source)
     .entry KINDS OPMODE label    KINDS: reg, L S X P W D B, `*`, comma lists
     .entry cr label          .entry out.F label      .entry default label
-    .tadj KINDS OPMODE N | cr N | out.F N   (plan 8.9.7) a signed adjustment of the
+    .tadj KINDS OPMODE N | cr N | out.F N   a signed adjustment of the
                               instruction's clocks, for the entries .entry's
                               KINDS OPMODE name: the APU starts with budget N
                               (N > 0) or its elapsed count at -N (N < 0) -
                               Table 8-3's 68882 against the 68881's phases
     .redundant model         (the redundant opmodes as the model decodes
-                              them, 8.6.14 item 6)
+                              them)
 Numbers: decimal, $hex or 0xhex.
 """
 
@@ -120,7 +120,7 @@ class Table:
         self.default = None
         self.redundant = False
         self.addr = None
-        self.kind = ''                      # '', 'cu' or 'hold' (plan 8.9.7)
+        self.kind = ''                      # '', 'cu' or 'hold'
         self.cvid = 0                       # its number in ucode.cvt.hex
 
 
@@ -865,7 +865,7 @@ def check(prog, rom):
 
     # An FP register written, then read by the next word: the RTL reads the
     # next word's FP operand at the edge that writes this one, and has no
-    # bypass (plan 8.9.5-8.9.6, 7e) - refused, whatever the selects (src and dst
+    # bypass - refused, whatever the selects (src and dst
     # are the command's, and may name one register).  After ctl=end no word
     # follows in the instruction.
     for u in rom:
@@ -1074,7 +1074,7 @@ class Result:
     pass
 
 
-# -- the CU's conversion times (plan 8.9.7) --------------------------------------------
+# -- the CU's conversion times --------------------------------------------
 # A `cu` or `hold` table's slots are each a word with budget=N: the time
 # Table 8-13 gives that conversion.  ucode.cvt.hex holds the Ns, at
 # {table number, tag pair}; ucode.cvsel.hex says, for each entry index, the
@@ -1154,7 +1154,7 @@ def write(r, outdir, stem='ucode'):
     put(stem + '.entry.hex', hexlines(r.entry, 12))
     put(stem + '.krom.hex', hexlines(r.krom, FD.KWORD_BITS))
     # What the RTL needs of a nanoword before the nanoword itself is out of
-    # the nROM (plan 8.9.5): its operand addresses are registered with the
+    # the nROM: its operand addresses are registered with the
     # microword, so the FP select and whether the constant is indexed by LC
     # come from this small table on the nanoword's address - {KLC, FPSEL}.
     nsel = []
@@ -1196,7 +1196,7 @@ def _addr_defines(r):
     out = ['', '// Exported microcode addresses.']
     for label, _ in r.prog.exports:
         out.append('`define UADDR_%s 12\'h%03X' % (label.upper().replace('.', '_'), r.prog.labels[label][1].addr))
-    # The BIU's conditional predicate (8.6.9), sim.predicate's table: bit
+    # The BIU's conditional predicate, sim.predicate's table: bit
     # FPCC x 32 + predicate[4:0].  Logic, not a ROM: it is 512 bits.
     import sim
     cc = 0
@@ -1217,7 +1217,7 @@ def _addr_defines(r):
 
 def main(argv):
     import argparse
-    ap = argparse.ArgumentParser(description='The 68882 microcode assembler (plan 8.8.18).')
+    ap = argparse.ArgumentParser(description='The 68882 microcode assembler.')
     ap.add_argument('sources', nargs='+')
     ap.add_argument('-o', '--out', default='out')
     ap.add_argument('--stem', default='ucode')

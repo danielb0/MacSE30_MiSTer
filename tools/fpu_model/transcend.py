@@ -1,6 +1,6 @@
-"""The transcendentals: plan 8.7 work 5c, the algorithm layer.
+"""The transcendentals: the algorithm layer.
 
-Daniel's decision (2026-09-29): CORDIC and shift-add - what an adder, a
+The design: CORDIC and shift-add - what an adder, a
 barrel shifter and a constant ROM compute (UM 1.2), "the highly recursive
 nature of the algorithms used" on "an ALU with a finite precision of 67
 bits" (UM 4.3.2).  The manual's accuracy is the spec: one unit in the last
@@ -19,7 +19,6 @@ from its 67 bits with the sticky bit set, so INEX2 is set for every
 computed result ("INEX2 ... may be set even if an exact result is
 produced", UM 4.3.2).
 
-Plan 8.7.3 records the design and what the checks measure.
 """
 
 import math
@@ -65,8 +64,8 @@ class I67:
         return 'I67(%d,%X,%d)' % (self.s, self.m, self.e)
 
 
-# The operations are what the datapath computes (plan 8.8.19, Daniel's
-# decision 2026-09-29), each defined by the instruction whose machinery it
+# The operations are what the datapath computes, each
+# defined by the instruction whose machinery it
 # uses, so the microcode reproduces them bit for bit: the operands chopped
 # to the widths the multiplier (64 bits), the divider (65) and the square
 # root (64) take, the results chopped to 67.  Operands are normalized I67s
@@ -241,7 +240,7 @@ def _pi_rom():
     return m, e
 
 
-# 2pi with the datapath's 67 bits: the reduction constant (8.7.3).  pi
+# 2pi with the datapath's 67 bits: the reduction constant.  pi
 # itself for the quadrant step, also 67 bits.
 _PI_M, _PI_E = _pi_rom()
 TWOPI = I67(0, _PI_M, _PI_E + 1)
@@ -322,7 +321,7 @@ def reduce_2pi(x: I67):
     and swamps the result near 10^20, as the manual says."""
     # FMOD's divider takes its operands chopped to 65 bits (i_div): the
     # constant is 2pi to 65 bits, and x (an extended source, 64 bits) is
-    # exact at that width.  (Plan 8.8.19: the reduction's loss begins a
+    # exact at that width.  (The reduction's loss begins a
     # factor of four sooner than a 67-bit constant's - still near 10^20.)
     tm, te = TWOPI.m >> 2, TWOPI.e + 2
     xm, xe = x.m >> 2, x.e + 2
@@ -491,7 +490,7 @@ def _overflowing(x: I67):
 
 
 def _reduce(x: I67, n, hi, lo):
-    """x - n c by Cody-Waite: n hi exact, then n lo (plan 8.8.19: the
+    """x - n c by Cody-Waite: n hi exact, then n lo (the
     multiplier's 64-bit operands would otherwise put n times the constant's
     chopped bits into the result - 10,000 units of extended for FETOX)."""
     if not n:

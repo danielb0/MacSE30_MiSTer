@@ -1,4 +1,4 @@
-"""The extended-precision register value and the memory formats (plan 8.6.3).
+"""The extended-precision register value and the memory formats.
 
 An extended value is (s, e, m): the sign, the 15-bit biased exponent and the
 64-bit mantissa with its explicit integer bit (UM Table 3-3).  For every
@@ -30,7 +30,7 @@ class Ext(NamedTuple):
     e: int
     m: int
 
-    # The kinds (8.6.3).  At exponent $7FFF the integer bit is a don't-care.
+    # The kinds.  At exponent $7FFF the integer bit is a don't-care.
     @property
     def is_nan(self):
         return self.e == EMAX and (self.m & FRAC) != 0
@@ -124,7 +124,7 @@ def exact_leading_exponent(m, e):
 
 # ---------------------------------------------------------------------------
 # Conversion in (UM 3.5.1): every external operand becomes extended, exactly.
-# (Packed decimal is the algorithm layer's, 8.7 work 5b.)
+# (Packed decimal is the algorithm layer's, packed.py.)
 
 def from_int(v, bits):
     """B, W or L: two's complement, `bits` wide."""

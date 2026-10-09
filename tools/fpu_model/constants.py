@@ -1,4 +1,4 @@
-"""The constant ROM (FMOVECR, plan 8.6.8; UM 4-72/4-73) and the exact values
+"""The constant ROM (FMOVECR; UM 4-72/4-73) and the exact values
 it rounds from.
 
 The documented constants are computed here from integer series to 256 bits,
@@ -88,7 +88,7 @@ for _i, _n in enumerate([0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024,
     NAMES[0x32 + _i] = '10^%d' % _n
 
 
-# --- WinUAE's tables (leads, plan 8.6.14 items 7 and 19; fpp.cpp at d42db95).
+# --- WinUAE's tables (leads; fpp.cpp at d42db95).
 # Documented constants: the extended image (RN), whether WinUAE treats it as
 # inexact, and its adjustment of the low longword per RND (RN, RZ, RM, RP).
 WINUAE_DOCUMENTED = {

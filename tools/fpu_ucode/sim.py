@@ -1,17 +1,17 @@
-"""The 68882 architectural simulator: plan 8.8.19, work 6c.
+"""The 68882 architectural simulator.
 
-Runs the assembled microcode on a bit-exact model of 8.8.10's datapath,
+Runs the assembled microcode on a bit-exact model of the datapath,
 one microinstruction a clock, and is **the definition of what every field
 of fields.py does** - the RTL (item 7) is written against this file.  Around
 it, the parts of the chip that are not microcode: the BIU's decode and its
-conditionals (8.6.9), the CU's unpacking of S, D and X operands (8.8.13),
+conditionals, the CU's unpacking of S, D and X operands,
 the entry table, and the pending exception the BIU takes at the end of an
 instruction.
 
 `run(cmd, ...)` executes one instruction from a vector's state; vec.py runs
 the model's vectors through it.
 
-THE CLOCK (8.8.9).  The next address is chosen from the flags the previous
+THE CLOCK.  The next address is chosen from the flags the previous
 microinstruction left; then the datapath executes and leaves new flags.  A
 `wait n` word executes its nanoword once and holds the sequencer n more
 clocks.
@@ -35,7 +35,7 @@ EMAX = 0x7FFF
 Word = namedtuple('Word', 's e m')
 ZERO_W = Word(0, 0, 0)
 
-# FPSR / FPCR (plan 8.6.2).
+# FPSR / FPCR.
 CC_N, CC_Z, CC_I, CC_NAN = 1 << 27, 1 << 26, 1 << 25, 1 << 24
 BSUN, SNAN, OPERR, OVFL, UNFL, DZ, INEX2, INEX1 = (1 << b for b in range(15, 7, -1))
 A_IOP, A_OVFL, A_UNFL, A_DZ, A_INEX = (1 << b for b in range(7, 2, -1))
@@ -84,7 +84,7 @@ def is_den(w):
     return w.e == 0 and w.m != 0 and not w.m >> 66
 
 
-# -- the CU's unpacking (8.8.13) --------------------------------------------------------
+# -- the CU's unpacking --------------------------------------------------------
 
 def unpack_ieee(v, ebits, fbits):
     s = (v >> (ebits + fbits)) & 1
@@ -114,10 +114,10 @@ def opint(v, fmt):
     return Word(1 if v < 0 else 0, 0, abs(v))
 
 
-# -- the BIU's conditionals (8.6.9) ---------------------------------------------------------
+# -- the BIU's conditionals ---------------------------------------------------------
 # The predicate against FPCC is a 16 x 32 truth table - a 512-bit ROM in the
-# BIU - as the model's default for 8.6.14 item 17 has it (WinUAE's 6888x
-# table, a lead; it agrees with 8.6.9's equations on the eight FPCC values
+# BIU - as the model's default for switches.py item 17 has it (WinUAE's 6888x
+# table, a lead; it agrees with the manual's equations on the eight FPCC values
 # the chip produces).  The table is the model's own, not a copy.
 
 import os as _os, sys as _sys
@@ -178,7 +178,7 @@ class Unimplemented(Exception):
 class Chip:
     def __init__(self, urom, nrom, entry, krom, unimpl=None, idle=0, tadj=None):
         self.urom, self.nrom, self.entry, self.krom = urom, nrom, entry, krom
-        self.tadj = tadj                       # plan 8.9.7: asm.py's .tadj, by entry index
+        self.tadj = tadj                       # asm.py's .tadj, by entry index
         self.unimpl, self.idle = unimpl, idle
         self._dec = [None] * len(urom)
         self.fp = [(0, EMAX, M64)] * 8
@@ -220,7 +220,7 @@ class Chip:
         self.EXOP = (0, 0, 0)
         self.stack = []
         self.clocks = 0
-        self.BUDGET, self.RB = 0, 1            # the timing pass (8.8.19): fields.WAITMODE
+        self.BUDGET, self.RB = 0, 1            # the timing pass: fields.WAITMODE
         self.done = False
 
     # -- conditions and dispatch keys ------------------------------------------------------
@@ -284,7 +284,7 @@ class Chip:
     def _rmode(self):
         return (self.fpcr >> 4) & 3 if self.RMODE is None else self.RMODE
 
-    # -- the round logic (8.8.10) -------------------------------------------------------------
+    # -- the round logic -------------------------------------------------------------
     def _round(self, mode, a):
         if mode == 'RPREC':
             lsb = {0: 3, 1: 43, 2: 14, 3: 43}[self.RPREC]
@@ -643,7 +643,7 @@ class Chip:
         if c == 'END':
             # The instruction's end: AEXC accrues from EXC (6.1.10) - the
             # BIU's logic, as it takes the pending exception.  It holds
-            # until the budget's clocks have passed (8.8.19).
+            # until the budget's clocks have passed.
             self.fpsr = accrue(self.fpsr)
             self.hold_end = max(0, self.BUDGET - (self.clocks + 1)) + getattr(self, 'tpos', 0)
             self.done = True

@@ -1,6 +1,6 @@
 ; The transcendentals' arithmetic: tools/fpu_model/transcend.py's I67
-; operations, bit for bit (plan 8.8.19; the operations are defined there as
-; this datapath computes them - Daniel's decision, 2026-09-29).
+; operations, bit for bit (the operations are defined there as
+; this datapath computes them).
 ;
 ; An I67 value m x 2^e (m of 67 bits, normalized, or zero) is the word
 ; (s, e + 66 + bias, m).  The helpers take T11 and T12 and leave T11; they
@@ -157,7 +157,7 @@ reduce: a=T7 alu=passa
 rd_r:   ret
 
 ; -- scale2: T11 x 2^n, n (T7) held to +/-65536 - past the catastrophic
-; limits either way, so what software sees is the model's 2^n (8.8.19) --
+; limits either way, so what software sees is the model's 2^n --
 scale2: a=T7 b=K[k65536] alu=sub
         alu=nop | if N goto s2_lo
         d=T13 b=K[k65536] alu=passb | goto s2_go
@@ -177,7 +177,7 @@ ov_n:   d=T11 a=T11 b=K[k65536] bx=m2e mode=exp alu=sub | ret
 ; -- expfrac: T14 = e^R for R (T14, Q2.64) in [0, ln 2) (transcend._exp_frac):
 ; Y = 1, and for i = 1 ... 63 the factor 1 + 2^-i while R covers ln(1 + 2^-i)
 ; - the table's word for i < 34, 2^(64-i) - 1 after it (the ROM's end).
-; The timing pass (8.8.19), as log1pf: R and Y live in T8/T9 (X) or T4/T10
+; The timing pass, as log1pf: R and Y live in T8/T9 (X) or T4/T10
 ; (Y) by turns; a step's second word advances LC, and a taken one tries the
 ; same i again shifting by LC - SC (SC = 1), the table read one entry
 ; behind LC - two clocks a step, taken or not. --
@@ -302,7 +302,7 @@ te_go:  d=T11 a=T2 alu=passa
 .end
 exp_inf: alu=nop | unless SNEG goto mv_copy
         d=T0 b=0 alu=passb sign=zero | goto wr_t0       ; e^-inf = +0
-x_etox: alu=nop budget=466 | call etox                 ; Table 8-15's calculation times (8.8.19)
+x_etox: alu=nop budget=466 | call etox                 ; Table 8-15's calculation times
         goto tr_fin
 x_twotox: alu=nop budget=510 | call twotox
         alu=nop budget=26 | goto tr_fin                 ; 536
@@ -319,7 +319,7 @@ x_tentox: alu=nop budget=510 | call tentox
 ; floor(-2^(63+s-2i)).  u > 0 ends where L is 0 (i = s + 64); u < 0 after i
 ; = s + 64 (the model's last two steps move nothing and leave R = 0).  Then
 ; D + R (u > 0) or D.  In: T2 = u.  Out: T11.
-; The timing pass (8.8.19), as log1ps: P = 2^(64+s-i) and the table's word
+; The timing pass, as log1ps: P = 2^(64+s-i) and the table's word
 ; are read from the constant ROM where they are used; C is kept as -C - 1
 ; (T10), so the synthesized L is one word (T12), and none once C is -1.
 ; For u < 0, R is kept as its one's complement -R - 1, so R - (P + 1) is
@@ -483,7 +483,7 @@ x_cosh: d=T2 a=T2 alu=passa sign=zero budget=510 | call etox
         d=T11 a=T11 b=K[exp_one] mode=exp alu=sub sign=zero | goto tr_fin
 ; t above 2^41: 1/t lies more than 67 bits below t, which i_add chops whole
 ; (transcend.i_add) - and iadd's 18-bit exponent difference would wrap past
-; |x| ~ 45,400 (7e-4: cputest's FCOSH of -163841 came out +0, UNFL)
+; |x| ~ 45,400 (FCOSH of -163841 would come out +0, UNFL)
 ch_big: d=T11 a=T3 b=K[exp_one] mode=exp alu=sub sign=zero | goto tr_fin
 
 ; tanh = sign z/(z + 2), z = e^(2|x|) - 1; 2|x| above 2^7: 1 - 2^-67;
@@ -520,7 +520,7 @@ th_one: d=T11 a=T1 b=K[almost_one] alu=passb mode=mantb sign=a | goto tr_fin
 ; C (u > 0) or -(2^(64+s-i) + C) (u < 0), C = floor(-2^(63+s-2i)).  u > 0
 ; runs to i = s + 64, u < 0 to s + 63 (its step is 0 at s + 64).  Then L +
 ; U.  In: T2 = u.  Out: T11.
-; The timing pass (8.8.19): P = 2^(64+s-i) is read from the constant ROM
+; The timing pass: P = 2^(64+s-i) is read from the constant ROM
 ; where it is used - a step is U - P then - (U >> i) (u > 0; + and + for u
 ; < 0, taken while <= 0: LE) - and so is the table's word, so an i costs
 ; one word beyond its three.  C is kept as D = -C - 1 (T10, 2^(63+s-2i) - 1
@@ -651,7 +651,7 @@ lp_e:   alu=nop | call fromfix
 ; (transcend._log1p_frac): factors 1 - 2^-i for i = 1 ... 64 while U -
 ; (1 + U) 2^-i stays >= 0, L += -ln(1 - 2^-i) (the table's for i <= 33, then
 ; 2^(64-i) + 1).  Out: T14 = L + U.
-; The timing pass (8.8.19): V = 1 + U, so a step is V - V 2^-i, one word,
+; The timing pass: V = 1 + U, so a step is V - V 2^-i, one word,
 ; taken while V stays >= 1; L starts at -1, so L + V is the answer.  V and L
 ; live in T8/T9 (X) or T4/T10 (Y) by turns - a taken step writes the other
 ; pair instead of copying back.  A step's last word advances LC, so a step
@@ -773,7 +773,7 @@ x_log10: alu=nop | if SNEG goto tr_iop
         d=T12 b=K[log10_e] alu=passb mode=mantb sign=b budget=40 | call imul
         goto tr_fin
 
-; FLOGNP1: -1 -> NaN with DZ (8.6.14 item 2, the manual's 4-60); below -1:
+; FLOGNP1: -1 -> NaN with DZ (the manual's 4-60); below -1:
 ; OPERR.
 .table t_lnp1 STAG
   NAN  nan_m
@@ -791,8 +791,8 @@ lp1_go: alu=nop budget=510 | call lognp1
         alu=nop budget=30 | goto tr_fin                 ; 540
 lp1_m1: d=T0 b=K[nan] alu=passb mode=mantb sign=zero budget=20 | goto dz   ; IOP (note 4)
 
-; FATANH: |x| > 1: OPERR; |x| = 1: -sign(x) infinity with DZ (8.6.14 item
-; 1, as printed); else sign ln(1 + 2|x|/(1 - |x|))/2.
+; FATANH: |x| > 1: OPERR; |x| = 1: -sign(x) infinity with DZ (switches.py
+; item 1, as printed); else sign ln(1 + 2|x|/(1 - |x|))/2.
 .table t_atanh STAG
   NAN  nan_m
   ZERO :: alu=nop budget=6 | goto mv_copy

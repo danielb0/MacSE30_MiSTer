@@ -1,5 +1,5 @@
-"""Post-processing: underflow check, round, overflow check (plan 8.6.4;
-UM 4.5.5.2, 6.1.4, 6.1.5, 6.1.7, Figure 6-3).
+"""Post-processing: underflow check, round, overflow check
+(UM 4.5.5.2, 6.1.4, 6.1.5, 6.1.7, Figure 6-3).
 
 The intermediate result is given exactly - (-1)^s x m x 2^e, plus a flag
 `sticky` meaning "and something more below 2^e, not zero" - which is what
@@ -40,14 +40,14 @@ DBL = Fmt('D', 53, -1022, 1023)
 # FSGLMUL/FSGLDIV: the mantissa rounded to single, the exponent range kept
 # extended's (UM 6.1.4 note).
 SGL_MANT = Fmt('SX', 24, -16383, 16383)
-# 8.6.14 item 3, the 'table' reading of FMOVE <ea>,FPn: the same shape.
+# switches.py item 3, the 'table' reading of FMOVE <ea>,FPn: the same shape.
 DBL_MANT = Fmt('DX', 53, -16383, 16383)
 
 # FPCR PREC (bits 7-6): 00 extended, 01 single, 10 double, 11 undefined.
 # The undefined setting is taken as extended here and flagged by the caller.
 PREC_FMT = {0: EXT, 1: SGL, 2: DBL, 3: EXT}
 
-# The timing pass (plan 8.8.19): when a list, post_process appends each
+# The timing pass: when a list, post_process appends each
 # rounding's outcome - what Tables 8-17 and 8-18 choose their figures by
 # (tiny, the rounding carrying out of the mantissa, overflow, and whether
 # the carry caused it).  It changes nothing the model computes.
@@ -100,7 +100,7 @@ class Rounded(NamedTuple):
     ovfl: bool              # EXC.OVFL
     inex: bool              # EXC.INEX2: the rounding lost bits
     E: int                  # the intermediate's unbiased exponent (unrounded)
-    xop: Optional[Ext]      # the exceptional operand for OVFL/UNFL (8.6.10)
+    xop: Optional[Ext]      # the exceptional operand for OVFL/UNFL
 
     def ext(self):
         """The register image (extended; PREC's range is already applied)."""

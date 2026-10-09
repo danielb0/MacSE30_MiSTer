@@ -1,4 +1,4 @@
-; The 68882's microcode: plan 8.8.19, work 6c.  Assembled by ../asm.py, run
+; The 68882's microcode.  Assembled by ../asm.py, run
 ; by ../sim.py (whose docstrings define every field), checked against the
 ; reference model's vectors by ../vec.py.
 ;
@@ -6,7 +6,7 @@
 ; the result; T5-T7 the post-processing's working copies; T12/T13 the
 ; rounding precision's exponent limits.  Every instruction ends at `done`
 ; (AEXC accrued, END: the BIU takes EXC AND ENABLE as the pending
-; exception).  The flags a branch tests are the previous word's (8.8.9),
+; exception).  The flags a branch tests are the previous word's,
 ; so a test of a result sits one word after it; tags, FPCR and the trap
 ; enables may be tested anywhere.
 
@@ -21,12 +21,12 @@ unimpl: alu=nop | goto unimpl                       ; not written yet (vec.py co
 done:   ctl=end | goto idle                        ; END accrues AEXC (6.1.10)
 
 ; ============================================================================
-; The prologues, by source kind (the entry table's index, 8.8.11): the
+; The prologues, by source kind (the entry table's index): the
 ; source to T1, the destination register to T0, EXC cleared (2.3.3), the
 ; rounding precision from FPCR, then the operation by its opmode.
 ; ============================================================================
 
-; Table 8-13's conversion time (8.8.19): each prologue's first word
+; Table 8-13's conversion time: each prologue's first word
 ; dispatches on the tag pair to a slot that reads the destination and adds
 ; the figure for the source's format and class and the destination's class;
 ; a monadic operation's memory source has the in-memory monadic figures
@@ -48,7 +48,7 @@ pro_int: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec | dispatch TAGPAI
 pro_intm: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec | dispatch TAGPAIR cv_intm
 pro_int2: d=T1 a=T1 b=K[int_exp] alu=passb mode=exp | unless SNEG goto pro_nrm
          d=T1 a=T1 alu=passa osh=norm budget=2 | goto pro_go
-; FMOVE from an integer (7e-3): the value is exact, never tiny or huge, and
+; FMOVE from an integer: the value is exact, never tiny or huge, and
 ; has no exceptional operand - no destination read, no T9, no OPMODE and STAG
 ; dispatches; the exponent set in the table's word.  Table 8-3's tail (8).
 pro_imv: d=T1 b=OPINT alu=passb sign=b fpsr=clrexc ctl=rp_prec | dispatch TAGPAIR cv_imv
@@ -617,13 +617,13 @@ imv_c:  alu=nop budget=2 | call pp1                     ; t_move's NORM
 .entry P     $3A pro_p
 
 ; ============================================================================
-; FMOVE, FABS, FNEG to a register (8.6.8): the source through the
+; FMOVE, FABS, FNEG to a register: the source through the
 ; post-processing; a zero, an infinity or a NaN as it is.  FABS and FNEG
 ; change the sign after the NaN test (a NaN keeps its sign).
 ; ============================================================================
 
 
-; Table 8-15's calculation times ride on the slots (budget=, 8.8.19): FMOVE
+; Table 8-15's calculation times ride on the slots (budget=): FMOVE
 ; 2+, a zero 6, an infinity 6; FABS and FNEG 2 more (4+, 8), a zero 4+ (the
 ; zero's rounding 6: 4 more than FMOVE's 6).
 .table t_move STAG
@@ -649,15 +649,15 @@ neg_go: d=T1 a=T1 alu=passa sign=nota | dispatch STAG t_move
 
 mv_fin: d=T0 a=T1 alu=passa | call pp
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
-mv_fn:  d=T0 a=T1 alu=passa | call pp1                ; normalized: pp's shift skipped (7e-3)
+mv_fn:  d=T0 a=T1 alu=passa | call pp1                ; normalized: pp's shift skipped
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 mv_zero: d=T0 a=T1 b=0 alu=passb mode=exp            ; a signed zero: exponent 0
         d=FP[dst] a=T0 alu=passa fpsr=fpcc | goto done
 mv_copy: d=FP[dst] a=T1 alu=passa fpsr=fpcc | goto done
 
 ; A monadic NaN (4.5.4): the source made nonsignaling; SNAN for a signaling
-; one, and with the SNAN trap enabled FPn and FPCC are left (6.1.2, 8.6.14
-; item 18) and the source is the exceptional operand.
+; one, and with the SNAN trap enabled FPn and FPCC are left (6.1.2,
+; switches.py item 18) and the source is the exceptional operand.
 nan_m:  d=T0 a=T1 b=K[qbit] alu=or budget=28 | unless SSNAN goto nan_w   ; NAN2 (Table 8-19)
         alu=nop budget=2                                ; an SNAN: 30
         fpsr=orlit exc=SNAN | unless EN_SNAN goto nan_w
@@ -722,7 +722,7 @@ cmt_3:  alu=nop budget=28 | if SSNAN goto cmt_3s
 cmt_3s: alu=nop budget=2 | if DSNAN goto cmp_nan
         alu=nop budget=2 | goto cmp_nan
 
-; (each ends the instruction itself: 7e-3, the typical path's word saved)
+; (each ends the instruction itself: the typical path's word saved)
 cc_z:   a=0 b=0 alu=passb sign=zero fpsr=fpcc ctl=end | goto idle
 cc_zn:  a=0 b=0 alu=passb sign=one fpsr=fpcc ctl=end | goto idle
 
@@ -746,7 +746,7 @@ cmp_sneg: alu=nop | unless DNEG goto cc_0               ; s < 0 < d
 cmp_mag: d=T0 a=T0 alu=passa osh=norm
         d=T1 a=T1 alu=passa osh=norm
         goto cmp_e
-; Both normalized (t_cmp NORM NORM; 7e-3, plan 8.9.7: the 68882's tail is
+; Both normalized (t_cmp NORM NORM: the 68882's tail is
 ; shorter than this path was): the signs, then the exponents straight away -
 ; no shift to make, the same budgets on every branch.
 cmp_fn: alu=nop | if SNEG goto cmp_fnn
@@ -769,7 +769,7 @@ cc_0:   a=0 b=K[one] alu=passb mode=mantb sign=zero fpsr=fpcc ctl=end | goto idl
 cmp_less: alu=nop | if DNEG goto cc_0                   ; |d| < |s|
 cc_n:   a=0 b=K[one] alu=passb mode=mantb sign=one fpsr=fpcc ctl=end | goto idle
 
-; A NaN: FPCC NAN alone (8.6.14 item 22: N clear); SNAN for a signaling
+; A NaN: FPCC NAN alone (switches.py item 22: N clear); SNAN for a signaling
 ; operand; the source is the exceptional operand.
 cmp_nan: d=EXOP a=T1 alu=passa | if SSNAN goto cmp_ns
         alu=nop | unless DSNAN goto cmp_nq
@@ -777,7 +777,7 @@ cmp_ns: fpsr=orlit exc=SNAN
 cmp_nq: a=0 b=K[nan] alu=passb mode=mantb sign=zero fpsr=fpcc | goto done
 
 ; ============================================================================
-; pp: the post-processing of a register result (8.6.4; UM 4.5.5.2, 6.1.4,
+; pp: the post-processing of a register result (UM 4.5.5.2, 6.1.4,
 ; 6.1.5) at the rounding precision: normalize (one clock, osh=norm), round,
 ; the range checks by the TINY/HUGE comparators.  In: T0 finite and
 ; nonzero, STK its sticky bit.  Out: T5 the register image - T0 keeps the
@@ -786,7 +786,7 @@ cmp_nq: a=0 b=K[nan] alu=passb mode=mantb sign=zero fpsr=fpcc | goto done
 ; bits at its own exponent, wrapped by $6000, or exponent 0 past the
 ; catastrophic limits).  Five clocks on the common path (Table 8-18 gives
 ; extended rounding six).  Each outcome's word names its Table 8-18 row
-; (rtime=, 8.8.19): normal, carried, tiny, overflow - carried, or made by
+; (rtime=): normal, carried, tiny, overflow - carried, or made by
 ; the carry.
 ; ============================================================================
 
@@ -901,7 +901,7 @@ pp_dnc: rtime=tinyc | goto pp_dn3
 ; ============================================================================
 ; Shared endings.  operr: the chip's NaN with OPERR (6.1.3); dz: T0 (an
 ; infinity) with DZ (6.1.6).  With the trap enabled FPn and FPCC are left
-; and the source is the exceptional operand (6.1.2-6.1.6, 8.6.14 item 18).
+; and the source is the exceptional operand (6.1.2-6.1.6).
 ; ============================================================================
 
 operr:  d=T0 b=K[nan] alu=passb mode=mantb sign=b fpsr=orlit exc=OPERR | unless EN_OPERR goto wr_t0
@@ -952,7 +952,7 @@ fsub:   alu=nop | if SNAN goto nan_d
         alu=nop | if DNAN goto nan_d
         d=T1 a=T1 alu=passa sign=nota | dispatch TAGPAIR t_sub
 
-; Table 8-14's times on the slots (8.8.19).  FADD: x + 0, 0 + x 2+; an
+; Table 8-14's times on the slots.  FADD: x + 0, 0 + x 2+; an
 ; infinity 6; two zeros 6, unlike-signed 26; two infinities 6, unlike (the
 ; OPERR) 20.  FSUB, its source negated here: 0 - x 4+; an infinity source
 ; 8; two zeros 8 unlike-signed, 26 like (unlike and like after the
@@ -1033,13 +1033,13 @@ add_ez: rtime=zero | goto add_z0                        ; rounded as a zero (Tab
 ; A zero with T0's sign.
 mk_zero: d=T0 a=T0 b=0 alu=passb
         d=T0 a=T0 b=0 alu=passb mode=exp | goto wr_t0
-; The FSGLMUL/FSGLDIV inputs: truncated to 24 bits (8.6.14 item 9).
+; The FSGLMUL/FSGLDIV inputs: truncated to 24 bits.
 sgl_tr: d=T0 a=T0 b=RMASK alu=and rnd=sgl
         d=T1 a=T1 b=RMASK alu=and rnd=sgl | ret
 
 ; ============================================================================
 ; FMUL, FSGLMUL (4-80, 4-100): the significands by radix-8 Booth shift-and-
-; add (8.8.7), 22 steps: the product's high part in T4, its low 66 bits in
+; add, 22 steps: the product's high part in T4, its low 66 bits in
 ; Q; the 67-bit window (a x b) >> 61 and the sticky of the rest.  Exponent
 ; E0 + E1 - bias + 1 for that window.  FSGLMUL truncates the inputs and
 ; rounds to single's mantissa in extended's range.
@@ -1092,8 +1092,8 @@ mloop:  d=T4 a=T4 b=BOOTH alu=addsub dir=booth osh=r3q lc=dec | unless LCZ goto 
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
 ; ============================================================================
-; FDIV, FSGLDIV (4-40, 4-98): nonrestoring, one quotient bit a clock into Q
-; (8.8.7), the operands pre-shifted two places so the doubled remainder
+; FDIV, FSGLDIV (4-40, 4-98): nonrestoring, one quotient bit a clock into Q,
+; the operands pre-shifted two places so the doubled remainder
 ; fits.  67 steps give floor(a/b x 2^66); when a < b its top bit is 0 and
 ; one more step is taken (the exponent one lower).  The remainder's nonzero
 ; is the sticky bit.  0/0, inf/inf: OPERR; x/0: DZ.
@@ -1125,7 +1125,7 @@ div_go: d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor lc=66  ; E0 - E1, the sign
         d=T5 b=T1>>2 alu=passb                          ; the divisor (N = 0: subtract first)
 dloop:  d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ goto dloop
         goto div_st
-; Both normalized (7e-3, plan 8.9.7: the 68882's tail is shorter than this
+; Both normalized (the 68882's tail is shorter than this
 ; path was): the mantissas compared in the table's slot, then the exponent
 ; with the bias, or the bias less one, in one step each way - the same
 ; quotient, the same budget.
@@ -1143,7 +1143,7 @@ dloop2: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ got
 ; The sticky bit: the true remainder is r, or r + D when the last partial
 ; remainder r is negative (the quotient bits are restoring's) - which is
 ; zero for an exact quotient that ends at r = -D, as x/x does.  T4 is 2r.
-; (7e-3: the sticky from r + D on the add itself; the quotient is normalized
+; (the sticky from r + D on the add itself; the quotient is normalized
 ; by construction - one more step when a < b - so pp_md's shift is skipped)
 div_st: d=T6 a=T4 b=T5<<1 alu=add stk=nz | if DFLAG goto div_sn
         a=T4 alu=passa stk=nz
@@ -1152,7 +1152,7 @@ div_st: d=T6 a=T4 b=T5<<1 alu=add stk=nz | if DFLAG goto div_sn
 div_sn: d=T0 a=T2 b=Q alu=passb | call pp_md1
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
-; FSGLMUL: the inputs truncated to 24 bits (8.6.14 item 9); the multiplier's
+; FSGLMUL: the inputs truncated to 24 bits; the multiplier's
 ; 24 bits need 9 Booth steps.  The product's high part in T4, its low 27
 ; bits in Q's top (bits 66-40); the window (a x b') >> 21 is (P << 6) |
 ; (Q >> 61) and the rest of Q the sticky bit - with the exponent E0 + E1 -
@@ -1205,7 +1205,7 @@ sgmloop: d=T4 a=T4 b=BOOTH alu=addsub dir=booth osh=r3q lc=dec | unless LCZ goto
 ; the exceptional operand is rounded to 64 bits (6.1.4-6.1.5).  Otherwise
 ; the 27 quotient bits and the sticky bit round the result - denormalized
 ; or not - and give its flags exactly, in the manual's times (44 clocks, 62
-; on overflow, 90 on underflow: RTIME's SGLX rows, 8.8.19).
+; on overflow, 90 on underflow: RTIME's SGLX rows).
 sgd_fin: d=T1 a=T1 alu=passa osh=norm budget=44 | call sgl_tr
 sgd_f1: d=T2 a=T0 b=T1 mode=exp alu=sub sign=xor lc=26
         d=T2 a=T2 b=K[bias] mode=exp alu=add
@@ -1219,7 +1219,7 @@ sgdloop: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ go
 sgd_lo: d=T2 a=T2 b=K[exp_one] mode=exp alu=sub lc=27
         d=T5 b=T1>>2 alu=passb
 sgdloop2: d=T4 a=T4 b=T5 alu=subadd dir=prevn osh=l1q dl=1 lc=dec | unless LCZ goto sgdloop2
-sgd_st: d=T6 a=T4 b=T5<<1 alu=add stk=nz | if DFLAG goto sgd_q   ; (7e-3: r + D's sticky on the add)
+sgd_st: d=T6 a=T4 b=T5<<1 alu=add stk=nz | if DFLAG goto sgd_q   ; (r + D's sticky on the add)
         a=T4 alu=passa stk=nz | goto sgd_q
 ; The quotient's exponent is E - (a < b): tiny if E is, or E is the minimum
 ; and a < b; the rounding can overflow it only from E - (a < b) >= the
@@ -1235,7 +1235,7 @@ sgd_h:  alu=nop | unless EN_OVFL goto sgd_c
         a=T2 alu=passa
         alu=nop | if HUGE goto div_go
         a=T0 b=T1 alu=sub | goto sgd_c
-; Both normalized (7e-3, plan 8.9.7): the source truncated here, the
+; Both normalized: the source truncated here, the
 ; destination in t_sgd's slot - sgl_tr's words without its call.
 sgd_n:  d=T1 a=T1 b=RMASK alu=and rnd=sgl | goto sgd_f1
 sgd_q:  d=T0 a=T2 b=Q<<40 alu=passb | call pp
@@ -1245,7 +1245,7 @@ sgd_q:  d=T0 a=T2 b=Q<<40 alu=passb | call pp
 ; FSQRT (4-106): the radicand x in [1/4, 1) (the exponent's parity decides
 ; m >> 3 or m >> 2 for 2x), the root q in [1/2, 1).  From q = 1/2 and W =
 ; 2x - 1/2, 63 nonrestoring steps W' = 2W -/+ (2q + 01/11 at the new bit)
-; give q to 2^-64 - one clock each (a2, SQT, QBIT: Daniel, 2026-09-29) -
+; give q to 2^-64 - one clock each (a2, SQT, QBIT) -
 ; then the remainder restored if negative, the guard bit G = (W > q) and the
 ; sticky bit G or W != 0 (no tie is possible).  Exponent floor(u/2) + bias
 ; for the root at bit 66.  -0 stays -0; any other negative: OPERR.
@@ -1258,7 +1258,7 @@ sgd_q:  d=T0 a=T2 b=Q<<40 alu=passb | call pp
   NORM :: d=T2 a=T1 b=K[bias] mode=exp alu=sub | goto sq_n   ; (normalized: no shift)
   default :: d=T1 a=T1 alu=passa osh=norm | goto sq_fin
 .end
-; Normalized (7e-3, plan 8.9.7): u from t_sqrt's slot; the sign tested here,
+; Normalized: u from t_sqrt's slot; the sign tested here,
 ; the budget one word on, so a negative source leaves as before.
 sq_n:   a=T2 b=K[exp_one] mode=exp alu=and | if SNEG goto sq_iop   ; Z: u even
         d=T2 a=T2 alu=passa mode=exp osh=r1 budget=76 | if Z goto sq_ev   ; floor(u/2)
@@ -1286,13 +1286,13 @@ sq_iop: alu=nop budget=20 | unless SDEN goto operr     ; IOP (Table 8-19)
 sq_g:   d=T0 a=T0 b=K[gbit] alu=or
         b=K[ulp] alu=passb stk=nz                       ; sticky
 sq_e:   d=T0 a=T0 b=T2 alu=passb mode=exp
-        d=T0 a=T0 b=K[bias] mode=exp alu=add | call pp1  ; (the root is normalized: pp's shift skipped, 7e-3)
+        d=T0 a=T0 b=K[bias] mode=exp alu=add | call pp1  ; (the root is normalized: pp's shift skipped)
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 
 ; ============================================================================
 ; FINT, FINTRZ (4-50, 4-52): the value shifted so its integer's LSB is at
 ; bit 3, rounded there (by RND, or toward zero), then - the model's default
-; for 8.6.14 item 20 - rounded again to PREC by pp.  A value of 2^63 and
+; for switches.py item 20 - rounded again to PREC by pp.  A value of 2^63 and
 ; more is an integer already; 0 rounds to a signed zero.
 ; ============================================================================
 
@@ -1330,7 +1330,7 @@ int_z:  d=T0 a=T0 b=0 alu=passb mode=exp budget=28 | goto wr_t0   ; a signed zer
 ; ============================================================================
 ; FGETEXP (4-46): the normalized input's unbiased exponent as a number (exact
 ; at any PREC); FGETMAN (4-48): its mantissa with exponent 0 - unrounded, the
-; model's default for 8.6.14 item 21.  An infinity: OPERR.
+; model's default for switches.py item 21.  An infinity: OPERR.
 ; ============================================================================
 
 .table t_gexp STAG
@@ -1393,7 +1393,7 @@ sc_go:  d=T3 a=T3 b=T1 alu=passa sign=b                 ; n's sign: the source's
 ; each chunk a checkpoint (Q parked in T8 so a busy frame holds it); T4 ends
 ; as 2r, r the floor remainder.  FREM rounds N to nearest (ties to even):
 ; r - |src|.  The quotient byte: N's low 7 bits and the sign FPn^src.  The
-; special cases' quotient byte: WinUAE's (8.6.14 item 5).
+; special cases' quotient byte: WinUAE's.
 ; ============================================================================
 
 .table t_mod TAGPAIR
@@ -1496,7 +1496,7 @@ rem_m1: a=T4 b=T5 alu=sub
 rem_u1: alu=nop budget=22 | goto rem_up
 
 ; ============================================================================
-; The stores, FMOVE FPm,<ea> (4-64 to 4-69; 8.6.3): FPCC unchanged; the
+; The stores, FMOVE FPm,<ea> (4-64 to 4-69): FPCC unchanged; the
 ; exception mid-instruction (the BIU's, from opclass 011).  EXOP holds the
 ; register for an SNAN or OPERR trap (6.1.2-6.1.3); ppm overwrites it for
 ; OVFL and UNFL.  The image is built in T6's mantissa, bits 66-3 (OBUFL
@@ -1528,7 +1528,7 @@ st_w:   d=OBUFL a=T6 alu=passa ctl=end | goto idle
 
 ; -- X: the register through ppm at extended; a NaN made nonsignaling; an
 ; infinity with mantissa 0; a zero with exponent 0 --
-; Tables 8-16 and 8-17's output conversion times on the slots (8.8.19).
+; Tables 8-16 and 8-17's output conversion times on the slots.
 .table t_stx STAG
   NAN  stx_nan
   INF  :: d=T5 a=T1 b=0 alu=passb budget=16 | goto stx_w
@@ -1633,7 +1633,7 @@ sti_nb: d=SC b=LC alu=passb
         d=T6 a=T6 b=T13 alu=and | goto st_w
 
 ; ============================================================================
-; ppm: pp for a memory destination (8.6.4; UM 6.1.4-6.1.5): the same
+; ppm: pp for a memory destination (UM 6.1.4-6.1.5): the same
 ; rounding and range checks at RPREC (the destination's format), but a
 ; denormal stays at the minimum exponent, unnormalized, and the exceptional
 ; operand is the value rounded to the format's precision at its own
@@ -1685,8 +1685,8 @@ ppm_r:  ret
 
 ; ============================================================================
 ; FMOVECR (4-72): the constant ROM's row by the offset (the OPMODE key is
-; command bits 5-0; offsets $40-$7F are the BIU's F-line, 8.6.14 item 7).
-; A documented constant is rom64 (8.6.14 item 19, Daniel 2026-09-29): the
+; command bits 5-0; offsets $40-$7F are the BIU's F-line).
+; A documented constant is rom64: the
 ; 64-bit image, one unit up in RP when the true value lies above it and down
 ; in RZ and RM when below, INEX2 when inexact, then pp at PREC.  The
 ; undocumented rows are WinUAE's, as the model has them (a lead): rounded
@@ -1769,10 +1769,10 @@ cr_doc: alu=nop ctl=norb | if RPEXT goto cr_d2
         alu=nop budget=8
 cr_d2:  alu=nop | if KABOVE goto cr_up
         alu=nop | unless KBELOW goto cr_pp
-; below: to nearest (Table 8-3's pi) straight on, as up; toward zero or minus, an ulp off (7e-3)
+; below: to nearest (Table 8-3's pi) straight on, as up; toward zero or minus, an ulp off
 cr_dn:  fpsr=orlit exc=INEX2 | if RND_RN goto cr_pp
         alu=nop | unless RND_RP goto cr_m1
-cr_pp:  alu=nop | call pp1                             ; the ROM's constant is normalized (7e-3)
+cr_pp:  alu=nop | call pp1                             ; the ROM's constant is normalized
         d=FP[dst] a=T5 alu=passa fpsr=fpcc ctl=end | goto idle
 ; an ulp added or taken: pp whole
 cr_up:  fpsr=orlit exc=INEX2 | unless RND_RP goto cr_pp

@@ -1,9 +1,9 @@
 """The model's switches: every point where the 68882 manual is silent or
-contradicts itself (plan 8.6.14, and 8.7's table).
+contradicts itself.
 
-Each switch names its plan item.  The default is the manual's reading, or,
-where the manual is silent, WinUAE's answer - a lead, not evidence (plan
-8.6.15).  Settling an item later, from silicon or from Daniel, is a change to
+Each switch is a numbered item.  The default is the manual's reading, or,
+where the manual is silent, WinUAE's answer - a lead, not evidence.
+Settling an item later, from silicon or by decision, is a change to
 one default here.  The FPGA is built for one setting; the switches exist only
 in the model.
 """
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Switches:
-    # 8.6.14 item 1.  FATANH(+1) and FATANH(-1).  'manual': +1 gives -inf and
+    # Item 1.  FATANH(+1) and FATANH(-1).  'manual': +1 gives -inf and
     # -1 gives +inf, with DZ, as printed twice (4-28, 6.1.6).  'ieee':
     # sign(x) x inf (WinUAE; Motorola's 68040 FPSP).
     fatanh_one: str = 'manual'
@@ -32,7 +32,7 @@ class Switches:
     # Item 4.  FSCALE's and FREM's INEX2, and FMOD's OVFL, which their pages
     # list as "cleared" while their notes say the re-rounded FPn may be
     # inexact or overflow.  'section6': 6.1.7/6.1.4 decide, as for every
-    # other rounded result (Daniel's decision, 2026-09-29).  'table': those
+    # other rounded result (a design decision).  'table': those
     # bits forced clear.
     rem_scale_inex: str = 'section6'
 
@@ -65,7 +65,7 @@ class Switches:
 
     # Item 17.  The FPCC combinations the chip never produces.  'winuae': its
     # 6888x truth table, 16 FPCC values x 32 predicates.  'equations': the
-    # predicates' equations (8.6.9) on the bits as written.
+    # predicates' equations on the bits as written.
     fpcc_table: str = 'winuae'
 
     # Item 18.  FPCC after an enabled SNAN, OPERR or DZ trap leaves the
@@ -78,7 +78,7 @@ class Switches:
     # ROM holds a 64-bit constant and the side the true value lies on; the
     # bits are WinUAE's (a lead: log10(2) and e truncated rather than
     # nearest, log10(e) exact), then the manual's PREC post-processing;
-    # Daniel's decision, 2026-09-29, corroborated by Motorola's FPSP.
+    # the design decision, corroborated by Motorola's FPSP.
     # 'exact': the exact value rounded once.  'winuae': WinUAE's whole
     # procedure, whose PREC rounding keeps the extended exponent range (so
     # 10^64 does not overflow in single, against 2.2.2's range control).
@@ -105,7 +105,7 @@ class Switches:
     # and RP entries for 10^2048 are one unit high.
     pten_tables: str = 'rom'
 
-    # Item 24.  FMOVE.P of a zero, infinity or NaN.  'manual': 8.6.5 and the
+    # Item 24.  FMOVE.P of a zero, infinity or NaN.  'manual': the packed format and the
     # FMOVE page - a signaling NaN sets SNAN and is stored nonsignaling, and
     # a k-factor above +17 is an operand error for every source.  'fpsp':
     # FPSP's p_move - the register's image stored as it is, "status bits

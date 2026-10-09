@@ -1,5 +1,5 @@
 ; Packed decimal: tools/fpu_model/packed.py - Motorola's FPSP decbin and
-; bindec, step for step (plan 8.7.2) - bit for bit (plan 8.8.19).  FPSP's
+; bindec, step for step - bit for bit.  FPSP's
 ; floating-point steps are extended precision in the modes it sets, with no
 ; flags: the quiet operations below round by RMODE (ctl=rm_*) and leave
 ; FPSR alone; the inexact of the last one is the INEX latch.
@@ -74,7 +74,7 @@ qi_r:   a=0 alu=passa rnd=ext | ret                     ; exact (INEX clear)
 ; pow10: T11 = 10^n (n: T6, an integer below 2^13) by binary powering from
 ; the ROM's powers of ten (FMOVECR $33-$3F), each rounded by RMODE, the
 ; table the mode's: one unit up in RP where the true value lies above, one
-; down in RM (and RZ) where below (packed._ptens_rom, 8.6.14 item 19).
+; down in RM (and RZ) where below (packed._ptens_rom).
 ; ============================================================================
 
 pow10:  d=T10 b=K[one] alu=passb mode=mantb sign=b     ; p = 1
@@ -140,8 +140,8 @@ pk_sg:  a=T2 b=K[b31] alu=and                           ; SM
         d=T1 a=T1 alu=passa sign=one
 pk_go:  d=T1 a=T1 alu=passa ctl=retag stk=clr           ; (the conversion's sticky bit is not the operation's)
         d=T0 b=FP[dst] alu=passb mode=mantb sign=b ctl=rp_prec | dispatch TAGPAIR cv_p
-; Table 8-13's packed source (8.8.19): a nonzero finite one the typical
-; 822 (Daniel's rule, 8.8.16: the figure, or our own time if longer), 26,
+; Table 8-13's packed source: a nonzero finite one the typical
+; 822 (the figure, or the microcode's own time if longer), 26,
 ; 20 or 18 more by the destination's class; a zero or an infinity 22, a
 ; NaN 24, and the usual rows.
 .table cv_p TAGPAIR
@@ -329,7 +329,7 @@ qa_b:   d=T0 a=T12 alu=passa | goto ppq                 ; 0 + x
 ; the k-factor static (command bits 6-0) or dynamic (Dn's low 7 bits, sent
 ; as the operand), two's complement.  A zero, an infinity or a NaN stores
 ; the register's image (SNAN: made nonsignaling, SNAN; k > 17: OPERR - the
-; manual's page, 8.6.14 item 24).  Across the passes: T1 x, T2 |x|
+; manual's page).  Across the passes: T1 x, T2 |x|
 ; normalized, T4 k (its sign: ICTR), T7 ILOG, T8 LEN (its sign: x a
 ; denormal).
 ; ============================================================================
@@ -342,8 +342,7 @@ sp_k:   d=T4 a=T4 b=K[k127] alu=and
         alu=nop | if Z goto sp_kp
         d=T4 a=T4 b=K[k128] alu=sub                     ; negative
 sp_kp:  d=T4 a=T4 alu=passa sign=zero | dispatch STAG t_sp
-; Table 8-16: a nonzero finite value the typical 1,942 (Daniel's rule,
-; 8.8.16), 14 more with a dynamic k-factor (Table 8-3's note); a zero or
+; Table 8-16: a nonzero finite value the typical 1,942, 14 more with a dynamic k-factor (Table 8-3's note); a zero or
 ; an infinity 24; a NaN NAN2 (28, an SNAN 30).
 .table t_sp STAG
   NAN  :: alu=nop budget=28 | goto sp_sp

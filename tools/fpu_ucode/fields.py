@@ -1,4 +1,4 @@
-"""The 68882's microword, nanoword and ROM formats: plan 8.8.11, work 6b.
+"""The 68882's microword, nanoword and ROM formats.
 
 The one definition of every field, its width and its values.  The
 assembler (asm.py) packs with it, the disassembler (disasm.py) and the
@@ -77,14 +77,14 @@ class Format:
         return out
 
 
-# -- sizes (8.8.10, 8.8.11) -------------------------------------------------------
+# -- sizes -------------------------------------------------------
 
-UROM_WORDS = 4096                # 8.8.19: grown from 2,048 for the transcendentals and packed decimal
+UROM_WORDS = 4096                # grown from 2,048 for the transcendentals and packed decimal
 NROM_WORDS = 1024
 KROM_WORDS = 256
 ENTRY_WORDS = 1024
 TEMPS = 32
-LIVE_AT_CHECKPOINT = 11          # T0-T10: what a busy frame holds (8.8.15)
+LIVE_AT_CHECKPOINT = 11          # T0-T10: what a busy frame holds
 STACK_DEPTH = 4
 
 MANT_BITS = 67
@@ -92,11 +92,11 @@ EXP_BITS = 18
 BIAS = 16383
 
 
-# -- the sequencer (8.8.12) ----------------------------------------------------------
+# -- the sequencer ----------------------------------------------------------
 
 SEQ = Enum('NEXT', 'JUMP', 'CALL', 'RET', 'BRT', 'BRF', 'DISP', 'WAIT')
 
-# WAIT's modes, in its cond field (the timing pass, 8.8.19): HOLD the
+# WAIT's modes, in its cond field (the timing pass): HOLD the
 # sequencer `target` clocks; ADD `target` to the budget, not holding; UNTIL
 # the instruction's elapsed clocks reach the budget plus `target`.  Each
 # path adds its phases' figures to the budget (Tables 8-13 to 8-19) where
@@ -106,15 +106,15 @@ SEQ = Enum('NEXT', 'JUMP', 'CALL', 'RET', 'BRT', 'BRF', 'DISP', 'WAIT')
 # budget and the elapsed count start at 0 with each instruction.
 WAITMODE = Enum('HOLD', 'ADD', 'UNTIL')
 
-# Conditions for BRT/BRF.  The flags are the previous microinstruction's
-# (8.8.9); the tags are Table 8-13's classes of the source and destination
+# Conditions for BRT/BRF.  The flags are the previous microinstruction's;
+# the tags are Table 8-13's classes of the source and destination
 # operands; KABOVE/KBELOW are the direction bits of the last constant read
-# (8.6.14 item 19); S is the sign of the last ALU result word; RPEXT: the
+# (switches.py item 19); S is the sign of the last ALU result word; RPEXT: the
 # rounding precision's exponent range is extended's (EXT or SGLX).  TINY and
 # HUGE: the last result word's exponent below the rounding precision's
 # minimum or above its maximum - comparators beside the round logic
-# (Daniel, 2026-09-29), so 8.6.4's range checks cost no clocks.  LE: N or Z
-# of the last result, signed <= 0 (the timing pass, 8.8.19: log1ps's u < 0
+# so the range checks cost no clocks.  LE: N or Z
+# of the last result, signed <= 0 (the timing pass: log1ps's u < 0
 # steps test it in one word).
 COND = Enum(
     'TRUE', 'Z', 'N', 'C', 'V', 'STK', 'INEX', 'RCARRY',
@@ -139,7 +139,7 @@ DISPATCH_BITS = {'TAGPAIR': 5, 'STAG': 3, 'DTAG': 3, 'RND': 2, 'PREC': 2,
 TAG = Enum('NORM', 'UNN', 'ZERO', 'INF', 'NAN')
 RND = Enum('RN', 'RZ', 'RM', 'RP')
 PREC = Enum('EXT', 'SGL', 'DBL', 'SGLX')     # FPCR's 3 is taken as EXT; RPREC's 3 is SGLX
-# The command word's formats (8.6.7): 111 is dynamic-k packed, out only.
+# The command word's formats: 111 is dynamic-k packed, out only.
 FMT = Enum('L', 'S', 'X', 'P', 'W', 'D', 'B', 'PK')
 KFACTOR = Enum('STATIC', 'DYNAMIC')
 
@@ -159,7 +159,7 @@ MICRO = Format(
 assert MICRO.width == 49
 
 
-# -- the datapath controls (8.8.10, 8.8.11) ------------------------------------------
+# -- the datapath controls ------------------------------------------
 
 ASRC = Enum('ZERO', 'T', 'FP', 'CU')
 # SQT: the square root's trial value, (Q << 1) | (3 or 1) << LC - the
@@ -188,7 +188,7 @@ EMODE = Enum('MANT', 'MANTB', 'EXP', 'EXPB')
 ALU = Enum('NOP', 'ADD', 'SUB', 'RSUB', 'PASSA', 'PASSB', 'AND', 'OR', 'XOR',
            'ANDN', 'ADDSUB', 'SUBADD')
 DIR = Enum('PREVN', 'DFLAG', 'BSIGN', 'BOOTH')
-# NORM (Daniel, 2026-09-29: small exponent hardware for the timing tables):
+# NORM (small exponent hardware for the timing tables):
 # the result mantissa shifted left by its leading zeros and the exponent
 # lowered by the count, in one clock.  QBIT: no shift; Q |= (1 - N) << LC
 # (the square root's bit).  In exponent mode only R1 is allowed: the 18-bit
@@ -198,7 +198,7 @@ QOP = Enum('HOLD', 'LOAD', 'LOADB', 'CLEAR')
 DST = Enum('NONE', 'T', 'FP', 'MD', 'MD3', 'OBUFH', 'OBUFL', 'OBUFX', 'EXOP', 'SC')
 SGN = Enum('A', 'B', 'XOR', 'N', 'ZERO', 'ONE', 'NOTA', 'NOTB')
 STK = Enum('HOLD', 'CLR', 'SHIFT', 'NZ')
-# The round logic's boundary and mode (8.8.10): EXT/SGL/DBL at bit 3/43/14
+# The round logic's boundary and mode: EXT/SGL/DBL at bit 3/43/14
 # by FPCR RND; TRUNC at bit 3 toward zero (FINTRZ, the I67 truncations);
 # RPREC by the rounding-precision register, which the CTL codes RP_* load
 # (FPCR PREC for an ordinary result, the destination format for a store,
@@ -213,7 +213,7 @@ RNDM = Enum('NONE', 'EXT', 'SGL', 'DBL', 'TRUNC', 'RPREC')
 FPSR = Enum('NONE', 'CLREXC', 'FPCC', 'ORLIT', 'INEX2R', 'QUOT', 'ACCRUE', 'FPCCINEX')
 # INC: the CORDIC loops count i upward (their shifts and table index are
 # LC-based); their exits test LCEQ (LC = lit) and LCSCEQ (LC - SC = lit,
-# the shift-amount adder's output) - plan 8.8.19.
+# the shift-amount adder's output).
 LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU', 'INC')
 # END: the instruction is complete - AEXC accrues from EXC (6.1.10) and
 # the BIU takes EXC AND ENABLE as the pending exception (6.1.9's
@@ -222,7 +222,7 @@ LCOP = Enum('HOLD', 'LIT', 'DEC', 'ALU', 'INC')
 # precision register (PREC codes: 0 EXT, 1 SGL, 2 DBL; FPCR's 3 is EXT).
 # RM_*: the rounding-mode register RMODE the round logic follows - FPCR's
 # RND until set (every instruction starts there), or RN/RZ/RM/RP fixed:
-# packed decimal's steps round in the modes Motorola's FPSP sets (8.8.19).
+# packed decimal's steps round in the modes Motorola's FPSP sets.
 # RETAG: the source's tags from this word's result - a packed operand, which
 # the CU cannot classify, after the APU has converted it.  BUDGET: the
 # budget += 2 x lit (every figure in the tables is even); RBUDGET the same
@@ -248,7 +248,7 @@ RROW = Enum('NORMAL', 'CARRY', 'TINY', 'TINYC', 'OVFL', 'OVFLC', 'OVFLR', 'ZERO'
 
 
 def rtime(row, rprec, rnd):
-    """Table 8-18 (plan 8.8.19): the clocks for a rounding outcome at the
+    """Table 8-18: the clocks for a rounding outcome at the
     rounding precision (PREC codes; SGLX, FSGLMUL/FSGLDIV's, gives their
     notes' extended over/underflow times less their base: 52/80 against 34,
     62/90 against 44) and mode (RND codes)."""
@@ -293,12 +293,12 @@ NANO = Format(
     Field('lit', 8, doc='shared literal: shift amount, LC load, EXC bits'),
 )
 
-# The EXC byte's bits (FPSR 15-8), for `exc=` in the source (8.6.2).
+# The EXC byte's bits (FPSR 15-8), for `exc=` in the source.
 EXC_BITS = {'BSUN': 7, 'SNAN': 6, 'OPERR': 5, 'OVFL': 4, 'UNFL': 3, 'DZ': 2,
             'INEX2': 1, 'INEX1': 0}
 
 
-# -- the constant ROM word (8.8.10) --------------------------------------------------
+# -- the constant ROM word --------------------------------------------------
 # Bits 66-0 the mantissa, 84-67 the exponent, 85 the sign, 87-86 the
 # direction (FMOVECR: 0 exact, 1 the true value above the image, 2 below).
 
@@ -320,7 +320,7 @@ def kword_fields(w):
     return (w >> 85) & 1, exp, mant, (w >> 86) & 3
 
 
-# -- the entry table (8.8.11: Figure 1-9's "µPC select PLA") ---------------------------
+# -- the entry table (Figure 1-9's "µPC select PLA") ---------------------------------
 # Index: bit 9 = 0 for a general instruction - bits 8-6 the source kind
 # (0: a register, 1-7: a memory format 000-110 plus one), bits 5-0 the
 # opmode; bit 9 = 1 for the others - $200 FMOVECR, $208 + format for
@@ -344,7 +344,7 @@ def entry_store(fmt):
 
 def verilog_header():
     out = ['// Generated by tools/fpu_ucode/fields.py - do not edit.',
-           '// The 68882 microword, nanoword and constant formats (plan 8.8.11).', '']
+           '// The 68882 microword, nanoword and constant formats.', '']
     for fmt in (MICRO, NANO):
         p = fmt.name.upper()
         out.append('`define %s_W %d' % (p, fmt.width))

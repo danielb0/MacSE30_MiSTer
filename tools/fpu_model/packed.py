@@ -1,4 +1,4 @@
-"""Packed decimal in and out: plan 8.7 work 5b, the algorithm layer.
+"""Packed decimal in and out: the algorithm layer.
 
 The manual gives the format (Table 3-4, Figure 3-11), the k-factor (4-68)
 and the accuracy (4.3.3: 0.97 of a unit in the last digit in RN, 1.47 in
@@ -7,15 +7,15 @@ use the constant ROM's powers of ten; it does not give the algorithm.
 Motorola's 68040 FPSP does: decbin.sa (3.3, 12/19/90) and bindec.sa (3.4,
 1/3/91) convert "a value in 68881/882 format", bindec pointing to "the 68882
 manual for examples" - Motorola's software statement of the 68882's
-FMOVE.P, read as a lead (plan 8.7.2).  This module is those routines step
+FMOVE.P, read as a lead.  This module is those routines step
 for step (their step names A1-A16 are kept), each FPSP floating-point
 instruction replaced by the exact core rounding in the mode FPSP sets for
 it, so the result is FPSP's to the bit.  The powers of ten are the ROM's
-(the FMOVECR constants $33-$3F with the directions of 8.6.14 item 19), or
+(the FMOVECR constants $33-$3F with the directions of switches.py item 19), or
 FPSP's own tables (item 23).
 
-Where FPSP cannot be followed literally, the model takes what FPSP means
-(plan 8.7.2): a denormal's multiply by SCALE uses its true value (FPSP
+Where FPSP cannot be followed literally, the model takes what FPSP means:
+a denormal's multiply by SCALE uses its true value (FPSP
 hands the operand to the FPU through a busy frame after overwriting its
 exponent with a 15-bit-masked negative one, and at k = 0 divides that
 corrupted operand); a pseudo-denormal (exponent 0, integer bit 1) is a
