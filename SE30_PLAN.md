@@ -18027,6 +18027,12 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     largest unused block 3,254K - application partitions are placed from
     the top down, so the old 8 KB at 13.8 MB lies inside one of them. No
     crash (`C:\temp\Mac\Screenshots\20261008_135702-screen.png`).
+12. **A foreign `boot3.rom` in `games/MACSE30`** (from 14.2 item 6, before
+    the IIcx ships): copy `342-0008-a.bin` there as `boot3.rom`, cold-start
+    `MacSE30_20261009.rbf` and `MacSE30_prerelease2_20261008.rbf`; both
+    boot and run as before (the chime, the desktop, a floppy and the SCSI
+    disk). The MacPlus precedent: a new ROM file broke the original core.
+    ~3 minutes.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
@@ -19680,6 +19686,29 @@ section records what is read before any RTL.
    the card a cross-check only. **The card's ROM dump is not on hand.**
    The book's Part II also covers the SE/30's 030 direct slot (chapters
    12-16), for FUTURE ADDITIONS 4.
+   **The ROM is on hand** (Daniel, 2026-10-09): `C:\temp\Mac\ROMS\Mac
+   IIcx\342-0008-a.bin`, 4,096 bytes, CRC32 `bf50850d`, SHA1
+   `abe85d8a882bb2b8187a28bd6707fc2f5d77eedd` (= MAME's `nb_m2vc`, card
+   630-0153, TFB 344-0001, Bt453 RAMDAC). The file is byte-reversed and
+   bit-inverted; undone, its format block reads ByteLanes `$E1` (lane 0),
+   test pattern `$5A932BC7`, format 1, revision 1, length `$1000`,
+   directory offset `$FFF014`.
+6. **A new ROM file reaches the SE/30's folder too.** The distribution
+   copies every undated `releases/` file to every home folder of the repo
+   (14 FUTURE ADDITIONS 8), so the card ROM (`boot3.rom`) lands in
+   `games/MACSE30` as well as `games/MACIICX`, and Main sends `boot0-3.rom`
+   to whichever core starts (indices `$00`, `$40`, `$80`, `$C0`). **The
+   MacPlus precedent (Daniel):** adding `boot2.rom` broke the *original*
+   MacPlus core, whose loader used only index bit 6 (`{dio_index[6],
+   dio_addr}`), so boot2 (`$80`) landed on boot0's ROM. **Rule: a core
+   decodes the whole download index, and every published rbf is checked
+   against a new ROM file before it ships.** Checked 2026-10-09: every SE/30
+   rbf published - `MacSE30_20261007`, `_20261008`, `_prerelease2_20261008`
+   (and its `b`), `MacSE30_20261009` - compares `ioctl_index[7:0]` with
+   `$00`/`$40`/`$80` exactly (since 0b623e2, 2026-09-28), so index `$C0`
+   writes nothing and holds nothing. **Board check before the IIcx ships**:
+   `boot3.rom` in `games/MACSE30`, cold-start the release rbf and the
+   prerelease 2 rbf, both boot as before (FUTURE BOARD TESTS).
 
 ## 14.3 Still to read
 
