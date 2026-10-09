@@ -3605,6 +3605,20 @@ not a verdict.
   without the prerelease rbf, which stays on `release`. Release files are
   `MACSE30_<date>.rbf` (Daniel). Waiting: the MiSTer-devel reply; Daniel
   pushes `main` and `release` and makes his repo public at the release.
+    **PUBLISHED 2026-10-09.** MiSTer-devel said go ahead; Daniel created
+  `github.com/MiSTer-devel/MacSE30_MiSTer` (public) and made
+  `danielb0/MacSE30_MiSTer` public. Checked against the upstream MacPlus,
+  MacLC, Template, Minimig, Archie, NES and ao486 repos first: (1) their
+  default branch is `master`, so our `main` went there as `master`
+  (local remote `mister`: `git push mister main:master`); (2) their rbf
+  takes the Quartus project's name (`MacPlus_`, `MacLC_`), not the
+  CONF_STR's, so `main` `3d3f212` renamed it
+  **`releases/MacSE30_20261009.rbf`** (the same file) and the README's
+  usage line - `MACSE30` stays the games folder. Pushed to both remotes.
+  `release` still has the old name; carry the rename over at the next cut.
+  Not changed: `sys/` is the Template's, three framework commits behind
+  (2026-08-22..26: ascal vsync reset, hps_io frame clocks, yc_out luma) -
+  pick them up with the next release's compile.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
@@ -17882,7 +17896,13 @@ strike what is done).** Each on a scratch copy of the image unless noted.
    at that PC. If PSTA stays at 0 while PBER rises, the errors are
    internal after all and KNOWN ISSUES 10 reopens.
 
-7. **PC Exchange on a writable DOS disk (KNOWN ISSUES 9)** - once MFM
+7. ~~**PC Exchange on a writable DOS disk (KNOWN ISSUES 9)**~~ **DONE
+   2026-10-09 on the release bitstream (`MacSE30_20261009.rbf`; Daniel):
+   all 41 files of `Disk1.img` copied by PC Exchange to a "Test DOS"
+   folder on `mac_80mb-restored.vhd`, byte-identical to the image (host
+   check); the writable floppy gained PC Exchange's own `DESKTOP`,
+   `FINDER.DAT`, `!README` and `RESOURCE.FRK`, its 41 originals untouched.
+   Item 9's failures were the lock - closed.** Was: once MFM
    writing is built (Daniel, 2026-10-05: judgement reserved until then):
    a scratch copy of `C:\temp\Mac\Test disks\DOS\Disk1.img`, mounted
    writable; TeachText opens `README.TXT`; a Finder copy of several
