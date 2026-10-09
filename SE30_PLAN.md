@@ -19974,6 +19974,37 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    end, inside the ~38-39k ceiling (compile 41 met timing at 38,758).
 2. The NuBus path in the GLUE: decode, 32-bit acknowledge, timeout, TM
    bits (`sim/glue`); *Designing Cards* ch. 7's byte lanes first.
+   **Step 2 built 2026-10-09.** The IIcx schematic first: sheet 3, the
+   GLUE chip (UK13) takes BERR* as an input and drives NUBUS* (pin 33) to
+   sheet 5; sheet 5, the NuChip (UG8) takes NUBUS*, AS*, DS*, A31-A0, SIZ,
+   R/W and drives DSACK1-0*, BERR*, HALT* (with BERR*, the 68030's retry:
+   "try again later") and TM0A*/TM1A* to VIA2; the NuBus clock is its own
+   40 MHz crystal (Y3) divided to 10 MHz, unrelated to the CPU's 31.3344
+   MHz. So on the IIcx the bus errors are the NuChip's; UI6 has no HSYNC
+   to run on.
+   - `rtl/iicx_nuchip.v`: the NuBus clock as a fractional tick (10 MHz
+     from clk_sys); a transaction waits for its edge, starts, samples the
+     slave's acknowledge each NuBus clock, terminates the 68030's cycle as
+     a 32-bit port (DSACK 00) or with BERR; the 256-clock (25.6 us)
+     timeout; `$F0xxxxxx` a bus error at once; VIA2 PB5/PB4 = 00 after a
+     good transaction, 0/1 (v2TM1A: bus timeout) after a timeout. The card
+     answers standard slot space `$F9xxxxxx` only.
+   - `se30_glue.v`, `IICX`: slot cycles are the NuChip's to terminate, as
+     the FPU's are; UI6 runs only for undecoded non-NuBus space, on a
+     22.25 kHz tick of GLUE's own (OPEN, 14.4). The byte enables go out
+     to the card (`slot_be`).
+   - `nubus_tfb.v`: side effects once per access (the NuChip holds the
+     select a whole NuBus clock: the RAMDAC's auto-increment counted
+     twice - found by the bench); the RAMDAC read latched as the access
+     begins.
+   - **`sim/nubus` (new, Icarus, 1 s): 24 checks PASS** - the ROM's format
+     block on lane 0 (ByteLanes `$E1`, `$5A932BC7`, length `$1000`); a
+     32-bit port, VRAM by lane; an access 7-8 C16M clocks; 10,000 NuBus
+     clocks in 1 ms; empty slots `$FA`, `$FB` and super space time out in
+     25.85 us with TM 0/1, cleared by the next good one; `$F0` at once;
+     SetMode's depth and SetPage's base; a CLUT entry and its read-back;
+     `$51000000` on UI6's rule (61 us); no DSACK/BERR with AS* negated.
+     `sim/glue` (SE/30) 102 PASS, `sim/machine` (SE/30) 17 PASS.
 3. `nubus_tfb.v` complete - registers, CLUT, VBL, scan-out, the SDRAM
    port for the upper 212 KB (`sim/sdram` gains it, beside `dk_*`) - and
    a new `sim/tfb`: PrimaryInit and SetMode run from the real ROM; a frame
@@ -19991,7 +20022,10 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
   longword swaps. So a card's lane 0 (the Toby card's ROM, registers and
   RAMDAC) is the CPU's D31-D24 at addresses with A1-A0 = 00, as
   `nubus_tfb.v` wires it, and the VBL status on D7-D0 is lane 3.
-- The IIcx's non-NuBus bus-error timeout (schematic sheet 3).
+- ~~The IIcx's non-NuBus bus-error timeout~~ (sheets 3 and 5, step 2):
+  BERR comes from the NuChip alone. **Still OPEN:** the undecoded
+  `$51000000-$5FFFFFFF` ("No DSACKx", Figure 3-7) - UI6's rule on a stand-in
+  tick for now.
 - The VBL status level at `$D0000`; register 15's other bits (14.2 item
   7).
 - The card's CPU-side speed, targeted at 14.2 item 12.

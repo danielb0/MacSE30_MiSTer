@@ -128,6 +128,13 @@ module nubus_tfb #(
       if (addr[5:2] == 4'd3)  base[7:0]  <= ~wdata[31:24];
     end
 
+  // one access, one action: the NuChip holds sel for a NuBus clock (two
+  // or more of ours), so anything with a side effect - the RAMDAC's
+  // auto-increment above all - acts on the first clock only
+  reg  sel_q;
+  always @(posedge clk or negedge reset_n) if (!reset_n) sel_q <= 0; else sel_q <= sel;
+  wire go = sel && !sel_q;
+
   // ------------------------------------------------------ the Bt453
   // address register, a three-step colour pointer (R, G, B), the 256 x 24
   // colour RAM: written on the CPU's clock, read on the dot clock
@@ -138,7 +145,7 @@ module nubus_tfb #(
   reg [23:0] clut_cq;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin dac_addr <= 0; dac_step <= 0; dac_rg <= 0; end
-    else if (sel && a_dac && be[3] && !ack) begin
+    else if (go && a_dac && be[3]) begin
       if (addr[3:2] == 2'd1 || addr[3:2] == 2'd3) begin
         if (!rw) dac_addr <= ~wdata[31:24];
         dac_step <= 0;
@@ -152,11 +159,13 @@ module nubus_tfb #(
       end
     end
   always @(posedge clk) begin
-    if (sel && !rw && a_dac && be[3] && !ack && addr[3:2] == 2'd2 && dac_step == 2'd2)
+    if (go && !rw && a_dac && be[3] && addr[3:2] == 2'd2 && dac_step == 2'd2)
       clut[dac_addr] <= {dac_rg, ~wdata[31:24]};
     clut_cq <= clut[dac_addr];
   end
   wire [7:0] dac_rd = (addr[3:2] == 2'd2) ? ~clut_cq[23 - 8*dac_step -: 8] : ~dac_addr;
+  reg  [7:0] dac_q;                    // the byte read, as it was when the access began
+  always @(posedge clk) if (go && a_dac) dac_q <= dac_rd;
 
   // ------------------------------------------------ the VBL interrupt
   reg  vbl_en, vbl_pend;
@@ -201,7 +210,7 @@ module nubus_tfb #(
             ack <= 1;
             rdata <= in_bram ? cpu_vq :
                      a_rom   ? {rom_q, 24'h0} :
-                     a_dac   ? {dac_rd, 24'h0} :
+                     a_dac   ? {dac_q, 24'h0} :
                      a_stat  ? {31'h0, vblank_s[1]} : 32'h0;
           end
         end

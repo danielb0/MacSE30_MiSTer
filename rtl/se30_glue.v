@@ -63,7 +63,9 @@
 
 `timescale 1ns/1ps
 
-module se30_glue (
+module se30_glue #(
+  parameter IICX = 0                   // the IIcx (plan 14.3 item 2): NuBus behind the NuChip, no video PAL
+) (
   input         clk,
   input         c16_en,                // one clk per C16M period (15.6672 MHz)
   input         reset_n,
@@ -131,6 +133,12 @@ module se30_glue (
   output        slot_sel,              // NUBUS*, active high here
   input         slot_dsack0_n,
   input   [7:0] slot_rdata,
+  // the IIcx: the NuChip terminates every slot cycle, as a 32-bit port or
+  // with BERR (iicx_nuchip.v); the byte enables it passes to the card
+  input   [1:0] nb_dsack_n,
+  input  [31:0] nb_rdata,
+  input         nb_berr,
+  output  [3:0] slot_be,
 
   // interrupts
   input         via1_irq_n,
@@ -177,9 +185,10 @@ module se30_glue (
   wire       d_swim = d_io && (win == 4'hB);
   wire       d_exp  = d_io && (win[3:2] == 2'b11);    // $50018000-$5001FFFF: acknowledged
   wire       d_slot = !fc7 && (cpu_addr[31:29] >= 3'b011);
+  wire       d_nb   = IICX && d_slot;                 // the IIcx: the NuChip's, not an 8-bit device
   wire       d_via  = d_via1 || d_via2;
   wire       d_mem  = d_ram || d_rom;
-  wire       d_dev  = d_via || d_scc || d_hs || d_scsi || d_dma || d_asc || d_swim || d_exp || d_slot;
+  wire       d_dev  = d_via || d_scc || d_hs || d_scsi || d_dma || d_asc || d_swim || d_exp || (d_slot && !IICX);
 
   // the byte enables of a 32-bit port (UM Table 7-7): lanes A1A0 to the
   // end of SIZ or of the long
@@ -291,12 +300,12 @@ module se30_glue (
   // data register, whose clear follows only a read the chip saw, gave
   // the ROM the same byte twice (sim/gcrread, plan 5.12.12 item 6).
   // Memory data is registered with the port's acknowledge.
-  assign cpu_din  = d_fpu ? fpu_rdata : (active && d_dev) ? {done ? dev_q : rbyte, 24'h000000} : din_r;
+  assign cpu_din  = d_fpu ? fpu_rdata : d_nb ? nb_rdata : (active && d_dev) ? {done ? dev_q : rbyte, 24'h000000} : din_r;
   // the slot's DSACK0* is the card's own, on the processor's bus as UE6
   // drives it on the board (plan 2.12), not relayed through `done` - that
   // cost every video access a clock; `done` then holds it until AS* rises
-  wire slot_ack = d_slot && !slot_dsack0_n;
-  assign dsack_n  = d_fpu ? fpu_dsack_n :
+  wire slot_ack = d_slot && !IICX && !slot_dsack0_n;
+  assign dsack_n  = d_fpu ? fpu_dsack_n : d_nb ? nb_dsack_n :
                     (!cpu_as_n && (done || (active && slot_ack)) && !berr_r) ? (d_mem ? 2'b00 : 2'b10) : 2'b11;
   assign fpu_sel  = !cpu_as_n && d_fpu;
 
@@ -322,6 +331,7 @@ module se30_glue (
   // state waited a full alternation - 7 clocks for every such byte
   // (plan 1.16.3, Speedometer's graphics; sim/system vramtest)
   assign slot_sel  = !cpu_as_n && d_slot && !done;
+  assign slot_be   = be;
   assign dev_addr  = cpu_addr[12:0];
   assign dev_rw    = cpu_rw_n;
   assign dev_wdata = cpu_dout[31:24];
@@ -366,18 +376,32 @@ module se30_glue (
   // negated: the first sets on HSYNC* high, the second on HSYNC* low
   // after it, and BERR follows the next HSYNC* high.  FC = 7 is not a
   // system cycle, so coprocessor and acknowledge cycles never time out.
-  wire sys_as = !cpu_as_n && !fc7;
+  // The IIcx (plan 14.3 item 2): its bus errors are the NuChip's, for
+  // slot space; it has no video PAL to clock UI6, and Figure 3-7 marks
+  // $51000000-$5FFFFFFF "No DSACKx".  OPEN: what, if anything, times that
+  // space out on the IIcx - here UI6's rule stands, on a 22.25 kHz tick
+  // of GLUE's own (the SE/30's line, 704 C16M) in place of HSYNC*.
+  reg  [9:0] lt;
+  reg        lt_hs_n;
+  always @(posedge clk or negedge reset_n)
+    if (!reset_n) begin lt <= 0; lt_hs_n <= 1; end
+    else if (c16_en) begin
+      lt <= (lt == 10'd703) ? 10'd0 : lt + 1'b1;
+      lt_hs_n <= (lt < 10'd416);
+    end
+  wire ui6_clk_n = IICX ? lt_hs_n : hsync_n;
+  wire sys_as = !cpu_as_n && !fc7 && !d_nb;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin ff1 <= 0; ff2 <= 0; berr_r <= 0; end
     else if (c16_en) begin
       if (!sys_as) begin ff1 <= 0; ff2 <= 0; berr_r <= 0; end
       else begin
-        if (hsync_n) ff1 <= 1;
-        if (ff1 && !hsync_n) ff2 <= 1;
-        if (ff1 && ff2 && hsync_n) berr_r <= 1;
+        if (ui6_clk_n) ff1 <= 1;
+        if (ff1 && !ui6_clk_n) ff2 <= 1;
+        if (ff1 && ff2 && ui6_clk_n) berr_r <= 1;
       end
     end
-  assign berr = berr_r && sys_as && !done;
+  assign berr = (berr_r && sys_as && !done) || (d_nb && nb_berr);
 
   // --------------------------------------------------------- interrupts
   // Guide Table 3-4: the highest level only, autovectored; the slot lines

@@ -260,8 +260,11 @@ module se30_machine #(
   wire [12:0] dev_addr;
   wire  [7:0] dev_wdata;
   wire        vid_dsack0_n, irq6_n, vid_sel;
-  wire        card_sel, card_ack, card_irq_n;  // the IIcx's card in slot $9 (below)
-  wire  [7:0] card_byte;
+  wire        card_irq_n;                       // the IIcx's card in slot $9 (below)
+  wire  [1:0] nb_dsack_n, nb_tm;              // the IIcx's NuChip: its termination and VIA2 PB5/PB4
+  wire [31:0] nb_rdata;
+  wire        nb_berr;
+  wire  [3:0] slot_be;
   wire  [7:0] vid_dout;
   wire        fpu_sel;
   wire  [1:0] fpu_dsack_n;
@@ -273,7 +276,7 @@ module se30_machine #(
   wire        scc_irq_n, scc_w_req_n;  // the SCC's /INT; its /W//REQ A and B, wired together
   wire  [7:0] scc_rdata;
 
-  se30_glue glue (
+  se30_glue #(.IICX(IICX)) glue (
     .clk(clk), .c16_en(phi1), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc),
     .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
@@ -287,7 +290,8 @@ module se30_machine #(
     .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(scsi_drq),
     .e_clk(e_clk), .c3m_en(c3m_en),
     .fpu_sel(fpu_sel), .fpu_dsack_n(fpu_dsack_n), .fpu_rdata(fpu_rdata),
-    .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : card_sel ? !card_ack : 1'b1), .slot_rdata(card_sel ? card_byte : vid_dout),
+    .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
+    .nb_dsack_n(nb_dsack_n), .nb_rdata(nb_rdata), .nb_berr(nb_berr), .slot_be(slot_be),
     .via1_irq_n(via1_irq_n), .via2_irq_n(via2_irq_n), .scc_irq_n(scc_irq_n), .nmi_n(nmi_n),
     .slot_irq_n(IICX ? {5'b11111, card_irq_n} : {irq6_n, 5'b11111}), .slot_irq_or_n(slot_irq_or_n),
     .overlay(overlay), .ramsiz(ramsiz), .hsync_n(hsync_n), .dbg_hs_wait(scsi_hs_wait));
@@ -354,7 +358,7 @@ module se30_machine #(
   // the IIcx (plan 14.2 items 2-3): IRQ*1 is slot $9's card; PB3 is open (reads 1), which with PA6's
   // pull-up makes box flag 2
   wire  [7:0] via2_pa_ext = IICX ? {2'b11, 5'b11111, card_irq_n} : {2'b11, irq6_n, 5'b11111};   // RAMSIZ undriven; IRQ*6 the video's latch; IRQ*5-1 the empty PDS
-  wire  [7:0] via2_pb_ext = IICX ? 8'b1011_1111 : 8'b1011_0111;                // PB6 SNDEXT* tied low, PB3 low on the SE/30 (open on the IIcx); TM0A*/TM1A* the empty slots
+  wire  [7:0] via2_pb_ext = IICX ? {2'b10, nb_tm, 4'b1111} : 8'b1011_0111;   // PB6 SNDEXT* tied low; PB3 low on the SE/30, open on the IIcx; PB5/PB4 the NuChip's status (the SE/30's empty PDS: high)
   wire  [7:0] via1_pa_pin = (via1_pa_oe & via1_pa_out) | (~via1_pa_oe & via1_pa_ext);
   wire  [7:0] via1_pb_pin = (via1_pb_oe & via1_pb_out) | (~via1_pb_oe & via1_pb_ext);
   wire  [7:0] via2_pa_pin = (via2_pa_oe & via2_pa_out) | (~via2_pa_oe & via2_pa_ext);
@@ -506,27 +510,32 @@ module se30_machine #(
   // ------------------------------------------------------------ video
   // The SE/30: slot $E, GLUE's slot select at $FExxxxxx (plan 2.10 item 2:
   // A23-A17 are not decoded by the card; A16 picks the declaration ROM).
-  // The IIcx: the Macintosh II Video Card in NuBus slot $9 (plan 14.3) -
-  // until plan 14.3 step 2 widens GLUE's slot path, reached as an 8-bit
-  // port, each byte on D31-D24 placed in its lane by A1-A0.
+  // The IIcx: the Macintosh II Video Card in NuBus slot $9, behind the
+  // NuChip (plan 14.3 items 2-3), a 32-bit port.
   generate if (IICX) begin : g_iicx
     assign vid_sel = 1'b0;
     assign vid_dout = 8'h00; assign vid_dsack0_n = 1'b1; assign irq6_n = 1'b1;
     assign vidout = 1'b0;
-    assign card_sel = slot_sel && ((cpu_addr[31:24] == 8'hF9) || (cpu_addr[31:28] == 4'h9));
-    wire [31:0] card_rdata;
-    wire  [3:0] lane = 4'b1000 >> cpu_addr[1:0];
+    wire        card_sel, card_rw, card_ack, nb_tick;
+    wire [19:0] card_addr;
+    wire  [3:0] card_be;
+    wire [31:0] card_wdata, card_rdata;
+    iicx_nuchip nuchip (
+      .clk(clk), .reset_n(reset_n),
+      .sel(slot_sel), .addr(cpu_addr), .rw(cpu_rw_n), .be(slot_be), .wdata(cpu_dout),
+      .rdata(nb_rdata), .dsack_n(nb_dsack_n), .berr(nb_berr), .tm_pb54(nb_tm), .nb_tick(nb_tick),
+      .card_sel(card_sel), .card_addr(card_addr), .card_rw(card_rw), .card_be(card_be),
+      .card_wdata(card_wdata), .card_rdata(card_rdata), .card_ack(card_ack));
     nubus_tfb card (
       .clk(clk), .reset_n(reset_n),
-      .sel(card_sel), .rw(cpu_rw_n), .addr(cpu_addr[19:0]), .be(lane), .wdata({4{dev_wdata}}),
+      .sel(card_sel), .rw(card_rw), .addr(card_addr), .be(card_be), .wdata(card_wdata),
       .rdata(card_rdata), .ack(card_ack), .irq_n(card_irq_n),
       .rom_we(cardrom_we), .rom_waddr(cardrom_waddr), .rom_wdata(cardrom_wdata),
       .up_req(), .up_we(), .up_addr(), .up_be(), .up_wdata(), .up_rdata(32'h0), .up_ack(1'b1),
       .clk_pix(clk_pix), .r(rgb[23:16]), .g(rgb[15:8]), .b(rgb[7:0]),
       .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank));
-    assign card_byte = card_rdata[8 * (3 - cpu_addr[1:0]) +: 8];
   end else begin : g_se30
-    assign card_sel = 1'b0; assign card_ack = 1'b0; assign card_irq_n = 1'b1; assign card_byte = 8'h00;
+    assign card_irq_n = 1'b1; assign nb_dsack_n = 2'b11; assign nb_rdata = 32'h0; assign nb_berr = 1'b0; assign nb_tm = 2'b11;
     assign rgb = {24{~vidout}};
     assign vid_sel = slot_sel && (cpu_addr[31:24] == 8'hFE);
     se30_video #(.DECLROM_HEX(DECLROM_HEX), .V_TOTAL(V_TOTAL)) video (
