@@ -19861,10 +19861,94 @@ section records what is read before any RTL.
      and a second witness for our SE/30 timing. Graphics 0.25 on the IIcx
      against the SE/30's 0.16 on its built-in screen.
 
-## 14.3 Still open
+## 14.3 The design (first draft, 2026-10-09)
 
-- The card's speed is now targeted at item 12 (Graphics 0.25 at 8-bit
-  on Speedometer 4.02; 3.06's per-depth figures for the shape).
+The IIcx build is the SE/30 machine with four parts changed. Everything
+else - kernel, 68882, caches, pacing, VIAs, SCC, SCSI, SWIM, ASC, ADB,
+RTC, PRAM, the SDRAM CPU port - is shared, unchanged, by both projects.
+
+1. **The build switch.** `MacIIcx.qpf/.qsf/.srf`, its qsf setting a
+   Verilog macro (`MACIICX`) on the shared top `MacSE30.sv`; the machine
+   takes a parameter `IICX`. Under it: CONF_STR name `MACIICX`; VIA1 PA6
+   undriven (both builds read 1) and **VIA2 PB3 undriven** (the SE/30 ties
+   it low) - box flag 2 (14.2 item 2); VIA1 PB6 and VIA2 PB2's soft power
+   wired as 14.2 items 3 and 9; SNDEXT tied low as now; `boot3.rom` (index
+   `$C0`) loaded into the card's ROM; `boot1.rom` (the SE/30's video
+   ROM) not used. `se30_video.v`, the video PALs' pseudo-slot `$E` and the
+   1-bit screen's block RAM are left out of the IIcx build.
+2. **NuBus in the GLUE** (`se30_glue.v`, under `IICX`). The SE/30's slot
+   path is byte-wide with DSACK0 (its built-in video is an 8-bit port);
+   NuBus is a 32-bit port to the CPU, so the IIcx path acknowledges with
+   DSACK1:0 = `00` and passes 32-bit data, the sizes and byte lanes as
+   the NuChip presents them (*Designing Cards* ch. 7, "NuBus Bit and Byte
+   Structure" - to read). Decode: `$Fsxxxxxx` and `$sxxxxxxx` for s =
+   `$9-$B` to the slot device; `$F0xxxxxx` an immediate bus error; any
+   other `$60000000-$FFFFFFFF` - an empty slot - runs the **NuChip timeout,
+   256 NuBus clocks (25.6 µs)**, then a bus error with VIA2 PB5/PB4 = `10`
+   (PB5/PB4 = `00` on a normal acknowledge). This replaces UI6's
+   HSYNC-clocked timeout, which the IIcx has no video PAL to clock. Open:
+   what times out a non-NuBus access on the IIcx (the IIcx GLUE's own
+   timeout - schematic sheet 3).
+3. **The card, `rtl/nubus_tfb.v`**, a self-contained slot device (the same
+   module serves FUTURE ADDITIONS 4 later). From 14.2 items 5 and 7: the
+   declaration ROM (4 KB, block RAM, loaded from `boot3.rom`, un-reversed
+   and inverted on load, byte lane 0); the 16 write-only registers at
+   `$80000` (inverted; depth = register 15 bits 5-4, base = registers
+   2-3); the Bt453 at `$90018/$9001C` (a 256 x 24 CLUT, one M10K, and its
+   address/data/read-back); the VBL interrupt at `$A0000/$A0004` to VIA2
+   PA (slot's IRQ line) and GLUE's OR; the VBL status at `$D0000`; VRAM
+   accesses passed to the SDRAM VRAM port. **Speed**: each access holds the
+   CPU for the NuChip's synchronisation plus a NuBus start/acknowledge
+   pair plus the card's own RAM wait, tuned to item 12's real IIcx
+   (Speedometer 4.02 Graphics 0.25 at 8-bit; 3.06's per-depth shape) - the
+   one figure not in the books.
+4. **The video RAM and display.** VRAM 512 KB in SDRAM, a region of its
+   own above the floppy and CD images (the map in 13.4). Two new ports on
+   `se30_sdram.v`, both in the idle windows the floppy port uses, so the
+   CPU's one-wait-state RAM cycle never moves: (a) the card's CPU-side
+   VRAM access (NuBus is slow enough to wait for a window); (b) a display
+   read port filling a **line buffer** (1 KB, one M10K, dual-clock) a line
+   ahead: 640 x 480 x 8 bits at 66.67 Hz is ~20.5 MB/s, ~10.25 M SDRAM
+   words/s, row-sequential READs - roughly a fifth of the controller's
+   clocks, to be checked against the CPU's worst case on a bench before
+   anything else is built. Scan-out at the book's **30.24 MHz** dot clock
+   (a new PLL output; one fixed mode, no reconfiguration), 864 x 525,
+   66.67 Hz; the line buffer's bytes unpacked at 1/2/4/8 bits, the pixel
+   value in the CLUT index's top bits, to RGB for MiSTer's video out.
+5. **Soft power.** VIA2 PB2 low = power off: the CPU held in reset and the
+   video dark until the keyboard's Power key or the OSD's reset; an OSD
+   option "Power switch: locked on" makes Shut Down restart instead, as
+   the IIcx's rear switch does.
+
+**Budget.** The release build is 37,497 ALMs. The IIcx drops the 1-bit
+video (~91) and frees its 136 M10K and the SE/30 declaration ROM's 8; it
+adds the card (~1,000-1,300 ALMs by the LC core's measured proxy, less
+the screen in block RAM, plus the SDRAM ports and line buffer) and the
+NuBus decode and timeout (~100-200). **Estimate ~38.5-38.9k ALMs: at the
+practical ceiling.** Levers, as FUTURE ADDITIONS 8 lists: the CD-ROM
+target (776) and floppy writing (~1,100) as build options, the CPU/FPU
+audit. To be measured by an Analysis & Synthesis run before the fit.
+
+**Order of work (each step benched before the next).**
+1. The SDRAM display port and line buffer against the CPU's worst case
+   (`sim/sdram`): the risk that decides the rest.
+2. The NuBus path in the GLUE: decode, 32-bit acknowledge, timeout, TM
+   bits (`sim/glue`).
+3. `nubus_tfb.v` with its ROM, registers, CLUT and scan-out (a new
+   `sim/tfb`: PrimaryInit and SetMode run from the real ROM; a frame
+   dumped to an image and compared).
+4. The build switch and top; `sim/machine` boots the IIcx to the ROM's
+   box-flag read and the Slot Manager finding the card.
+5. Compile, then the board.
+
+## 14.4 Still open
+
+- *Designing Cards* ch. 7's byte-lane mapping between NuBus and the CPU
+  (step 2).
+- The IIcx's non-NuBus bus-error timeout (schematic sheet 3).
+- The VBL status level at `$D0000`; register 15's other bits (14.2 item
+  7).
+- The card's CPU-side speed, targeted at 14.2 item 12.
 - The VBL status level at `$D0000` and register 15's other bits (item 7).
 - The design: the IIcx's build define and top-level wiring; the slot
   device (NuBus decode `$Fsxxxxxx`/`$sxxxxxxx` for slots `$9-$B`, the
