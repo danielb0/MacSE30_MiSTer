@@ -3580,6 +3580,19 @@ not a verdict.
   benchmarks practically identical to compile 49; the rest tomorrow, then
   the squashed "Release 20261007" commit on `main`.
     After it, Daniel: the release ("we will have done what we can").
+- **THE FINAL RELEASE TREE (2026-10-09, Daniel: proceed with the release;
+  bug reports will come as people meet them).** Comments restored by
+  provenance on `release` (`c708336`): other authors' as they wrote them
+  (TG68K kernel/ALU/pack, apolkosnik's PMMU, MacPlus `scsi.v`, the MacLC
+  `floppy_sd.v` lines in `se30_flp_loader.v`); ours in Daniel's style - a
+  header of a line or two per file and section, end-of-line comments where
+  they help, no plan/history/tooling notes. Every HDL file token-identical
+  to dev (MacSE30.sv by design). Benches on the release RTL: 32 of 32 PASS,
+  21 min (kernel_bus 16/32, machine, system, cpfpu, busfault, busfault_dib,
+  regress_chk2, and every unit bench but fpu, mfmwrite, gcrwrite). Open:
+  `tools/fpu_model` and `tools/fpu_ucode` still carry plan citations
+  (Daniel's call); a confirming compile of the final tree; Daniel is asking
+  whether he may create `MiSTer-devel/MacSE30_MiSTer`.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
