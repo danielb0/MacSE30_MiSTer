@@ -149,6 +149,9 @@ localparam CONF_STR = {
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[4],Memory,8 MB,16 MB;",
+`ifdef MACIICX
+	"O[5],Power switch,Normal,Locked on;",
+`endif
 	"-;",
 	"R[0],Reset & Apply Memory;",
 	"R[3],Wipe PRAM (erases settings!);",
@@ -305,14 +308,31 @@ always @(posedge clk_sys) lock_s <= {lock_s[0], pll_locked};
 // no image, or its backstop), and restarted when a late load or the OSD's
 // wipe asks (plan 13.2).
 
+// The IIcx's soft power (plan 14.2 item 9, Guide ch. 6): Shut Down drives
+// /POWEROFF (VIA2 PB2) low and the supply goes off 2 ms later.  Off, the
+// machine is held and the screen dark until the keyboard's Power key (the
+// PS/2 ACPI Power key) or the OSD's reset.  With the rear switch locked on
+// (the OSD's "Power switch"), the IIcx restarts instead.  PRAM is kept, as
+// the battery keeps it.
+reg         machine_reset_n = 0;
+wire        poweroff_req, pwr_off, pwr_restart;
+reg         pwr_key_q = 0;
+always @(posedge clk_sys) pwr_key_q <= ps2_key[10];
+iicx_power iicx_power
+(
+	.clk(clk_sys), .running(machine_reset_n), .poweroff_req(poweroff_req), .locked(status[5]),
+	.power_key(ps2_key[10] != pwr_key_q && ps2_key[9] && ps2_key[8] && ps2_key[7:0] == 8'h37),
+	.reset_req(status[0] || buttons[1] || RESET),
+	.off(pwr_off), .restart(pwr_restart)
+);
+
 reg rom_loaded = 0;
 always @(posedge clk_sys) if (ioctl_download && ioctl_index[7:0] == 8'h00) rom_loaded <= 1'b1;
 
-reg        machine_reset_n = 0;
 reg [15:0] rst_cnt = '1;
 always @(posedge clk_sys) begin
 	if (!lock_s[1] || !rom_loaded || !sdram_ready || status[0] || buttons[1] || RESET || ioctl_download || pk_hold ||
-	    !pram_ready || pram_restart) begin
+	    !pram_ready || pram_restart || pwr_off || pwr_restart) begin
 		rst_cnt <= '1;
 		machine_reset_n <= 0;
 	end else if (rst_cnt != 0) rst_cnt <= rst_cnt - 1'd1;
@@ -708,6 +728,7 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 	.mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
 	.declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),
 	.cardrom_we(cardrom_we), .cardrom_waddr(cardrom_waddr), .cardrom_wdata(cardrom_wdata), .clk_pix(clk_pix),
+	.poweroff_req(poweroff_req),
 	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
 	.vidout(vidout), .rgb(rgb), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
 	.nmi_n(1'b1),
@@ -748,9 +769,9 @@ assign CE_PIXEL  = IICX ? 1'b1 : phi1;
 assign VGA_DE = ~(hblank | vblank);
 assign VGA_HS = hsync_n;
 assign VGA_VS = vsync_n;
-assign VGA_R  = rgb[23:16];
-assign VGA_G  = rgb[15:8];
-assign VGA_B  = rgb[7:0];
+assign VGA_R  = pwr_off ? 8'd0 : rgb[23:16];                // off: the screen dark (the IIcx's soft power)
+assign VGA_G  = pwr_off ? 8'd0 : rgb[15:8];
+assign VGA_B  = pwr_off ? 8'd0 : rgb[7:0];
 
 ///////////////////////   PROBES   ///////////////////////////////
 // JTAG In-System Probes for the bring-up (plan 3.5), read with

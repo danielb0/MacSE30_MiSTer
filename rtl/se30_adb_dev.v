@@ -324,6 +324,7 @@ module se30_adb_kbd #(
         8'h75: map = 8'h3E;  8'h6B: map = 8'h3B;  8'h74: map = 8'h3C;  8'h72: map = 8'h3D;   // arrows
         8'h4A: map = 8'h4B;  8'h5A: map = 8'h4C;                                           // keypad / and Enter
         8'h7C: map = 8'h69;  8'h77: map = 8'h71;                                           // Print Screen = F13, Pause = F15
+        8'h37: map = 8'h7F;                                                                // ACPI Power = the Power key ($7F; System 7's shutdown dialog)
         default: ;
       endcase
     end

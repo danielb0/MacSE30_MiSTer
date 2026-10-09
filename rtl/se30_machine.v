@@ -117,6 +117,9 @@ module se30_machine #(
   input  [31:0] vr_rdata,
   input         vr_ack,
 
+  // the IIcx's soft power (plan 14.2 item 9): VIA2 PB2, /POWEROFF, driven low
+  output        poweroff_req,
+
   // video, 1 = black; the IIcx's colour, on clk_pix, in rgb
   output        vidout,
   output [23:0] rgb,
@@ -371,7 +374,11 @@ module se30_machine #(
   wire  [7:0] via1_pb_pin = (via1_pb_oe & via1_pb_out) | (~via1_pb_oe & via1_pb_ext);
   wire  [7:0] via2_pa_pin = (via2_pa_oe & via2_pa_out) | (~via2_pa_oe & via2_pa_ext);
   wire  [7:0] via2_pb_pin = (via2_pb_oe & via2_pb_out) | (~via2_pb_oe & via2_pb_ext);
-  assign      cpu_cdis    = !via2_pb_pin[0];               // PB0 is CDIS* (plan 4.x's table, 1.16): an input reads its pull-up
+  assign      cpu_cdis    = !via2_pb_pin[0];
+  // the IIcx: Shut Down drives /POWEROFF low and the supply goes off 2 ms
+  // later (Guide ch. 6) - MacSE30.sv acts on it; on the SE/30 PB2 reaches
+  // only the PDS
+  assign      poweroff_req = IICX && via2_pb_oe[2] && !via2_pb_out[2];               // PB0 is CDIS* (plan 4.x's table, 1.16): an input reads its pull-up
   assign overlay   = via1_pa_pin[4];
   assign vid_page  = via1_pa_pin[6];
   assign vsyncen_n = via1_pb_pin[6];

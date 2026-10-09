@@ -20063,6 +20063,19 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    the Slot Manager. **Part 2, a run to the Slot Manager and the card's
    PrimaryInit, is an overnight-scale ModelSim run** (the RAM tests at
    full length) - to estimate and agree with Daniel before it is set up.
+5. Soft power (item 5 of the design), then compile and the board.
+   **Soft power built 2026-10-09:** `rtl/iicx_power.v` - /POWEROFF (VIA2
+   PB2 driven low, from the machine as `poweroff_req`, IIcx only) held 2 ms
+   switches off: the machine held in reset and VGA dark until the Power
+   key (PS/2 ACPI Power, extended `$37`) or the OSD's reset; the OSD's
+   "Power switch: Normal / Locked on" (`O[5]`, MACIICX only) makes it a
+   restart instead, as the IIcx's locked rear switch does. PRAM runs on
+   (the RTC has no reset). The ADB keyboard maps ACPI Power to `$7F`, the
+   Power key's code (System 7's shutdown dialog), in both builds.
+   **`sim/power` (new): 8 checks PASS** - off 62,670 clocks after
+   /POWEROFF, held; back on the key or the reset; a 1 ms pulse or one in
+   reset does nothing; locked on, a one-clock restart. `sim/adbdev`,
+   `sim/adb` PASS; `sim/machine` SE/30 17 and IIcx 17 PASS.
 5. Compile, then the board.
 
 ## 14.4 Still open
