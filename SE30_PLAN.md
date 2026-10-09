@@ -3627,6 +3627,11 @@ not a verdict.
   `distribution-mister-pinned-linux`, rebuilt every ~7 h), which carried
   it that evening - **"the MacSE30 has just appeared on update_all"**
   (Daniel). A new core reaches users in two stages; check both.
+    **ANNOUNCED 2026-10-09** (Daniel) in the MiSTer FPGA forum's "MiSTer
+  Updates and Changelog" thread (t=147): "New core: Macintosh SE/30" - the
+  hardware list (68030 with PMMU and caches, microcoded 68882, 8/16 MB,
+  floppy read/write GCR and MFM, SCSI disks and CD-ROM), System 6.0.5 to
+  7.5.5 in 24- and 32-bit mode, and what is not implemented.
 
 # Section 2 - GLUE, the address map, RAM, clocks and the video PALs
 
