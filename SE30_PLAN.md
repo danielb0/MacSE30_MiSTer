@@ -19601,6 +19601,80 @@ empty-bank question, open since 2026-09-27.
 
 ---
 
+# Section 14 - the Macintosh IIcx build (opened 2026-10-09)
+
+FUTURE ADDITIONS 8. A second Quartus project in this tree (`MacIIcx`), a
+define switching what differs; the IIci after it. Documentation first: this
+section records what is read before any RTL.
+
+## 14.1 Sources, and their standing
+
+| Source | What it is | Standing |
+|---|---|---|
+| *Guide to the Macintosh Family Hardware*, 2nd ed. (`Docs\Guide.txt`) | chapters 3 (address maps), 4 (VIAs), power, NuBus | **primary** |
+| `Docs\Mac_IICX_Schematic.pdf` (Apple 050-0245-A, 12 sheets) | the IIcx logic board | **primary for the wiring**; sheets render with WSL's `pdftoppm` (the PDF's text layer is unusable) |
+| `Docs\Mac_IICX_BOM.pdf`, `IICX_BOM.txt` | the IIcx parts list | primary for part numbers |
+| The ROM ($97221136), our `boot0.rom` | shared by the II FDHD, IIx, IIcx and SE/30 | primary for what the ROM reads (4.6 item 7) |
+| *Designing Cards and Drivers for the Macintosh Family* | NuBus, slot (declaration) ROMs, Apple's video cards | **not yet on hand** (macintoshrepository.org 1235 offers it) |
+
+## 14.2 What is established
+
+1. **The address map is the SE/30's** (*Guide* Figure 3-7: the II, IIx and
+   IIcx share one map), I/O at `$50000000`, ROM at `$40800000`, the same
+   wait states. Accesses `$60000000-$FFFFFFFF` (except `$F0xxxxxx`, a bus
+   error) start a NuBus transaction: standard slot space `$Fsxxxxxx` (16 MB)
+   and super slot space `$sxxxxxxx` (256 MB); in 24-bit mode `$sxxxxx` maps
+   to `$Fs0xxxxx`, the lower 1 MB of each card. **The IIcx has slots `$9`,
+   `$A`, `$B` - the SE/30's PDS pseudo-slot numbers**, so the slot decode we
+   have serves; slot `$E` (the SE/30's built-in video) is absent.
+2. **The identity code** (4.6 item 7, the ROM at `$4083F74A`): index = 2 +
+   2*PA6 + PB3 into `FF 04 01 00 03 02` gives the box flag:
+
+   | VIA1 PA6 | VIA2 PB3 | Box flag | Machine |
+   |---|---|---|---|
+   | 0 | 1 | 0 | Mac II |
+   | 0 | 0 | 1 | IIx |
+   | **1** | **1** | **2** | **IIcx** |
+   | 1 | 0 | 3 | SE/30 (today) |
+
+   The IIcx schematic agrees: VIA1 PA6 is **ROMSENSE, pulled up to +5 V**
+   (RP5, 1 kΩ, sheet 11); VIA2 PB3 (**V2PB3**) goes only to a test point
+   (sheets 4, 12), so it reads 1 as an undriven input (4.3). Both high = the
+   IIcx. The *Guide* (Table 4-5): `CPU.ID` "tied low in the Macintosh II and
+   IIx"; Table 4-15: PB3 "not used" on the IIx, IIcx.
+3. **VIA differences from the SE/30** (*Guide* Tables 4-5, 4-9, 4-14, 4-15;
+   schematic sheet 4):
+   - VIA1 PA6: SE/30 output `vPage2`; IIcx input ROMSENSE (above). No
+     alternate screen buffer.
+   - VIA1 PB6: SE/30 `vSyncEnA` (the slot `$E` VBL enable); unused on the
+     IIcx (`V1PB6` to a test point).
+   - VIA2 PA0-5: `v2IRQ1-6`, slot interrupts `$9-$E`; the IIcx wires IRQ1-3
+     to its slots, IRQ4-6 to jumper W2 ("3 more NuBus interrupts").
+   - VIA2 PB2 `v2PowerOff`: **soft power** - on the IIcx it clocks the
+     power latch (UL2 74HC74, sheet 4); 0 = power off.
+   - VIA2 PB6 `v2SNDEXT`: SE/30 tied low (always stereo, mixed to mono);
+     IIcx = the external sound jack's switch (0 = plug in).
+   - VIA2 PB1 `v2BusLk`, PB4/PB5 `v2TM1A`/`v2TM0A`: NuBus lock and the
+     transfer acknowledge (Table 4-16: 00 no error, 01 error, 10 timeout,
+     11 try again later).
+   - VIA2 CA1/CA2/CB1/CB2 as the SE/30 (slot IRQ, SCSI DRQ, sound, SCSI
+     IRQ). The 60.15 Hz VBL from VIA2 PB7 as the SE/30.
+4. **NMI** is pulled up on the IIcx too (RP5): the programmer's switch
+   (FUTURE ADDITIONS 1) belongs to both builds.
+
+## 14.3 Still to read
+
+- NuBus timing through the NuChip30 (cycle length, wait states, timeout),
+  for an authentic card speed - *Designing Cards and Drivers*.
+- The video card: which one, its declaration ROM, CLUT, timing.
+- Soft power from the keyboard's Power key and the rear switch (sheet 4,
+  `POWERON*` on the ADB connectors), and Shut Down's behaviour on MiSTer.
+- Sound: the IIcx's stereo path and SNDEXT (sheet 10).
+- Floppy: the IIcx's drive bays (one or two internal drives).
+- RAM: the IIcx's SIMM banks against the SE/30's (*Guide* Figure 5-8).
+
+---
+
 ## Appendix - where the sources are
 
 The IIvi core is now cloned durably at `C:/Git/MiSTer-devel/MacIIvi_MiSTer`
