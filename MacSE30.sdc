@@ -155,18 +155,27 @@ set_multicycle_path -setup -end 2 -from $fpu_apu1 -to $fpu_apu1
 set_multicycle_path -hold  -end 1 -from $fpu_apu1 -to $fpu_apu1
 
 # The IIcx build's card (SE30_PLAN.md 14.3 item 4): its dot clock is a PLL of
-# its own, unrelated to clk_sys.  Every crossing is built for it - the VRAM
-# and CLUT are dual-clock block RAMs, the depth and base are written only
-# after WaitVBL and taken once a frame, the frame toggle and the blanking
-# level cross through two flip-flops - so the two clocks are asynchronous.
-# It is CLK_VIDEO too, and the framework's sys_top.sdc groups only the
-# core's main PLL (*|pll|pll_inst|*) against HDMI and audio, so the card's
-# clock is declared asynchronous to those as well (ascal synchronises it).
-# The SE/30 build has no such clock and skips this.
+# its own, fed from clk_mem at a fractional ratio (1071/128 up, 26 down) -
+# unrelated in practice to every other clock in the design, and every
+# crossing is built for that: the VRAM and CLUT are dual-clock block RAMs,
+# the depth and base are written only after WaitVBL and taken once a frame,
+# the frame toggle and the blanking level cross through two flip-flops.
+#
+# It is CLK_VIDEO too, so the framework's video side - ascal's input, the
+# OSD, hps_io's video_calc, the VGA and HDMI outputs - runs on it and
+# crosses into the HPS 100 MHz clock, the HPS SPI clock and the 50 MHz pins
+# exactly as clk_sys does in the SE/30 build.  sys_top.sdc cuts those
+# crossings for clk_sys by its exclusive groups, which name the core's main
+# PLL only; so the card's clock is declared asynchronous to EVERY other clock
+# here (a single group is asynchronous to all clocks outside it).
+#
+# The five compiles of 2026-10-09 that stalled in the fitter had it grouped
+# against the main, HDMI and audio PLLs alone: clk_pix -> h2f_user0_clk (21
+# paths, hdmi_out_vs -> video_calc) was then timed as a related pair with a
+# 0.001 ns setup relationship and -16.7 ns of slack before placement - a
+# requirement the timing-driven placer and router can never meet and, under
+# High Performance Effort, never stop trying to (the post-map TimeQuest run
+# of 2026-10-10, plan 14.3).  The SE/30 build has no such clock and skips this.
 if {[llength [get_clocks -nowarn {emu|pll_vid|*}]] > 0} {
-  set_clock_groups -asynchronous \
-    -group [get_clocks {emu|pll_vid|*}] \
-    -group [get_clocks {emu|pll|pll_inst|*}] \
-    -group [get_clocks {pll_hdmi|*}] \
-    -group [get_clocks {pll_audio|*}]
+  set_clock_groups -asynchronous -group [get_clocks {emu|pll_vid|*}]
 }
