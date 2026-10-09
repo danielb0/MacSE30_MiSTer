@@ -19737,8 +19737,55 @@ section records what is read before any RTL.
    transparent for VRAM and the CLUT (the same inversion on the way in
    and out, and on the CLUT index) but not for the registers, the RAMDAC
    read-back or the VBL status, which the driver reads and writes
-   inverted. Still to read: the driver's Control calls (SetMode's register
-   values per depth, the page base, SetEntries) and Status.
+   inverted.
+7. **The TFB driver, read** (`.Display_Video_Apple_TFB`, the card ROM
+   `$0226-$0A54`; card offsets below are from the slot base `dCtlDevBase`):
+   - **WaitVBL** (`$0814`, SR at `$2200`): polls bit 0 of the longword at
+     `$D0000`, first while it is 1, then while it is 0 - i.e. waits for a
+     0-to-1 edge. Every register, CLUT and mode change waits for it. Which
+     level is "blanking" is not stated by the code (MAME returns 0 in
+     blanking, which would make the edge the end of blanking - to settle).
+   - **SetMode** (`$08FC`, Control `cscSetMode`/`cscSwitchMode`): records
+     the mode, WaitVBL, writes the word `$00B7` to `$8003C` (register 15),
+     then writes 16 bytes from a per-depth table, each `not.b`, to
+     `$80000 + 4n` (register n). Tables (the bytes as stored = the
+     registers' values, the card inverting the bus back), register 0-15:
+     1-bit `$0944`: `20 47 00 08 1E E5 77 46 05 02 02 01 0F 41 05 C8`;
+     2-bit `$0954`: `40 47 00 08 3C E5 77 46 05 06 06 04 20 04 0B D8`;
+     4-bit `$0964`: `80 47 00 08 78 E5 77 46 05 0E 0E 0A 42 8A 16 E8`;
+     8-bit `$0974`: `00 47 00 08 F0 E5 77 46 05 1E 1E 16 86 96 2D F9`.
+     Registers 1, 2, 5-8 are the same at every depth; 0, 4, 9-15 scale with
+     it. The depth is register 15 bits 5-4 (0-3 = 1/2/4/8 bits; MAME reads
+     the same field). PrimaryInit's table (`$015A`) is the 1-bit one with
+     register 3 = `$08`.
+   - **SetPage** (`$0984`): base = page x rowBytes x 480 + `$20`; the
+     longword address (base / 4) goes inverted to `$8000C` (register 3, low
+     byte) and `$80008` (register 2, high byte). Per-depth table at
+     `$0A14`: the grey pattern, rowBytes, height - `$AAAAAAAA/128/480`,
+     `$CCCCCCCC/256/480`, `$F0F0F0F0/512/480`, `$FF00FF00/1024/480`.
+   - **SetEntries** (`$0414`) and **SetGray**: WaitVBL, then the CLUT
+     address to `$9001C` = `(index << (8 - depth)) | ((1 << (8 - depth)) -
+     1)` - the pixel value in the index's top bits (MAME's pens use the
+     same) - then R, G, B to `$90018` (auto-increment) through the
+     inverting gamma table (SetGamma, `$05F6`, stores it `not.b`);
+     luminance gray `$4CCC`/`$970A`/`$1C28` when gray is on.
+   - **Interrupts**: Open installs the slot interrupt handler (`$0A34`,
+     `_SIntInstall`) and writes `$A0000` (on); the handler writes `$A0000`
+     (clear, stay on) and calls the VBL tasks (jump through `$0D28`);
+     Close writes `$A0004` (off) and removes it. cscSetInterrupt only
+     records the flag - it does not touch the card.
+   - **Status**: GetPages = (512 KB ? 4 : 3) / depth + 1 (5/3/2/1, as the
+     mode lists); **GetBaseAddr returns base + page x rowBytes x 480 + 4**,
+     where SetPage and vpBaseOffset use `+$20` - a discrepancy in this
+     ROM (RevLevel "Beta-7.0"); harmless unless a program uses page 1+.
+   - What the RTL needs from this: VRAM 512 KB (sized 256/512 by the
+     write-read test at `$423FC`), the 16 write-only registers (depth from
+     register 15, base from registers 2-3), the Bt453 address/data ports at
+     `$9001C/$90018`, the VBL interrupt on/off/clear at `$A0000/$A0004`, the
+     VBL status bit at `$D0000`. The timing registers can sit at the
+     book's fixed 640 x 480 / 66.67 Hz (item 5): the driver only ever
+     writes the four tables. To settle: the VBL status level; register
+     15's other bits (`$B7` written first).
 6. **A new ROM file reaches the SE/30's folder too.** The distribution
    copies every undated `releases/` file to every home folder of the repo
    (14 FUTURE ADDITIONS 8), so the card ROM (`boot3.rom`) lands in
