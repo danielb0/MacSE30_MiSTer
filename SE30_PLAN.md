@@ -20076,6 +20076,18 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    /POWEROFF, held; back on the key or the reset; a 1 ms pulse or one in
    reset does nothing; locked on, a one-clock restart. `sim/adbdev`,
    `sim/adb` PASS; `sim/machine` SE/30 17 and IIcx 17 PASS.
+   **Analysis & Synthesis of both builds after steps 2-5 (2026-10-09,
+   20:16-20:32): 0 errors each.** MacSE30: 2,702,009 memory bits and 3
+   PLLs - the release's exactly, so the SE/30 build is untouched; MacIIcx:
+   4,090,643 bits, 4 PLLs (`pll_vid`).
+   **What is left for the IIcx, each Daniel's to schedule:** (1) a full
+   compile (~45 min) and the board - the ROM's own Slot Manager, PrimaryInit
+   and driver against the card, Monitors' depths, Shut Down, and the
+   card's speed against item 12 (Graphics 0.25 at 8-bit), which is where
+   the NuBus timing gets tuned; (2) optionally first, `sim/machine` IIcx
+   run on to the Slot Manager and PrimaryInit (the RAM tests at full
+   length: hours, overnight); (3) `boot3.rom` (the card ROM) into
+   `releases/` with the first IIcx release.
 5. Compile, then the board.
 
 ## 14.4 Still open
