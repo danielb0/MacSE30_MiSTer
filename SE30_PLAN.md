@@ -19706,8 +19706,39 @@ section records what is read before any RTL.
    Close `@$02FA`). Modes, all 640 x 480 at 72 dpi with vpBaseOffset 32:
    `$80` 1-bit rowBytes 128, `$81` 2-bit 256, `$82` 4-bit 512, `$83` 8-bit
    1024; pages 5/3/2/1 on 512 KB (the 256 KB set: `$80-$82`, 1-bit 4
-   pages). Next: disassemble PrimaryInit and the driver for the TFB's
-   registers.
+   pages). **PrimaryInit, disassembled** (capstone 5.0.7, `scripts/
+   se30_declrom.py --dis`): the card's base `a2 = $Fss00000` from the slot
+   number (the card decodes 20 address bits, so it mirrors every 1 MB of
+   its slot space and this address works in 24- and 32-bit mode). The
+   card's space, as the code uses it:
+   - `$00000-$7FFFF` **VRAM**; the frame buffer at `+$20` (vpBaseOffset).
+     Sizing: `'MAC2'` written at `$423FC` and read back (a stack write
+     between, to clear the bus) - read back = 512 KB, then
+     `_SDeleteSRTRec` ($A06E, selector `$31`) removes sResource `$81`,
+     else `$80`. Then 2,048 rows of 128 bytes filled `$AAAAAAAA` /
+     `$55555555` alternately: the grey 1-bit desktop.
+   - `$80000`, step 4: **the TFB's 16 registers**, written from the table
+     at `$15A` with `not.b` (inverted); before that the same values from
+     the table at `$14A` go to `$8FFFC` downward, uninverted (the code
+     serves both decode polarities; the second write is the one that
+     stands).
+   - `$9001C` then `$90018`: **the Bt453 RAMDAC** - `$FF` to the address
+     register, then 384 x `$FF` and 384 x `$00` to the auto-incrementing
+     palette data (128 entries one colour, 128 the other).
+   - `$A0004`: `clr.b` - the VBL interrupt off (MAME: `$A0000` with
+     offset bit 2 = disable, without = enable and clear).
+   **Cross-check, MAME `nubus_m2video.cpp`** (not evidence): the same map
+   - VRAM `$00000-$7FFFF`, the TFB `$80000-$8FFFF` (register = longword
+   offset & `$F`; a write to register 15 applies the timing), the RAMDAC
+   `$90000-$9001F` on byte lane 3 (offset & 3 = 1 or 3 address, 2
+   palette), VBL control `$A0000-$AFFFF`, VBL status `$D0000-$DFFFF`
+   (read, 0 in blanking) - and **every data byte inverted on the card's
+   side**, NuBus's data lines being active-low. For the RTL that is
+   transparent for VRAM and the CLUT (the same inversion on the way in
+   and out, and on the CLUT index) but not for the registers, the RAMDAC
+   read-back or the VBL status, which the driver reads and writes
+   inverted. Still to read: the driver's Control calls (SetMode's register
+   values per depth, the page base, SetEntries) and Status.
 6. **A new ROM file reaches the SE/30's folder too.** The distribution
    copies every undated `releases/` file to every home folder of the repo
    (14 FUTURE ADDITIONS 8), so the card ROM (`boot3.rom`) lands in
