@@ -19786,6 +19786,14 @@ section records what is read before any RTL.
      book's fixed 640 x 480 / 66.67 Hz (item 5): the driver only ever
      writes the four tables. To settle: the VBL status level; register
      15's other bits (`$B7` written first).
+   - **DECIDED (Daniel, 2026-10-09): the full 512 KB card, VRAM in SDRAM**
+     ("definitely 1"), so 8-bit colour is there as on Apple's card. 512 KB
+     in block RAM would need ~512 of the device's 553 M10K (the earlier
+     ~300 M10K estimate counted one 8-bit screen only); the 256 KB card
+     (4-bit at most) in block RAM was the alternative. Design work this
+     brings: a 512 KB VRAM region in the SDRAM map and a video read port
+     the controller interleaves with the CPU - 640 x 480 x 8 bits at 66.67
+     Hz is ~20.5 MB/s of display reads.
 6. **A new ROM file reaches the SE/30's folder too.** The distribution
    copies every undated `releases/` file to every home folder of the repo
    (14 FUTURE ADDITIONS 8), so the card ROM (`boot3.rom`) lands in
