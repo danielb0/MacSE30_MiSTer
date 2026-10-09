@@ -19952,6 +19952,15 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
 1. The build switch and `nubus_tfb.v`'s skeleton with the VRAM block RAM,
    CLUT and ROM at their real sizes; an Analysis & Synthesis run of the
    IIcx project for the M10K and ALM counts (~10 min) before more is built.
+   **Step 1 built 2026-10-09 (`iicx` 6e4f2f9).** `sim/machine` (SE/30)
+   17 checks PASS. A&S of MacIIcx: 0 errors, 7 m 49 s, 4,090,909 memory
+   bits (release 2,702,009). The first A&S was stopped at 25 min:
+   inference had rounded each VRAM lane to 2^17 bytes and built one copy
+   per read clock (~1,000 M10K); `tfb_vram_lane` now instantiates one true
+   dual-port `altsyncram` per lane, 76,808 x 8, `maximum_depth` 4096.
+   **M10K by count: 226 (the release less `se30_video`'s 136) + 304 (VRAM)
+   + 2 (CLUT, a copy per read clock) + 4 (ROM) = 536 of 553, 97 %.** The
+   fitter's figure and the ALMs need a full compile (~45 min).
 2. The NuBus path in the GLUE: decode, 32-bit acknowledge, timeout, TM
    bits (`sim/glue`); *Designing Cards* ch. 7's byte lanes first.
 3. `nubus_tfb.v` complete - registers, CLUT, VBL, scan-out, the SDRAM
