@@ -19964,8 +19964,13 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
 
 ## 14.4 Still open
 
-- *Designing Cards* ch. 7's byte-lane mapping between NuBus and the CPU
-  (step 2).
+- ~~*Designing Cards* ch. 7's byte-lane mapping~~ **Read 2026-10-09**
+  ("NuBus bit and byte structure", Figure 7-2): Apple preserved byte
+  addresses - processor byte n (D31-D24 is byte 0, address ...0) is NuBus
+  byte lane n (AD7-AD0 is lane 0); only the significance inside a
+  longword swaps. So a card's lane 0 (the Toby card's ROM, registers and
+  RAMDAC) is the CPU's D31-D24 at addresses with A1-A0 = 00, as
+  `nubus_tfb.v` wires it, and the VBL status on D7-D0 is lane 3.
 - The IIcx's non-NuBus bus-error timeout (schematic sheet 3).
 - The VBL status level at `$D0000`; register 15's other bits (14.2 item
   7).

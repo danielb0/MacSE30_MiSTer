@@ -60,10 +60,10 @@ assign BUTTONS   = 0;
 //////////////////////////////////////////////////////////////////
 
 // 512 x 342 at square pixels, the SE/30's own image (256:171, as
-// MacPlus has it; plan 3.5)
+// MacPlus has it; plan 3.5); the IIcx's card, 640 x 480 (4:3)
 wire [1:0] ar = status[2:1];
-assign VIDEO_ARX = (!ar) ? 12'd256 : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? 12'd171 : 12'd0;
+assign VIDEO_ARX = (!ar) ? (IICX ? 12'd4 : 12'd256) : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? (IICX ? 12'd3 : 12'd171) : 12'd0;
 
 `include "build_id.v"
 
@@ -116,8 +116,23 @@ localparam CDROM_EN = 0;
 localparam CDROM_EN = 1;
 `endif
 
+// The Macintosh IIcx build (plan Section 14): MacIIcx.qsf defines MACIICX.
+// The same machine with the Macintosh II Video Card in NuBus slot $9 in
+// place of the built-in 1-bit screen, the IIcx's identity lines, its own
+// menu name (games/MACIICX, its own settings) and the card's ROM as
+// boot3.rom.
+`ifdef MACIICX
+localparam IICX = 1;
+`else
+localparam IICX = 0;
+`endif
+
 localparam CONF_STR = {
+`ifdef MACIICX
+	"MACIICX;;",
+`else
 	"MACSE30;;",
+`endif
 	"-;",
 	"S0,DSKIMG,Mount Internal Floppy;",
 `ifdef SE30_EXT_DRIVE
@@ -244,6 +259,10 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 // C16M's edges, one clk_sys each, alternating.
 
 wire clk_sys, clk_mem, clk_sdc, clk_capa, clk_capb, pll_locked;
+// The IIcx card's dot clock (plan 14.3 item 4: the book's 30.24 MHz from
+// a PLL of its own, to build; until then clk_sys stands in - 31.3344
+// against 30.24 MHz, a 69.1 Hz frame against 66.67)
+wire clk_pix = clk_sys;
 pll pll
 (
 	.refclk(CLK_50M),
@@ -327,6 +346,7 @@ se30_pram pram (
 wire boot0 = (ioctl_index[7:0] == 8'h00);
 wire boot1 = (ioctl_index[7:0] == 8'h40);
 wire boot2 = (ioctl_index[7:0] == 8'h80);
+wire boot3 = (ioctl_index[7:0] == 8'hC0);              // the IIcx's card ROM (plan 14.2 item 6)
 
 reg         adb_pm_we = 0;
 reg   [8:0] adb_pm_waddr;
@@ -342,6 +362,21 @@ reg  [23:0] dl_addr;
 reg  [15:0] dl_data;
 wire        dl_ack;
 reg         declrom_we = 0, dr_second = 0;
+// boot3.rom, the IIcx card's declaration ROM: 4 KB, a byte at a time as
+// the video ROM's (byte 0 is the low half of each HPS word); the card
+// un-reverses and inverts it (plan 14.2 item 5)
+reg         cardrom_we = 0, cr_second = 0;
+reg  [11:0] cardrom_waddr;
+reg   [7:0] cardrom_wdata, cr_hi;
+always @(posedge clk_sys) begin
+	cardrom_we <= 0;
+	if (ioctl_wr && ioctl_download && boot3) begin
+		cardrom_we <= 1; cardrom_waddr <= {ioctl_addr[11:1], 1'b0}; cardrom_wdata <= ioctl_dout[7:0];
+		cr_hi <= ioctl_dout[15:8]; cr_second <= 1;
+	end else if (cr_second) begin
+		cardrom_we <= 1; cardrom_waddr <= {cardrom_waddr[11:1], 1'b1}; cardrom_wdata <= cr_hi; cr_second <= 0;
+	end
+end
 reg  [12:0] declrom_waddr;
 reg   [7:0] declrom_wdata, dr_hi;
 assign ioctl_wait = dl_req || dr_second;
@@ -623,6 +658,7 @@ se30_sdram sdram
 ///////////////////////   THE MACHINE   //////////////////////////
 
 wire        vidout, hsync_n, vsync_n, hblank, vblank;
+wire [23:0] rgb;
 wire [31:0] dbg_addr;
 wire  [2:0] dbg_fc;
 wire  [1:0] dbg_dsack_n;
@@ -648,13 +684,14 @@ always @(posedge clk_sys) begin
 	if ((sd_ack[2] && !scsi_ack_q[0]) || (sd_ack[3] && !scsi_ack_q[1])) scsi_sectors <= scsi_sectors + 1'd1;
 end
 
-se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN)) machine
+se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 (
 	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram16(ram16),
 	.mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
 	.mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
 	.declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),
-	.vidout(vidout), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
+	.cardrom_we(cardrom_we), .cardrom_waddr(cardrom_waddr), .cardrom_wdata(cardrom_wdata), .clk_pix(clk_pix),
+	.vidout(vidout), .rgb(rgb), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
 	.nmi_n(1'b1),
 	.pace_en(1'b1),
 	.dbg_addr(dbg_addr), .dbg_fc(dbg_fc), .dbg_as_n(dbg_as_n), .dbg_rw_n(dbg_rw_n),
@@ -687,14 +724,15 @@ assign LED_DISK = {1'b0, dbg_swim[15] | dbg_fdhd2[15]};   // either drive's moto
 // The pixel clock is C16M: one pixel every other clk_sys.  The syncs are
 // active low, as MacPlus presents them; the framework normalises.
 
-assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL  = phi1;
+// The IIcx: the card's own dot clock, a pixel every clock (clk_pix, above).
+assign CLK_VIDEO = IICX ? clk_pix : clk_sys;
+assign CE_PIXEL  = IICX ? 1'b1 : phi1;
 assign VGA_DE = ~(hblank | vblank);
 assign VGA_HS = hsync_n;
 assign VGA_VS = vsync_n;
-assign VGA_R  = {8{~vidout}};
-assign VGA_G  = {8{~vidout}};
-assign VGA_B  = {8{~vidout}};
+assign VGA_R  = rgb[23:16];
+assign VGA_G  = rgb[15:8];
+assign VGA_B  = rgb[7:0];
 
 ///////////////////////   PROBES   ///////////////////////////////
 // JTAG In-System Probes for the bring-up (plan 3.5), read with

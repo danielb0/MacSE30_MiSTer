@@ -79,7 +79,8 @@ module se30_machine #(
   parameter V_TOTAL     = 370,
   parameter FPU_UCODE   = "rtl/fpu/ucode/",  // the 68882's microcode images (the benches: ../../rtl/fpu/ucode/)
   parameter EXT_DRIVE   = 1,                 // the external FDHD on /ENBL2 (plan 5.14; a build option, 10.4 item 3: MacSE30.sv passes 0 unless SE30_EXT_DRIVE is defined)
-  parameter CDROM_EN    = 1                  // the CD-ROM at SCSI ID 3 (plan Section 12; MacSE30.sv passes 0 when SE30_NO_CDROM is defined)
+  parameter CDROM_EN    = 1,                 // the CD-ROM at SCSI ID 3 (plan Section 12; MacSE30.sv passes 0 when SE30_NO_CDROM is defined)
+  parameter IICX        = 0                  // the Macintosh IIcx build (plan Section 14): the card in slot $9 for the 1-bit video, its identity lines
 ) (
   input         clk,
   input         phi1,
@@ -102,8 +103,15 @@ module se30_machine #(
   input  [12:0] declrom_waddr,
   input   [7:0] declrom_wdata,
 
-  // video, 1 = black
+  // the IIcx build's card: its declaration ROM's load (boot3.rom) and its dot clock
+  input         cardrom_we,
+  input  [11:0] cardrom_waddr,
+  input   [7:0] cardrom_wdata,
+  input         clk_pix,
+
+  // video, 1 = black; the IIcx's colour, on clk_pix, in rgb
   output        vidout,
+  output [23:0] rgb,
   output        hsync_n,
   output        vsync_n,
   output        hblank,
@@ -252,6 +260,8 @@ module se30_machine #(
   wire [12:0] dev_addr;
   wire  [7:0] dev_wdata;
   wire        vid_dsack0_n, irq6_n, vid_sel;
+  wire        card_sel, card_ack, card_irq_n;  // the IIcx's card in slot $9 (below)
+  wire  [7:0] card_byte;
   wire  [7:0] vid_dout;
   wire        fpu_sel;
   wire  [1:0] fpu_dsack_n;
@@ -277,9 +287,9 @@ module se30_machine #(
     .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata), .scsi_drq(scsi_drq),
     .e_clk(e_clk), .c3m_en(c3m_en),
     .fpu_sel(fpu_sel), .fpu_dsack_n(fpu_dsack_n), .fpu_rdata(fpu_rdata),
-    .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : 1'b1), .slot_rdata(vid_dout),
+    .slot_sel(slot_sel), .slot_dsack0_n(vid_sel ? vid_dsack0_n : card_sel ? !card_ack : 1'b1), .slot_rdata(card_sel ? card_byte : vid_dout),
     .via1_irq_n(via1_irq_n), .via2_irq_n(via2_irq_n), .scc_irq_n(scc_irq_n), .nmi_n(nmi_n),
-    .slot_irq_n({irq6_n, 5'b11111}), .slot_irq_or_n(slot_irq_or_n),
+    .slot_irq_n(IICX ? {5'b11111, card_irq_n} : {irq6_n, 5'b11111}), .slot_irq_or_n(slot_irq_or_n),
     .overlay(overlay), .ramsiz(ramsiz), .hsync_n(hsync_n), .dbg_hs_wait(scsi_hs_wait));
 
   // ------------------------------------------------------------ the FPU
@@ -341,8 +351,10 @@ module se30_machine #(
   wire  [6:0] via1_ifr, via1_ier, via2_ifr, via2_ier;
   wire  [7:0] via1_pa_ext = {scc_w_req_n, 7'h7F};       // PA7 SCCWREQ*; PA6-0 undriven (ALTVID, HDSEL, OVERLAY, SYNC out; PDS straps)
   wire  [7:0] via1_pb_ext = {4'b1111, adb_int_n, 2'b11, rtc_d};   // PB3 ADB-INT*, PB0 the clock's data; the rest undriven or outputs
-  wire  [7:0] via2_pa_ext = {2'b11, irq6_n, 5'b11111};   // RAMSIZ undriven; IRQ*6 the video's latch; IRQ*5-1 the empty PDS
-  wire  [7:0] via2_pb_ext = 8'b1011_0111;                // PB6 SNDEXT* and PB3 tied low; TM0A*/TM1A* the empty PDS
+  // the IIcx (plan 14.2 items 2-3): IRQ*1 is slot $9's card; PB3 is open (reads 1), which with PA6's
+  // pull-up makes box flag 2
+  wire  [7:0] via2_pa_ext = IICX ? {2'b11, 5'b11111, card_irq_n} : {2'b11, irq6_n, 5'b11111};   // RAMSIZ undriven; IRQ*6 the video's latch; IRQ*5-1 the empty PDS
+  wire  [7:0] via2_pb_ext = IICX ? 8'b1011_1111 : 8'b1011_0111;                // PB6 SNDEXT* tied low, PB3 low on the SE/30 (open on the IIcx); TM0A*/TM1A* the empty slots
   wire  [7:0] via1_pa_pin = (via1_pa_oe & via1_pa_out) | (~via1_pa_oe & via1_pa_ext);
   wire  [7:0] via1_pb_pin = (via1_pb_oe & via1_pb_out) | (~via1_pb_oe & via1_pb_ext);
   wire  [7:0] via2_pa_pin = (via2_pa_oe & via2_pa_out) | (~via2_pa_oe & via2_pa_ext);
@@ -492,18 +504,40 @@ module se30_machine #(
   end endgenerate
 
   // ------------------------------------------------------------ video
-  // slot $E: GLUE's slot select at $FExxxxxx (plan 2.10 item 2: A23-A17
-  // are not decoded by the card; A16 picks the declaration ROM)
-  assign vid_sel = slot_sel && (cpu_addr[31:24] == 8'hFE);
-
-  se30_video #(.DECLROM_HEX(DECLROM_HEX), .V_TOTAL(V_TOTAL)) video (
-    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
-    .declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),
-    .sel(vid_sel), .as_n(cpu_as_n), .ds_n(cpu_ds_n), .rw(cpu_rw_n), .addr(cpu_addr[16:0]),
-    .din(dev_wdata), .dout(vid_dout), .dsack0_n(vid_dsack0_n),
-    .page(vid_page), .vsyncen_n(vsyncen_n),
-    .vidout(vidout), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
-    .irq6_n(irq6_n));
+  // The SE/30: slot $E, GLUE's slot select at $FExxxxxx (plan 2.10 item 2:
+  // A23-A17 are not decoded by the card; A16 picks the declaration ROM).
+  // The IIcx: the Macintosh II Video Card in NuBus slot $9 (plan 14.3) -
+  // until plan 14.3 step 2 widens GLUE's slot path, reached as an 8-bit
+  // port, each byte on D31-D24 placed in its lane by A1-A0.
+  generate if (IICX) begin : g_iicx
+    assign vid_sel = 1'b0;
+    assign vid_dout = 8'h00; assign vid_dsack0_n = 1'b1; assign irq6_n = 1'b1;
+    assign vidout = 1'b0;
+    assign card_sel = slot_sel && ((cpu_addr[31:24] == 8'hF9) || (cpu_addr[31:28] == 4'h9));
+    wire [31:0] card_rdata;
+    wire  [3:0] lane = 4'b1000 >> cpu_addr[1:0];
+    nubus_tfb card (
+      .clk(clk), .reset_n(reset_n),
+      .sel(card_sel), .rw(cpu_rw_n), .addr(cpu_addr[19:0]), .be(lane), .wdata({4{dev_wdata}}),
+      .rdata(card_rdata), .ack(card_ack), .irq_n(card_irq_n),
+      .rom_we(cardrom_we), .rom_waddr(cardrom_waddr), .rom_wdata(cardrom_wdata),
+      .up_req(), .up_we(), .up_addr(), .up_be(), .up_wdata(), .up_rdata(32'h0), .up_ack(1'b1),
+      .clk_pix(clk_pix), .r(rgb[23:16]), .g(rgb[15:8]), .b(rgb[7:0]),
+      .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank));
+    assign card_byte = card_rdata[8 * (3 - cpu_addr[1:0]) +: 8];
+  end else begin : g_se30
+    assign card_sel = 1'b0; assign card_ack = 1'b0; assign card_irq_n = 1'b1; assign card_byte = 8'h00;
+    assign rgb = {24{~vidout}};
+    assign vid_sel = slot_sel && (cpu_addr[31:24] == 8'hFE);
+    se30_video #(.DECLROM_HEX(DECLROM_HEX), .V_TOTAL(V_TOTAL)) video (
+      .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+      .declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),
+      .sel(vid_sel), .as_n(cpu_as_n), .ds_n(cpu_ds_n), .rw(cpu_rw_n), .addr(cpu_addr[16:0]),
+      .din(dev_wdata), .dout(vid_dout), .dsack0_n(vid_dsack0_n),
+      .page(vid_page), .vsyncen_n(vsyncen_n),
+      .vidout(vidout), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
+      .irq6_n(irq6_n));
+  end endgenerate
 
   // ------------------------------------------------------------ SCSI
   // the 53C80 on GLUE's SCSI* ($50010000) and SCSIDACK* ($50012000, and
