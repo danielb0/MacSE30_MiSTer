@@ -1,46 +1,52 @@
-// se30_scsi.v - SCSI: the 53C80, the bus, two hard disks and the CD-ROM
+// se30_scsi.v - SCSI: the 53C80 and the bus, with the MacPlus core's scsi.v targets - hard disks
+// at IDs 0 and 1, the AppleCD SC at ID 3. Bus signals are active high inside the core.
 
 `timescale 1ns/1ps
 
 module se30_scsi #(
-  parameter integer DESKEW = 4,
-  parameter integer CDROM_EN = 1,
-  parameter integer CD_SPINUP_LOG = 27
+  parameter integer DESKEW = 4,         // clocks the target's REQ must hold before the bus sees it
+  parameter integer CDROM_EN = 1,       // the CD-ROM at ID 3
+  parameter integer CD_SPINUP_LOG = 27  // the CD's spin-up, 2^n clocks (~4.3 s at 31.3 MHz)
 ) (
   input             clk,
-  input             reset_n,
-  input             sys_reset_n,
+  input             reset_n,           // RESET*: the 53C80's /RESET (the CPU's RESET instruction included)
+  input             sys_reset_n,       // the core's reset: the drives' (they never see RESET*; a SCSI RST resets them)
 
-  input             cs,
-  input             dack,
-  input             rd, wr,
-  input       [2:0] rs,
-  input       [7:0] wdata,
+  // the CPU side, from GLUE
+  input             cs,                // SCSI* ($50010000)
+  input             dack,              // SCSIDACK* ($50012000, $50006000 once DRQ is seen)
+  input             rd, wr,            // one clock per access
+  input       [2:0] rs,                // A6-A4
+  input       [7:0] wdata,             // D31-D24
   output      [7:0] rdata,
-  output            drq,
-  output            irq,
+  output            drq,               // SCSIDRQ: GLUE and VIA2 CA2
+  output            irq,               // SCSIIRQ: VIA2 CB2
 
+  // the images: hps_io slots, one per drive - {CD, disk 1, disk 0}
   input       [2:0] img_mounted,
-  input      [31:0] img_blocks,
-  output     [95:0] io_lba,
+  input      [31:0] img_blocks,        // hps_io's img_size in 512-byte blocks
+  output     [95:0] io_lba,            // {CD, disk 1, disk 0}
   output      [2:0] io_rd,
   output      [2:0] io_wr,
-  output     [17:0] io_blk_cnt,
+  output     [17:0] io_blk_cnt,        // {CD, disk 1, disk 0}: hps_io sd_blk_cnt, a write request's sectors - 1
   input       [2:0] io_ack,
-  input      [12:0] sd_buff_addr,
+  input      [12:0] sd_buff_addr,      // hps_io's word address (a multi-block write's runs past 255)
   input      [15:0] sd_buff_dout,
-  output     [47:0] sd_buff_din,
+  output     [47:0] sd_buff_din,       // {CD, disk 1, disk 0}
   input             sd_buff_wr,
 
-  output     [15:0] dbg
+  output     [15:0] dbg                // debug: the bus and the chip's handshake
 );
 
+  // ------------------------------------------------------------ the chip
   wire [7:0] c_db;
   wire       c_db_en, c_bsy, c_sel, c_rst, c_atn, c_ack;
 
   wire [2:0] t_bsy, t_msg, t_cd, t_io, t_req;
   wire [7:0] t_dout [0:2];
 
+  // the target holding the bus (one at a time: each answers selection only
+  // on a free bus)
   wire       t0 = t_bsy[0];
   wire       t1 = t_bsy[1] && !t_bsy[0];
   wire       t2 = t_bsy[2] && !t_bsy[1] && !t_bsy[0];
@@ -51,6 +57,7 @@ module se30_scsi #(
   wire       t_req_b = t0 ? t_req[0] : t1 ? t_req[1] : t2 ? t_req[2] : 1'b0;
   wire [7:0] t_db_b  = t0 ? t_dout[0] : t1 ? t_dout[1] : t2 ? t_dout[2] : 8'h00;
 
+  // REQ's deskew: up for DESKEW clocks before the bus sees it, down at once
   reg  [3:0] req_up;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) req_up <= 0;
@@ -59,6 +66,8 @@ module se30_scsi #(
 
   wire       b_bsy = c_bsy | (|t_bsy);
   wire [7:0] b_db  = (c_db_en ? c_db : 8'h00) | (t_any && t_io_b ? t_db_b : 8'h00);
+  // the parity line: odd parity from whoever drives the data bus, released
+  // (0) when no one does (the 53C80 manual 4.2, 6.5)
   wire       b_dbp = (c_db_en || (t_any && t_io_b)) && ~^b_db;
 
   se30_ncr53c80 chip (
@@ -68,6 +77,8 @@ module se30_scsi #(
     .b_req(b_req), .b_msg(t_msg_b), .b_cd(t_cd_b), .b_io(t_io_b), .b_sel_other(1'b0),
     .o_db(c_db), .o_db_en(c_db_en), .o_bsy(c_bsy), .o_sel(c_sel), .o_rst(c_rst), .o_atn(c_atn), .o_ack(c_ack));
 
+  // ------------------------------------------------------------ the drives
+  // t_holdoff: a target in a data phase unable to serve the next byte (measured only)
   wire [2:0] t_holdoff;
 
   genvar i;
@@ -81,6 +92,8 @@ module se30_scsi #(
       .din(b_db), .dout(t_dout[i]),
       .img_mounted(img_mounted[i]), .img_blocks(img_blocks),
       .io_lba(io_lba[32*i +: 32]), .io_rd(io_rd[i]), .io_wr(io_wr[i]), .io_blk_cnt(io_blk_cnt[6*i +: 6]),
+      // as the MacPlus core frames its disks: the ack blanked once the
+      // target has left the bus; the buffer writes framed by this slot's ack
       .io_ack(io_ack[i] & t_bsy[i]),
       .sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_addr_hi(sd_buff_addr[12:8]),
       .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din[16*i +: 16]),

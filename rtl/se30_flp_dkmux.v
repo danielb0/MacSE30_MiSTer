@@ -1,4 +1,5 @@
-// se30_flp_dkmux.v - the SDRAM disk port shared by the floppy image blocks
+// se30_flp_dkmux.v - the SDRAM disk port shared by the floppy loaders, encoders, decoders and
+// SD writers: one owner at a time, round robin, changing only while the port is quiet.
 
 `timescale 1ns/1ps
 
@@ -6,47 +7,47 @@ module se30_flp_dkmux (
   input             clk,
   input             reset_n,
 
-  input             ld0_req,
+  input             ld0_req,           // the internal drive's loader: writes
   input      [23:0] ld0_addr,
   input      [15:0] ld0_wdata,
   output            ld0_ack,
 
-  input             en0_req,
+  input             en0_req,           // the internal drive's encoder: reads
   input      [23:0] en0_addr,
   output     [15:0] en0_rdata,
   output            en0_ack,
 
-  input             ld1_req,
+  input             ld1_req,           // the external drive's loader
   input      [23:0] ld1_addr,
   input      [15:0] ld1_wdata,
   output            ld1_ack,
 
-  input             en1_req,
+  input             en1_req,           // the external drive's encoder
   input      [23:0] en1_addr,
   output     [15:0] en1_rdata,
   output            en1_ack,
 
-  input             de0_req,
+  input             de0_req,           // the internal drive's decoder: writes
   input      [23:0] de0_addr,
   input      [15:0] de0_wdata,
   output            de0_ack,
 
-  input             wr0_req,
+  input             wr0_req,           // the internal drive's SD writer: reads
   input      [23:0] wr0_addr,
   output     [15:0] wr0_rdata,
   output            wr0_ack,
 
-  input             de1_req,
+  input             de1_req,           // the external drive's decoder
   input      [23:0] de1_addr,
   input      [15:0] de1_wdata,
   output            de1_ack,
 
-  input             wr1_req,
+  input             wr1_req,           // the external drive's SD writer
   input      [23:0] wr1_addr,
   output     [15:0] wr1_rdata,
   output            wr1_ack,
 
-  output            dk_req,
+  output            dk_req,            // se30_sdram's dk_* port
   output            dk_we,
   output     [23:0] dk_addr,
   output     [15:0] dk_wdata,
@@ -54,9 +55,10 @@ module se30_flp_dkmux (
   input             dk_ack
 );
 
-  reg  [2:0] owner;
+  reg  [2:0] owner;                    // 0 ld0, 1 en0, 2 ld1, 3 en1, 4 de0, 5 wr0, 6 de1, 7 wr1
   wire [7:0] req = {wr1_req, de1_req, wr0_req, de0_req, en1_req, ld1_req, en0_req, ld0_req};
 
+  // the next owner: the first request after the current owner, round robin
   reg  [2:0] nxt;
   reg        found;
   integer    i;

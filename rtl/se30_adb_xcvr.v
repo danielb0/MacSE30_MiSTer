@@ -1,23 +1,27 @@
 // se30_adb_xcvr.v - the ADB transceiver (342S0440-B): a PIC1654S running Apple's program
+// (boot2.rom), wired as the logic board wires it; until the program loads it runs NOPs.
 
 `timescale 1ns/1ps
 
 module se30_adb_xcvr (
   input         clk,
-  input         c16_en,
-  input         c3m_en,
-  input         reset_n,
+  input         c16_en,               // GLUE's clock enables: C16M
+  input         c3m_en,               // and C3M, meaningful with it
+  input         reset_n,              // RESET*
+  // the program, from the boot2.rom download
   input         pm_we,
   input   [8:0] pm_waddr,
   input  [11:0] pm_wdata,
-  input         st0, st1,
-  output        int_n,
-  output        sclk,
+  // VIA1
+  input         st0, st1,             // PB4, PB5 pins
+  output        int_n,                // to PB3
+  output        sclk,                 // to CB1
   input         via_cb2_out,
   input         via_cb2_oe,
-  output        dio,
-  input         line,
-  output        pull,
+  output        dio,                  // the CB2 net, to CB2's input
+  // the ADB line
+  input         line,                 // its level: everything on it, wired-AND
+  output        pull,                 // this chip's part: 1 pulls it low
   output [63:0] dbg
 );
 

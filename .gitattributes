@@ -2,7 +2,7 @@
 # Pinning them to LF makes the rewrite invisible to git (MacLC's practice).
 # Nothing else is pinned on purpose: an inherited file keeps the line endings
 # it came with, and a broad pattern would renormalise those blobs into
-# whole-file diffs (SE30_PLAN.md 3.1).
+# whole-file diffs.
 /MacSE30.qpf text eol=lf
 /MacSE30.qsf text eol=lf
 /MacSE30.sdc text eol=lf

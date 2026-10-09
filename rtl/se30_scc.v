@@ -1,34 +1,40 @@
-// se30_scc.v - the Zilog 8530 SCC
+// se30_scc.v - the Zilog 8530 SCC, to Zilog's 1986 technical manual: the register pointer,
+// WR2/WR9, the interrupt priority, RR2/RR3 and the board's wiring around the two channels.
 
 `timescale 1ns/1ps
 
 module se30_scc (
   input            clk,
   input            c16_en,
-  input            c3m_en,
-  input            reset_n,
+  input            c3m_en,             // GLUE: one c16_en per PCLK, on average 15 in 64
+  input            reset_n,            // the core's power-on: the chip's hardware reset
 
-  input            stb,
-  input            rd,
-  input            a1,
-  input            a2,
+  // the bus (GLUE)
+  input            stb,                // one clk per access: /CE with /RD or /WR
+  input            rd,                 // 1 = read
+  input            a1,                 // A/B: 1 = channel A
+  input            a2,                 // D/C: 1 = data
   input      [7:0] wdata,
   output reg [7:0] rdata,
-  output           irq_n,
+  output           irq_n,              // /INT (open-drain on the board, level 4 at GLUE)
 
-  input            vsync,
-  output           w_req_n,
+  // the board
+  input            vsync,              // VIA1 PA3
+  output           w_req_n,            // to VIA1 PA7
 
+  // the ports, as the 75175s deliver them (an empty port: rxd 1, hski 1, gpi 0)
   input            a_rxd, a_hski, a_gpi,
   input            b_rxd, b_hski, b_gpi,
   output           a_txd, a_txd_en, a_hsko,
   output           b_txd, b_txd_en, b_hsko,
 
+  // debug: accesses, the pointer, /INT, MIE, the visible IPs and RR0B
   output    [31:0] dbg
 );
 
+  // ------------------------------------------------------------ clocks
   wire       pclk = c16_en && c3m_en;
-  reg        c3m = 1'b0;
+  reg        c3m = 1'b0;               // C3M's level
   reg  [1:0] c3m_n = 2'd0;
   always @(posedge clk)
     if (pclk) begin c3m <= 1'b1; c3m_n <= 2'd0; end
@@ -37,6 +43,7 @@ module se30_scc (
       if (c3m_n != 2'd3) c3m_n <= c3m_n + 2'd1;
     end
 
+  // the port inputs, synchronised (they will come from the outside world)
   reg  [2:0] sa1 = 3'b110, sa2 = 3'b110, sb1 = 3'b110, sb2 = 3'b110;
   always @(posedge clk) begin
     sa1 <= {a_rxd, a_hski, a_gpi}; sa2 <= sa1;
@@ -45,21 +52,25 @@ module se30_scc (
   wire a_rx = sa2[2], a_hk = sa2[1], a_gp = sa2[0];
   wire b_rx = sb2[2], b_hk = sb2[1], b_gp = sb2[0];
 
+  // ------------------------------------------------------------ reset
   reg  [1:0] por = 2'b00;
   always @(posedge clk) por <= reset_n ? {por[0], 1'b1} : 2'b00;
-  wire       hw_cfg = !por[1];
+  wire       hw_cfg = !por[1];         // held from configuration and while reset_n is low
 
+  // ------------------------------------------------------------ the shared registers
   reg  [3:0] ptr;
   reg  [7:0] wr2;
-  reg        shl, mie, dlc, nv, vis;
-  reg        hw_force;
-  reg        rst_a, rst_b;
+  reg        shl, mie, dlc, nv, vis;   // WR9 D4-D0
+  reg        hw_force;                 // WR9 = 11xxxxxx: one clock
+  reg        rst_a, rst_b;             // channel resets: one clock
 
+  // ------------------------------------------------------------ the channels
   wire [7:0] rr0a, rr1a, rr10a, rr12a, rr13a, rr15a, rda;
   wire [7:0] rr0b, rr1b, rr10b, rr12b, rr13b, rr15b, rdb;
   wire       ipra, ipsa, ipta, ipea, iprb, ipsb, iptb, ipeb;
   wire       txa, rtsa_n, dtra_n, wreqa_n, txb, rtsb_n, dtrb_n, wreqb_n;
 
+  // the access, decoded once
   wire       ctl     = stb && !a2;
   wire       ctl_wr  = ctl && !rd;
   wire       ctl_rd  = ctl &&  rd;
@@ -88,7 +99,9 @@ module se30_scc (
     .ip_rx(iprb), .ip_sp(ipsb), .ip_tx(iptb), .ip_ext(ipeb)
   );
 
-  reg  [5:0] ipv;
+  // ------------------------------------------------------------ interrupts
+  // the pending bits as /INT, RR2B and RR3A see them
+  reg  [5:0] ipv;                      // {Rx A, Tx A, Ext A, Rx B, Tx B, Ext B}
   reg        spa_v, spb_v;
   reg        half;
   always @(posedge clk)
@@ -99,6 +112,7 @@ module se30_scc (
         ipv <= {ipra, ipta, ipea, iprb, iptb, ipeb}; spa_v <= ipsa; spb_v <= ipsb;
       end
     end
+  // the status of the highest-priority pending source (Table 7-4)
   wire [2:0] code = ipv[5] ? (spa_v ? 3'b111 : 3'b110) :
                     ipv[4] ? 3'b100 :
                     ipv[3] ? 3'b101 :
@@ -109,6 +123,8 @@ module se30_scc (
   wire [7:0] rr3a = {2'b00, ipv[5], ipv[4], ipv[3], ipv[2], ipv[1], ipv[0]};
   assign irq_n = !(mie && (ipv != 6'd0));
 
+  // ------------------------------------------------------------ the bus
+  // the control register a read reaches, images included
   function [7:0] rreg (input [3:0] p, input ch_a);
     case (p)
       4'd0, 4'd4:   rreg = ch_a ? rr0a : rr0b;
@@ -119,7 +135,7 @@ module se30_scc (
       4'd10, 4'd14: rreg = ch_a ? rr10a : rr10b;
       4'd12:        rreg = ch_a ? rr12a : rr12b;
       4'd9, 4'd13:  rreg = ch_a ? rr13a : rr13b;
-      default:      rreg = ch_a ? rr15a : rr15b;
+      default:      rreg = ch_a ? rr15a : rr15b;   // 11, 15
     endcase
   endfunction
 
@@ -132,7 +148,7 @@ module se30_scc (
       if (rd) rdata <= a2 ? (a1 ? rda : rdb) : rreg(ptr, a1);
       if (!a2) begin
         if (is_wr0) ptr <= (wdata[5:3] == 3'b001) ? {1'b1, wdata[2:0]} : {1'b0, wdata[2:0]};
-        else ptr <= 4'd0;
+        else ptr <= 4'd0;                                   // the access done, the pointer returns to 0
       end
       if (to_reg && ptr == 4'd2) wr2 <= wdata;
       if (to_reg && ptr == 4'd9) begin
@@ -151,7 +167,8 @@ module se30_scc (
   always @(posedge clk) if (stb) nacc <= nacc + 12'd1;
   assign dbg = {nacc, ptr, irq_n, mie, ipv, rr0b};
 
-  assign w_req_n  = wreqa_n && wreqb_n;
+  // ------------------------------------------------------------ the board's outputs
+  assign w_req_n  = wreqa_n && wreqb_n;            // wired together: either pulls PA7 low
   assign a_txd    = txa;  assign a_txd_en = !rtsa_n;  assign a_hsko = !dtra_n;
   assign b_txd    = txb;  assign b_txd_en = !rtsb_n;  assign b_hsko = !dtrb_n;
 

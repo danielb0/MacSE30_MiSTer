@@ -1,50 +1,53 @@
-// se30_flp_decoder.v - written GCR/MFM tracks back into image sectors
+// se30_flp_decoder.v - a written track back into the image: the arc the drive recorded is read
+// out of the track buffer, framed into bytes as the IWM or ISM would, and each good sector committed.
 
 `timescale 1ns/1ps
 
 module se30_flp_decoder #(
   parameter [23:0] BASE  = 24'h800000,
-  parameter [18:0] SIDE1 = 19'd200000,
-  parameter        MFM_WRITE = 1
+  parameter [18:0] SIDE1 = 19'd200000, // side 1's half of the track buffer (the encoder's)
+  parameter        MFM_WRITE = 1       // the MFM parse
 ) (
   input             clk,
   input             reset_n,
 
   input             disk_in,
   input             loading,
-  input             write_ok,
-  input             img_ds,
-  input             img_800k,
-  input             img_tags,
-  input             img_mfm,
-  input             img_hd,
-  output            ds_eff,
+  input             write_ok,          // the image may be written (not read-only)
+  input             img_ds,            // the loader's sidedness
+  input             img_800k,          // the file's data region is 1600 blocks
+  input             img_tags,          // the image carries 12 tag bytes a block
+  input             img_mfm,           // an MFM disk (1.44 MB or 720K)
+  input             img_hd,            // ... 1.44 MB: 18 sectors a side
+  output            ds_eff,            // the sidedness the image is laid out by
 
-  input             arc_done,
+  input             arc_done,          // the drive's recording ended
   input             arc_side,
   input      [17:0] arc_start,
   input      [17:0] arc_end,
   input             arc_whole,
-  input      [17:0] trk_cells,
-  input       [6:0] cyl,
+  input      [17:0] trk_cells,         // the revolution, in cells
+  input       [6:0] cyl,               // the head's cylinder
 
-  output reg [18:0] dec_addr,
+  output reg [18:0] dec_addr,          // the track buffer (the encoder's port B)
   input             dec_bit,
   input             enc_idle,
-  output            hold,
+  output            hold,              // no rebuild while a written cylinder is decoded
 
-  output reg        mem_req,
+  output reg        mem_req,           // the disk port: writes
   output reg [23:0] mem_addr,
   output reg [15:0] mem_wdata,
   input             mem_ack,
 
-  output reg        cm_done,
-  output reg [11:0] cm_blk,
-  input             cm_ready,
+  output reg        cm_done,           // one clock: a sector is in the image
+  output reg [11:0] cm_blk,            // its block
+  input             cm_ready,          // the SD writer can take one
 
   output     [31:0] dbg
 );
 
+  // ------------------------------------------------------------ tables
+  // the GCR table's inverse: {valid, value}
   function [6:0] dnib(input [7:0] v);
     case (v)
       8'h96: dnib = 7'h40; 8'h97: dnib = 7'h41; 8'h9A: dnib = 7'h42; 8'h9B: dnib = 7'h43;
@@ -67,43 +70,45 @@ module se30_flp_decoder #(
     endcase
   endfunction
 
-  localparam [17:0] SECTOR_CELLS = 18'd6400;
-  localparam [17:0] MSECT_CELLS  = 18'd11264;
-  localparam [17:0] LOOK         = 18'd1024;
+  // ------------------------------------------------------------ the arc
+  localparam [17:0] SECTOR_CELLS = 18'd6400;     // a sector's 6,208 cells, and some
+  localparam [17:0] MSECT_CELLS  = 18'd11264;    // an MFM sector's 10,912 cells (682 bytes), and some
+  localparam [17:0] LOOK         = 18'd1024;     // MFM: cells read before a short arc
 
   wire       mfm = MFM_WRITE && img_mfm;
 
   reg        fmt_seen, fmt_ds;
   assign ds_eff = img_800k && (fmt_seen ? fmt_ds : img_ds);
 
-  reg        pend;
+  reg        pend;                               // an arc waiting
   reg        p_side, p_whole;
   reg [17:0] p_start, p_end, p_cells;
   reg  [6:0] p_cyl;
 
-  reg        a_side;
+  reg        a_side;                             // the arc being decoded
   reg [17:0] a_cells;
   reg  [6:0] a_cyl;
-  reg [17:0] pos;
-  reg [18:0] left;
-  reg [17:0] seen;
-  reg [18:0] ncell;
-  reg [18:0] a_look;
+  reg [17:0] pos;                                // the next cell to read
+  reg [18:0] left;                               // cells still to read
+  reg [17:0] seen;                               // sectors committed from this arc
+  reg [18:0] ncell;                              // cells read since the window began
+  reg [18:0] a_look;                             // of them, looked back at (MFM, a short arc)
 
+  // ------------------------------------------------------------ the parse
   localparam F_HUNT = 3'd0, F_ADDR = 3'd1, F_SEC = 3'd2, F_DATA = 3'd3, F_SUM = 3'd4;
   reg  [2:0] fs;
-  reg  [7:0] sr;
-  reg [15:0] hist;
-  reg  [2:0] k;
-  reg  [5:0] c0, c1, c2;
-  reg  [7:0] g;
+  reg  [7:0] sr;                                 // the framing shift register
+  reg [15:0] hist;                               // the two bytes before
+  reg  [2:0] k;                                  // the code within the field's group
+  reg  [5:0] c0, c1, c2;                         // codes held: the group's high bits, A', B'
+  reg  [7:0] g;                                  // the group
   reg  [5:0] h_trk, h_sec, h_side, h_fmt;
   reg  [3:0] sector;
-  reg  [7:0] ca, cb, cc;
-  reg  [9:0] bidx;
-  reg  [7:0] wq0, wq1, wq2;
-  reg  [1:0] wqn;
-  reg  [7:0] sbuf [0:523];
+  reg  [7:0] ca, cb, cc;                         // CSUMA, CSUMB, CSUMC
+  reg  [9:0] bidx;                               // the sector byte being written
+  reg  [7:0] wq0, wq1, wq2;                      // a group's bytes, waiting to be written
+  reg  [1:0] wqn;                                // how many
+  reg  [7:0] sbuf [0:523];                       // the sector: 12 tags, 512 data
   reg  [9:0] sb_ra;
   reg  [7:0] sb_q;
   reg        sb_we;
@@ -114,6 +119,7 @@ module se30_flp_decoder #(
     sb_q <= sbuf[sb_ra];
   end
 
+  // a group's decode: A', B', C' from the held codes and this one
   wire [7:0] rot = {cc[6:0], cc[7]};
   wire [5:0] cur = dnib_q[5:0];
   wire [7:0] Ap  = {c0[5:4], c1};
@@ -125,13 +131,15 @@ module se30_flp_decoder #(
   wire [8:0] sb  = {1'b0, cb} + {1'b0, B} + {8'd0, sa[8]};
   wire [7:0] C   = Cp ^ sb[7:0];
   wire [8:0] sc  = {1'b0, rot} + {1'b0, C} + {8'd0, sb[8]};
+  // the last group: A' B' from c0 and c1 with this code as B's low six
   wire [7:0] Bl  = {c0[3:2], cur} ^ sa[7:0];
   wire [8:0] sbl = {1'b0, cb} + {1'b0, Bl} + {8'd0, sa[8]};
 
-  reg  [7:0] byte_q;
-  reg  [6:0] dnib_q;
+  reg  [7:0] byte_q;                             // the byte just framed
+  reg  [6:0] dnib_q;                             // and its code's value
   reg        byte_v;
 
+  // ------------------------------------------------------------ the image
   wire [2:0]  grp    = a_cyl[6:4];
   wire [3:0]  spt    = 4'd12 - {1'b0, grp};
   reg  [9:0]  gstart;
@@ -147,40 +155,44 @@ module se30_flp_decoder #(
   wire        placeable = (a_cyl < 7'd80) && (sector < spt) && (!a_side || ds_eff) && !seen[sector];
   wire        writable  = write_ok && disk_in && !loading;
 
-  function [15:0] crc1(input [15:0] c, input d);
+  // ------------------------------------------------------------ MFM
+  function [15:0] crc1(input [15:0] c, input d);   // CCITT-16, a bit
     crc1 = {c[14:0], 1'b0} ^ ((c[15] ^ d) ? 16'h1021 : 16'h0000);
   endfunction
   localparam M_HUNT = 2'd0, M_MARK = 2'd1, M_ID = 2'd2, M_DATA = 2'd3;
   reg  [1:0] ms;
-  reg [15:0] m16;
-  reg  [3:0] mc;
-  reg  [1:0] mnb;
-  reg  [7:0] mb;
+  reg [15:0] m16;                                // the last 16 cells
+  reg  [3:0] mc;                                 // cells into the byte
+  reg  [1:0] mnb;                                // bytes since the first mark (to the mark byte)
+  reg  [7:0] mb;                                 // the byte's data bits
   reg [15:0] mcrc;
-  reg  [9:0] mbi;
-  reg        m_in;
-  reg        id_ok, dm_id;
+  reg  [9:0] mbi;                                // bytes into the field
+  reg        m_in;                               // the marks began inside the written cells
+  reg        id_ok, dm_id;                       // a good address field remembered; the data field's
   reg  [6:0] id_c;
   reg  [7:0] id_h, id_r, id_n;
-  reg        m_inq;
+  reg        m_inq;                              // the data field's marks inside the written cells
   wire       mbit   = dec_bit;
   wire [15:0] m16_n = {m16[14:0], mbit};
-  wire [15:0] mcrc_n = (mc[0]) ? crc1(mcrc, mbit) : mcrc;
+  wire [15:0] mcrc_n = (mc[0]) ? crc1(mcrc, mbit) : mcrc;          // a data cell: the second of the pair
   wire  [7:0] mb_n  = mc[0] ? {mb[6:0], mbit} : mb;
-  wire        mbyte = (mc == 4'd15);
+  wire        mbyte = (mc == 4'd15);                                 // the 16th cell: a byte
   wire  [4:0] spt_m = img_hd ? 5'd18 : 5'd9;
   wire  [7:0] ts    = {a_cyl, a_side};
+  // the encoder's mblk: (2c + s) x spt + R - 1, spt 18 (x16 + x2) or 9 (x8 + x1)
   wire [11:0] blk_m = (img_hd ? {ts, 4'b0000} + {3'b000, ts, 1'b0} : {1'b0, ts, 3'b000} + {4'd0, ts})
                       + {4'd0, id_r} - 12'd1;
   wire        place_m = dm_id && id_c == a_cyl && id_h == {7'd0, a_side} && id_n == 8'd2 &&
                         id_r != 8'd0 && id_r <= {3'd0, spt_m} && m_inq && !seen[id_r[4:0] - 5'd1];
   wire [11:0] blk_any = mfm ? blk_m : {1'b0, blk};
 
+
+  // ------------------------------------------------------------ the states
   localparam S_IDLE = 3'd0, S_WAIT = 3'd1, S_ISSUE = 3'd2, S_BIT = 3'd3,
              S_COMMIT = 3'd4, S_WORD = 3'd5, S_PUSH = 3'd6;
   reg  [2:0] st;
-  reg  [8:0] w;
-  reg  [1:0] wp;
+  reg  [8:0] w;                                  // the word being committed: 256 data, 6 tags
+  reg  [1:0] wp;                                 // its two byte reads
   reg  [7:0] hi;
 
   reg [15:0] n_commit;
@@ -189,6 +201,7 @@ module se30_flp_decoder #(
   assign hold = (st != S_IDLE) || pend || arc_done;
 
   wire [8:0] nwords = (img_tags && !mfm) ? 9'd262 : 9'd256;
+  // word w's bytes: data words first (bytes 12 + 2w), then the tags (2(w - 256))
   wire [9:0] wbyte = (w < 9'd256) ? 10'd12 + {w[7:0], 1'b0} : {w - 9'd256, 1'b0};
   wire [23:0] waddr = (w < 9'd256) ? BASE + {4'd0, blk_any, 8'd0} + {16'd0, w[7:0]}
                                    : tag_base + {15'd0, w - 9'd256};
@@ -213,12 +226,14 @@ module se30_flp_decoder #(
       sb_we   <= 0;
       if (!disk_in) fmt_seen <= 0;
 
+      // an arc arriving is kept until the decoder is free (one deep)
       if (arc_done && disk_in) begin
         pend <= 1; p_side <= arc_side; p_whole <= arc_whole; p_start <= arc_start;
         p_end <= arc_end; p_cells <= trk_cells; p_cyl <= cyl;
         n_arc <= n_arc + 1'b1;
       end
 
+      // a group's bytes go into the sector buffer one a clock
       if (wqn != 0) begin
         sb_we <= 1; sb_wa <= bidx; sb_wd <= wq0; bidx <= bidx + 1'b1;
         wq0 <= wq1; wq1 <= wq2; wqn <= wqn - 1'b1;
@@ -233,7 +248,7 @@ module se30_flp_decoder #(
             if (p_whole) begin
               pos  <= (p_end + 1'b1 >= p_cells) ? 18'd0 : p_end + 1'b1;
               left <= {1'b0, p_cells} + {1'b0, mfm ? MSECT_CELLS : SECTOR_CELLS};
-            end else if (mfm) begin
+            end else if (mfm) begin                // MFM: from LOOK cells before the arc
               pos  <= (p_start >= LOOK) ? p_start - LOOK : p_start + p_cells - LOOK;
               left <= ((p_end >= p_start) ? {1'b0, p_end - p_start} + 19'd1
                                           : {1'b0, p_end} + {1'b0, p_cells} - {1'b0, p_start} + 19'd1)
@@ -249,11 +264,11 @@ module se30_flp_decoder #(
             st <= S_WAIT;
           end
 
-        S_WAIT:
+        S_WAIT:                                  // the encoder's port is ours while it is idle
           if (!disk_in) st <= S_IDLE;
           else if (enc_idle) st <= S_ISSUE;
 
-        S_ISSUE: begin
+        S_ISSUE: begin                           // a cell's address; its bit a clock later
           if (left == 0 || !disk_in) st <= S_IDLE;
           else begin
             dec_addr <= a_side ? SIDE1 + {1'b0, pos} : {1'b0, pos};
@@ -264,32 +279,33 @@ module se30_flp_decoder #(
           end
         end
 
-        S_BIT: begin
+        S_BIT: begin                             // (dec_bit is read here: one clock after the address)
           st <= S_ISSUE;
           byte_v <= 0;
           if (!mfm) begin
             if (sr_n[7]) begin sr <= 0; byte_q <= sr_n; dnib_q <= dnib(sr_n); byte_v <= 1; end
             else sr <= sr_n;
           end else begin
+            // MFM: the cell into the 16-cell register; framed, a byte every 16
             m16 <= m16_n;
             if (ms == M_HUNT) begin
-              if (m16_n == 16'h4489) begin
+              if (m16_n == 16'h4489) begin              // the first A1
                 ms <= M_MARK; mc <= 0; mnb <= 0; mcrc <= 16'h443B;
-                m_in <= (ncell >= a_look + 19'd16);
+                m_in <= (ncell >= a_look + 19'd16);     // (ncell counts this cell: its first is ncell - 16)
               end
             end else begin
               mc <= mc + 1'b1; mb <= mb_n; mcrc <= mcrc_n;
               if (mbyte) case (ms)
-                M_MARK:
+                M_MARK:                                 // two more marks, then the mark byte
                   if (mnb != 2'd2) begin
                     if (m16_n == 16'h4489) mnb <= mnb + 1'b1; else ms <= M_HUNT;
-                  end else if (m16_n == 16'h4489) ms <= M_HUNT;
+                  end else if (m16_n == 16'h4489) ms <= M_HUNT;         // a fourth: not the ROM's
                   else if (mb_n == 8'hFE) begin ms <= M_ID; mbi <= 0; end
                   else if (mb_n == 8'hFB) begin
                     ms <= M_DATA; mbi <= 0; bidx <= 10'd12;
                     dm_id <= id_ok; id_ok <= 0; m_inq <= m_in;
                   end else ms <= M_HUNT;
-                M_ID: begin
+                M_ID: begin                             // C H R N, CRC CRC
                   mbi <= mbi + 1'b1;
                   case (mbi)
                     10'd0: id_c <= mb_n[6:0];
@@ -300,12 +316,12 @@ module se30_flp_decoder #(
                     default: ;
                   endcase
                 end
-                M_DATA: begin
+                M_DATA: begin                           // 512 bytes, CRC CRC
                   mbi <= mbi + 1'b1;
                   if (mbi < 10'd512) begin wq0 <= mb_n; wqn <= 2'd1; end
                   if (mbi == 10'd513) begin
                     ms <= M_HUNT;
-                    if (mcrc_n == 16'h0000) st <= S_COMMIT;
+                    if (mcrc_n == 16'h0000) st <= S_COMMIT;            // the parse pauses for the commit
                     else n_refused <= n_refused + 1'b1;
                   end
                 end
@@ -315,7 +331,7 @@ module se30_flp_decoder #(
           end
         end
 
-        S_COMMIT: begin
+        S_COMMIT: begin                          // bound and address checked here, with the first word
           if (!((mfm ? place_m : placeable) && writable)) begin
             n_refused <= n_refused + 1'b1; st <= S_ISSUE;
           end else begin
@@ -323,7 +339,7 @@ module se30_flp_decoder #(
           end
         end
 
-        S_WORD: begin
+        S_WORD: begin                            // two byte reads, then the word to the disk port
           case (wp)
             2'd0: begin sb_ra <= wbyte + 1'b1; wp <= 2'd1; end
             2'd1: begin hi <= sb_q; wp <= 2'd2; end
@@ -338,7 +354,7 @@ module se30_flp_decoder #(
           endcase
         end
 
-        S_PUSH:
+        S_PUSH:                                  // offered to the SD writer, which may hold it
           if (cm_ready && !mem_ack) begin
             cm_done <= 1; cm_blk <= blk_any;
             if (mfm) seen[id_r[4:0] - 5'd1] <= 1; else seen[sector] <= 1;
@@ -349,6 +365,7 @@ module se30_flp_decoder #(
         default: st <= S_IDLE;
       endcase
 
+      // the field machine, on a framed byte (the clock after S_BIT)
       if (byte_v) begin
         byte_v <= 0;
         hist <= {hist[7:0], byte_q};
@@ -381,7 +398,7 @@ module se30_flp_decoder #(
             end
           F_DATA:
             if (!dnib_q[6]) begin n_refused <= n_refused + 1'b1; fs <= F_HUNT; end
-            else if (g == 8'd174) begin
+            else if (g == 8'd174) begin           // the last group: high bits, A', B'
               k <= k + 1'b1;
               if (k == 3'd0) c0 <= cur;
               else if (k == 3'd1) c1 <= cur;
@@ -414,7 +431,7 @@ module se30_flp_decoder #(
                 default: begin
                   fs <= F_HUNT;
                   if ({c0[5:4], c1} == ca && {c0[3:2], c2} == cb && {c0[1:0], cur} == cc)
-                    st <= S_COMMIT;
+                    st <= S_COMMIT;                // the parse pauses for the commit
                   else n_refused <= n_refused + 1'b1;
                 end
               endcase

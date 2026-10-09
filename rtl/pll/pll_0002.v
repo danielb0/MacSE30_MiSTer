@@ -1,14 +1,24 @@
-// pll_0002.v - the altera_pll instance behind pll.v
+// pll_0002.v - the altera_pll instance behind pll.v: a 940.032 MHz VCO from the 50 MHz reference.
+// The phases are multiples of the VCO's phase step (132.98 ps): outclk_2 +1064 ps, the SDRAM
+// chip's clock; outclk_3 +10372 ps and outclk_4 +8377 ps, read capture A and B.
 
 `timescale 1ns/10ps
 module  pll_0002(
+	// interface 'refclk'
 	input wire refclk,
+	// interface 'reset'
 	input wire rst,
+	// interface 'outclk0'
 	output wire outclk_0,
+	// interface 'outclk1'
 	output wire outclk_1,
+	// interface 'outclk2'
 	output wire outclk_2,
+	// interface 'outclk3'
 	output wire outclk_3,
+	// interface 'outclk4'
 	output wire outclk_4,
+	// interface 'locked'
 	output wire locked
 );
 
