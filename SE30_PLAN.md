@@ -3354,7 +3354,7 @@ pre-existing combinational-loop notes on the kernel's `Selector195`
 **ON THE BOARD (Daniel, 2026-10-05 ~15:30): booted 24-bit, switched 32-Bit
 Addressing on, restarted - BOOTS IN 32-BIT MODE, TattleTech "32-bit mode
 active". FUTURE BOARD TESTS item 1 MET on this compile.** Speedometer
-4.02 in 32-bit mode (Daniel, 15:20, `C:	emp\Mac\Screenshots20261005_152029-screen.png`): CPU 0.267, Graphics 0.160, Disk 1.147, Math
+4.02 in 32-bit mode (Daniel, 15:20, `C:\temp\Mac\Screenshots\20261005_152029-screen.png`): CPU 0.267, Graphics 0.160, Disk 1.147, Math
 1.123, PR 0.275 - compile 41's 24-bit figures (0.27 / 0.16 / 1.09-1.13 /
 1.13) within the spread; 32-bit mode costs nothing and, with 8 MB, gains
 nothing, as answered 2026-10-04. QuarkXPress and Microsoft Word 5.1 run
