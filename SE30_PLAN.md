@@ -19902,19 +19902,37 @@ RTC, PRAM, the SDRAM CPU port - is shared, unchanged, by both projects.
    pair plus the card's own RAM wait, tuned to item 12's real IIcx
    (Speedometer 4.02 Graphics 0.25 at 8-bit; 3.06's per-depth shape) - the
    one figure not in the books.
-4. **The video RAM and display.** VRAM 512 KB in SDRAM, a region of its
-   own above the floppy and CD images (the map in 13.4). Two new ports on
-   `se30_sdram.v`, both in the idle windows the floppy port uses, so the
-   CPU's one-wait-state RAM cycle never moves: (a) the card's CPU-side
-   VRAM access (NuBus is slow enough to wait for a window); (b) a display
-   read port filling a **line buffer** (1 KB, one M10K, dual-clock) a line
-   ahead: 640 x 480 x 8 bits at 66.67 Hz is ~20.5 MB/s, ~10.25 M SDRAM
-   words/s, row-sequential READs - roughly a fifth of the controller's
-   clocks, to be checked against the CPU's worst case on a bench before
-   anything else is built. Scan-out at the book's **30.24 MHz** dot clock
-   (a new PLL output; one fixed mode, no reconfiguration), 864 x 525,
-   66.67 Hz; the line buffer's bytes unpacked at 1/2/4/8 bits, the pixel
-   value in the CLUT index's top bits, to RGB for MiSTer's video out.
+4. **The video RAM and display - REVISED 2026-10-09 (Daniel: "go with A").**
+   **Why not the SDRAM display port:** a display fetch can issue only at
+   clock 10 after a CPU RAM start (one ACTIVE + four READs, 8 words, busy
+   to clock 24) or on a bus idle 63 clocks. A CPU making a RAM cycle about
+   every 62 clocks - a cached loop writing memory every few instructions -
+   yields one window a cycle and never reaches 63: ~43 windows a line
+   (2,686 clocks), ~4 of them refresh's, ~39 left against **40 blocks for
+   an 8-bit line** (640 bytes), before the floppy port. Closing that needs
+   CPU wait states (wrong timing) or a bank-interleaved scheduler in the
+   controller's tightest path.
+   **Option A, decided:** only the first **307,232 bytes** of VRAM are ever
+   displayed - page 0 at `$20`, and every page the driver offers at every
+   depth ends inside it (8-bit 1 x 307,200; 4-bit 2 x 153,600; 2-bit 3 x
+   76,800; 1-bit 5 x 38,400; + 32). That region lives in **block RAM**
+   (dual-port: the card's CPU side on one port, the scan-out on the
+   other), so the display never touches SDRAM; the remaining 212 KB of
+   the 512 KB card live in SDRAM behind an idle-window port shaped as the
+   floppy's (`dk_*`), used only by CPU accesses over the slow NuBus path.
+   The Mac sees Apple's 512 KB card unchanged. Precedent: the Quadra 800
+   core keeps its DAFB's 308 KB VRAM in block RAM.
+   **Block RAM** (the release fit, 2026-10-09: 362 of 553 M10K; `se30_video`
+   136 = two 64-block screen buffers and the 8-block declaration ROM):
+   the IIcx frees 136, leaving 327; the card needs ~304 (76,808 longwords,
+   byte-wide M10K slices) + 1 (CLUT, 256 x 24) + 4 (its ROM) = ~309,
+   **~97 % full, ~18 blocks to spare.** Lever: the card ROM in SDRAM too
+   (the Slot Manager reads it over NuBus; -4). The next largest users are
+   needed (the floppy's 400,000-bit track buffer 49, the FPU 50, SCSI 48,
+   the framework's ascal 43). Measured at the first Analysis & Synthesis.
+   Scan-out at the book's **30.24 MHz** dot clock (a new PLL output; one
+   fixed mode), 864 x 525, 66.67 Hz: bytes from the block RAM unpacked at
+   1/2/4/8 bits, the pixel value in the CLUT index's top bits, to RGB.
 5. **Soft power.** VIA2 PB2 low = power off: the CPU held in reset and the
    video dark until the keyboard's Power key or the OSD's reset; an OSD
    option "Power switch: locked on" makes Shut Down restart instead, as
@@ -19922,23 +19940,26 @@ RTC, PRAM, the SDRAM CPU port - is shared, unchanged, by both projects.
 
 **Budget.** The release build is 37,497 ALMs. The IIcx drops the 1-bit
 video (~91) and frees its 136 M10K and the SE/30 declaration ROM's 8; it
-adds the card (~1,000-1,300 ALMs by the LC core's measured proxy, less
-the screen in block RAM, plus the SDRAM ports and line buffer) and the
+adds the card (~1,000-1,300 ALMs by the LC core's measured proxy, its
+screen in block RAM as here, plus the upper VRAM's SDRAM port) and the
 NuBus decode and timeout (~100-200). **Estimate ~38.5-38.9k ALMs: at the
 practical ceiling.** Levers, as FUTURE ADDITIONS 8 lists: the CD-ROM
 target (776) and floppy writing (~1,100) as build options, the CPU/FPU
 audit. To be measured by an Analysis & Synthesis run before the fit.
 
-**Order of work (each step benched before the next).**
-1. The SDRAM display port and line buffer against the CPU's worst case
-   (`sim/sdram`): the risk that decides the rest.
+**Order of work (each step benched before the next).** Revised with
+item 4: the block RAM is now the deciding risk, so it is measured first.
+1. The build switch and `nubus_tfb.v`'s skeleton with the VRAM block RAM,
+   CLUT and ROM at their real sizes; an Analysis & Synthesis run of the
+   IIcx project for the M10K and ALM counts (~10 min) before more is built.
 2. The NuBus path in the GLUE: decode, 32-bit acknowledge, timeout, TM
-   bits (`sim/glue`).
-3. `nubus_tfb.v` with its ROM, registers, CLUT and scan-out (a new
-   `sim/tfb`: PrimaryInit and SetMode run from the real ROM; a frame
-   dumped to an image and compared).
-4. The build switch and top; `sim/machine` boots the IIcx to the ROM's
-   box-flag read and the Slot Manager finding the card.
+   bits (`sim/glue`); *Designing Cards* ch. 7's byte lanes first.
+3. `nubus_tfb.v` complete - registers, CLUT, VBL, scan-out, the SDRAM
+   port for the upper 212 KB (`sim/sdram` gains it, beside `dk_*`) - and
+   a new `sim/tfb`: PrimaryInit and SetMode run from the real ROM; a frame
+   dumped to an image and compared.
+4. `sim/machine` boots the IIcx to the ROM's box-flag read and the Slot
+   Manager finding the card.
 5. Compile, then the board.
 
 ## 14.4 Still open
