@@ -36,8 +36,9 @@ reproduction of the SE/30's video PALs made the video readable.
 
 ## Usage
 
-1. Copy the `*.rbf` to the `_Computer` folder of your MiSTer SD card (any folder works;
-   update_all puts it in `_Computer`).
+1. Copy the newest `MACSE30_<date>.rbf` from [releases](releases) to the `_Computer` folder of
+   your MiSTer SD card (any folder works; update_all puts it in `_Computer` and fetches each
+   new version).
 2. Copy `boot0.rom`, `boot1.rom` and `boot2.rom` from [releases](releases) to the `games/MACSE30` folder.
 3. Place a bootable SCSI hard-disk image (`.vhd` / `.img`) or floppy image in the `games/MACSE30` folder.
 
