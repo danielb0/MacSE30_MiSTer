@@ -20095,6 +20095,8 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    framework and the main PLL take all three. Fix: `pll_vid`'s reference is
    clk_sys (31.3344 MHz, global), the ratio to 30.24 MHz fractional; the
    dot clock unchanged. Recompiled.
+   **The second fit failed too:** a fractional PLL's reference must be
+   50-700 MHz, and clk_sys is 31.3344. Now clk_mem (94.0032 MHz, global).
 5. Compile, then the board.
 
 ## 14.4 Still open

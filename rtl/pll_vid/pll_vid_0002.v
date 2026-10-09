@@ -5,12 +5,13 @@
 // 30.24 MHz is the book's dot clock (*Designing Cards and Drivers*, Figure
 // 11-3: 864 x 525 at 66.67 Hz); the main PLL's VCO (940.032 MHz) has no
 // integer division to it, hence a PLL of its own: VCO 907.2 MHz = 30 x
-// 30.24.  Its reference is clk_sys (31.3344 MHz, the main PLL's output on a
-// global network), not the 50 MHz pin: the DE10-Nano's three 50 MHz inputs
-// each feed the one fractional PLL beside them, and all three are taken
+// 30.24.  Its reference is clk_mem (94.0032 MHz, the main PLL's output on a
+// global network), not a 50 MHz pin: the DE10-Nano's three 50 MHz inputs
+// each feed only the fractional PLL beside them, and all three are taken
 // (HDMI, audio, the main PLL) - the first fit put this PLL on CLK2's and
-// failed (Error 11239, plan 14.3).  31.3344 to 30.24 MHz is a fractional
-// ratio, which this PLL type takes.
+// failed (Error 11239, plan 14.3).  Nor clk_sys: a fractional PLL's
+// reference must be 50-700 MHz (the second fit).  94.0032 to 30.24 MHz is
+// a fractional ratio, which this PLL type takes.
 
 `timescale 1ns/10ps
 module  pll_vid_0002(
@@ -26,7 +27,7 @@ module  pll_vid_0002(
 
 	altera_pll #(
 		.fractional_vco_multiplier("true"),
-		.reference_clock_frequency("31.3344 MHz"),
+		.reference_clock_frequency("94.003200 MHz"),
 		.operation_mode("direct"),
 		.number_of_clocks(1),
 		.output_clock_frequency0("30.240000 MHz"),
