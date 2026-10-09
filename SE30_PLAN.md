@@ -17847,6 +17847,7 @@ suspect until shown otherwise:
 | Operation Intercept | 42-43; recent | 24-bit | **was a core bug**, fixed; runs now | kernel combinational loop, d2291f6 |
 | Lode Runner 1.0 (MacPack `Games:1984`) | 51; 52 | 24-bit | **was a core bug**: bus error on clicking the title screen; **fixed in compile 52, plays** (Daniel); no crash on 54 | GLUE A17 windows (2.11) |
 | Lode Runner 1.0 | 51 | 32-bit | bus error, **authentic** | 32-bit dirty: writes `$FFFFAE28` |
+| MacWrite 1.0, 2.2, 5.0 | release `MacSE30_20261009.rbf` | 24-bit / 32-bit | **work in 24-bit** under System 7.5.5; **none works in 32-bit** - **authentic** (Daniel, 2026-10-09: "no way this is a core bug") | the original MacWrite line (5.0 = Claris's 1990 update of 4.6, still for the 512Ke and System 4.1): 1984-era code, not 32-bit clean; QuarkXPress and Word 5.1 run in 32-bit mode |
 | Lode Runner 1.2 (MacPack `Games:1985`) | 51; 52 | 24-bit | same crash as 1.0 on 51; **works on 52** | MAME: the same write from the same PC |
 | Dark Castle | 51 | 24-bit | the demo runs | from a floppy, under System 7.5.5; Daniel, 2026-10-07 |
 | Crystal Raider (1985) | 52/53 | 24-bit | runs on System 6, not on System 7; runs far too fast | the speed is authentic (CPU-loop timing written for an 8 MHz 68000; the core's CPU = the real SE/30's); System 7 failure: how it fails not yet known |
