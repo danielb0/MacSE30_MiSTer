@@ -19961,6 +19961,17 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    **M10K by count: 226 (the release less `se30_video`'s 136) + 304 (VRAM)
    + 2 (CLUT, a copy per read clock) + 4 (ROM) = 536 of 553, 97 %.** The
    fitter's figure and the ALMs need a full compile (~45 min).
+   **The full compile (Daniel's go-ahead; tag 67d3b715, 18:16-18:49,
+   archived `output_files/MacIIcx_67d3b715_skel.rbf`, md5 fbc1ae8e...):
+   38,076 ALMs (91 %), 537 of 553 M10K (97 %)** - the count within one
+   block. The card alone: 647 ALMs, 310 M10K. Timing (`sta_corners.tcl`
+   pointed at MacIIcx): the capture by A or B at every corner; the only
+   failure is the framework's ascal, -0.005 ns at slow 100C (precedent:
+   compiles 18, 20, 25, 49); our paths met at every corner; no
+   combinational loop. Against the release (37,497): +579 ALMs with the
+   card's logic nearly complete - steps 2 and 3 add the NuBus path, the
+   upper VRAM port, the PLL and the timing, so ~38.3-38.6k is the likely
+   end, inside the ~38-39k ceiling (compile 41 met timing at 38,758).
 2. The NuBus path in the GLUE: decode, 32-bit acknowledge, timeout, TM
    bits (`sim/glue`); *Designing Cards* ch. 7's byte lanes first.
 3. `nubus_tfb.v` complete - registers, CLUT, VBL, scan-out, the SDRAM
