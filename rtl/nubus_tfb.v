@@ -110,8 +110,12 @@ module nubus_tfb #(
                           (depth == 2'd2) ? 12'd960  : 12'd480;      // 480 x pages (5, 3, 2, 1)
   wire        visible = (addr[18:0] >= 19'd32) && (col < (10'd80 << depth)) && (row_all < rows_disp);
   wire [18:0] pk_byte = (({7'd0, row_all} * 19'd80) << depth) + {9'd0, col};   // row x (80 << depth) + column
-  wire [16:0] blw     = pk_byte[18:2];
-  wire in_bram = a_vram && visible;
+  // registered: the NuChip latches the address a clock or more before it
+  // raises sel (iicx_nuchip.v), so these are settled by then, and the
+  // arithmetic above never sits between a register and 300 M10K
+  reg  [16:0] blw;
+  reg         in_bram;
+  always @(posedge clk) begin blw <= pk_byte[18:2]; in_bram <= a_vram && visible; end
 
   // ------------------------------------------------- the VRAM, block RAM
   // Four byte lanes, each one true dual-port RAM (tfb_vram_lane, below):

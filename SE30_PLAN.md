@@ -20110,6 +20110,21 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    dot clock unchanged. Recompiled.
    **The second fit failed too:** a fractional PLL's reference must be
    50-700 MHz, and clk_sys is 31.3344. Now clk_mem (94.0032 MHz, global).
+   **The third** (tag fd70f699) was killed by my own 60-minute cap in the
+   fitter; **the fourth** (same tag, 22:12) placed in 2 m 45 s but was
+   still routing, single-threaded, 1 h 40 min later (peak interconnect 81 %
+   around X45-55, Y23-34) - Daniel: "We've never had a successful build
+   take this long." Stopped at his word. The cause, by what changed since
+   step 1's 33-minute fit: **a combinational path from the kernel's address
+   adder (already ~15 ns) through the NuChip (card_addr = addr) and the
+   card's compaction arithmetic (subtract, shift, x80, shift, add,
+   compare) into the address of ~300 M10K spread over the device.** Fixed
+   in the RTL, not by seed: the NuChip latches address, R/W, byte lanes and
+   write data on the first clock of NUBUS* (as NuBus carries them on AD at
+   the start cycle - a card never sees the CPU's pins); the card registers
+   the compacted address and its block-RAM/SDRAM choice, settled before
+   the NuChip raises sel. Access time unchanged (7-8 C16M). `sim/nubus` 40,
+   `sim/machine` IIcx 17 and SE/30 17 PASS.
 5. Compile, then the board.
 
 ## 14.4 Still open

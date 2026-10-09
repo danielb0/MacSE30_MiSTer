@@ -28,6 +28,15 @@
 //   Toby card decodes super slot space, which, with slots $A and $B and
 //   every other slot number, times out as an empty slot does.
 //
+// THE LATCH
+//   The address, direction, byte lanes and write data are latched on the
+//   first clock NUBUS* is seen - the 68030's write data is valid from then
+//   (GLUE's header) - and the card works from these registers.  NuBus
+//   multiplexes them onto AD31-AD0 at its start cycle, so a card never saw
+//   the processor's pins; and a combinational path from the kernel's
+//   address adder into the card's VRAM addressing (300 M10K away) cost a
+//   full compile 1.5 hours of routing (plan 14.3).
+//
 // OPEN: the NuChip's synchronisation latency at either end (the books give
 //   none); the card's speed is tuned against a real IIcx in step 3.
 
@@ -58,10 +67,10 @@ module iicx_nuchip #(
 
   // slot $9: the card
   output reg        card_sel,
-  output     [19:0] card_addr,
-  output            card_rw,
-  output      [3:0] card_be,
-  output     [31:0] card_wdata,
+  output reg [19:0] card_addr,
+  output reg        card_rw,
+  output reg  [3:0] card_be,
+  output reg [31:0] card_wdata,
   input      [31:0] card_rdata,
   input             card_ack
 );
@@ -81,22 +90,22 @@ module iicx_nuchip #(
   wire own_slot = (addr[31:24] == 8'hF0);
   reg  slot9;
 
-  assign card_addr  = addr[19:0];
-  assign card_rw    = rw;
-  assign card_be    = be;
-  assign card_wdata = wdata;
   assign dsack_n = (sel && st == S_ACK) ? 2'b00 : 2'b11;
   assign berr    = sel && st == S_BERR;
 
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       st <= S_IDLE; nbc <= 0; card_sel <= 0; rdata <= 0; tm_pb54 <= 2'b00; slot9 <= 0;
+      card_addr <= 0; card_rw <= 1; card_be <= 0; card_wdata <= 0;
     end else if (!sel) begin
       st <= S_IDLE; card_sel <= 0;
     end else case (st)
       S_IDLE:
         if (own_slot) st <= S_BERR;                    // the board's slot: no transaction
-        else begin st <= S_SYNC; slot9 <= to_card; end
+        else begin
+          st <= S_SYNC; slot9 <= to_card;
+          card_addr <= addr[19:0]; card_rw <= rw; card_be <= be; card_wdata <= wdata;   // THE LATCH
+        end
       S_SYNC:                                          // the next NuBus clock edge starts it
         if (nb_tick) begin st <= S_WAIT; nbc <= 0; card_sel <= slot9; end
       S_WAIT:                                          // the slave's acknowledge, sampled each NuBus clock
