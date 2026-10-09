@@ -153,3 +153,20 @@ set fpu_p0   [get_keepers {*|se30_fpu_apu:apu|altsyncram:urom_rtl_0|* *|se30_fpu
 set fpu_apu1 [remove_from_collection $fpu_apu $fpu_p0]
 set_multicycle_path -setup -end 2 -from $fpu_apu1 -to $fpu_apu1
 set_multicycle_path -hold  -end 1 -from $fpu_apu1 -to $fpu_apu1
+
+# The IIcx build's card (SE30_PLAN.md 14.3 item 4): its dot clock is a PLL of
+# its own, unrelated to clk_sys.  Every crossing is built for it - the VRAM
+# and CLUT are dual-clock block RAMs, the depth and base are written only
+# after WaitVBL and taken once a frame, the frame toggle and the blanking
+# level cross through two flip-flops - so the two clocks are asynchronous.
+# It is CLK_VIDEO too, and the framework's sys_top.sdc groups only the
+# core's main PLL (*|pll|pll_inst|*) against HDMI and audio, so the card's
+# clock is declared asynchronous to those as well (ascal synchronises it).
+# The SE/30 build has no such clock and skips this.
+if {[llength [get_clocks -nowarn {emu|pll_vid|*}]] > 0} {
+  set_clock_groups -asynchronous \
+    -group [get_clocks {emu|pll_vid|*}] \
+    -group [get_clocks {emu|pll|pll_inst|*}] \
+    -group [get_clocks {pll_hdmi|*}] \
+    -group [get_clocks {pll_audio|*}]
+}

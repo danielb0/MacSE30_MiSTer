@@ -45,6 +45,10 @@
 //        and the next, blanked beats (the mask on the output, two clocks
 //        later) - the masked-read test of the chip's DQM inputs
 //    11. the model reports no datasheet violation anywhere in the run
+//    13. the IIcx card's VRAM port (plan 14.3 item 4): longwords written
+//        with byte enables land by lane and read back, through itself and
+//        as the CPU's longwords; alongside back-to-back CPU cycles it waits
+//        for the window after a start and no CPU cycle is late
 //    12. the disk port (plan 5.12.5): words written land and read back
 //        as the CPU's longwords, words read (even and odd) are the CPU's;
 //        alongside back-to-back CPU cycles it makes progress and no CPU
@@ -148,6 +152,7 @@ module tb_se30_sdram;
     .cpu_be(cpu_be), .cpu_wdata(cpu_wdata), .cpu_rdata(cpu_rdata), .cpu_ack(cpu_ack),
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
     .dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
+    .vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
     .raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
     .dbg_dqm_force(1'b0),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
@@ -280,6 +285,29 @@ module tb_se30_sdram;
   end
   // a disk word, as the loader and the encoder drive the port: the request
   // held to the acknowledge, the next only once the acknowledge has fallen
+  // the card's VRAM port, as nubus_tfb drives it: the request held to the
+  // acknowledge, the next only once it has fallen
+  reg         vr_req = 0, vr_we = 0;
+  reg  [22:0] vr_addr = 0;
+  reg   [3:0] vr_be = 4'hF;
+  reg  [31:0] vr_wdata = 0;
+  wire [31:0] vr_rdata;
+  wire        vr_ack;
+  integer vr_ops = 0, vr_issues = 0, vr_out_of_window = 0;
+  always @(posedge clk_mem) #0.1 if (dut.state == 4'd8 && dut.seq == 4'd1) begin
+    vr_issues = vr_issues + 1;
+    if (!((dut.since_start >= 11 && dut.since_start <= 16) || dut.since_start == 63 || dut.since_start == 0))
+      vr_out_of_window = vr_out_of_window + 1;
+  end
+  task vr_op(input we, input [22:0] a, input [3:0] be, input [31:0] d, output [31:0] q);
+    begin
+      @(posedge clk_sys); #1 vr_addr = a; vr_we = we; vr_be = be; vr_wdata = d; vr_req = 1;
+      @(posedge clk_sys); #1;
+      while (!vr_ack) begin @(posedge clk_sys); #1; end
+      q = vr_rdata; vr_req = 0; vr_ops = vr_ops + 1;
+      while (vr_ack) begin @(posedge clk_sys); #1; end
+    end
+  endtask
   integer dk_ops = 0;
   task dk_op(input we, input [23:0] a, input [15:0] d, output [15:0] q);
     begin
@@ -621,6 +649,44 @@ module tb_se30_sdram;
     join
     check(cpu_bad == 0, "a CPU stream into idle-bus disk traffic: right; a disk word delays only its first cycle, by one C16M at most");
     $display("      %0d CPU cycle(s) of that stream waited for a disk word", late_dk);
+
+    // 13. the card's VRAM port
+    $display("---- the VRAM port");
+    vr_op(1, 23'h500000, 4'hF, 32'h11223344, rd);
+    vr_op(1, 23'h500001, 4'hF, 32'h55667788, rd);
+    vr_op(1, 23'h500000, 4'b0100, 32'hAAAAAAAA, rd);            // byte 1 only
+    vr_op(1, 23'h500001, 4'b0011, 32'hBBBBCCDD, rd);            // the low word only
+    vr_op(0, 23'h500000, 4'hF, 32'h0, rd);
+    check(rd == 32'h11AA3344, "VRAM: a byte enable writes its lane only");
+    vr_op(0, 23'h500001, 4'hF, 32'h0, rd);
+    check(rd == 32'h5566CCDD, "VRAM: a low-word write leaves the high word");
+    cpu_read(23'h500000, rd, ack);
+    check(rd == 32'h11AA3344, "VRAM longwords are the CPU's longwords at the same address");
+    acks_before = acks_late; dk_done = 0; dk_bad = 0; cpu_bad = 0; n_cpu = 0; ops_before = vr_ops;
+    fork
+      begin
+        for (kd = 0; kd < 40; kd = kd + 1) vr_op(1, 23'h502000 + kd, 4'hF, 32'hC0000000 ^ kd, rd);
+        for (kd = 0; kd < 40; kd = kd + 1) begin
+          vr_op(0, 23'h502000 + kd, 4'hF, 32'h0, rd);
+          if (rd != (32'hC0000000 ^ kd)) dk_bad = dk_bad + 1;
+        end
+        dk_done = 1;
+      end
+      begin
+        while (!dk_done) begin
+          cpu_write(addrs[3], 4'hF, 32'h2468ACE0, ack);
+          cpu_read(addrs[3], rd, ack);
+          if (rd != 32'h2468ACE0) cpu_bad = cpu_bad + 1;
+          n_cpu = n_cpu + 2;
+        end
+      end
+    join
+    vals[3] = 32'h2468ACE0;
+    check(vr_ops - ops_before == 80 && dk_bad == 0, "the VRAM port's 80 longwords done and right among back-to-back CPU cycles");
+    check(cpu_bad == 0, "the CPU's data intact alongside it");
+    check(acks_late == acks_before, "no back-to-back CPU cycle late: the VRAM waits for the window after a start");
+    check(vr_out_of_window == 0, "every VRAM ACTIVE in the window after a start (10-15) or on an idle bus");
+    $display("      80 VRAM longwords in %0d CPU cycles; %0d VRAM ACTIVEs", n_cpu, vr_issues);
 
     // 11. the model's verdict
     check(chip.errors == 0, "no datasheet violation in the whole run");

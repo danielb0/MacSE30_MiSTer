@@ -259,10 +259,21 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 // C16M's edges, one clk_sys each, alternating.
 
 wire clk_sys, clk_mem, clk_sdc, clk_capa, clk_capb, pll_locked;
-// The IIcx card's dot clock (plan 14.3 item 4: the book's 30.24 MHz from
-// a PLL of its own, to build; until then clk_sys stands in - 31.3344
-// against 30.24 MHz, a 69.1 Hz frame against 66.67)
-wire clk_pix = clk_sys;
+// The IIcx card's dot clock: the book's 30.24 MHz (864 x 525 at 66.67
+// Hz) from a PLL of its own (rtl/pll_vid; plan 14.3 item 4) - the main
+// PLL's VCO has no integer division to it.  The SE/30 build has no card.
+wire clk_pix;
+`ifdef MACIICX
+pll_vid pll_vid
+(
+	.refclk(CLK_50M),
+	.rst(0),
+	.outclk_0(clk_pix),
+	.locked()
+);
+`else
+assign clk_pix = clk_sys;
+`endif
 pll pll
 (
 	.refclk(CLK_50M),
@@ -416,6 +427,11 @@ wire [23:0] ld_addr, en_addr;
 wire [15:0] ld_wdata, en_rdata;
 wire        dk_req, dk_we, dk_ack;
 wire [23:0] dk_addr;
+// the IIcx card's VRAM above its block RAM (plan 14.3 item 4); idle in the SE/30 build
+wire        vr_req, vr_we, vr_ack;
+wire [22:0] vr_addr;
+wire  [3:0] vr_be;
+wire [31:0] vr_wdata, vr_rdata;
 wire [15:0] dk_wdata, dk_rdata;
 wire [15:0] ld_dbg, en_dbg;
 // writing (plan 5.15, and MFM 5.16): the drive's recording and arcs, the
@@ -648,6 +664,7 @@ se30_sdram sdram
 	.cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
 	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
+	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
 	.raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
 	.dbg_dqm_force(dqm_force),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),
@@ -691,6 +708,7 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 	.mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
 	.declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),
 	.cardrom_we(cardrom_we), .cardrom_waddr(cardrom_waddr), .cardrom_wdata(cardrom_wdata), .clk_pix(clk_pix),
+	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
 	.vidout(vidout), .rgb(rgb), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
 	.nmi_n(1'b1),
 	.pace_en(1'b1),

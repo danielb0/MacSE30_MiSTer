@@ -21,6 +21,12 @@
 //   9. undecoded non-NuBus space ($51000000) still times out on GLUE's
 //      UI6 rule (its own 22.25 kHz tick on the IIcx): BERR in 18-64 us
 //  10. no DSACK or BERR while AS* is negated
+//  11. VRAM above the block RAM ($4B020 up) goes out on the up_* port and
+//      comes back by lane
+//  12. a frame: the scan-out at 8, 4 (page 1), 2 (page 2) and 1 bit per pixel shows the pixels
+//      written, through CLUT entries written as the driver writes them
+//      (the address byte as SetEntries computes it, the colour inverted),
+//      at the right places - first, last and middle pixels and lines
 //
 // HOW
 //   GLUE at C16M with c16_en tied high, as sim/glue drives it; the NuChip
@@ -88,8 +94,53 @@ module tb_iicx_nubus;
     .sel(card_sel), .rw(card_rw), .addr(card_addr), .be(card_be), .wdata(card_wdata),
     .rdata(card_rdata), .ack(card_ack), .irq_n(card_irq_n),
     .rom_we(rom_we), .rom_waddr(rom_waddr), .rom_wdata(rom_wdata),
-    .up_req(), .up_we(), .up_addr(), .up_be(), .up_wdata(), .up_rdata(32'h0), .up_ack(1'b1),
-    .clk_pix(clk), .r(), .g(), .b(), .hs_n(), .vs_n(), .hblank(), .vblank());
+    .up_req(up_req), .up_we(up_we), .up_addr(up_addr), .up_be(up_be), .up_wdata(up_wdata), .up_rdata(up_rdata), .up_ack(up_ack),
+    .clk_pix(clk), .r(pr), .g(pg), .b(pb), .hs_n(), .vs_n(), .hblank(phb), .vblank(pvb));
+
+  // the upper VRAM: a memory behind se30_sdram's level handshake, a few
+  // clocks late
+  wire        up_req, up_we;
+  wire [16:0] up_addr;
+  wire  [3:0] up_be;
+  wire [31:0] up_wdata;
+  reg  [31:0] up_rdata = 0, upmem [0:131071];
+  reg         up_ack = 0;
+  integer     up_wait = 0;
+  always @(posedge clk) begin
+    if (!up_req) begin up_ack <= 0; up_wait = 0; end
+    else if (!up_ack) begin
+      up_wait = up_wait + 1;
+      if (up_wait == 5) begin
+        if (up_we) begin
+          if (up_be[3]) upmem[up_addr][31:24] = up_wdata[31:24];
+          if (up_be[2]) upmem[up_addr][23:16] = up_wdata[23:16];
+          if (up_be[1]) upmem[up_addr][15:8]  = up_wdata[15:8];
+          if (up_be[0]) upmem[up_addr][7:0]   = up_wdata[7:0];
+        end
+        up_rdata <= upmem[up_addr]; up_ack <= 1;
+      end
+    end
+  end
+
+  // the scan-out, sampled: the active pixel's coordinates
+  wire [7:0] pr, pg, pb;
+  wire       phb, pvb;
+  integer px = 0, py = 0, frames = 0;
+  reg        phb_q = 1, pvb_q = 1;
+  reg [23:0] pix [0:7];                    // the sampled pixels, by test point
+  integer    tx [0:7], ty [0:7];
+  integer    q;
+  always @(posedge clk) begin
+    phb_q <= phb; pvb_q <= pvb;
+    if (!phb && !pvb) begin
+      for (q = 0; q < 8; q = q + 1) if (px == tx[q] && py == ty[q]) pix[q] <= {pr, pg, pb};
+      px = px + 1;
+    end
+    if (phb && !phb_q) begin px = 0; if (!pvb) py = py + 1; end
+    if (pvb && !pvb_q) begin py = 0; frames = frames + 1; end
+  end
+  integer active_w = 0, line_px = 0;
+  always @(posedge clk) if (!phb && !pvb) line_px = line_px + 1; else if (phb && !phb_q) begin if (line_px != 0) active_w = line_px; line_px = 0; end
 
   // ------------------------------------------------------------ scoring
   integer checks = 0, fails = 0;
@@ -183,7 +234,7 @@ module tb_iicx_nubus;
     checkx(rd == 32'h12ABCDEF, "2 byte at +1, word at +2", rd, 32'h12ABCDEF);
     wr_long(32'hF904B01C, 32'hA5A55A5A);                     // the last block-RAM longword
     rd_long(32'hF904B01C);
-    checkx(rd == 32'hA5A55A5A, "2 the last block-RAM longword ($4B01C)", rd, 32'hA5A55A5A);
+    checkx(rd == 32'hA5A55A5A, "2 a longword at $4B01C (1-bit: an invisible column, SDRAM)", rd, 32'hA5A55A5A);
     checkx(nb_tm == 2'b00, "5 TM after good transactions: 00 (no error)", nb_tm, 0);
 
     // 3. the access time, over a spread of phases against the NuBus clock
@@ -240,11 +291,81 @@ module tb_iicx_nubus;
     // 10.
     check(idle_asserts == 0, "10 no DSACK or BERR with AS* negated", idle_asserts, 0);
 
+    // 11. the upper VRAM
+    wr_long(32'hF9050000, 32'hDEADBEEF);
+    wr_byte(32'hF9050001, 8'h77);
+    rd_long(32'hF9050000);
+    checkx(n > 0 && rd == 32'hDE77BEEF, "11 an invisible byte (8-bit: row 319, column 992): through up_*, by lane", rd, 32'hDE77BEEF);
+    checkx(up_addr == 17'h14000, "11 at its own address in SDRAM: $50000 / 4 = $14000", up_addr, 17'h14000);
+
+    // 12. a frame at 8 bits: CLUT entries 1-4 by SetEntries' arithmetic
+    // (8-bit: the address byte is the index), colours inverted as the
+    // gamma table holds them; pixels at the test points
+    wr_byte(32'hF988003C, ~8'hF9);                             // register 15: 8-bit
+    wr_byte(32'hF9880008, ~8'h00); wr_byte(32'hF988000C, ~8'h08);   // base $20
+    for (i = 1; i <= 4; i = i + 1) begin
+      wr_byte(32'hF989001C, i);
+      wr_byte(32'hF9890018, ~(8'h10 * i)); wr_byte(32'hF9890018, ~(8'h20 + i)); wr_byte(32'hF9890018, ~(8'h40 + i));
+    end
+    tx[0] = 0;   ty[0] = 0;   wr_byte(32'hF9000020 + 0 * 1024 + 0, 8'd1);
+    tx[1] = 639; ty[1] = 0;   wr_byte(32'hF9000020 + 0 * 1024 + 639, 8'd2);
+    tx[2] = 0;   ty[2] = 479; wr_byte(32'hF9000020 + 479 * 1024 + 0, 8'd3);   // byte 490,528: rowBytes 1024
+    tx[3] = 321; ty[3] = 240; wr_byte(32'hF9000020 + 240 * 1024 + 321, 8'd4);
+    tx[4] = 1;   ty[4] = 0;   wr_byte(32'hF9000020 + 0 * 1024 + 1, 8'd2);
+    for (q = 5; q < 8; q = q + 1) begin tx[q] = -1; ty[q] = -1; end
+    i = frames; while (frames < i + 2) @(posedge clk);         // a whole frame after the writes
+    checkx(pix[0] == {8'h10, 8'h21, 8'h41}, "12 8-bit: pixel (0,0) = entry 1", pix[0], {8'h10, 8'h21, 8'h41});
+    checkx(pix[4] == {8'h20, 8'h22, 8'h42}, "12 8-bit: pixel (1,0) = entry 2", pix[4], {8'h20, 8'h22, 8'h42});
+    checkx(pix[1] == {8'h20, 8'h22, 8'h42}, "12 8-bit: pixel (639,0) = entry 2", pix[1], {8'h20, 8'h22, 8'h42});
+    checkx(pix[2] == {8'h30, 8'h23, 8'h43}, "12 8-bit: pixel (0,479) = entry 3", pix[2], {8'h30, 8'h23, 8'h43});
+    checkx(pix[3] == {8'h40, 8'h24, 8'h44}, "12 8-bit: pixel (321,240) = entry 4", pix[3], {8'h40, 8'h24, 8'h44});
+    check(active_w == 640, "12 the active line: 640 pixels", active_w, 640);
+    // 1 bit: register 15 = $C8; entries 0 and 1 by SetEntries' arithmetic
+    // ((index << 7) | $7F); pixel bits at (0,0) and (17,2)
+    wr_byte(32'hF988003C, ~8'hC8);
+    wr_byte(32'hF989001C, 8'h7F);
+    wr_byte(32'hF9890018, ~8'hEE); wr_byte(32'hF9890018, ~8'hEE); wr_byte(32'hF9890018, ~8'hEE);
+    wr_byte(32'hF989001C, 8'hFF);
+    wr_byte(32'hF9890018, ~8'h11); wr_byte(32'hF9890018, ~8'h11); wr_byte(32'hF9890018, ~8'h11);
+    wr_long(32'hF9000020, 32'h8000_0000);                      // line 0: pixel 0 set
+    wr_long(32'hF9000020 + 2 * 128, 32'h0000_4000);            // line 2: pixel 17 set
+    tx[0] = 0;  ty[0] = 0; tx[1] = 1;  ty[1] = 0;
+    tx[2] = 17; ty[2] = 2; tx[3] = 16; ty[3] = 2;
+    i = frames; while (frames < i + 2) @(posedge clk);
+    checkx(pix[0] == 24'h111111, "12 1-bit: pixel (0,0) set = entry 1", pix[0], 24'h111111);
+    checkx(pix[1] == 24'hEEEEEE, "12 1-bit: pixel (1,0) clear = entry 0", pix[1], 24'hEEEEEE);
+    checkx(pix[2] == 24'h111111, "12 1-bit: pixel (17,2) set", pix[2], 24'h111111);
+    checkx(pix[3] == 24'hEEEEEE, "12 1-bit: pixel (16,2) clear", pix[3], 24'hEEEEEE);
+
+    // 4 bits, page 1 (SetPage: base = 1 x 512 x 480 + $20 = 245,792 bytes =
+    // 61,448 longwords = $F008); CLUT index 5 at (5 << 4) | $0F; pixel (5,10)
+    // is byte 2's low nibble
+    wr_byte(32'hF988003C, ~8'hE8);                             // register 15 = $E8: 4-bit
+    wr_byte(32'hF9880008, ~8'hF0); wr_byte(32'hF988000C, ~8'h08);
+    wr_byte(32'hF989001C, 8'h5F);
+    wr_byte(32'hF9890018, ~8'h55); wr_byte(32'hF9890018, ~8'h66); wr_byte(32'hF9890018, ~8'h77);
+    wr_byte(32'hF9000020 + 245760 + 10 * 512 + 2, 8'h05);      // pixels 4 and 5: 0 and 5
+    tx[0] = 5; ty[0] = 10; tx[1] = 4; ty[1] = 10;
+    tx[2] = -1; ty[2] = -1; tx[3] = -1; ty[3] = -1;
+    i = frames; while (frames < i + 2) @(posedge clk);
+    checkx(pix[0] == 24'h556677, "12 4-bit page 1: pixel (5,10), byte 2's low nibble = entry 5", pix[0], 24'h556677);
+    check(card.depth_p == 2'd2 && card.base_p == 16'hF008, "12 4-bit page 1: depth and base taken at the frame's top", card.base_p, 16'hF008);
+    // 2 bits, page 2 (base = 2 x 256 x 480 + $20 = 245,792 too); CLUT index 2
+    // at (2 << 6) | $3F; pixel (6,479) is byte 1's third pair
+    wr_byte(32'hF988003C, ~8'hD8);                             // register 15 = $D8: 2-bit
+    wr_byte(32'hF989001C, 8'hBF);
+    wr_byte(32'hF9890018, ~8'h9A); wr_byte(32'hF9890018, ~8'hBC); wr_byte(32'hF9890018, ~8'hDE);
+    wr_byte(32'hF9000020 + 245760 + 479 * 256 + 1, 8'b00_00_10_00);
+    tx[0] = 6; ty[0] = 479; tx[1] = 7; ty[1] = 479;
+    i = frames; while (frames < i + 2) @(posedge clk);
+    checkx(pix[0] == 24'h9ABCDE, "12 2-bit page 2: pixel (6,479), byte 1's third pair = entry 2", pix[0], 24'h9ABCDE);
+    check(pix[1] !== 24'h9ABCDE, "12 2-bit page 2: its neighbour (7,479) is not (its entry, $C0, never written)", 0, 0);
+
     if (fails == 0) $display("==== PASS: %0d checks, the IIcx's NuBus path", checks);
     else $display("==== FAIL: %0d of %0d checks failed", fails, checks);
     $finish;
   end
 
-  initial begin #200_000_000; $display("==== FAIL: timeout"); $finish; end
+  initial begin #400_000_000; $display("==== FAIL: timeout"); $finish; end
 
 endmodule

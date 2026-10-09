@@ -1,5 +1,6 @@
 set_global_assignment -name QIP_FILE rtl/tg68k/tg68k.qip
 set_global_assignment -name QIP_FILE rtl/pll.qip
+set_global_assignment -name QIP_FILE rtl/pll_vid.qip
 set_global_assignment -name VERILOG_FILE rtl/se30_glue.v
 set_global_assignment -name VERILOG_FILE rtl/se30_video.v
 set_global_assignment -name VERILOG_FILE rtl/nubus_tfb.v

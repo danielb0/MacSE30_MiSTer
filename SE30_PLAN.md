@@ -19912,6 +19912,21 @@ RTC, PRAM, the SDRAM CPU port - is shared, unchanged, by both projects.
    an 8-bit line** (640 bytes), before the floppy port. Closing that needs
    CPU wait states (wrong timing) or a bank-interleaved scheduler in the
    controller's tightest path.
+   **CORRECTED 2026-10-09 (step 3, `sim/nubus`): the claim below that the
+   displayable pages lie in the first 307,232 bytes is WRONG - it counted
+   each row at its visible width; rows are rowBytes = 128 << depth apart,
+   so an 8-bit page spans 491,520 bytes, 4-bit's two the same, 2-bit's three
+   368,640; only 1-bit's five fit. What does hold is the visible bytes:
+   1-bit 5 x 38,400 = 192,000, 2-bit 3 x 76,800 = 230,400, 4-bit 2 x
+   153,600 = 307,200, 8-bit 307,200. So option A stands with COMPACTION (as
+   the Quadra 800 core's VRAM mapper compacts by pitch): the card maps a
+   byte by the current depth to its row across the pages (offset - $20 >>
+   (7 + depth)) and column; the visible columns of displayable rows go to
+   block RAM packed at row x (80 << depth) + column (76,800 longwords); every
+   other byte to SDRAM at its own address (a 512 KB region at word
+   $A00000). The deviation: bytes in block RAM are reinterpreted under the
+   new geometry when the depth changes - garbage until QuickDraw repaints,
+   as on a real card (where the garbage differs).** The original text:
    **Option A, decided:** only the first **307,232 bytes** of VRAM are ever
    displayed - page 0 at `$20`, and every page the driver offers at every
    depth ends inside it (8-bit 1 x 307,200; 4-bit 2 x 153,600; 2-bit 3 x
@@ -20009,6 +20024,33 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    port for the upper 212 KB (`sim/sdram` gains it, beside `dk_*`) - and
    a new `sim/tfb`: PrimaryInit and SetMode run from the real ROM; a frame
    dumped to an image and compared.
+   **Step 3, part 1 built 2026-10-09:**
+   - `rtl/pll_vid` (+ `.qip`, in `files.qip`): the card's own PLL, 30.24
+     MHz (VCO 907.2 MHz, fractional 18.144 on 50 MHz), hand-written as
+     `rtl/pll` is; `MacSE30.sv` takes clk_pix from it under MACIICX.
+     `MacSE30.sdc`: the card's clock asynchronous to clk_sys and, being
+     CLK_VIDEO, to the HDMI and audio PLLs (the framework groups only the
+     core's main PLL); skipped in the SE/30 build.
+   - `se30_sdram.v`: the `vr_*` port - a longword with byte enables, as a
+     CPU access (READ's two words; two masked WRITEs), the disk port's
+     window and handshake, below it in priority; the state register 4
+     bits. `sim/sdram` (+ the port): **202 checks PASS** - lanes, the CPU's
+     longwords at the same address, 80 longwords among back-to-back CPU
+     cycles with no CPU cycle late and every ACTIVE in the window; the
+     model's datasheet checks and the DQ-clash check over the whole run.
+   - The card's VRAM compaction (item 4, corrected); its upper store over
+     `vr_*` at word `$A00000`, wired through the machine and the top.
+   - `sim/nubus`: **40 checks PASS** (1 min 12 s) - the upper path by lane
+     at its own address; frames at 8-bit (first and last pixels and lines,
+     a middle pixel; 640 active pixels), 1-bit (bits), 4-bit page 1 (a low
+     nibble; depth and base taken at the frame's top) and 2-bit page 2 (a
+     third pair), the palette written as SetEntries writes it. Found on
+     the way: the visible width overflowed at 8 bits (7 bits for 160).
+   - `sim/machine` (SE/30) 17 PASS, `sim/glue` 102 PASS. `sim/gcrread` and
+     `sim/machine` tie the new port off.
+   Still in step 3: the NuBus access timing against item 12 (Graphics
+   0.25), the ROM's PrimaryInit and SetMode run for real (with the CPU:
+   step 4's machine bench).
 4. `sim/machine` boots the IIcx to the ROM's box-flag read and the Slot
    Manager finding the card.
 5. Compile, then the board.

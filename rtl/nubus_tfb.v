@@ -9,11 +9,21 @@
 //   ed., chapter 11; MAME's nubus_m2video.cpp is a cross-check only.
 //
 // THE CARD'S SPACE (20 address bits decoded: it mirrors every 1 MB)
-//   $00000-$7FFFF  VRAM, 512 KB.  Every page the driver offers lies in the
-//                  first 307,232 bytes (page 0 at $20; 8-bit 1 page, 4-bit
-//                  2, 2-bit 3, 1-bit 5), so that part is block RAM here and
-//                  the scan-out reads it directly (14.3 item 4, option A);
-//                  the rest goes out on the up_* port to SDRAM.
+//   $00000-$7FFFF  VRAM, 512 KB, held in two places (14.3 item 4, option A,
+//                  with compaction).  A page is 480 rows of rowBytes =
+//                  128 << depth, page 0 at $20, pages contiguous (8-bit 1,
+//                  4-bit 2, 2-bit 3, 1-bit 5); of each row only the first
+//                  80 << depth bytes are shown.  Those visible bytes of every
+//                  displayable row - 192,000 to 307,200 bytes by depth - are
+//                  block RAM, packed at row x (80 << depth) + column, and
+//                  the scan-out reads them directly; every other byte (the
+//                  invisible column tail of each row, the rows beyond the
+//                  last page, the 32 bytes before page 0) is SDRAM at its
+//                  own address, through the up_* port.  The packing follows
+//                  the depth in register 15: bytes in block RAM are
+//                  reinterpreted when the depth changes, as a real card's
+//                  are (differently: either way garbage until QuickDraw
+//                  repaints after the mode change).
 //   $80000         the TFB's 16 write-only registers, one per longword,
 //                  D31-D24; the bus is active-low, so a register holds the
 //                  inverse of the byte written (the driver writes not.b of
@@ -45,7 +55,7 @@
 `timescale 1ns/1ps
 
 module nubus_tfb #(
-  parameter VRAM_LW = 76808            // the displayable VRAM in block RAM, longwords (307,232 bytes)
+  parameter VRAM_LW = 76800            // the visible VRAM in block RAM, longwords (307,200 bytes: 8-bit's page, 4-bit's two)
 ) (
   input             clk,               // clk_sys
   input             reset_n,
@@ -68,7 +78,7 @@ module nubus_tfb #(
   // the VRAM above the block RAM, in SDRAM
   output reg        up_req,
   output reg        up_we,
-  output reg [16:0] up_addr,           // longword address from $4B020
+  output reg [16:0] up_addr,           // longword address in the card's 512 KB
   output reg  [3:0] up_be,
   output reg [31:0] up_wdata,
   input      [31:0] up_rdata,
@@ -87,8 +97,21 @@ module nubus_tfb #(
   wire a_vbl  = (addr[19:16] == 4'hA);
   wire a_stat = (addr[19:16] == 4'hD);
   wire a_rom  = (addr[19:16] == 4'hF);
+  reg  [1:0] depth;                    // register 15 bits 5-4 (below)
+  reg [15:0] base;                     // registers 2:3, longwords
   wire [16:0] lw = addr[18:2];
-  wire in_bram = a_vram && (lw < VRAM_LW);
+
+  // the compaction (THE CARD'S SPACE above): the CPU's byte offset to its
+  // row across the pages and its column, by the depth in register 15
+  wire [18:0] rel     = addr[18:0] - 19'd32;
+  wire [11:0] row_all = rel >> (7 + depth);                // up to 4,095 rows of 128 bytes
+  wire  [9:0] col     = rel[9:0] & ((10'd128 << depth) - 1'b1);
+  wire [11:0] rows_disp = (depth == 2'd0) ? 12'd2400 : (depth == 2'd1) ? 12'd1440 :
+                          (depth == 2'd2) ? 12'd960  : 12'd480;      // 480 x pages (5, 3, 2, 1)
+  wire        visible = (addr[18:0] >= 19'd32) && (col < (10'd80 << depth)) && (row_all < rows_disp);
+  wire [18:0] pk_byte = (({7'd0, row_all} * 19'd80) << depth) + {9'd0, col};   // row x (80 << depth) + column
+  wire [16:0] blw     = pk_byte[18:2];
+  wire in_bram = a_vram && visible;
 
   // ------------------------------------------------- the VRAM, block RAM
   // Four byte lanes, each one true dual-port RAM (tfb_vram_lane, below):
@@ -98,7 +121,7 @@ module nubus_tfb #(
   genvar ln;
   generate for (ln = 0; ln < 4; ln = ln + 1) begin : lane
     tfb_vram_lane #(.WORDS(VRAM_LW)) ram (
-      .clk_a(clk), .addr_a(lw), .we_a(sel && !rw && in_bram && be[ln] && !ack), .d_a(wdata[8*ln +: 8]), .q_a(cpu_vq[8*ln +: 8]),
+      .clk_a(clk), .addr_a(blw), .we_a(sel && !rw && in_bram && be[ln] && !ack), .d_a(wdata[8*ln +: 8]), .q_a(cpu_vq[8*ln +: 8]),
       .clk_b(clk_pix), .addr_b(pix_lw), .q_b(pix_vq[8*ln +: 8]));
   end endgenerate
 
@@ -114,8 +137,6 @@ module nubus_tfb #(
 
   // ------------------------------------------------- the TFB's registers
   reg  [7:0] treg [0:15];
-  reg  [1:0] depth;                    // register 15 bits 5-4
-  reg [15:0] base;                     // registers 2:3, longwords
   integer i;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
@@ -198,8 +219,8 @@ module nubus_tfb #(
       if (!sel) begin cyc <= 0; ack <= 0; up_req <= 0; up_busy <= 0; end
       else if (!ack) begin
         if (a_vram && !in_bram) begin
-          if (!up_busy) begin
-            up_req <= 1; up_we <= !rw; up_addr <= lw - VRAM_LW[16:0]; up_be <= be; up_wdata <= wdata;
+          if (!up_busy && !up_ack) begin               // the previous longword's acknowledge has fallen
+            up_req <= 1; up_we <= !rw; up_addr <= lw; up_be <= be; up_wdata <= wdata;
             up_busy <= 1;
           end else if (up_ack) begin
             up_req <= 0; ack <= 1; rdata <= up_rdata;
@@ -235,11 +256,23 @@ module nubus_tfb #(
   end
   initial begin hc = 0; vc = 0; vbl_tog = 0; depth_p = 0; base_p = 16'd8; end
 
-  // the longword holding this pixel: base + line x (32 << depth) + x >> (5 - depth)
-  wire [16:0] row_lw = {7'd0, vc} << (5 + depth_p);
+  // the longword holding this pixel, in the packed block RAM: the page's
+  // first row (from the base) plus the line, times the visible width
+  // (20 << depth longwords), plus x >> (5 - depth).  The line's start is
+  // kept as a running sum - set at the top of the frame, a visible width
+  // added at each line's end.
+  // the frame's first line, from the depth and base it takes at its top
+  // (depth_s, base_s: the values depth_p and base_p take on that clock)
+  wire [17:0] base_rel = {base_s, 2'b00} - 18'd32;
+  wire [11:0] base_row = base_rel >> (7 + depth_s);
+  wire [16:0] top_lw   = ({5'd0, base_row} * 17'd20) << depth_s;
+  wire  [7:0] vis_lw   = 8'd20 << depth_p;               // 20, 40, 80, 160 longwords
+  reg  [16:0] line_lw;
+  always @(posedge clk_pix)
+    if (hc == 10'd863) line_lw <= (vc == 10'd524) ? top_lw : line_lw + {9'd0, vis_lw};
   wire  [9:0] x = hc;
   wire [16:0] col_lw = {7'd0, x} >> (5 - depth_p);
-  assign pix_lw = {1'b0, base_p} + row_lw + col_lw;
+  assign pix_lw = line_lw + col_lw;
 
   // the pipeline: address (0), VRAM word (1), CLUT read (2), RGB out (3)
   reg  [9:0] x1;

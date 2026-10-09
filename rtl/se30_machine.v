@@ -108,6 +108,14 @@ module se30_machine #(
   input  [11:0] cardrom_waddr,
   input   [7:0] cardrom_wdata,
   input         clk_pix,
+  // and the card's VRAM above its block RAM, in SDRAM at word $A00000 (se30_sdram's vr_*)
+  output        vr_req,
+  output        vr_we,
+  output [22:0] vr_addr,
+  output  [3:0] vr_be,
+  output [31:0] vr_wdata,
+  input  [31:0] vr_rdata,
+  input         vr_ack,
 
   // video, 1 = black; the IIcx's colour, on clk_pix, in rgb
   output        vidout,
@@ -520,6 +528,7 @@ module se30_machine #(
     wire [19:0] card_addr;
     wire  [3:0] card_be;
     wire [31:0] card_wdata, card_rdata;
+    wire [16:0] up_addr;                       // the card's upper-VRAM longword
     iicx_nuchip nuchip (
       .clk(clk), .reset_n(reset_n),
       .sel(slot_sel), .addr(cpu_addr), .rw(cpu_rw_n), .be(slot_be), .wdata(cpu_dout),
@@ -531,10 +540,12 @@ module se30_machine #(
       .sel(card_sel), .rw(card_rw), .addr(card_addr), .be(card_be), .wdata(card_wdata),
       .rdata(card_rdata), .ack(card_ack), .irq_n(card_irq_n),
       .rom_we(cardrom_we), .rom_waddr(cardrom_waddr), .rom_wdata(cardrom_wdata),
-      .up_req(), .up_we(), .up_addr(), .up_be(), .up_wdata(), .up_rdata(32'h0), .up_ack(1'b1),
+      .up_req(vr_req), .up_we(vr_we), .up_addr(up_addr), .up_be(vr_be), .up_wdata(vr_wdata), .up_rdata(vr_rdata), .up_ack(vr_ack),
       .clk_pix(clk_pix), .r(rgb[23:16]), .g(rgb[15:8]), .b(rgb[7:0]),
       .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank));
+    assign vr_addr = 23'h500000 + {6'd0, up_addr};     // longword $500000 = word $A00000 = 20 MB (plan 14.3 item 4)
   end else begin : g_se30
+    assign vr_req = 1'b0; assign vr_we = 1'b0; assign vr_addr = 23'h0; assign vr_be = 4'h0; assign vr_wdata = 32'h0;
     assign card_irq_n = 1'b1; assign nb_dsack_n = 2'b11; assign nb_rdata = 32'h0; assign nb_berr = 1'b0; assign nb_tm = 2'b11;
     assign rgb = {24{~vidout}};
     assign vid_sel = slot_sel && (cpu_addr[31:24] == 8'hFE);

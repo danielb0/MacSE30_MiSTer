@@ -238,6 +238,11 @@
 //           the chip) or when no start has come for 63 clocks - where a
 //           start arriving mid-access waits for it, which GLUE (waiting
 //           on the acknowledge) takes as a wait state.
+//   vr_*    the IIcx card's VRAM above its block RAM (plan 14.3 item 4): one
+//           longword read or written with byte enables, as a CPU access
+//           is (two masked WRITEs; a READ's two words), the disk port's
+//           level handshake and window - only the CPU reaches it, over the
+//           NuBus, which waits for it.  Below the disk port in priority.
 //   ready   the power-up ladder and the training have run.
 //   cap_sel the capture in use: 0 = A, 1 = B.  cap_ok {A clean, B clean};
 //           cap_fail_a/b the failure counts, saturating at 16,383.
@@ -280,6 +285,13 @@ module se30_sdram #(
   input      [15:0] dk_wdata,
   output reg [15:0] dk_rdata,
   output reg        dk_ack,
+  input             vr_req,
+  input             vr_we,
+  input      [22:0] vr_addr,           // longword address
+  input       [3:0] vr_be,
+  input      [31:0] vr_wdata,
+  output reg [31:0] vr_rdata,
+  output reg        vr_ack,
 
   // the raw experiment port (clk_sys domain; the header)
   input             raw_req,
@@ -417,6 +429,10 @@ module se30_sdram #(
   reg        xs_dk_req, xs_dk_we;
   reg [23:0] xs_dk_addr;
   reg [15:0] xs_dk_wdata;
+  reg        xs_vr_req, xs_vr_we;
+  reg [22:0] xs_vr_addr;
+  reg  [3:0] xs_vr_be;
+  reg [31:0] xs_vr_wdata;
   always @(posedge clk) begin
     xs_start_evt <= 0;
     if (sample_en) begin
@@ -426,10 +442,11 @@ module se30_sdram #(
       xs_dl_req <= dl_req; xs_dl_addr <= dl_addr; xs_dl_data <= dl_data;
       xs_raw_req <= raw_req; xs_raw_ctl <= raw_ctl; xs_raw_addr <= raw_addr;
       xs_dk_req <= dk_req; xs_dk_we <= dk_we; xs_dk_addr <= dk_addr; xs_dk_wdata <= dk_wdata;
+      xs_vr_req <= vr_req; xs_vr_we <= vr_we; xs_vr_addr <= vr_addr; xs_vr_be <= vr_be; xs_vr_wdata <= vr_wdata;
     end
   end
   wire       start_rise = xs_start_evt;
-  wire       req_q = xs_req, we_q = xs_we, dl_req_q = xs_dl_req, raw_req_q = xs_raw_req, dk_req_q = xs_dk_req;
+  wire       req_q = xs_req, we_q = xs_we, dl_req_q = xs_dl_req, raw_req_q = xs_raw_req, dk_req_q = xs_dk_req, vr_req_q = xs_vr_req;
   // the experiment's fields (the header)
   wire [15:0] r_w0 = xs_raw_ctl[15:0], r_w1 = xs_raw_ctl[31:16];
   wire  [7:0] r_dqm = xs_raw_ctl[39:32];
@@ -453,10 +470,12 @@ module se30_sdram #(
   wire  [1:0] k_bank  = xs_dk_addr[23:22];
   wire [12:0] k_row   = xs_dk_addr[21:9];
   wire  [8:0] k_col   = xs_dk_addr[8:0];
+  wire [23:0] v_word  = {xs_vr_addr, 1'b0};
 
   // --------------------------------------------------- the sequencer
-  localparam [2:0] S_INIT = 3'd0, S_IDLE = 3'd1, S_ACC = 3'd2, S_DONE = 3'd3, S_DL = 3'd4, S_TRAIN = 3'd5, S_RAW = 3'd6, S_DK = 3'd7;
-  reg  [2:0] state;
+  localparam [3:0] S_INIT = 4'd0, S_IDLE = 4'd1, S_ACC = 4'd2, S_DONE = 4'd3, S_DL = 4'd4, S_TRAIN = 4'd5, S_RAW = 4'd6, S_DK = 4'd7,
+                   S_VR = 4'd8;
+  reg  [3:0] state;
   reg  [3:0] seq;                      // clocks since the ACTIVE
   wire [1:0] r_k = seq[1:0] - 2'd2;    // the schedule's index on clocks 2..5 of a raw experiment
   wire [1:0] r_kn = seq[1:0] - 2'd1;   // and the next clock's, loaded a clock ahead
@@ -483,6 +502,11 @@ module se30_sdram #(
   reg  [1:0] k_bank_r;
   reg  [8:0] k_col_r;
   reg [15:0] k_wdata_r;
+  reg        v_we_r;                   // the VRAM longword in flight, latched at its ACTIVE
+  reg  [1:0] v_bank_r;
+  reg  [8:0] v_col_r;
+  reg  [3:0] v_be_r;
+  reg [31:0] v_wdata_r;
   reg [14:0] init_cnt;
   reg  [3:0] init_step;                // 0 pause, 1 precharge, 2-9 refreshes, 10 mode, 11 settle
   reg  [1:0] tr_step;                  // the training: 0 write the pair, 1 read it, 2 judge and switch
@@ -503,7 +527,8 @@ module se30_sdram #(
       state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0;
       cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_pre <= 0; oe_pre <= 0;
       cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; raw_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
-      dk_ack <= 0; dk_rdata <= 0;
+      dk_ack <= 0; dk_rdata <= 0; vr_ack <= 0; vr_rdata <= 0;
+      v_we_r <= 0; v_bank_r <= 0; v_col_r <= 0; v_be_r <= 0; v_wdata_r <= 0;
       since_start <= 6'd63; win_ref <= 0; win_dk <= 1;
       start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
       k_we_r <= 0; k_bank_r <= 0; k_col_r <= 0; k_wdata_r <= 0;
@@ -523,6 +548,7 @@ module se30_sdram #(
       if (!dl_req_q) dl_ack <= 0;
       if (!raw_req_q) raw_ack <= 0;
       if (!dk_req_q) dk_ack <= 0;
+      if (!vr_req_q) vr_ack <= 0;
       if (state != S_INIT) sd_addr[12:11] <= 2'b00;                 // the mask: 00 unless a command says otherwise
 
       case (state)
@@ -625,6 +651,13 @@ module se30_sdram #(
               k_we_r <= xs_dk_we; k_bank_r <= k_bank; k_col_r <= k_col; k_wdata_r <= xs_dk_wdata;
               seq <= 1; busy <= ACT_BUSY;
               state <= S_DK;
+            end else if (vr_req_q && !vr_ack && win_dk) begin
+              // a VRAM longword: the disk's window, the disk first
+              cmd <= CMD_ACTIVE; sd_ba <= v_word[23:22]; sd_addr <= v_word[21:9];
+              v_we_r <= xs_vr_we; v_bank_r <= v_word[23:22]; v_col_r <= v_word[8:0];
+              v_be_r <= xs_vr_be; v_wdata_r <= xs_vr_wdata;
+              seq <= 1; busy <= ACT_BUSY;
+              state <= S_VR;
             end else if (raw_req_q && !raw_ack) begin
               // an experiment (the header): every row is closed here, so
               // a LOAD MODE may follow a PRECHARGE ALL at once
@@ -742,6 +775,27 @@ module se30_sdram #(
           if (!k_we_r && seq == 4'd7) begin dk_rdata <= dq_m; dk_ack <= 1; state <= S_IDLE; end
         end
 
+        // ------------------------------------------ a VRAM longword
+        // A CPU access's shape: a read auto-precharged, its words at 7 and
+        // 8; a write as two single-location WRITEs, masked by the byte
+        // enables, the second auto-precharged - both acknowledged as the
+        // disk's are.
+        S_VR: begin
+          seq <= seq + 1'b1;
+          if (!v_we_r) begin
+            if (seq == 4'd2) begin cmd <= CMD_READ; sd_ba <= v_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, v_col_r}; end
+            if (seq == 4'd7) vr_rdata[31:16] <= dq_m;
+            if (seq == 4'd8) begin vr_rdata[15:0] <= dq_m; vr_ack <= 1; state <= S_IDLE; end
+          end else begin
+            if (seq == 4'd2) begin
+              cmd <= CMD_WRITE; sd_ba <= v_bank_r; sd_addr <= {~v_be_r[3:2], 1'b0, 1'b0, v_col_r};
+              vr_ack <= 1;
+            end
+            if (seq == 4'd3) begin cmd <= CMD_WRITE; sd_ba <= v_bank_r; sd_addr <= {~v_be_r[1:0], 1'b1, 1'b0, v_col_r | 9'd1}; end
+            if (seq == 4'd4) state <= S_IDLE;
+          end
+        end
+
         // ------------------------------------- a raw experiment (the header)
         S_RAW: begin
           seq <= seq + 1'b1;
@@ -784,6 +838,7 @@ module se30_sdram #(
         end
         S_DL: begin oe_pre <= 1'b1; dq_pre <= xs_dl_data; end
         S_DK: if (k_we_r) begin oe_pre <= 1'b1; dq_pre <= k_wdata_r; end
+        S_VR: if (v_we_r) begin oe_pre <= 1'b1; dq_pre <= (seq >= 4'd2) ? v_wdata_r[15:0] : v_wdata_r[31:16]; end
         S_RAW: if (!r_kind) begin                                   // the schedule's entry for the next clock
           oe_pre <= (seq >= 4'd1 && seq <= 4'd4) && r_oe[r_kn] && !r_read;
           dq_pre <= r_sel[r_kn] ? r_w1 : r_w0;
