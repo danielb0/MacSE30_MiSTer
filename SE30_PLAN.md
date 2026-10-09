@@ -19615,7 +19615,8 @@ section records what is read before any RTL.
 | `Docs\Mac_IICX_Schematic.pdf` (Apple 050-0245-A, 12 sheets) | the IIcx logic board | **primary for the wiring**; sheets render with WSL's `pdftoppm` (the PDF's text layer is unusable) |
 | `Docs\Mac_IICX_BOM.pdf`, `IICX_BOM.txt` | the IIcx parts list | primary for part numbers |
 | The ROM ($97221136), our `boot0.rom` | shared by the II FDHD, IIx, IIcx and SE/30 | primary for what the ROM reads (4.6 item 7) |
-| *Designing Cards and Drivers for the Macintosh Family* | NuBus, slot (declaration) ROMs, Apple's video cards | **not yet on hand** (macintoshrepository.org 1235 offers it) |
+| *Designing Cards and Drivers for the Macintosh Family*, 2nd ed., May 1990 (`Docs\nubus\`, text extract beside it; Daniel downloaded it 2026-10-09 from macintoshrepository.org 1235) | NuBus, declaration ROMs, the Macintosh II Video Card (Chapter 11), the 030 direct slot (Part II) | **primary** |
+| *How the Macintosh II NuBus Works*, Byte 1988 (`Docs\nubus\`) | an overview | secondary |
 
 ## 14.2 What is established
 
@@ -19661,6 +19662,24 @@ section records what is read before any RTL.
      IRQ). The 60.15 Hz VBL from VIA2 PB7 as the SE/30.
 4. **NMI** is pulled up on the IIcx too (RP5): the programmer's switch
    (FUTURE ADDITIONS 1) belongs to both builds.
+5. **The Macintosh II Video Card** (*Designing Cards and Drivers*, 2nd ed.,
+   Chapter 11, `Docs\nubus\`): 640 x 480 at 66.67 Hz; dot clock 30.24 MHz
+   (33.069 ns); a line 864 dots (640 + front porch 64 + sync 64 + back porch
+   96) = 28.5714 µs, 35.00 kHz; a frame 525 lines (480 + 3 + 3 + 39) = 15.00
+   ms. 1, 2, 4 and 8 bits per pixel; VRAM 256 KB (Bank A, 1-4 bits only) or
+   512 KB (both banks, 8 bits); a 256-entry CLUT of 8-bit R, G, B DACs. The
+   Frame Buffer Controller (FBC, a gate array) holds the timing and depth in
+   registers in the card's slot space, separate from the frame buffer; the
+   video clock is twice the NuBus clock. The declaration ROM carries two
+   sResource sets (256 KB and 512 KB) and Primary Init sizes the VRAM,
+   reads the monitor sense lines and removes the set that does not apply.
+   **The book does not document the FBC's registers** ("not documented in
+   this book"): their addresses and meaning have to come from the card's
+   own declaration ROM - its driver and Primary Init are the primary
+   evidence, as the SE/30 ROM was for the machine - with MAME's model of
+   the card a cross-check only. **The card's ROM dump is not on hand.**
+   The book's Part II also covers the SE/30's 030 direct slot (chapters
+   12-16), for FUTURE ADDITIONS 4.
 
 ## 14.3 Still to read
 
