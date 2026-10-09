@@ -20053,6 +20053,16 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    step 4's machine bench).
 4. `sim/machine` boots the IIcx to the ROM's box-flag read and the Slot
    Manager finding the card.
+   **Step 4, part 1 (2026-10-09): `sim/machine` runs either build** -
+   `IICX=1 bash sim/machine/run.sh` (the tb's IICX parameter, `vsim -g`;
+   logged to `run_iicx.log`), the card's upper VRAM wired to the
+   controller's `vr_*`. **IIcx 17 checks PASS (97 s), SE/30 17 PASS (92
+   s)**: the IIcx machine elaborates in ModelSim and runs the ROM through
+   the same path into the RAM tests. That path ends before the box-flag
+   read (`$4083F74A`: no VIA1 `$1E00` read in the trace) and long before
+   the Slot Manager. **Part 2, a run to the Slot Manager and the card's
+   PrimaryInit, is an overnight-scale ModelSim run** (the RAM tests at
+   full length) - to estimate and agree with Daniel before it is set up.
 5. Compile, then the board.
 
 ## 14.4 Still open

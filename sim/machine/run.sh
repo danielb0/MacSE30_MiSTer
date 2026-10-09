@@ -46,8 +46,11 @@ done
   "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/se30_video.v" "$RTL/nubus_tfb.v" "$RTL/iicx_nuchip.v" "$RTL/se30_sdram.v" "$RTL/se30_machine.v" "$RTL/se30_simms.v" "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" "$RTL/se30_scc_chan.v" scsi_idle.v \
   ../sdram/sdram_model.v tb_se30_machine.v || exit 1
 T0=$(date +%s)
-"$MODELSIM/vsim.exe" -c -quiet -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_machine > run.log 2>&1
+# IICX=1: the IIcx build (plan 14.3 step 4), logged to run_iicx.log
+IICX=${IICX:-0}
+LOG=run.log; [ "$IICX" = 1 ] && LOG=run_iicx.log
+"$MODELSIM/vsim.exe" -c -quiet -gIICX=$IICX -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_machine > $LOG 2>&1
 T1=$(date +%s)
-grep -E '^# (---- |==== |FAIL |     )' run.log | sed 's/^# //'
+grep -E '^# (---- |==== |FAIL |     )' $LOG | sed 's/^# //'
 echo "---- ModelSim wall clock: $((T1 - T0)) s"
-grep -q '^# ==== PASS' run.log
+grep -q '^# ==== PASS' $LOG
