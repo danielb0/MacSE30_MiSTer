@@ -269,7 +269,7 @@ wire clk_pix;
 `ifdef MACIICX
 pll_vid pll_vid
 (
-	.refclk(CLK_50M),
+	.refclk(clk_sys),                                     // the 50 MHz pins' PLLs are all taken (rtl/pll_vid)
 	.rst(0),
 	.outclk_0(clk_pix),
 	.locked()

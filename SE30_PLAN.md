@@ -20088,6 +20088,13 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    run on to the Slot Manager and PrimaryInit (the RAM tests at full
    length: hours, overnight); (3) `boot3.rom` (the card ROM) into
    `releases/` with the first IIcx release.
+   **The first full compile of steps 2-5 (Daniel's go-ahead, tag 031c2389,
+   20:50-21:00) FAILED in the fitter:** Error 11239, `pll_vid` constrained
+   to CLK2_50's fractional PLL (X89 Y1), which the main PLL holds - each of
+   the DE10-Nano's three 50 MHz pins feeds only the PLL beside it, and the
+   framework and the main PLL take all three. Fix: `pll_vid`'s reference is
+   clk_sys (31.3344 MHz, global), the ratio to 30.24 MHz fractional; the
+   dot clock unchanged. Recompiled.
 5. Compile, then the board.
 
 ## 14.4 Still open
