@@ -17846,6 +17846,19 @@ Daniel - add to it, move items out when fixed).**
     The one SCSI engine serving both IDs is clear for this case. Left with
     the user: which image sat in which slot after the restart, whether the
     80 MB file is intact, the Startup Disk setting.
+    *Both images read back from the SD card after the test (22:20):*
+    the 1 GB disk is a valid HFS volume ("Untitled", 65,529 allocation
+    blocks of 16 KB, ~256 KB written, all volume structures); the 7.1
+    image's DDM, map, driver and boot blocks are byte-identical to the
+    19:34 backup, its MDB consistent (unmounted cleanly), the catalog
+    reads. 40,414 blocks differ from the backup: 969 used blocks (the
+    extension swaps) and 39,315 blocks of FREE space in seven runs -
+    their new contents are deleted files' remains (Apple CD-ROM
+    extension strings, 68k code, resources), i.e. the day's copies and
+    installs since the backup, not the other disk's initialise (whose
+    writes are zeros and volume structures). Nothing wrote where it
+    should not. Daniel is asking the user for his "corrupted" boot
+    image, to compare block by block against the copy he posted.
     **Built** in `rtl/se30_flp_loader.v` (`held`; a new input `mac_reset_n`
     = `machine_reset_n`): at a mount pulse with a disk in, `held`,
     `readonly` (the drive's write-protect, and the decoder and writer's
