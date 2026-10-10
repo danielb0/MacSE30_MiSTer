@@ -23,7 +23,11 @@
 # by >= 1.40 ns and B at the fast ones by >= 1.89 (item 18's experiment);
 # every other SDRAM path met at every corner.
 set ::se30_time_capture 1
-project_open MacSE30
+# the revision: MacSE30 (the default) or MacIIcx, as the first argument
+#   quartus_sta -t scripts/sta_corners.tcl MacIIcx
+set rev "MacSE30"
+if {[info exists quartus(args)] && [llength $quartus(args)] > 0} { set rev [lindex $quartus(args) 0] }
+project_open $rev
 create_timing_netlist
 read_sdc
 update_timing_netlist

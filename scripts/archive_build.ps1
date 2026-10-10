@@ -3,7 +3,8 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/archive_build.ps1 dqrise
 #   (the machine's execution policy blocks scripts without the Bypass)
 #
-# Produces output_files/MacSE30_<sha>_<label>.rbf.  (The .sof is not copied:
+# Produces output_files/<revision>_<sha>_<label>.rbf, the revision MacSE30
+# unless -Revision MacIIcx is given.  (The .sof is not copied:
 # MiSTer loads the .rbf and nothing here programs the FPGA over JTAG, so the
 # 56 archived .sof files of 2026-10-10 were 359 MB of nothing - Daniel.)
 #
@@ -13,7 +14,8 @@
 # every compile overwrites. PBLD answers it live; this answers it afterwards,
 # off-board. Run it WHILE rtl/build_tag.v IS STILL STAMPED, before the
 # `git checkout -- rtl/build_tag.v` that ends the build ritual.
-param([Parameter(Mandatory=$true)][string]$Label)
+param([Parameter(Mandatory=$true)][string]$Label,
+      [string]$Revision = 'MacSE30')          # or MacIIcx: the Quartus revision that was compiled
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
@@ -31,7 +33,8 @@ try {
     # What matters is whether the DESIGN moved since that build, not whether any
     # commit did. Doc-only commits after a compile are normal and harmless; an
     # RTL commit means the bitstream no longer represents the tree.
-    $design = @('rtl','sys','MacSE30.sv','MacSE30.qsf','MacSE30.sdc','files.qip')
+    if ($Revision -notmatch '^(MacSE30|MacIIcx)$') { throw "revision must be MacSE30 or MacIIcx: '$Revision'" }
+    $design = @('rtl','sys','MacSE30.sv',"$Revision.qsf",'MacSE30.sdc','files.qip')
     $moved  = git diff --name-only $sha HEAD -- $design 2>$null
     if ($LASTEXITCODE -ne 0) { throw "cannot diff $sha against HEAD; is it a valid commit?" }
     if ($moved) {
@@ -54,9 +57,9 @@ try {
     }
 
     foreach ($ext in 'rbf') {
-        $src = "output_files/MacSE30.$ext"
+        $src = "output_files/$Revision.$ext"
         if (-not (Test-Path $src)) { Write-Warning "no $src, skipping"; continue }
-        $dst = "output_files/MacSE30_${sha}_${Label}.$ext"
+        $dst = "output_files/${Revision}_${sha}_${Label}.$ext"
         if (Test-Path $dst) { throw "$dst already exists; pick another label" }
         Copy-Item $src $dst
         Write-Host "archived $dst"
