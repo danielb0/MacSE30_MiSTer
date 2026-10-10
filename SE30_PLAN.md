@@ -20131,6 +20131,35 @@ item 4: the block RAM is now the deciding risk, so it is measured first.
    preparation with the log still. Stopped at 00:35 (Daniel ended the
    session). **So the address path was not the cause, or not the only
    one** - see the END OF SESSION block below.
+   **The sixth full compile (tag d532ae06, 2026-10-10 00:56-01:22)
+   SUCCEEDED, and the cause was not the address path but the SDC.**  The
+   card's dot clock is CLK_VIDEO, so the framework's whole video side
+   (ascal's input, the OSD, hps_io's video_calc, the VGA and HDMI outputs)
+   runs on it and crosses into the HPS 100 MHz clock, the HPS SPI clock
+   and the 50 MHz pins - crossings sys_top.sdc cuts for clk_sys by its
+   exclusive groups, which name the core's main PLL only.  MacSE30.sdc had
+   grouped `pll_vid` against the main, HDMI and audio PLLs alone, so
+   clk_pix -> h2f_user0_clk (21 paths, hdmi_out_vs -> video_calc) was timed
+   as a related pair: a 0.001 ns setup relationship, -16.7 ns of slack on
+   the post-map netlist before any placement (TimeQuest
+   `create_timing_netlist -post_map`, the proof that cost 2 min, not 40).
+   Under High Performance Effort the timing-driven placer and router never
+   stop working on a requirement they cannot meet - hence placement
+   preparation and routing running for hours, and the skeleton (CLK_VIDEO =
+   clk_sys, grouped) fitting in 33 min.  The fix is one SDC line: the card's
+   clock in a group of its own, asynchronous to every other clock (every
+   crossing is built for it: dual-clock RAMs, two-flop synchronisers, the
+   depth and base taken once a frame).  The post-map run after it: every
+   pll_vid transfer a false path.  The fit then took 25 min (preparation
+   4.5, placement preparation 3.7, placement 2.4, routing 7.5): **38,359
+   ALMs (92 %), 538/553 M10K, the card 713 ALMs and 310 M10K, the NuChip
+   52, soft power 15; timing met at every corner** (worst register-to-
+   register 0.020 ns at slow -40C, the capture under A or B at every
+   corner, 204 slacks in the flow's summary none negative), no loop.  The
+   PLL as built: 94.0032 x 1071/128 / 26 = 30.2497 MHz (30.24 asked;
+   +0.03 %, 66.69 Hz).  Archived `MacIIcx_d532ae06_async.rbf`.  The fourth
+   compile's address-path latch (26b7fe87) stays: it is correct NuBus
+   behaviour and keeps the kernel's adder out of 300 M10K.
 5. Compile, then the board.
 
 ## 14.4 Still open
@@ -20220,6 +20249,18 @@ other bits; `$51000000-$5FFFFFFF` on the IIcx (UI6 stand-in).
 (FUTURE ADDITIONS 8: every candidate reviewed; the IIci open, low
 priority); the card is Apple's original Macintosh II Video Card, 512 KB
 (8-bit); one repository, two Quartus projects (Atari800's pattern).
+
+**UPDATE 2026-10-10 (01:25) - THE IIcx COMPILES.** The open problem above is
+closed: the cause was MacSE30.sdc's clock groups, not the PLL or the address
+path (14.3 step 4, the sixth compile).  `iicx` d532ae0 = the SDC fix (one
+line: the card's clock asynchronous to every other clock); this record
+follows it.  `output_files/MacIIcx_d532ae06_async.rbf` is the first full
+IIcx bitstream: 38,359 ALMs, 538/553 M10K, timing met at every corner,
+25-minute fit.  Not yet on the board.  **Next:** Daniel's board test of it
+with `games/MACIICX/boot0.rom`, `boot2.rom` and `boot3.rom` (the card ROM,
+`342-0008-a.bin`), then the NuBus timing against Low End Mac's Graphics
+0.25.  The bisect proposed above is not needed.  Still uncommitted:
+`sim/gcrread`'s one-drive change; `sim/mmu16`'s stray logs are untracked.
 
 ---
 
