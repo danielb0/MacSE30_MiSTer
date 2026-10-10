@@ -20455,6 +20455,15 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   display; the blue in 256 Colors is judged after.
 - For the colour card option (FUTURE ADDITIONS): build every byte-wide
   slot register to the lane rule from the start.
+- **Compile 9 of the IIcx = the fix (iicx 31d4835): `output_files/
+  MacIIcx_31d48350_lanes.rbf` (md5 3f675a9d...), a plain build (no probes,
+  no trace): 37,679 ALMs (90 %), 538/553 M10K, no loop, timing met at
+  every corner (worst +0.088 ns).  FOR DANIEL'S BOARD TEST: boot, Monitors
+  -> 256 Colors and 256 Greys (expect a correct picture at full width; the
+  blue tint in colour is judged here), 16 and 4 colours too, then back to
+  Black & White; Lode Runner or any colour app if there is one on the
+  image.  The debug twin: compile 8's trace build (482e4e69_cardtrace) if
+  anything else needs looking at.**
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
