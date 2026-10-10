@@ -20511,6 +20511,25 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
 - The model's transaction times (a scratch copy of sim/nubus, AS* to the
   acknowledge): VRAM long write or read 894 ns (~9 NuBus clocks, block
   RAM and SDRAM alike), register/status/ROM 511 ns (~5), RAMDAC 574 ns.
+- **Speedometer 3.23's main Graphics score per depth, compile 9 (Daniel,
+  18:45), against the real IIcx (3.06, Low End Mac):**
+
+  | depth | this core | real IIcx | ratio |
+  |---|---|---|---|
+  | 1-bit (B&W) | 6.158 | 5.81 | 1.06 |
+  | 2-bit (4 colours) | 4.880 | 5.06 | 0.96 |
+  | 4-bit (16 colours) | 4.451 | 4.84 | 0.92 |
+  | 8-bit (256 colours) | 4.72 | 4.88 | 0.97 |
+
+  The shape is the real card's - the 1-bit lift is there (30 % over 8-bit
+  against the real 19 %) - and every level is within 8 % with mixed signs,
+  while the two Speedometer versions themselves disagree by 11 % at 8-bit.
+  **The NuBus timing is accepted as built** (~9 NuBus clocks a VRAM
+  access, ~5 a register access): no documented figure to build to, and
+  the measurement cannot tell a better setting from this one (the Math
+  precedent, KNOWN ISSUES).  Daniel notes Speedometer 3.23 appears to run
+  its graphics test in greyscale rather than colour - noted, not chased.
+  Section 14's step 3 (the card's CPU-side speed, 14.2 item 12) is CLOSED.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
