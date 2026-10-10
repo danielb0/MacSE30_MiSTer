@@ -20497,6 +20497,20 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   Speedometer 3.23's Graphics at each depth for the shape, the model's
   per-transaction time from the bench, then wait states in the NuChip
   or the card's acknowledge until both the level and the shape match.
+- **Speedometer 3.23, compile 9 (Daniel, 18:35; `20261010_183501-screen.png`),
+  Classic = 1.0, beside its Mac LC II record:** CPU 4.21 (real IIcx 4.24),
+  **Graphics 4.72** (the monitor at 256 Colors; real IIcx at 8-bit 4.88 ->
+  3 % SLOW, where 4.02 read 8 % fast: the two Speedometers disagree by
+  11 %, so the NuBus level is within the measurement's spread), Disk 3.01,
+  Math 7.63 (real 6.63-6.70, the accepted deviation), New PR 4.20; the
+  integer set 3.94-6.65; FPU 1.15/1.26/1.34; the colour sub-tests
+  Monochrome 1.51, 2-bit 1.62, 4-bit 1.74, 8-bit 1.83 (the LC II record
+  rises the same way, 1.12 -> 1.29: the test's own shape, not the bus's).
+  Still wanted for the shape: the MAIN Graphics score with the monitor at
+  B&W, 2-bit and 4-bit (real IIcx 5.81, 5.06, 4.84 against 4.88 at 8-bit).
+- The model's transaction times (a scratch copy of sim/nubus, AS* to the
+  acknowledge): VRAM long write or read 894 ns (~9 NuBus clocks, block
+  RAM and SDRAM alike), register/status/ROM 511 ns (~5), RAMDAC 574 ns.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
