@@ -17834,6 +17834,18 @@ Daniel - add to it, move items out when fixed).**
     CD-ROM 5.1.7 or later (System 7.5.3 onward ships it; it runs on
     7.1), or keep a disc mounted; 4.0.x and 5.0.1 poll an empty drive
     into a crawl. CLOSED as an authentic driver behaviour.
+16. **NOT REPRODUCED (2026-10-10, 22:00): a forum user's "disk 0 stopped
+    booting after the Finder initialised a blank disk 1"** (the SE/30
+    release core, Daniel's 80 MB 7.1 image as SCSI-0, a 1 GB image with a
+    partition map and driver but no volume as SCSI-1; after the initialise
+    and a restart, the flashing ? ). On the board with the same shape (a
+    1 GB image built from the 7.1 disk's own DDM, map and Apple_Driver43,
+    the HFS partition blank: `C:	emp\Maclank_1GB_apm.img`; a bare
+    zero-filled file draws no initialise offer, the ROM loads no driver
+    for it): the Finder initialises it, the restart boots 7.1 as before.
+    The one SCSI engine serving both IDs is clear for this case. Left with
+    the user: which image sat in which slot after the restart, whether the
+    80 MB file is intact, the Startup Disk setting.
     **Built** in `rtl/se30_flp_loader.v` (`held`; a new input `mac_reset_n`
     = `machine_reset_n`): at a mount pulse with a disk in, `held`,
     `readonly` (the drive's write-protect, and the decoder and writer's
