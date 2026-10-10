@@ -20370,6 +20370,43 @@ Daniel loads it, restarts, sets 256 Colors; the trace shows the word
 write's beats as the CPU issued them (size, FC, lanes) and any exception
 around it.
 
+**END OF SESSION 2026-10-10 (11:50, Daniel closed it: "time to rethink the
+problem") - READ THIS TO RESUME.**  Compile 8 = `output_files/
+MacIIcx_482e4e69_cardtrace.rbf` (timing met every corner, 545/553 M10K) IS
+ON THE BOARD and the trace works (`quartus_stp -t scripts/read_cardtrace.tcl`
+dumps 1024 entries in 3 s; the boot's slot probes show as TIMEOUT + vector-2
+EXCEPTION pairs with their PC, the system's boot SetMode as the word
+`00B700B7` siz 2 be 1100 then the 16 bytes then registers 3 and 2).  **Two
+flaws found in use:** the VBL handler's `clr.b` to $A0003 arrives 60/s, so
+the trace wraps in 17 s (a 4-second dump loop copes), and the filter
+`card_addr[19:18] != 0` let the UPPER VRAM through: the 8-bit frame buffer's
+gray fill wrote the trace full within milliseconds of the switch, so the
+switch's register writes were lost twice.  The fix is one line (take
+`card_addr[19:17] == 3'b100 || card_addr[19:16] == 4'hA` only) + benches +
+a 40-minute compile - NOT applied (Daniel stopped).  **What is established:**
+PCRD proved the 256-colour SetMode reaches the card as ONE register write,
+lane-3 byte `$B7` at register 15, no table, no page registers (the gamma
+fill's 768 RAMDAC writes do arrive); the boot's two SetModes (1 bpp) arrive
+whole; the card obeys its last write.  The scratch benches (`drvsim/`,
+`drvsim2/` in the session scratchpad: the real driver bytes through the
+kernel; drvsim2 with the real VBL wait, the card's level-2 interrupt enabled
+through VIA2 CA1 and a handler, the blanking edge forced during the wait,
+data cache off because the poll would otherwise hit the cache) are CLEAN
+in both SetModes - the interrupt taken right before the word write is
+handled.  The PRAM test: with the nvr active the boot SetMode was still 1
+bpp, so the depth was not saved or not applied (separate question).
+**Rethink options for the next session:** (a) MAME: Lua-tap the TFB
+register writes during a real 256-colour switch under the same System to
+get the software's true sequence (as KNOWN ISSUES 12 was settled) - if
+MAME's card receives word + table, our kernel's handling of the word write
+in THAT context (24-bit PMMU, after the gamma fill, Monitors' Control call)
+is the fault; (b) instrument the CPU side instead of the card: the kernel's
+PC, SIZ, A1:0 and data for every write to $F908xxxx (tg68k.v has p_pc), a
+few dozen entries; (c) the one-line trace filter fix + compile, then the
+dump within seconds of the switch.  The branch: `iicx` = dev + 43 commits,
+unpushed; `rtl/build_tag.v` and `MacIIcx.qsf` restored; the `.sof` archive
+stopped (573cd10).
+
 ---
 
 ## Appendix - where the sources are
