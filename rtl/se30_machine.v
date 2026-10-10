@@ -124,6 +124,9 @@ module se30_machine #(
   output        vidout,
   output [23:0] rgb,
   output [63:0] dbg_card,                       // the IIcx card's instrument (nubus_tfb's dbg)
+  input   [9:0] dbg_tr_addr,                    // the IIcx board trace (plan 14.3 step 6): entry to read ...
+  output [63:0] dbg_tr_data,                    // ... the entry, a clock later; MacSE30.sv's PCRT
+  output  [9:0] dbg_tr_wptr,                    // ... the next entry written (the oldest, once wrapped)
   output        hsync_n,
   output        vsync_n,
   output        hblank,
@@ -553,11 +556,38 @@ module se30_machine #(
       .clk_pix(clk_pix), .r(rgb[23:16]), .g(rgb[15:8]), .b(rgb[7:0]),
       .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank));
     assign vr_addr = 23'h500000 + {6'd0, up_addr};     // longword $500000 = word $A00000 = 20 MB (plan 14.3 item 4)
+
+    // the board trace (plan 14.3 step 6): every write the card receives
+    // outside its VRAM (registers, RAMDAC, the VBL area), every NuBus
+    // timeout, every exception but A-line, F-line, interrupts and TRAPs -
+    // 1024 entries, the oldest overwritten.  type 0 = a card write
+    // {2'd0, be, fc, siz, 0, slot address[19:0], the data}; 1 = a timeout
+    // {2'd1, be, fc, siz, 0, slot address, the CPU address}; 2 = an
+    // exception {2'd2, 6'd0, vector, opcode, PC}.  Read by scripts/read_cardtrace.tcl.
+    reg  [63:0] tr_mem [0:1023];
+    reg   [9:0] tr_wp = 10'd0;
+    reg  [63:0] tr_q = 64'd0;
+    reg         card_sel_q = 1'b0, nb_berr_q = 1'b0;
+    wire  [7:0] exc_v   = dbg_exc[55:48];
+    wire        tr_exc  = dbg_exc[56] && (exc_v != 8'd10) && (exc_v != 8'd11) && !((exc_v >= 8'd24) && (exc_v <= 8'd47));
+    wire        tr_wr   = card_sel && !card_sel_q && !card_rw && (card_addr[19:18] != 2'b00);
+    wire        tr_to   = nb_berr && !nb_berr_q;
+    wire [63:0] tr_in   = tr_exc ? {2'd2, 6'd0, exc_v, dbg_exc[47:0]} :
+                          tr_to  ? {2'd1, slot_be, cpu_fc, cpu_siz, 1'b0, cpu_addr[19:0], cpu_addr} :
+                                   {2'd0, card_be, cpu_fc, cpu_siz, 1'b0, card_addr, card_wdata};
+    always @(posedge clk) begin
+      card_sel_q <= card_sel; nb_berr_q <= nb_berr;
+      if (tr_exc || tr_to || tr_wr) begin tr_mem[tr_wp] <= tr_in; tr_wp <= tr_wp + 1'b1; end
+      tr_q <= tr_mem[dbg_tr_addr];
+    end
+    assign dbg_tr_data = tr_q;
+    assign dbg_tr_wptr = tr_wp;
   end else begin : g_se30
     assign vr_req = 1'b0; assign vr_we = 1'b0; assign vr_addr = 23'h0; assign vr_be = 4'h0; assign vr_wdata = 32'h0;
     assign card_irq_n = 1'b1; assign nb_dsack_n = 2'b11; assign nb_rdata = 32'h0; assign nb_berr = 1'b0; assign nb_tm = 2'b11;
     assign rgb = {24{~vidout}};
     assign dbg_card = 64'd0;
+    assign dbg_tr_data = 64'd0; assign dbg_tr_wptr = 10'd0;
     assign vid_sel = slot_sel && (cpu_addr[31:24] == 8'hFE);
     se30_video #(.DECLROM_HEX(DECLROM_HEX), .V_TOTAL(V_TOTAL)) video (
       .clk(clk), .c16_en(phi1), .reset_n(reset_n),

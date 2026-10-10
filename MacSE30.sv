@@ -696,7 +696,8 @@ se30_sdram sdram
 
 wire        vidout, hsync_n, vsync_n, hblank, vblank;
 wire [23:0] rgb;
-wire [63:0] dbg_card;
+wire [63:0] dbg_card, dbg_tr_data;
+wire  [9:0] dbg_tr_addr, dbg_tr_wptr;
 wire [31:0] dbg_addr;
 wire  [2:0] dbg_fc;
 wire  [1:0] dbg_dsack_n;
@@ -732,6 +733,7 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 	.poweroff_req(poweroff_req),
 	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
 	.vidout(vidout), .rgb(rgb), .dbg_card(dbg_card), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
+	.dbg_tr_addr(dbg_tr_addr), .dbg_tr_data(dbg_tr_data), .dbg_tr_wptr(dbg_tr_wptr),
 	.nmi_n(1'b1),
 	.pace_en(1'b1),
 	.dbg_addr(dbg_addr), .dbg_fc(dbg_fc), .dbg_as_n(dbg_as_n), .dbg_rw_n(dbg_rw_n),
@@ -780,12 +782,24 @@ assign VGA_B  = pwr_off ? 8'd0 : rgb[7:0];
 // MacIIcx.qsf (a debug build, not a release).  Independent of the deck
 // below, which the IIcx build has no room for.
 `ifdef SE30_CARD_PROBE
-reg [63:0] pcrd_r = 0;
-always @(posedge clk_sys) pcrd_r <= dbg_card;
+reg [63:0] pcrd_r = 0, pcrt_r = 0;
+reg [15:0] pcrw_r = 0;
+always @(posedge clk_sys) begin pcrd_r <= dbg_card; pcrt_r <= dbg_tr_data; pcrw_r <= {6'd0, dbg_tr_wptr}; end
 altsource_probe #(
 	.instance_id ("PCRD"), .probe_width (64), .source_width (1),
 	.sld_auto_instance_index ("YES")
 ) cp_pcrd (.probe(pcrd_r), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+// the trace: PCRT's source is the entry to read, its probe the entry; PCRW the write pointer
+altsource_probe #(
+	.instance_id ("PCRT"), .probe_width (64), .source_width (10),
+	.sld_auto_instance_index ("YES")
+) cp_pcrt (.probe(pcrt_r), .source(dbg_tr_addr), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(
+	.instance_id ("PCRW"), .probe_width (16), .source_width (1),
+	.sld_auto_instance_index ("YES")
+) cp_pcrw (.probe(pcrw_r), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+`else
+assign dbg_tr_addr = 10'd0;
 `endif
 
 // JTAG In-System Probes for the bring-up (plan 3.5), read with
