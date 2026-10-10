@@ -20473,6 +20473,13 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   simply looking at the wrong side.  Lesson for the plan's lessons list:
   when the software's behaviour is in question, MAME's write tap is a
   20-minute ground truth - use it before building instruments.
+- TattleTech on the IIcx (System 7.5.5, 18:14, screenshot
+  `C:	emp\Mac\Screenshots61010_181409-screen.png`): 3 NuBus slots,
+  slot $09 = "Toby frame buffer card", Board ID 5, Apple Computer,
+  Beta-7.0, TFB-1, sResource $80 Display_Video_Apple_TFB (Category 3
+  Display, Type 1 Video, SW 1, HW 1), driver -49 - the declaration ROM
+  read whole; the desktop in colour with the QuarkXPress and System icons
+  in their proper colours, so the blue tint is gone with the lane fix.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
