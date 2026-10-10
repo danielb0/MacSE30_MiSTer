@@ -17856,6 +17856,14 @@ Daniel - add to it, move items out when fixed).**
     disk 0 while disk 1 was initialised. Daniel is asking the user for
     his "corrupted" boot image, to compare block by block against the
     copy he posted.
+    **The user's whole path run on the board (Daniel, 2026-10-11):**
+    boot from the MacPack disk, Finder-initialise the blank 1 GB raw
+    image, install System 7.1 onto it from the diskette set (the
+    Installer's own eject-and-request swaps), inspect both hard disks
+    (neither corrupted), swap the disks, boot from the new 7.1 disk:
+    everything works. The floppy-install path, the Finder-initialised
+    16 KB-block volume and a first boot from it are board-proven;
+    whatever happened to the user did not happen here.
     *Both images read back from the SD card after the test (22:20):*
     the 1 GB disk is a valid HFS volume ("Untitled", 65,529 allocation
     blocks of 16 KB, ~256 KB written, all volume structures); the 7.1
