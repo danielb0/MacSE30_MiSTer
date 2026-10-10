@@ -17865,6 +17865,17 @@ Daniel - add to it, move items out when fixed).**
     everything works. The floppy-install path, the Finder-initialised
     16 KB-block volume and a first boot from it are board-proven;
     whatever happened to the user did not happen here.
+    *The images, read on the PC afterwards (00:40):* the nine 800K
+    install diskettes (raw) differ from their originals in at most ONE
+    block each - the MDB's last-modified date and write count, the
+    Mac's mount bookkeeping (Disk Tools and Printing untouched). The
+    1 GB disk was the zero-filled raw file (`blank_1GB.img`), which
+    **Apple HD SC Setup from the Disk Tools diskette initialised** -
+    it wrote the DDM, the Apple partition map (HFS at block 96, the
+    driver at 64, free space at the end) and Apple_Driver43 - and the
+    Installer put System 7.1 and Finder 7.1 on it with boot blocks
+    (`LK`) present. So Apple's own disk formatter accepts the core's
+    SCSI disk: board-proven, first time.
     *Both images read back from the SD card after the test (22:20):*
     the 1 GB disk is a valid HFS volume ("Untitled", 65,529 allocation
     blocks of 16 KB, ~256 KB written, all volume structures); the 7.1
