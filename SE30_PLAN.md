@@ -20571,8 +20571,9 @@ showed no bus error, no NuBus timeout, no exception beyond traps and
 interrupts, the System driver's VBL handler running at full rate early in
 the boot and then almost never, and QuickDraw drawing at ~20 longwords a
 second; B&W or 8-bit made no difference; MAME boots the same image to the
-desktop normally.  Likely the image's own configuration (Virtual Memory,
-a cache setting or an extension - a Shift boot disables all three).
+desktop normally.  **Settled (20:15): a Shift boot - extensions off - runs
+at full speed, so one of the image's extensions or control panels is the
+cause; Daniel is sorting them.**
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
