@@ -17773,6 +17773,24 @@ Daniel - add to it, move items out when fixed).**
     (or the machine resets); then the new image loads. (Option A, holding
     the new disk out until the Mac sees an empty drive, was declined: an
     idle Mac would need a "Please insert the disk" dialog cancelled.)
+15. **OPEN (2026-10-10, Daniel): Apple CD-ROM 5.0.1 with NO disc mounted
+    makes the Mac crawl** - on the IIcx and the SE/30 builds alike; a disc
+    mounted at boot, or extensions off, and it runs at full speed; System
+    7.5.5's newer extension is fine with an empty drive. Found on Daniel's
+    7.1 image (`mac_80mb-7.1.vhd`: Apple CD-ROM 5.0.1, Foreign File Access
+    5.0, ISO 9660 File Access 5.0, Audio CD Access 5.0, AppleCD Speed
+    Switch 1.0). What the IIcx trace saw during the crawl: no bus error,
+    no NuBus timeout, the card's VBL handler starved to ~0.1/s, QuickDraw
+    at ~20 longwords/s. A real AppleCD SC with 5.0.1 and no disc did not
+    crawl a real Mac, so either our target's answer to the empty-drive
+    poll (TEST UNIT READY -> CHECK CONDITION, REQUEST SENSE -> NOT READY /
+    $B7, the SC firmware's code at $079B) is not what 5.0.1 expects, or
+    each poll costs far more time on our bus than on the real one.
+    **To measure:** the SE/30 debug build's SCSI probe (`read_probes.tcl
+    scsitime`, PSCS) on compile 54 (`MacSE30_dd3e3881_chk2.rbf`) with the
+    7.1 image and no CD: the command stream, the poll rate and the time
+    each poll takes; and the extension's own code (its INIT resource,
+    disassembled) for what it does with each sense code.
     **Built** in `rtl/se30_flp_loader.v` (`held`; a new input `mac_reset_n`
     = `machine_reset_n`): at a mount pulse with a disk in, `held`,
     `readonly` (the drive's write-protect, and the decoder and writer's
