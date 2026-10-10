@@ -20563,6 +20563,17 @@ their feedback, cut the IIcx release and push it to MiSTer-devel as a
 second rbf from the same repository (its own wiki Cores row for update_all;
 `games/MACIICX`).
 
+*Not a core problem (2026-10-10, 20:10):* Daniel's System 7.1 image
+(`mac_80mb-7.1.vhd`) crawls on the IIcx build - and, retried, equally on
+the SE/30 core, so it is the image's state, not either machine.  Recorded
+because the IIcx trace build was used on it first: 24 s of the slow phase
+showed no bus error, no NuBus timeout, no exception beyond traps and
+interrupts, the System driver's VBL handler running at full rate early in
+the boot and then almost never, and QuickDraw drawing at ~20 longwords a
+second; B&W or 8-bit made no difference; MAME boots the same image to the
+desktop normally.  Likely the image's own configuration (Virtual Memory,
+a cache setting or an extension - a Shift boot disables all three).
+
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
 the Toby card with our `342-0008-a.bin` in `roms/nb_m2vc/`, `boo16.chd`,
