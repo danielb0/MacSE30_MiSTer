@@ -20480,6 +20480,10 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   Display, Type 1 Video, SW 1, HW 1), driver -49 - the declaration ROM
   read whole; the desktop in colour with the QuarkXPress and System icons
   in their proper colours, so the blue tint is gone with the lane fix.
+- The saved depth (Daniel, 18:20): it DOES apply - the Mac comes up in
+  the chosen depth after a restart and after reloading the core, so the
+  IIcx's PRAM save works too.  This morning's "not applied" was the
+  table being dropped at the boot-time SetMode as well; nothing to fix.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
