@@ -17840,7 +17840,7 @@ Daniel - add to it, move items out when fixed).**
     partition map and driver but no volume as SCSI-1; after the initialise
     and a restart, the flashing ? ). On the board with the same shape (a
     1 GB image built from the 7.1 disk's own DDM, map and Apple_Driver43,
-    the HFS partition blank: `C:	emp\Maclank_1GB_apm.img`; a bare
+    the HFS partition blank: `C:\temp\Mac\blank_1GB_apm.img`; a bare
     zero-filled file draws no initialise offer, the ROM loads no driver
     for it): the Finder initialises it, the restart boots 7.1 as before.
     The one SCSI engine serving both IDs is clear for this case. Left with
