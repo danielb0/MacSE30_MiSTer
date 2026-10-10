@@ -17876,6 +17876,15 @@ Daniel - add to it, move items out when fixed).**
     Installer put System 7.1 and Finder 7.1 on it with boot blocks
     (`LK`) present. So Apple's own disk formatter accepts the core's
     SCSI disk: board-proven, first time.
+    **A likely cause, from experience (Daniel, 2026-10-11): the same
+    image file mounted in SCSI-1 while it is still mounted in SCSI-0.**
+    The Mac then has two volumes sharing every block; each write through
+    one leaves the other's catalog and bitmap stale, and the next write
+    through that one puts the stale structures back - "it will nuke a
+    disk very thoroughly". The core cannot detect it (the HPS gives a
+    slot a size and a mounted flag, not a path, and two identical
+    blanks in two slots are legitimate). **README warning to add:**
+    never mount one image in two slots.
     *Both images read back from the SD card after the test (22:20):*
     the 1 GB disk is a valid HFS volume ("Untitled", 65,529 allocation
     blocks of 16 KB, ~256 KB written, all volume structures); the 7.1
