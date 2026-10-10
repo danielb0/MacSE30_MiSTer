@@ -20545,6 +20545,24 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   OSD's "Power switch: Locked on" makes Shut Down a restart instead.
   Step 5 of the design is board-proven.
 
+**MERGED 2026-10-10 (19:40): `iicx` fast-forwarded into `dev`** (Daniel's
+go-ahead; dev = 93e4432, 58 commits ahead of origin, unpushed).  The two
+machines are two Quartus revisions of one project: `MacSE30.qsf` (macro
+USE_DBG_PROBES) and `MacIIcx.qsf` (macro MACIICX), the same files and
+pins; the revision name on the command line chooses the compile.  The
+scripts now know both: `sta_corners.tcl <revision>` and `archive_build.ps1
+<label> -Revision MacIIcx` (MacSE30 by default); `build_only.sh` needs
+QUARTUS_REVISION set with two qsfs present.  The SE/30 side checked on the
+merged tree: sim/machine SE/30 17 PASS, Analysis & Elaboration of MacSE30
+(below).  **THE PLAN FROM HERE (Daniel):** post the current IIcx build on
+the forum for testers first - the package is staged at
+`C:	emp\Mac\IIcx_forum` (`_Computer/MacIIcx_20261010.rbf` = compile 9,
+md5 3f675a9d; `games/MACIICX/boot0.rom` 97221136, `boot2.rom` 342s0440-b,
+`boot3.rom` 342-0008-a, a blank `MacIIcx.nvr`; README.txt) - then, after
+their feedback, cut the IIcx release and push it to MiSTer-devel as a
+second rbf from the same repository (its own wiki Cores row for update_all;
+`games/MACIICX`).
+
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
 the Toby card with our `342-0008-a.bin` in `roms/nb_m2vc/`, `boo16.chd`,
