@@ -20474,7 +20474,7 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   when the software's behaviour is in question, MAME's write tap is a
   20-minute ground truth - use it before building instruments.
 - TattleTech on the IIcx (System 7.5.5, 18:14, screenshot
-  `C:	emp\Mac\Screenshots61010_181409-screen.png`): 3 NuBus slots,
+  `C:\temp\Mac\Screenshots\20261010_181409-screen.png`): 3 NuBus slots,
   slot $09 = "Toby frame buffer card", Board ID 5, Apple Computer,
   Beta-7.0, TFB-1, sResource $80 Display_Video_Apple_TFB (Category 3
   Display, Type 1 Video, SW 1, HW 1), driver -49 - the declaration ROM
