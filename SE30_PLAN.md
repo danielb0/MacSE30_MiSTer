@@ -20422,7 +20422,7 @@ our card reads ~wdata[29:28] (3, then 3) - no contradiction, the table
 must arrive either way.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30) - MAME's write tap.**  MAME's IIcx
-(`C:	emp\Mac\mame`: `maciicx -nb9 m2video`, the Toby card with our
+(`C:\temp\Mac\mame`: `maciicx -nb9 m2video`, the Toby card with our
 `342-0008-a.bin` staged in `roms/nb_m2vc/`, `roms/maciicx/` = the IIx ROM +
 the ADB modem ROM, `boo16.chd`, `-video opengl` - the default d3d crashes
 inside `tfb_w` once a Lua tap is installed; `tapcard.lua` logs every write
@@ -20460,7 +20460,7 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
 the Toby card with our `342-0008-a.bin` in `roms/nb_m2vc/`, `boo16.chd`,
 `-video opengl` - the default d3d crashes inside `tfb_w` when a Lua tap is
-installed) with `C:	emp\Mac\mame	apcard.lua` logging every write to
+installed) with `C:\temp\Mac\mame	apcard.lua` logging every write to
 $F908xxxx/$F909xxxx/$F90Axxxx with the PC (`cardtap.log`, 7,206 lines, kept):
 - At boot the ROM's driver (PC $2BCA-$3FF8, the Slot Manager's copy) writes
   the registers as BYTES AT OFFSET 0 of each longword = the 68030's D31-D24
