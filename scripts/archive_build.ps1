@@ -3,7 +3,9 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/archive_build.ps1 dqrise
 #   (the machine's execution policy blocks scripts without the Bypass)
 #
-# Produces output_files/MacSE30_<sha>_<label>.rbf (and .sof).
+# Produces output_files/MacSE30_<sha>_<label>.rbf.  (The .sof is not copied:
+# MiSTer loads the .rbf and nothing here programs the FPGA over JTAG, so the
+# 56 archived .sof files of 2026-10-10 were 359 MB of nothing - Daniel.)
 #
 # Why (MacPlus, 2026-08-22): two builds produced byte-identical hardware
 # captures and answering "which build was that?" took a JTAG session
@@ -51,7 +53,7 @@ try {
         $dirty | ForEach-Object { Write-Warning "  $_" }
     }
 
-    foreach ($ext in 'rbf','sof') {
+    foreach ($ext in 'rbf') {
         $src = "output_files/MacSE30.$ext"
         if (-not (Test-Path $src)) { Write-Warning "no $src, skipping"; continue }
         $dst = "output_files/MacSE30_${sha}_${Label}.$ext"
