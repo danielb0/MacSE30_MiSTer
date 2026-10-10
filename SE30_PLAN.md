@@ -17860,7 +17860,8 @@ Daniel - add to it, move items out when fixed).**
     boot from the MacPack disk, Finder-initialise the blank 1 GB raw
     image, install System 7.1 onto it from the diskette set (the
     Installer's own eject-and-request swaps), inspect both hard disks
-    (neither corrupted), swap the disks, boot from the new 7.1 disk:
+    (neither corrupted), swap the disks, boot from the new 7.1 disk,
+    then boot from the MacPack disk again (the user's failing step):
     everything works. The floppy-install path, the Finder-initialised
     16 KB-block volume and a first boot from it are board-proven;
     whatever happened to the user did not happen here.
