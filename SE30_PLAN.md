@@ -17814,6 +17814,15 @@ Daniel - add to it, move items out when fixed).**
     SC emulated, use the CD extensions that match the System (7.1's
     Apple CD-ROM 4.0.x, or 7.5.x's 5.1 and later), or keep a disc
     mounted; Apple CD-ROM 5.0.1 with an empty drive crawls.
+    *Daniel, 20:50: System 7.1's own Apple CD-ROM 4.0.x installed instead
+    - "if anything it was worse". A period witness (Low End Mac, quoted
+    by Daniel): "Apple's driver is crap - bulky and slow, constantly
+    polling and taking up resources"; FWB's CD-ROM Toolkit recommended
+    instead. Consistent with the code: Apple's drivers of the time poll
+    the drive and wait on the SC's `$B7`. Still to see, if wanted: the
+    board's SCSI probe on the crawl (compile 54, `read_probes.tcl
+    scsitime`) and 4.0.x's own error path; FWB's Toolkit as the
+    user-side remedy, with a disc mounted the other.*
     **Built** in `rtl/se30_flp_loader.v` (`held`; a new input `mac_reset_n`
     = `machine_reset_n`): at a mount pulse with a disk in, `held`,
     `readonly` (the drive's write-protect, and the decoder and writer's
