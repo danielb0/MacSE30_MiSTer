@@ -20530,6 +20530,13 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   precedent, KNOWN ISSUES).  Daniel notes Speedometer 3.23 appears to run
   its graphics test in greyscale rather than colour - noted, not chased.
   Section 14's step 3 (the card's CPU-side speed, 14.2 item 12) is CLOSED.
+- **The VBL status level (14.4): CLOSED on the board (Daniel, 19:00).**
+  Prince of Persia's intro colour-cycles continuously through the Palette
+  Manager and its fades change every entry per frame; both look right, no
+  seam, no flash - so the driver's wait edge (0 -> 1 at `$D0000`) is the
+  start of blanking, as the card returns it (1 in blanking).  MAME's 0 in
+  blanking is the one that is wrong, or the real card inverts the bit on
+  the bus - either way ours matches the real machine's visible behaviour.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
