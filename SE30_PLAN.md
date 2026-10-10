@@ -17791,6 +17791,29 @@ Daniel - add to it, move items out when fixed).**
     7.1 image and no CD: the command stream, the poll rate and the time
     each poll takes; and the extension's own code (its INIT resource,
     disassembled) for what it does with each sense code.
+    **RESOLVED AS AUTHENTIC (2026-10-10, 20:30), from the driver's own
+    code** (`.AppleCD` DRVR 32 of Apple CD-ROM 5.0.1, "1987-1994" - the
+    System 7.5 extension, not 7.1's 4.0.x; unidasm, session scratchpad
+    `cdrom501/DRVR_32.asm`): its error path `$78D6-$798E` reads the sense
+    after a failed command; key NOT READY with ASC `$B7`, or `$04` with
+    ASCQ 1 (becoming ready), goes to `$7964`: the retry counter is
+    decremented, the driver busy-waits 30 ticks on TickCount, then the
+    counter is incremented back and the command retried - FOREVER, every
+    half second, for as long as the drive answers `$B7`; every other
+    sense (`$3A` medium not present included) counts towards five tries
+    and gives up. Its ASC translation (`$1DA0-$1E30`) also classes `$B7`
+    with `$04`/1 as "wait for the drive". The AppleCD SC's firmware
+    answers TEST UNIT READY with no disc exactly so: the media commands'
+    common prologue (`audit_applecd_sc_firmware.md`: state `$0F`, after
+    the first 6/`$28`) gives key 2 ASC `$B7` (`$079B`) - and `scsi.v`
+    follows it. So a real AppleCD SC with no disc under Apple CD-ROM
+    5.0.1 gets the same half-second retries from the driver's periodic
+    task (VBLF = 120 ticks): the crawl is the two Apple products'
+    interaction, not the core's. Nothing to change in the target: the
+    SC's answer is documented and replicated. **README note:** with the
+    SC emulated, use the CD extensions that match the System (7.1's
+    Apple CD-ROM 4.0.x, or 7.5.x's 5.1 and later), or keep a disc
+    mounted; Apple CD-ROM 5.0.1 with an empty drive crawls.
     **Built** in `rtl/se30_flp_loader.v` (`held`; a new input `mac_reset_n`
     = `machine_reset_n`): at a mount pulse with a disk in, `held`,
     `readonly` (the drive's write-protect, and the decoder and writer's
