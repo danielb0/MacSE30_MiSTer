@@ -20331,6 +20331,45 @@ at the scan side's load at line 524.  Also this morning: the archived
 now copies only the `.rbf` (573cd10); the 56 old `.sof` files (359 MB)
 can be deleted.
 
+**UPDATE 2026-10-10 (11:00) - WHAT PCRD SAID, AND THE TRACE.**  Compile 7
+on the board (Daniel), the machine in 256 colours, magnified 8x: register
+15's last four bus bytes `37 00 37 B7`, last register 15, 52 register
+writes, 20 RAMDAC writes, 1 reset, depth 0, depth_p 0 - unchanging over
+three samples.  Decoded against the driver's tables (the card ROM holds the
+driver reversed AND inverted; the 1 bpp table's register-15 byte is `$C8`,
+`$37` on the bus; the 8 bpp table's `$F9`, `$06`; Reset's own table at
+driver $8EC is written raw, register 15 first, `$DF`): the card's last
+write was the word `$00B7`'s LOW byte, alone, on lane 3, bits 5:4 = 11 ->
+depth 0 - the card obeyed what it was given.  **Across a restart** (the
+probe sampled once a second): Open's Reset = the raw table (`DF`) and a
+16-byte table (`37`), 32 writes, the word write's `00` NOT seen; then the
+system's SetMode 1 bpp = `00`, table `37`, registers 3 and 2, 19 writes
+(= the driver's $984 page set); the desktop in black and white, 103
+writes.  **Then Monitors -> 256 Colors: exactly ONE register write, `B7`
+at register 15 (103 -> 104), RAMDAC +3 (+768, the gamma fill), no table,
+no page registers; the screen magnified.**  So on the board the 8 bpp
+SetMode's word write reaches the card as a single lane-3 byte and the 16
+table writes that follow it in the driver's code ($932-$93A, no branch
+between) never arrive - a kernel-side event.  **In simulation it is
+clean:** a scratch bench (session scratchpad `drvsim/`: a 256 KB ROM
+holding the real driver bytes at $1000, the VBL wait NOP'd, caches on,
+Reset + SetMode 1 bpp + SetMode 8 bpp called as the driver calls them,
+through the kernel, GLUE, NuChip and card) logs every register write: the
+word is one beat (`be 1100`, data `00B700B7`), the tables follow, depth 3,
+50 writes - 7 checks PASS.  The bench runs with the PMMU off in 32-bit
+space; the board runs the driver under the 24-bit PMMU table, with
+interrupts, the real VBL wait ($814's reads of $D0000) and the system
+around it.  **Built next (482e4e6): the board trace** - `se30_machine.v`'s
+1024-entry memory of every non-VRAM write the card receives {be, fc, siz,
+slot address, data}, every NuBus timeout and every exception but
+A-line/F-line/interrupts/TRAPs (vector, opcode, PC), read by
+`scripts/read_cardtrace.tcl` through PCRT (source = entry) and PCRW (the
+pointer); benches PASS, the scratch bench counts its 50 entries.  Compile 8
+started 10:56 (the define in MacIIcx.qsf again, reverted after).  **Then:**
+Daniel loads it, restarts, sets 256 Colors; the trace shows the word
+write's beats as the CPU issued them (size, FC, lanes) and any exception
+around it.
+
 ---
 
 ## Appendix - where the sources are
