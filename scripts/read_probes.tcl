@@ -766,6 +766,15 @@ for {set n 0} {$n < $samples} {incr n} {
 		puts [format "  PSCC  %08X   accesses (low 12 bits)=%d  pointer=%d  /INT=%d  MIE=%d  IPs RxA=%d TxA=%d ExtA=%d RxB=%d TxB=%d ExtB=%d" $p 			[expr {($p >> 20) & 0xFFF}] [expr {($p >> 16) & 0xF}] [expr {($p >> 15) & 1}] [expr {($p >> 14) & 1}] 			[expr {($p >> 13) & 1}] [expr {($p >> 12) & 1}] [expr {($p >> 11) & 1}] [expr {($p >> 10) & 1}] [expr {($p >> 9) & 1}] [expr {($p >> 8) & 1}]]
 		puts [format "        RR0B=%02X  Break/Abort=%d EOM=%d CTS=%d Sync/Hunt=%d DCD=%d TBE=%d ZC=%d RxAvail=%d   (LocalTalk sees the line free when Sync/Hunt=1)" $r0 			[expr {($r0 >> 7) & 1}] [expr {($r0 >> 6) & 1}] [expr {($r0 >> 5) & 1}] [expr {($r0 >> 4) & 1}] 			[expr {($r0 >> 3) & 1}] [expr {($r0 >> 2) & 1}] [expr {($r0 >> 1) & 1}] [expr {$r0 & 1}]]
 	}
+	if {[have PCRD]} {
+		# plan 14.3 step 6: the IIcx card -- {register 15's last four bus
+		# bytes (newest low), register writes[7:0], RAMDAC writes[7:0], the
+		# last register written[3:0], resets[3:0], 4'b0, depth[1:0], depth_p[1:0]}
+		set p [rd PCRD]
+		puts [format "  PCRD  %016llX   register 15, last four bus bytes (oldest first)=%02X %02X %02X %02X  register writes=%d  RAMDAC writes=%d  last register=%d  resets=%d  depth=%d  depth_p=%d" $p \
+			[expr {($p >> 56) & 0xFF}] [expr {($p >> 48) & 0xFF}] [expr {($p >> 40) & 0xFF}] [expr {($p >> 32) & 0xFF}] \
+			[expr {($p >> 24) & 0xFF}] [expr {($p >> 16) & 0xFF}] [expr {($p >> 12) & 0xF}] [expr {($p >> 8) & 0xF}] [expr {($p >> 2) & 3}] [expr {$p & 3}]]
+	}
 	if {[have PCCH]} {
 		# plan 1.16.3: the 68030's caches -- {CDIS*, 0, CACR[13:0]}, then the
 		# instruction and data hits (24 bits each, wrapping)

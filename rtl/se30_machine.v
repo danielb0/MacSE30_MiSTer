@@ -123,6 +123,7 @@ module se30_machine #(
   // video, 1 = black; the IIcx's colour, on clk_pix, in rgb
   output        vidout,
   output [23:0] rgb,
+  output [63:0] dbg_card,                       // the IIcx card's instrument (nubus_tfb's dbg)
   output        hsync_n,
   output        vsync_n,
   output        hblank,
@@ -548,6 +549,7 @@ module se30_machine #(
       .rdata(card_rdata), .ack(card_ack), .irq_n(card_irq_n),
       .rom_we(cardrom_we), .rom_waddr(cardrom_waddr), .rom_wdata(cardrom_wdata),
       .up_req(vr_req), .up_we(vr_we), .up_addr(up_addr), .up_be(vr_be), .up_wdata(vr_wdata), .up_rdata(vr_rdata), .up_ack(vr_ack),
+      .dbg(dbg_card),
       .clk_pix(clk_pix), .r(rgb[23:16]), .g(rgb[15:8]), .b(rgb[7:0]),
       .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank));
     assign vr_addr = 23'h500000 + {6'd0, up_addr};     // longword $500000 = word $A00000 = 20 MB (plan 14.3 item 4)
@@ -555,6 +557,7 @@ module se30_machine #(
     assign vr_req = 1'b0; assign vr_we = 1'b0; assign vr_addr = 23'h0; assign vr_be = 4'h0; assign vr_wdata = 32'h0;
     assign card_irq_n = 1'b1; assign nb_dsack_n = 2'b11; assign nb_rdata = 32'h0; assign nb_berr = 1'b0; assign nb_tm = 2'b11;
     assign rgb = {24{~vidout}};
+    assign dbg_card = 64'd0;
     assign vid_sel = slot_sel && (cpu_addr[31:24] == 8'hFE);
     se30_video #(.DECLROM_HEX(DECLROM_HEX), .V_TOTAL(V_TOTAL)) video (
       .clk(clk), .c16_en(phi1), .reset_n(reset_n),

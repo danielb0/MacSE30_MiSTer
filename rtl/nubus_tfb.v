@@ -84,6 +84,12 @@ module nubus_tfb #(
   input      [31:0] up_rdata,
   input             up_ack,
 
+  // the board instrument (plan 14.3 step 6; MacSE30.sv's PCRD): the last
+  // four bytes written to register 15 as the bus carried them (newest in
+  // the low byte), the register and RAMDAC write counts, the last register
+  // written, the resets seen, the depth as written and as scanned
+  output     [63:0] dbg,
+
   // video, on the dot clock
   input             clk_pix,
   output reg  [7:0] r, g, b,
@@ -159,6 +165,22 @@ module nubus_tfb #(
   reg  sel_q;
   always @(posedge clk or negedge reset_n) if (!reset_n) sel_q <= 0; else sel_q <= sel;
   wire go = sel && !sel_q;
+
+  // ------------------------------------------------- the instrument
+  reg [31:0] dbg_r15 = 0;
+  reg  [7:0] dbg_regw = 0, dbg_dacw = 0;
+  reg  [3:0] dbg_lastreg = 0, dbg_rst = 0;
+  reg        dbg_rst_q = 1;
+  always @(posedge clk) begin
+    dbg_rst_q <= reset_n;
+    if (dbg_rst_q && !reset_n) dbg_rst <= dbg_rst + 1'b1;
+    if (go && !rw && a_reg && be[3]) begin
+      dbg_regw <= dbg_regw + 1'b1; dbg_lastreg <= addr[5:2];
+      if (addr[5:2] == 4'd15) dbg_r15 <= {dbg_r15[23:0], wdata[31:24]};
+    end
+    if (go && !rw && a_dac && be[3]) dbg_dacw <= dbg_dacw + 1'b1;
+  end
+  // (dbg is assigned below depth_p's declaration)
 
   // ------------------------------------------------------ the Bt453
   // address register, a three-step colour pointer (R, G, B), the 256 x 24
@@ -248,6 +270,7 @@ module nubus_tfb #(
   // sync 3, back porch 39.  Depth and base cross once a frame.
   reg  [9:0] hc, vc;
   reg  [1:0] depth_p, depth_s;
+  assign dbg = {dbg_r15, dbg_regw, dbg_dacw, dbg_lastreg, dbg_rst, 4'd0, depth, depth_p};   // the instrument's output (above)
   reg [15:0] base_p, base_s;
   always @(posedge clk_pix) begin
     depth_s <= depth; base_s <= base;  // quasi-static: written by the driver after WaitVBL
