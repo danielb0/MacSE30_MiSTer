@@ -20308,6 +20308,29 @@ qsf's define, Daniel switches to 256 colours and runs
 `quartus_stp -t scripts/read_probes.tcl`: the four bytes say whether $06
 arrived and what followed it.
 
+**UPDATE 2026-10-10 (10:20) - THE INSTRUMENT IS BUILT.**  Applied as
+`iicx` 76ccd6d (the probe edit above, with one correction: `nubus_tfb.v`
+assigns `dbg` below `depth_p`'s declaration, which the instrument block
+precedes).  Benches: sim/nubus 40 PASS, sim/machine 17 PASS as the IIcx
+and 17 as the SE/30.  **Compile 7 of the IIcx** (MacIIcx.qsf with
+`SE30_CARD_PROBE=1`, the define reverted afterwards, so the commit builds
+without the probe): map 9 min, fit 27 min (placement prep 4:01, placement
+2:34, routing ~11 min), 38,408 ALMs (92 %), 538/553 M10K, no loop, **our
+timing met at every corner** (worst +0.020 ns at slow -40 C; the capture
+met on A or B everywhere).  `output_files/MacIIcx_76ccd6dc_cardprobe.rbf`
+(md5 c7fa7fef...).  **For Daniel:** load it, boot, switch to 256 colours,
+then `quartus_stp -t scripts/read_probes.tcl` prints PCRD: register 15's
+last four bus bytes (oldest first), the register and RAMDAC write counts,
+the last register written, the reset count, depth and depth_p.  The
+prediction if the driver's SetMode is the last writer: bytes ending in
+`00 06` (the word $00B7's high byte, then the table's $06), depth 3,
+depth_p 3 - which would contradict the screen; bytes ending in something
+with bits 5:4 = 11 name the later writer; depth 3 with depth_p 0 points
+at the scan side's load at line 524.  Also this morning: the archived
+`.sof` files were never read by anything - `scripts/archive_build.ps1`
+now copies only the `.rbf` (573cd10); the 56 old `.sof` files (359 MB)
+can be deleted.
+
 ---
 
 ## Appendix - where the sources are
