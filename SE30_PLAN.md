@@ -20464,6 +20464,15 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   Black & White; Lode Runner or any colour app if there is one on the
   image.  The debug twin: compile 8's trace build (482e4e69_cardtrace) if
   anything else needs looking at.**
+- **ON THE BOARD (Daniel, 2026-10-10 13:05): "It works."**  Compile 9
+  (`MacIIcx_31d48350_lanes.rbf`) is the IIcx's current bitstream: colour
+  depths switch correctly.  The 256-colour magnification is CLOSED - the
+  cause was the card's byte-lane decode, not the kernel, the GLUE, the
+  NuChip, the PMMU or interrupts; a day's kernel-side instruments
+  (PCRD, the trace, the drvsim benches) all told the truth and were
+  simply looking at the wrong side.  Lesson for the plan's lessons list:
+  when the software's behaviour is in question, MAME's write tap is a
+  20-minute ground truth - use it before building instruments.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
