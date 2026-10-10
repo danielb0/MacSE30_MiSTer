@@ -20421,6 +20421,41 @@ word $00B7 sets MAME's mode 0 for an instant, the table's $06 then sets 3;
 our card reads ~wdata[29:28] (3, then 3) - no contradiction, the table
 must arrive either way.
 
+**ROOT CAUSE FOUND 2026-10-10 (12:30) - MAME's write tap.**  MAME's IIcx
+(`C:	emp\Mac\mame`: `maciicx -nb9 m2video`, the Toby card with our
+`342-0008-a.bin` staged in `roms/nb_m2vc/`, `roms/maciicx/` = the IIx ROM +
+the ADB modem ROM, `boo16.chd`, `-video opengl` - the default d3d crashes
+inside `tfb_w` once a Lua tap is installed; `tapcard.lua` logs every write
+to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
+- At boot the ROM's driver (PC $2BCA-$3FF8, the Slot Manager's RAM copy)
+  writes the registers as BYTES AT OFFSET 0 of each longword = the 68030's
+  D31-D24 (`mask=FF000000`), the mode word $00B7 as a word; Open's Reset
+  writes the raw table and the 1 bpp table with no word write at all - so
+  the board's "missing 00 at Open" was the driver, not us.
+- **Monitors -> 256 Colors runs a DIFFERENT driver: System 7's own DRVR
+  for this card from the System file (PC $AC70-$AD8A, the System heap).  It
+  writes the mode byte $B7 at offset 0 (D31-D24), then the sixteen table
+  bytes AT OFFSET 3 of each register longword = D7-D0 (`mask=000000FF`),
+  then registers 3 and 2 the same way; its VBL control write is at offset
+  3 too.  RAMDAC writes stay at offset 0 (1,553 of them).**
+- `rtl/nubus_tfb.v` latched registers, RAMDAC and the instrument from
+  `be[3]`/`wdata[31:24]` only.  The System driver's $B7 landed (register 15
+  <- ~$B7 = $48, bits 5:4 = 11 -> depth 0) and its table was DROPPED -
+  exactly PCRD's "one B7 write, no table".  MAME's `tfb_w` takes the byte
+  from the lane the transfer names (data >> 24 for mask FF000000, data &
+  0xFF otherwise); a byte-wide NuBus slave reads the lane its byte address
+  selects - the NuBus rule, which the card now follows.
+- **THE FIX:** `nubus_tfb.v`'s lane mux `wbyte` (the lane `be` names, D31-D24
+  for a word or long) feeds the register write, the RAMDAC's address and
+  colour steps and the instrument; the `be[3]` gates are gone.  sim/nubus
+  7b = the System driver's sequence (byte $B7 at byte 0, the tables and
+  page registers at byte 3): 45 PASS (the byte-3 depth check fails on the
+  old card).  Then the machine benches, compile 9 of the IIcx (a plain
+  build, SE30_CARD_PROBE off), the board: 256 Colors and 256 Greys should
+  display; the blue in 256 Colors is judged after.
+- For the colour card option (FUTURE ADDITIONS): build every byte-wide
+  slot register to the lane rule from the start.
+
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
 the Toby card with our `342-0008-a.bin` in `roms/nb_m2vc/`, `boo16.chd`,

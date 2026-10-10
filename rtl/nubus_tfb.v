@@ -145,6 +145,15 @@ module nubus_tfb #(
     rom_q <= rom[addr[13:2]];
   end
 
+  // The byte a transfer carries to a byte-wide register: the lane its
+  // address names (NuBus byte lanes through the NuChip's swap: the 68030's
+  // D31-D24 is byte 0 ... D7-D0 is byte 3), D31-D24 for a word or long.
+  // The ROM's driver writes the registers at byte 0; System 7's own driver
+  // for this card (a DRVR in the System file, in charge after the first
+  // mode change) writes them at byte 3 - a card that read D31-D24 alone
+  // dropped its whole mode table (plan 14.3 step 6, found with MAME's tap).
+  wire [7:0] wbyte = be[3] ? wdata[31:24] : be[2] ? wdata[23:16] : be[1] ? wdata[15:8] : wdata[7:0];
+
   // ------------------------------------------------- the TFB's registers
   reg  [7:0] treg [0:15];
   integer i;
@@ -152,11 +161,11 @@ module nubus_tfb #(
     if (!reset_n) begin
       for (i = 0; i < 16; i = i + 1) treg[i] <= 8'h00;
       depth <= 2'd0; base <= 16'd8;
-    end else if (sel && !rw && a_reg && be[3] && !ack) begin
-      treg[addr[5:2]] <= ~wdata[31:24];
-      if (addr[5:2] == 4'd15) depth <= ~wdata[29:28];
-      if (addr[5:2] == 4'd2)  base[15:8] <= ~wdata[31:24];
-      if (addr[5:2] == 4'd3)  base[7:0]  <= ~wdata[31:24];
+    end else if (sel && !rw && a_reg && !ack) begin
+      treg[addr[5:2]] <= ~wbyte;
+      if (addr[5:2] == 4'd15) depth <= ~wbyte[5:4];
+      if (addr[5:2] == 4'd2)  base[15:8] <= ~wbyte;
+      if (addr[5:2] == 4'd3)  base[7:0]  <= ~wbyte;
     end
 
   // one access, one action: the NuChip holds sel for a NuBus clock (two
@@ -174,11 +183,11 @@ module nubus_tfb #(
   always @(posedge clk) begin
     dbg_rst_q <= reset_n;
     if (dbg_rst_q && !reset_n) dbg_rst <= dbg_rst + 1'b1;
-    if (go && !rw && a_reg && be[3]) begin
+    if (go && !rw && a_reg) begin
       dbg_regw <= dbg_regw + 1'b1; dbg_lastreg <= addr[5:2];
-      if (addr[5:2] == 4'd15) dbg_r15 <= {dbg_r15[23:0], wdata[31:24]};
+      if (addr[5:2] == 4'd15) dbg_r15 <= {dbg_r15[23:0], wbyte};
     end
-    if (go && !rw && a_dac && be[3]) dbg_dacw <= dbg_dacw + 1'b1;
+    if (go && !rw && a_dac) dbg_dacw <= dbg_dacw + 1'b1;
   end
   // (dbg is assigned below depth_p's declaration)
 
@@ -192,22 +201,22 @@ module nubus_tfb #(
   reg [23:0] clut_cq;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin dac_addr <= 0; dac_step <= 0; dac_rg <= 0; end
-    else if (go && a_dac && be[3]) begin
+    else if (go && a_dac) begin
       if (addr[3:2] == 2'd1 || addr[3:2] == 2'd3) begin
-        if (!rw) dac_addr <= ~wdata[31:24];
+        if (!rw) dac_addr <= ~wbyte;
         dac_step <= 0;
       end else if (addr[3:2] == 2'd2) begin
         dac_step <= (dac_step == 2'd2) ? 2'd0 : dac_step + 1'b1;
         if (dac_step == 2'd2) dac_addr <= dac_addr + 1'b1;
         if (!rw) begin
-          if (dac_step == 2'd0) dac_rg[15:8] <= ~wdata[31:24];
-          if (dac_step == 2'd1) dac_rg[7:0]  <= ~wdata[31:24];
+          if (dac_step == 2'd0) dac_rg[15:8] <= ~wbyte;
+          if (dac_step == 2'd1) dac_rg[7:0]  <= ~wbyte;
         end
       end
     end
   always @(posedge clk) begin
-    if (go && !rw && a_dac && be[3] && addr[3:2] == 2'd2 && dac_step == 2'd2)
-      clut[dac_addr] <= {dac_rg, ~wdata[31:24]};
+    if (go && !rw && a_dac && addr[3:2] == 2'd2 && dac_step == 2'd2)
+      clut[dac_addr] <= {dac_rg, ~wbyte};
     clut_cq <= clut[dac_addr];
   end
   wire [7:0] dac_rd = (addr[3:2] == 2'd2) ? ~clut_cq[23 - 8*dac_step -: 8] : ~dac_addr;

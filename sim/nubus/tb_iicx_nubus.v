@@ -275,6 +275,20 @@ module tb_iicx_nubus;
     wr_byte(32'hF9880008, ~8'h00);
     wr_byte(32'hF988000C, ~8'h08);
     check(card.base == 16'd8, "7 registers 2-3: base 8 longwords ($20)", card.base, 8);
+    // 7b. System 7's own driver for the card (plan 14.3 step 6, MAME's tap):
+    // the mode byte $B7 at byte 0 of register 15 (D31-D24), then the table
+    // at BYTE 3 of each register (D7-D0): 1 bpp's $C8 then 8 bpp's $F9 at
+    // register 15, the page registers the same way - every lane counts
+    wr_byte(32'hF988003C, 8'hB7);
+    check(card.depth == 2'd0, "7b the mode byte $B7 at byte 0: depth 0", card.depth, 0);
+    wr_byte(32'hF988003F, ~8'hC8);
+    check(card.depth == 2'd0, "7b register 15 = $C8 at byte 3: depth 1 bit", card.depth, 0);
+    wr_byte(32'hF988003F, ~8'hF9);
+    check(card.depth == 2'd3, "7b register 15 = $F9 at byte 3: depth 8 bits", card.depth, 3);
+    wr_byte(32'hF988000B, ~8'h00); wr_byte(32'hF988000F, ~8'h10);
+    check(card.base == 16'd16, "7b registers 2-3 at byte 3: base 16", card.base, 16);
+    wr_byte(32'hF9880008, ~8'h00); wr_byte(32'hF988000C, ~8'h08);
+    check(card.base == 16'd8, "7b ... and back at byte 0: base 8", card.base, 8);
 
     // 8. the Bt453: address $10, an entry, read back
     wr_byte(32'hF989001C, ~8'h10);
