@@ -17846,6 +17846,16 @@ Daniel - add to it, move items out when fixed).**
     The one SCSI engine serving both IDs is clear for this case. Left with
     the user: which image sat in which slot after the restart, whether the
     80 MB file is intact, the Startup Disk setting.
+    *Both images read back from the SD card after the test (22:25):*
+    the 1 GB disk is a valid HFS volume ("Untitled", 65,529 allocation
+    blocks of 16 KB, ~256 KB written, all volume structures). The 7.1
+    image against Daniel's backup from just before the test (21:14):
+    THREE blocks differ in 80 MB - the MDB (its mount counters) and two
+    catalog blocks the Finder touches at every boot; the DDM, map,
+    driver and boot blocks are byte-identical. Nothing strayed onto
+    disk 0 while disk 1 was initialised. Daniel is asking the user for
+    his "corrupted" boot image, to compare block by block against the
+    copy he posted.
     *Both images read back from the SD card after the test (22:20):*
     the 1 GB disk is a valid HFS volume ("Untitled", 65,529 allocation
     blocks of 16 KB, ~256 KB written, all volume structures); the 7.1
