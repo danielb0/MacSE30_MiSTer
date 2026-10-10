@@ -20484,6 +20484,19 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   the chosen depth after a restart and after reloading the core, so the
   IIcx's PRAM save works too.  This morning's "not applied" was the
   table being dropped at the boot-time SetMode as well; nothing to fix.
+- **Speedometer 4.02, the whole suite, compile 9 (Daniel, 18:26; screenshot
+  `20261010_182601-screen.png`), Quadra 605 = 1.0, beside the saved SE/30
+  record:** CPU 0.27 (SE/30 0.27; real IIcx 0.26), **Graphics 0.27 (real
+  IIcx 0.25: 8 % fast)**, Disk 1.15, Math 1.11 (the accepted deviation),
+  PR 0.35; the integer set 0.18-0.27 as the SE/30's, FPU 0.07/0.17/0.09;
+  **colour tests: B&W 0.32, 2-bit 0.32, 4-bit 0.33, 8-bit 0.34, 16-bit
+  0.00 (none), average 0.32** (the SE/30 record: B&W 0.19).  The real card
+  (3.06: 1-bit 5.81, 2-bit 5.06, 4-bit 4.84, 8-bit 4.88) gets FASTER as
+  the depth drops - fewer bytes, fewer NuBus transactions - while ours is
+  flat to slightly the other way: our transaction cost is too low.  NEXT:
+  Speedometer 3.23's Graphics at each depth for the shape, the model's
+  per-transaction time from the bench, then wait states in the NuChip
+  or the card's acknowledge until both the level and the shape match.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
