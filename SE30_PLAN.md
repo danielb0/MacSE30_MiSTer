@@ -20537,6 +20537,13 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   start of blanking, as the card returns it (1 in blanking).  MAME's 0 in
   blanking is the one that is wrong, or the real card inverts the bit on
   the bus - either way ours matches the real machine's visible behaviour.
+- **Soft power on the board (Daniel, 19:20):** the Finder's Shut Down
+  turns the machine off - a black screen, held.  The way back on is the
+  keyboard's Power key (PS/2 ACPI Power, extended $37, which the ADB
+  keyboard also maps to $7F = the Power key's own code, so under System 7
+  it raises the Shut Down dialog while running) or the OSD's reset; the
+  OSD's "Power switch: Locked on" makes Shut Down a restart instead.
+  Step 5 of the design is board-proven.
 
 **ROOT CAUSE FOUND 2026-10-10 (12:30, MAME's tap; Daniel closed the session
 right after) - READ THIS TO RESUME.**  MAME's IIcx (`maciicx -nb9 m2video`,
