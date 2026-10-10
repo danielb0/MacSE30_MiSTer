@@ -20262,6 +20262,52 @@ with `games/MACIICX/boot0.rom`, `boot2.rom` and `boot3.rom` (the card ROM,
 0.25.  The bisect proposed above is not needed.  Still uncommitted:
 `sim/gcrread`'s one-drive change; `sim/mmu16`'s stray logs are untracked.
 
+**END OF SESSION 2026-10-10 (02:30, Daniel stopped) - READ THIS TO RESUME.**
+*On the board (Daniel, 01:54):* `MacIIcx_d532ae06_async.rbf` boots the IIcx
+in black and white correctly; **256 colours gives a screen magnified 8x
+horizontally, 16 colours 4x** (screenshot
+`C:\temp\Mac\Screenshots\20261010_015355-screen.png`; not hung, the mouse
+moves).  What the screenshot proves, by reconstruction (each 8 display lines
+of 80 bytes are one Mac row, positions 0-4 = Mac columns 0-79, 128-207,
+256-335, 384-463, 512-591 - the Apple menu, "File", "View" clipped to
+"lew", "Label" and the balloon-help icon land exactly there, "Edit" and
+"Special" fall in the gaps): **the card packs AND scans at depth 0 while the
+Mac draws 8-bit** - the 80-of-128 compaction of 1024-byte rows, read back
+as 1-bit pixels.  The checkerboard in the invisible columns is the driver's
+own GrayPage fill ($FF00FF00 over the full 1024-byte rows), which took its
+mode from the driver's stored mode = $83: **so SetMode (card ROM $08FC) did
+run for 8-bit** - it stores the mode, WaitVBL, the word $00B7 to register
+15, then the table, register 15 last (= not.b $F9 = $06 on the bus -> depth
+3).  The lane-3 byte write path works on the board (the CLUT grey fill at
+$03CA, 768 bytes of gamma(128) = 158, is exactly the grey in the
+screenshot).  `sim/nubus` with the driver's exact sequence (word, then the
+16 bytes, through GLUE and the NuChip) sets depth 3 (a scratch copy of the
+bench; not committed).  The fitted netlist's depth -> depth_s -> depth_p
+paths are intact and clocked by the card's PLL with 27 ns of slack; the
+router's duplicates of `depth` have identical fanins.  Writes to $F9xxxxxx
+are not posted (tg68k.v's k_post: RAM and $FE only).  The card's reset is
+the machine's, not the RESET instruction's.  **So: the register write
+reached the card with the right data, yet `depth` reads 0 afterwards -
+either a later write to register 15 with bits 5:4 = 11 on the bus (the
+driver's Reset, csCode 0, writes its $8EC table then the 1-bit table; who
+would send it is unknown) or something not yet seen.**  The driver's full
+disassembly is in the session scratchpad (`driver.asm`); its Control
+dispatch: csCode 0 Reset $364, 1 $35A, 2 SetMode $390 (writes the table
+only when csMode differs from the stored mode), GrayPage $692 ($9C8 fill),
+mode check $87A (8-bit refused on a 256 KB card: Open's $423FC test, $16(a1)).
+**NEXT: the instrument, not more inference.**  Prepared, NOT applied:
+`scratchpad/probe_edit.py` adds to `nubus_tfb.v` a 64-bit `dbg` output
+{register 15's last four bus bytes, register writes[7:0], RAMDAC
+writes[7:0], last register[3:0], resets[3:0], 0, depth[1:0], depth_p[1:0]},
+passes it up through `se30_machine.v`'s `dbg_card` to one standalone JTAG
+probe PCRD in MacSE30.sv behind `SE30_CARD_PROBE` (set in MacIIcx.qsf for
+the debug build only; the full deck has no room at 92 %), and a PCRD
+decoder in `scripts/read_probes.tcl`.  Then: sim/nubus and sim/machine
+PASS, compile (~35 min: map 8 + fit 25), archive `_cardprobe`, revert the
+qsf's define, Daniel switches to 256 colours and runs
+`quartus_stp -t scripts/read_probes.tcl`: the four bytes say whether $06
+arrived and what followed it.
+
 ---
 
 ## Appendix - where the sources are
