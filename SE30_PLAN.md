@@ -20406,6 +20406,20 @@ few dozen entries; (c) the one-line trace filter fix + compile, then the
 dump within seconds of the switch.  The branch: `iicx` = dev + 43 commits,
 unpushed; `rtl/build_tag.v` and `MacIIcx.qsf` restored; the `.sof` archive
 stopped (573cd10).
+**Correction (Daniel, 12:05):** last night's screenshot was 256 GREYS,
+not 256 colours; in 256 Colors the screen is predominantly BLUE.  So the
+02:30 block's CLUT reading (the flat grey = gamma(128)) was the greyscale
+mode's table, and colour mode adds a second symptom: with the card scanning
+1-bit pixels the only CLUT entries in use are 0 and 1 (white and pale
+yellow in the system palette), so blue says the CLUT load or the depth-0
+index path is wrong too - check once the depth itself is fixed.  MAME's
+Toby (`nubus_m2video.cpp`, fetched from GitHub; no source in the local
+MAME): `tfb_w` inverts, takes the TOP byte for a byte write (mem_mask
+$FF000000) and the LOW byte otherwise, stores one byte per register, and
+register 15's bits 5:4 are the mode (`calc_screen_params`): the driver's
+word $00B7 sets MAME's mode 0 for an instant, the table's $06 then sets 3;
+our card reads ~wdata[29:28] (3, then 3) - no contradiction, the table
+must arrive either way.
 
 ---
 
