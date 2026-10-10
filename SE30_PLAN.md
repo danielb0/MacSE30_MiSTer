@@ -17823,6 +17823,17 @@ Daniel - add to it, move items out when fixed).**
     board's SCSI probe on the crawl (compile 54, `read_probes.tcl
     scsitime`) and 4.0.x's own error path; FWB's Toolkit as the
     user-side remedy, with a disc mounted the other.*
+    **SETTLED (Daniel, 21:10): the driver version.** The 7.5.5 image's
+    set - Apple CD-ROM 5.1.7, Foreign File Access 5.1, ISO 9660 File
+    Access 5.1, Audio CD Access 5.1, High Sierra File Access 5.1 -
+    copied onto the 7.1 image in place of 5.0.1: full speed with an
+    empty drive. Apple CD-ROM 4.0.x and 5.0.1 crawl, 5.1.7 does not,
+    on the same System; the identical retry loop sits in 5.0.1 and
+    5.1.7 (`$78C0` / `$74B8`), so 5.1.7 must reach it differently - not
+    pursued. **README line:** with the AppleCD SC emulated, use Apple
+    CD-ROM 5.1.7 or later (System 7.5.3 onward ships it; it runs on
+    7.1), or keep a disc mounted; 4.0.x and 5.0.1 poll an empty drive
+    into a crawl. CLOSED as an authentic driver behaviour.
     **Built** in `rtl/se30_flp_loader.v` (`held`; a new input `mac_reset_n`
     = `machine_reset_n`): at a mount pulse with a disk in, `held`,
     `readonly` (the drive's write-protect, and the decoder and writer's
