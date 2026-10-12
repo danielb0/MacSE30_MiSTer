@@ -50,9 +50,10 @@ assign LED_POWER = 0;
 assign LED_USER  = ioctl_download;
 assign BUTTONS   = 0;
 
+// the aspect ratio: the SE/30's 512 x 342 at square pixels, the IIcx card's 640 x 480 at 4:3
 wire [1:0] ar = status[2:1];
-assign VIDEO_ARX = (!ar) ? 12'd256 : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? 12'd171 : 12'd0;
+assign VIDEO_ARX = (!ar) ? (IICX ? 12'd4 : 12'd256) : (ar - 1'd1);
+assign VIDEO_ARY = (!ar) ? (IICX ? 12'd3 : 12'd171) : 12'd0;
 
 `include "build_id.v"
 
@@ -70,8 +71,19 @@ localparam CDROM_EN = 0;
 localparam CDROM_EN = 1;
 `endif
 
+// MacIIcx.qsf defines MACIICX: the Macintosh IIcx, with the Macintosh II Video Card in slot $9
+`ifdef MACIICX
+localparam IICX = 1;
+`else
+localparam IICX = 0;
+`endif
+
 localparam CONF_STR = {
+`ifdef MACIICX
+	"MACIICX;;",
+`else
 	"MACSE30;;",
+`endif
 	"-;",
 	"S0,DSKIMG,Mount Internal Floppy;",
 `ifdef SE30_EXT_DRIVE
@@ -88,6 +100,9 @@ localparam CONF_STR = {
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[4],Memory,8 MB,16 MB;",
+`ifdef MACIICX
+	"O[5],Power switch,Normal,Locked on;",
+`endif
 	"-;",
 	"R[0],Reset & Apply Memory;",
 	"R[3],Wipe PRAM (erases settings!);",
@@ -183,6 +198,19 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 
 // clk_sys = 2 x C16M; clk_mem = 3 x clk_sys for the SDRAM
 wire clk_sys, clk_mem, clk_sdc, clk_capa, clk_capb, pll_locked;
+// the IIcx card's dot clock, 30.24 MHz, from a PLL of its own
+wire clk_pix;
+`ifdef MACIICX
+pll_vid pll_vid
+(
+	.refclk(clk_mem),                                     // every 50 MHz pin's PLL is taken
+	.rst(0),
+	.outclk_0(clk_pix),
+	.locked()
+);
+`else
+assign clk_pix = clk_sys;
+`endif
 pll pll
 (
 	.refclk(CLK_50M),
@@ -203,15 +231,28 @@ wire phi2 = phi;
 reg [1:0] lock_s = 0;
 always @(posedge clk_sys) lock_s <= {lock_s[0], pll_locked};
 
-// the machine is held in reset until the ROM, the SDRAM and the PRAM are ready
+// the IIcx's soft power: Shut Down switches the machine off (held, the screen dark) until the
+// Power key (the PS/2 ACPI Power key) or the OSD's reset; locked on, it restarts instead
+reg         machine_reset_n = 0;
+wire        poweroff_req, pwr_off, pwr_restart;
+reg         pwr_key_q = 0;
+always @(posedge clk_sys) pwr_key_q <= ps2_key[10];
+iicx_power iicx_power
+(
+	.clk(clk_sys), .running(machine_reset_n), .poweroff_req(poweroff_req), .locked(status[5]),
+	.power_key(ps2_key[10] != pwr_key_q && ps2_key[9] && ps2_key[8] && ps2_key[7:0] == 8'h37),
+	.reset_req(status[0] || buttons[1] || RESET),
+	.off(pwr_off), .restart(pwr_restart)
+);
+
+// the machine is held in reset until the ROM, the SDRAM and the PRAM are ready, and while it is off
 reg rom_loaded = 0;
 always @(posedge clk_sys) if (ioctl_download && ioctl_index[7:0] == 8'h00) rom_loaded <= 1'b1;
 
-reg        machine_reset_n = 0;
 reg [15:0] rst_cnt = '1;
 always @(posedge clk_sys) begin
 	if (!lock_s[1] || !rom_loaded || !sdram_ready || status[0] || buttons[1] || RESET || ioctl_download ||
-	    !pram_ready || pram_restart) begin
+	    !pram_ready || pram_restart || pwr_off || pwr_restart) begin
 		rst_cnt <= '1;
 		machine_reset_n <= 0;
 	end else if (rst_cnt != 0) rst_cnt <= rst_cnt - 1'd1;
@@ -239,10 +280,11 @@ se30_pram pram (
 	.ready(pram_ready), .restart(pram_restart), .dbg());
 
 // boot0.rom: SE/30 ROM to SDRAM; boot1.rom: video declaration ROM;
-// boot2.rom: the ADB transceiver's program
+// boot2.rom: the ADB transceiver's program; boot3.rom: the IIcx card's declaration ROM
 wire boot0 = (ioctl_index[7:0] == 8'h00);
 wire boot1 = (ioctl_index[7:0] == 8'h40);
 wire boot2 = (ioctl_index[7:0] == 8'h80);
+wire boot3 = (ioctl_index[7:0] == 8'hC0);
 
 reg         adb_pm_we = 0;
 reg   [8:0] adb_pm_waddr;
@@ -258,6 +300,19 @@ reg  [23:0] dl_addr;
 reg  [15:0] dl_data;
 wire        dl_ack;
 reg         declrom_we = 0, dr_second = 0;
+// boot3.rom, a byte at a time as boot1.rom (byte 0 is the low half of each word)
+reg         cardrom_we = 0, cr_second = 0;
+reg  [11:0] cardrom_waddr;
+reg   [7:0] cardrom_wdata, cr_hi;
+always @(posedge clk_sys) begin
+	cardrom_we <= 0;
+	if (ioctl_wr && ioctl_download && boot3) begin
+		cardrom_we <= 1; cardrom_waddr <= {ioctl_addr[11:1], 1'b0}; cardrom_wdata <= ioctl_dout[7:0];
+		cr_hi <= ioctl_dout[15:8]; cr_second <= 1;
+	end else if (cr_second) begin
+		cardrom_we <= 1; cardrom_waddr <= {cardrom_waddr[11:1], 1'b1}; cardrom_wdata <= cr_hi; cr_second <= 0;
+	end
+end
 reg  [12:0] declrom_waddr;
 reg   [7:0] declrom_wdata, dr_hi;
 assign ioctl_wait = dl_req || dr_second;
@@ -290,6 +345,11 @@ wire [23:0] ld_addr, en_addr;
 wire [15:0] ld_wdata, en_rdata;
 wire        dk_req, dk_we, dk_ack;
 wire [23:0] dk_addr;
+// the IIcx card's VRAM above its block RAM; idle in the SE/30 build
+wire        vr_req, vr_we, vr_ack;
+wire [22:0] vr_addr;
+wire  [3:0] vr_be;
+wire [31:0] vr_wdata, vr_rdata;
 wire [15:0] dk_wdata, dk_rdata;
 wire        disk_wprot = flp_readonly;
 wire        trk_we, trk_wbit, arc_done, arc_side, arc_whole;
@@ -491,6 +551,7 @@ se30_sdram sdram
 	.cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
 	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
+	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
 	.raw_req(1'b0), .raw_ctl(64'd0), .raw_addr(24'd0), .raw_ack(),
 	.dbg_dqm_force(1'b0),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),
@@ -500,14 +561,19 @@ se30_sdram sdram
 
 // the logic board
 wire        vidout, hsync_n, vsync_n, hblank, vblank;
+wire [23:0] rgb;
 wire [63:0] dbg_swim;
-se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN)) machine
+se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 (
 	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram16(ram16),
 	.mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
 	.mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
 	.declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),
-	.vidout(vidout), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
+	.cardrom_we(cardrom_we), .cardrom_waddr(cardrom_waddr), .cardrom_wdata(cardrom_wdata), .clk_pix(clk_pix),
+	.poweroff_req(poweroff_req),
+	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
+	.vidout(vidout), .rgb(rgb), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
+	.dbg_tr_addr(10'd0),
 	.nmi_n(1'b1),
 	.pace_en(1'b1),
 	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse), .timestamp(TIMESTAMP),
@@ -533,14 +599,14 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN)) machine
 
 assign LED_DISK = {1'b0, dbg_swim[15] | dbg_fdhd2[15]};
 
-// video: one pixel per C16M clock
-assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL  = phi1;
+// video: one pixel per C16M clock; the IIcx card's, one per clk_pix
+assign CLK_VIDEO = IICX ? clk_pix : clk_sys;
+assign CE_PIXEL  = IICX ? 1'b1 : phi1;
 assign VGA_DE = ~(hblank | vblank);
 assign VGA_HS = hsync_n;
 assign VGA_VS = vsync_n;
-assign VGA_R  = {8{~vidout}};
-assign VGA_G  = {8{~vidout}};
-assign VGA_B  = {8{~vidout}};
+assign VGA_R  = pwr_off ? 8'd0 : rgb[23:16];                // the IIcx switched off: dark
+assign VGA_G  = pwr_off ? 8'd0 : rgb[15:8];
+assign VGA_B  = pwr_off ? 8'd0 : rgb[7:0];
 
 endmodule

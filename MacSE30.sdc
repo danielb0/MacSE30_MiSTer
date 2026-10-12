@@ -39,3 +39,9 @@ set fpu_p0   [get_keepers {*|se30_fpu_apu:apu|altsyncram:urom_rtl_0|* *|se30_fpu
 set fpu_apu1 [remove_from_collection $fpu_apu $fpu_p0]
 set_multicycle_path -setup -end 2 -from $fpu_apu1 -to $fpu_apu1
 set_multicycle_path -hold  -end 1 -from $fpu_apu1 -to $fpu_apu1
+
+# The IIcx card's dot clock is a PLL of its own, and it is CLK_VIDEO: asynchronous to every other
+# clock (its crossings are dual-clock RAMs and synchronisers)
+if {[llength [get_clocks -nowarn {emu|pll_vid|*}]] > 0} {
+  set_clock_groups -asynchronous -group [get_clocks {emu|pll_vid|*}]
+}
