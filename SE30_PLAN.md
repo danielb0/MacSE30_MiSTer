@@ -20778,8 +20778,10 @@ branch `release`:
   The SE/30 revision of the same tree: Analysis & Elaboration clean.
 - `main` `58d2ca8` "Release 20261012: the Macintosh IIcx" on 3d3f212: the
   release tree without the prerelease rbf.
-**For Daniel:** board check of `MacIIcx_20261012.rbf` if wanted (the RTL
-is compile 9's); push `release` and `main` to origin and `main` to
+**BOARD-CHECKED (Daniel, 2026-10-12):** `MacIIcx_20261012.rbf` boots,
+runs at 256 colours (the saved depth), Shut Down turns it off and the
+Power switch's Locked on restarts it.
+**For Daniel:** push `release` and `main` to origin and `main` to
 `mister` master; add the wiki Cores row
 `| [Apple Macintosh IIcx](https://github.com/MiSTer-devel/MacSE30_MiSTer) |MACIICX| Yes | |`.
 The distribution then puts every undated releases/ file in both games
