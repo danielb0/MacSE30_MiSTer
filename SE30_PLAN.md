@@ -20739,6 +20739,53 @@ $F908xxxx/$F909xxxx/$F90Axxxx with the PC (`cardtap.log`, 7,206 lines, kept):
   lanes, so the next card (the IIcx colour card option) is built to the
   NuBus byte-lane rule from the start.
 
+**THE IIcx RELEASE (2026-10-12, Daniel: "No one has found any bugs in the
+IIcx core. Let's create the release.")**  Branch `iicx` pushed to origin
+first (93e4432).  The release tree, worktree `C:\Git\MacSE30_release` on
+branch `release`:
+- `4f29f19`: main's rename carried over (`releases/MacSE30_20261009.rbf`
+  and the README's usage line), as the PUBLISHED block asked.
+- `4ab09b9`, the IIcx ported onto the release tree.  `release` was
+  token-identical to dev `c03b935` (the IIcx branch point, MacSE30.sv
+  excepted), so dev's diff from there is exactly the IIcx: a three-way
+  merge (base c03b935, ours release, theirs dev) of GLUE, se30_sdram,
+  se30_machine, se30_adb_dev and MacSE30.sv, the conflicts resolved by
+  hand; nubus_tfb.v, iicx_nuchip.v, iicx_power.v and pll_vid with their
+  comments cut to the release style; files.qip without build_tag.v and
+  dbg_probes.sv; MacSE30.sdc's pll_vid asynchronous group with a two-line
+  comment; MacIIcx.qsf = the release MacSE30.qsf plus the MACIICX macro;
+  MacIIcx.qpf and .qsf pinned to LF in .gitattributes.  The top level
+  leaves out the card's JTAG probes (SE30_CARD_PROBE) and ties the trace
+  address to 0, as dev does with the probes off; se30_machine keeps the
+  trace (unconnected, pruned), as the SE/30 release keeps its debug
+  outputs.  **45 HDL files token-identical to dev, MacSE30.sv excepted by
+  design** (the scratchpad tokcmp).  No RTL has changed on dev since
+  compile 9 (31d4835), the build the forum testers ran.
+- `e9359d4`: `releases/boot3.rom` (342-0008-A, the forum package's file)
+  and a blank `releases/MacIIcx.nvr`; the README covers the IIcx (ROMs,
+  games/MACIICX, the card, soft power, the Power switch option) and adds
+  KNOWN ISSUES 15's line (Apple CD-ROM 5.1.7 or later) and 16's warning
+  (never one image in both SCSI slots).
+- `c72b21e`: **`releases/MacIIcx_20261012.rbf`** (md5 `c96b1428...`),
+  compiled from 4ab09b9 in 36 min: 38,286 ALMs (91 %; compile 9 37,679 -
+  the same RTL, synthesis and fitter variance: the PIC's 32 registers and
+  LUTs in untouched framework blocks differ too), 538/553 M10K.  The
+  core's own paths (emu|*, the capture excepted) met at every corner:
+  worst setup +0.602 ns (slow 100C), hold +0.117 ns (fast -40C); the
+  capture met by A or B at every corner; only the framework's ascal
+  misses, -0.027 ns at slow -40C (`o_vcpt_pre3`, KNOWN ISSUES 6).  No STA
+  loop; synthesis lists the floppy decoder's eight Add2 cells as before.
+  The SE/30 revision of the same tree: Analysis & Elaboration clean.
+- `main` `58d2ca8` "Release 20261012: the Macintosh IIcx" on 3d3f212: the
+  release tree without the prerelease rbf.
+**For Daniel:** board check of `MacIIcx_20261012.rbf` if wanted (the RTL
+is compile 9's); push `release` and `main` to origin and `main` to
+`mister` master; add the wiki Cores row
+`| [Apple Macintosh IIcx](https://github.com/MiSTer-devel/MacSE30_MiSTer) |MACIICX| Yes | |`.
+The distribution then puts every undated releases/ file in both games
+folders (boot3.rom and MacIIcx.nvr also land in games/MACSE30, boot1.rom
+and MacSE30.nvr in games/MACIICX - harmless, FUTURE BOARD TESTS 12).
+
 ---
 
 ## Appendix - where the sources are
