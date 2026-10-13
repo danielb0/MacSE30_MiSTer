@@ -18324,6 +18324,11 @@ Daniel - add to it, move items out when fixed).**
     - **The fix:** the hold takes `opcode(2)='0'` - RTE only. `sim/rtr_fc`
       29 PASS; `sim/kernel_bus` 338, `sim/busfault` 14, `sim/busfault_dib`
       18, `sim/machine` 17 PASS; `sim/system` and the PMMU benches below.
+    - **COMPILE 57 (2026-10-13 16:03-16:39, 36 min): tag `7125a2fd`,
+      archived `output_files/MacSE30_7125a2fd_rtrfc.rbf` (md5 e199c4c2...),
+      39,651 ALMs (95 %); timing MET at every corner, the framework's
+      `ascal` included this time (worst +0.114 ns; the capture by A or B
+      everywhere); no combinational loop. NOT on the board.**
     - **Expected on the board:** A/UX boots to its Login dialog with the
       Mac environment alive, no "Illegal instruction", errdemon stays up.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
@@ -21233,7 +21238,12 @@ ran with NO disk aborts and none of the first run's errors - the disk
 side of KNOWN ISSUES 17 is CLOSED; the clock is right too. OPEN from it:
 the Mac environment's "System" bus error bomb and errdemon's exit 204 -
 next = the core files off the image (ufsread.py), then plan 1.18's PMMU
-restart path. KNOWN ISSUES 18 opened (the GLUE's handshake
+restart path. DONE THE SAME EVENING: the core named it - KNOWN ISSUES 19,
+a user-mode RTR popping with the supervisor FC (the kernel's rte-state
+hold covered RTR); fixed 4f706c9, bench sim/rtr_fc, COMPILE 57 =
+`output_files/MacSE30_7125a2fd_rtrfc.rbf` (timing met everywhere), NOT on
+the board: Daniel boots A/UX on it from a fresh image copy and expects
+the Login dialog with the Mac environment alive. KNOWN ISSUES 18 opened (the GLUE's handshake
 bus-error timeout, not replicated; no effect seen).
 
 ---
