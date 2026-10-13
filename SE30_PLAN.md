@@ -18394,10 +18394,17 @@ Daniel - add to it, move items out when fixed).**
     M10K; `scripts/read_btrace.tcl` dumps them oldest first. A/UX's page
     faults are MMU faults; an access GLUE refuses is the rare kind, so the
     external ring survives them. **Compile 58 (the debug build, tag
-    `50ca8805`, label `btrace`) started 18:4x** - result in the END OF
-    SESSION block. Then: Daniel flashes it, boots A/UX (fresh copy, 16 MB,
-    24-bit, no CD) and says the moment the bomb appears; I run
-    `quartus_stp -t scripts/read_btrace.tcl`.
+    `50ca8805`, label `btrace`) DONE 18:13-18:50, 37 min:** archived
+    `output_files/MacSE30_50ca8805_btrace.rbf` (md5 35a0b3df...), 39,820
+    ALMs (95 %); OUR timing met at every corner (the capture by A or B
+    everywhere, every path of ours positive); the only misses are the
+    framework's `ascal` (`o_vpix_inner` -> `o_poly_lum`): -0.481 ns at
+    slow -40C, -0.306 at slow 100C - KNOWN ISSUES 6's accepted precedent
+    (compile 54: -0.461/-0.278, the same paths); no combinational loop.
+    The qsf's `SE30_BTRACE` macro and the tag were restored after the
+    archive (not committed). **NOT on the board.** Then: Daniel flashes
+    it, boots A/UX (fresh copy, 16 MB, 24-bit, no CD) and says the moment
+    the bomb appears; I run `quartus_stp -t scripts/read_btrace.tcl`.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
@@ -21310,7 +21317,14 @@ a user-mode RTR popping with the supervisor FC (the kernel's rte-state
 hold covered RTR); fixed 4f706c9, bench sim/rtr_fc, COMPILE 57 =
 `output_files/MacSE30_7125a2fd_rtrfc.rbf` (timing met everywhere), NOT on
 the board: Daniel boots A/UX on it from a fresh image copy and expects
-the Login dialog with the Mac environment alive. KNOWN ISSUES 18 opened (the GLUE's handshake
+the Login dialog with the Mac environment alive. DONE LATER THE SAME
+EVENING: compile 57 board-proven (no process deaths); the Mac environment's
+own "System" bus error remains = KNOWN ISSUES 20; MAME's macse30 runs the
+image to a root shell (ours, then); the bus-error trace instrument built
+(50ca880) and COMPILE 58 = `output_files/MacSE30_50ca8805_btrace.rbf` (the
+debug build, timing met for every path of ours, ascal = KNOWN ISSUES 6),
+NOT on the board: Daniel flashes it, boots A/UX, says when the bomb
+appears, `quartus_stp -t scripts/read_btrace.tcl` at once. KNOWN ISSUES 18 opened (the GLUE's handshake
 bus-error timeout, not replicated; no effect seen).
 
 ---
