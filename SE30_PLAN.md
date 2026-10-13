@@ -18217,6 +18217,32 @@ Daniel - add to it, move items out when fixed).**
       core files on the image (`find / -name core` via `ufsread.py`:
       PC, fault address and registers of each crashed process) and the
       PMMU fault-and-restart path (plan 1.18), now that the disk is clean.
+    - **After the run (`..._152652`): `Error output from startmac: The
+      toolbox environment already exists`, "Press the Return key to
+      exit", then a still screen with disk activity.** The image's
+      `/etc/inittab` explains the chain: `mac0::sysinit:/etc/macsysinit`
+      starts the boot-time Mac environment FIRST (the `Startup System
+      Folder`: `StartMonitor`, a 966 KB `System`, an EMPTY `Extensions`
+      folder), `sy::sysinit:/etc/sysinitrc` then runs the boot under it;
+      that environment is the one that bombed (`"System" bus error`,
+      drawn during `Rebuilding disk device files...`), and macsysinit's
+      "Timed out waiting for CommandShell" is its wait for the dead
+      environment's console window. At the end `co::respawn:/etc/loginrc`
+      spawns `Login`, whose `startmac` finds the dead environment's shared
+      resources still registered - "already exists" - and init respawns
+      it: the still screen and the disk activity. **Daniel asked whether
+      an extension crashed it, as the bomb text suggests (2026-10-13):
+      ruled out from the image.** The environment that bombs loads no
+      extensions at all (`Startup System Folder/Extensions` empty; the
+      `Login System Folder` has none either); the user `System Folder`
+      with the third-party items (Retro.Startup, printers, MacTCP) only
+      runs after a login that never happened. So the bus error is in
+      A/UX's own stock Startup environment - its `System` under the
+      kernel - which leaves our core or the image's build machine (a
+      Quadra/QEMU install; the kernel itself is generic). Cross-check
+      available without the board: MAME's `macse30` with this image
+      (option (c) above; its A/UX support is unverified, the run would be
+      slow - an estimate before starting it).
     - Not reached: `scsitask`'s phase handling and `scsiirq`'s RPI read
       (the listing is there, `scsi.dis`); with our target the IRQ is off
       the disk's critical path, so it waits. `tools/auxunix/coff.py` grew
