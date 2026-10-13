@@ -18372,6 +18372,32 @@ Daniel - add to it, move items out when fixed).**
     (PBER keeps four; a 256-entry ring of {PC, fault address, FC,
     status} in M10K), read the moment the bomb appears; (c) the kernel's
     `buserr%`/`faulthdlr` path for what it records of a user fault.
+    **(a) DONE 2026-10-13 ~18:10: MAME's `macse30` RUNS IT.** The image
+    with Daniel's extension removals (`AUX_3_1_1GB-extensions removed.vhd`,
+    as `C:\temp\Mac\mame\aux\aux31.chd`, `mame macse30 -hard aux/aux31.chd
+    -ramsize 16M`, the macse30 ROM set): Mac OS 7.1, A/UX Startup, the
+    kernel, and the boot-time Mac environment all the way to an
+    auto-logged-in Finder (the Unix root as a volume) and a CommandShell
+    with the root prompt; a second A/UX Startup from that Finder said
+    "A/UX is already up!". So the Startup environment runs on an SE/30 with
+    this image: **the bus error is ours - a core fault.** MAME's ADB,
+    PMMU and GLUE are the cross-check; nothing more is read from it yet
+    (its debugger can trace the environment's accesses if the board's
+    trace below is not enough).
+    **(b) BUILT 2026-10-13 18:3x: the bus-error trace** (commit `50ca880`;
+    `rtl/dbg_probes.sv` `g_btrace` behind `BTRACE`, MacSE30.sv's
+    `SE30_BTRACE`, the qsf macro for the debug build only): a 256-entry
+    ring of every vector-2 exception {opcode, PC, the PMMU's last fault
+    (address, MMUSR, FC, read/write, fetch, which kind pending), sequence
+    number} and a 32-entry ring of the EXTERNAL ones (GLUE's BERR: the
+    bus address, FC and direction latched as BERR asserted), both in
+    M10K; `scripts/read_btrace.tcl` dumps them oldest first. A/UX's page
+    faults are MMU faults; an access GLUE refuses is the rare kind, so the
+    external ring survives them. **Compile 58 (the debug build, tag
+    `50ca8805`, label `btrace`) started 18:4x** - result in the END OF
+    SESSION block. Then: Daniel flashes it, boots A/UX (fresh copy, 16 MB,
+    24-bit, no CD) and says the moment the bomb appears; I run
+    `quartus_stp -t scripts/read_btrace.tcl`.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
