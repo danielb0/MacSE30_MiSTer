@@ -18176,6 +18176,24 @@ Daniel - add to it, move items out when fixed).**
       histogram and the ten worst. Any entry at or over 500 ms is the
       abort seen; the maximum says whether 8.6 s is clear of the card.
       Delete the scratch file after.
+    - **MEASURED (Daniel, 2026-10-13, the sdlat run on the MiSTer):** 2,000
+      O_SYNC writes of 8 KB: mean 6.19 ms, max 354 ms; 1,465 under 2 ms,
+      408 under 5, 85 under 10, 9 under 20, 8 under 50, 2 under 200, **23
+      between 200 and 500 ms** - and the ten worst are all consecutive
+      writes #536-#556 (354, 344, 344, 342, 340, 339, 338, 337, 337, 336
+      ms): one housekeeping episode of the card, some 20 writes long,
+      each a third of a second, on an otherwise idle system. No single
+      write reached 535 ms in this run, so the sample supports the
+      mechanism without reproducing the abort outright: a command whose
+      flush lands in such an episode spends ~340 ms per 16 KB ring
+      request (`RING_LOG` 5), and `io_busy` holds across the tail's
+      flushes from STATUS_OUT (`:297`), so any write over 16 KB - a swap
+      page-out cluster, a raw-device write - needed two or more and
+      crossed 535 ms; A/UX's run was also under a far heavier load (two
+      core dumps, fsck's reads) than this probe. Under 8.6 s the same
+      episode costs a command at most a few requests' worth. **The
+      fresh-image rerun on compile 56 is the decisive test; if a write
+      still aborts there, the PSCS probe (option (b)) names the phase.**
     - **Then the rerun (board, Daniel, ~30 min):** the new build, a FRESH
       copy of the image, 16 MB, 24-bit: expect no "Aborted Command"; see
       whether the memory faults (6) and the Mac environment's bomb (4) go
