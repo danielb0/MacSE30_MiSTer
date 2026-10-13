@@ -88,23 +88,26 @@ for {set p 0} {$p < $RAM} {incr p 4096} {
 		}
 	}
 }
-puts "---- 2. the u-areas (proc pointer at +0 in the proc table, a name at +\$340):"
+puts "---- 2. the kernel's process table (the proc structs, 158 bytes apart from sched's at \$1BC880; the"
+puts "        u-area may be swapped out, the PMMU root table at +\$42 is not):"
 set roots {}
-for {set p 0} {$p < $RAM} {incr p 4096} {
-	set pp [pl $p]
-	if {$pp < 0x001B0000 || $pp > 0x001FFFFF} { continue }
-	set n ""
-	for {set k 0} {$k < 16} {incr k 4} { append n [binary decode hex [format %08X [pl [expr {$p + 0x340 + $k}]]]] }
-	set z [string first "\0" $n]
-	if {$z < 1} { continue }
-	set n [string range $n 0 [expr {$z - 1}]]
-	if {![string is print $n]} { continue }
+set base 0x1BC880
+for {set i 0} {$i < 100} {incr i} {
+	set pp [expr {$base + $i * 0x9E}]
 	set r [plu [expr {$pp + 0x42}]]
 	if {($r & 0xFFF) != 0 || $r == 0 || $r >= $RAM} { continue }
-	puts [format "  u-area %06X  proc %08X  root table %08X  u_comm=%s" $p $pp $r $n]
-	lappend roots [list $n $r]
+	set u [plu [expr {$pp + 0x3E}]]
+	set n ""
+	if {$u != 0 && $u < $RAM && ($u & 0xFFF) == 0} {
+		for {set k 0} {$k < 16} {incr k 4} { append n [binary decode hex [format %08X [pl [expr {$u + 0x340 + $k}]]]] }
+		set z [string first "\0" $n]
+		if {$z >= 0} { set n [string range $n 0 [expr {$z - 1}]] }
+		if {![string is print $n]} { set n "?" }
+	}
+	puts [format "  proc %2d at %08X  u-area %08X  root table %08X  u_comm=%s" $i $pp $u $r $n]
+	lappend roots [list [format "proc %d (%s)" $i $n] $r]
 }
-if {[llength $roots] == 0} { puts "no u-areas found; stopping"; release; end_insystem_source_probe; exit 1 }
+if {[llength $roots] == 0} { puts "no process has a root table; stopping"; release; end_insystem_source_probe; exit 1 }
 
 proc walk {la} {
 	global root
