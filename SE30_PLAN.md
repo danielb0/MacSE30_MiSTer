@@ -18539,7 +18539,7 @@ Daniel - add to it, move items out when fixed).**
     as a read-modify-write of the descriptor, the ATC's M copy, PTEST 7's
     MMUSR after it) - sim, no board; (b) the data-cache-off debug build
     for the board (Daniel's go); whichever shows the fault first.
-    **SUPERSEDED - the rethink (Daniel, 2026-10-14: "We don't seem to be
+    **SUPERSEDED - the rethink (Daniel, 2026-10-13: "We don't seem to be
     getting very far and we are doing 40-minute compiles on the
     off-chance").** The review of the trail above:
     (1) **The fault addresses were misread.** `btrace_1.txt`'s 50 reads
@@ -18639,7 +18639,9 @@ Daniel - add to it, move items out when fixed).**
     worse with less RAM, and absent in MAME** (its CHD takes writes).
     Main_MiSTer opens a SCSI image `O_RDWR | O_SYNC` whenever the file
     is writable, read-only otherwise (`user_io.cpp:2200`, no .vhd case);
-    our SCSI ignores img_readonly. **NEXT (Daniel, at the MiSTer):** the
+    our SCSI ignores img_readonly. **Daniel (23:3x): the image used was definitely `...removed-3.vhd`** -
+    so (1) below is ruled out: the writes were dropped (read-only file)
+    or never issued/failed in the core. **NEXT (Daniel, at the MiSTer):** the
     OSD's SCSI-0 file name and `ls -l` of it - (1) another file = it
     holds tonight's writes, copy it back and read it; (2) a read-only
     file = the writes were dropped, very likely the whole fault - make
@@ -21602,7 +21604,9 @@ Four 16 MB runs (KNOWN ISSUES 20, "THE RETHINK'S FIRST EVENING"): every
 failure is a Mac process jumping to logical 0. **The lead: the image
 files copied back from the SD card hold none of A/UX's writes** - stale
 swap would explain everything. **First thing next session:** Daniel
-reads the OSD's SCSI-0 file name and `ls -l` of it on the MiSTer. New
+runs `ls -l` on `...removed-3.vhd` on the MiSTer (it WAS the mounted
+image - Daniel): read-only = the writes were dropped; writable = our
+core's writes failed (PSCS's write counters, `rtl/scsi.v`). New
 tools (committed): `scripts/poll_btrace.tcl` (follows the trace for a
 whole boot; its JTAG call blocked once at 451 s - kill and re-read),
 `scripts/aux_peekpc.tcl` (PIFA/PLAS histogram + code at an address),
