@@ -95,7 +95,7 @@ set base 0x1BC880
 for {set i 0} {$i < 100} {incr i} {
 	set pp [expr {$base + $i * 0x9E}]
 	set r [plu [expr {$pp + 0x42}]]
-	if {($r & 0xFFF) != 0 || $r == 0 || $r >= $RAM} { continue }
+	if {($r & 0xF) != 0 || $r == 0 || $r >= $RAM} { continue }
 	set u [plu [expr {$pp + 0x3E}]]
 	set n ""
 	if {$u != 0 && $u < $RAM && ($u & 0xFFF) == 0} {
