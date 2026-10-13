@@ -18599,6 +18599,56 @@ Daniel - add to it, move items out when fixed).**
     fixed. That compile answers "what was a2 and where did it come
     from" whatever the outcome; the cache-off build answers yes or no to
     a hunch.
+    **THE RETHINK'S FIRST EVENING (2026-10-13 22:20-23:30, compile 58,
+    16 MB, no compile made).** Daniel thinks run 1's bomb may have been
+    at 8 MB by mistake; the OSD size is not in any probe (PVIA's ramsiz
+    is the ROM's sizing), so open. Four 16 MB boots, none bombed:
+    (a) **run A: the command-shell timeout** ("timed out waiting for
+    command shell", seen before): btrace_4/5 - Unix fork/exec traffic
+    (write-protect faults MMUSR $0800 - so the MMUSR I/W bits ARE
+    captured; only the level count reads 0 and the opcode $4E71 - the
+    review's point (3) corrected), no $2D7C54. (b) **run B: a hang with
+    a vector-4 storm** (hang_probes_1): illegal-instruction exceptions
+    ~1,000/s, A-line frozen; PIFA is a PHYSICAL fetch address - with the
+    kernel's .text at physical $5C000 its 400 samples all name kernel
+    code: trap, psignal, issig, P_SIGMASK, setrq, resched, reschedule,
+    uiswtch, pstart's switch code (a process faulting once per slice);
+    PFLN `FFFF at 00000008` twice. Its last 18 bus errors equal run A's
+    #1574-#1592 exactly (deterministic to there). (c) **run C: an idle
+    hang** (all exceptions interrupts; last vectors TRAP #0/#15, A-line
+    frozen at A51E); `scripts/aux_sigframe.tcl`: the u-area kernel
+    stack's top frame is at u+$FF6 (A/UX's `fault%` $54922: $A bytes,
+    then movem d0-d7/a0-a6 from u+$FB0, usp at u+$FEC); init, fidd,
+    macsysinit sleep in syscalls; **startmac's last kernel entry = an
+    F-line at PC $00000008**. (d) **run D:** the Mac processes GONE from
+    the proc table; PFLN `FFFF at 00000008` three times
+    (`scripts/aux_ustack.tcl` found only init, sh, fidd). **So in every
+    16 MB failure a Mac process jumped to logical 0** (two `ori.b #0`
+    from $0000 0000 words at 0 and 4, then $FFFF at 8 = F-line) - an RTS
+    popping 0 or a call through nil; run 1's bomb, pointers made of
+    stack data, is the same family.
+    **THE LEAD AT THE END: the board's writes are not on the image.** No
+    core files; the copy Daniel took off the SD card after run D
+    (`AUX_3_1_1GB-extensions removed-3.vhd`) differs from the original
+    (`...removed.vhd`, 17:46) by 2 bytes in one sector (1,900,636, the
+    Mac partition) and its newest UFS mtime is 2018; a second copy
+    (`...removed2.vhd`) is byte-identical to the original. Four A/UX
+    boots write fsck flags, wtmp, utmp, /tmp, and SWAP. **If A/UX's swap
+    writes were dropped, pages come back stale (old stack data, zeros):
+    exactly the jump to 0 and the stack-made pointers, varying per run,
+    worse with less RAM, and absent in MAME** (its CHD takes writes).
+    Main_MiSTer opens a SCSI image `O_RDWR | O_SYNC` whenever the file
+    is writable, read-only otherwise (`user_io.cpp:2200`, no .vhd case);
+    our SCSI ignores img_readonly. **NEXT (Daniel, at the MiSTer):** the
+    OSD's SCSI-0 file name and `ls -l` of it - (1) another file = it
+    holds tonight's writes, copy it back and read it; (2) a read-only
+    file = the writes were dropped, very likely the whole fault - make
+    it writable and boot; (3) writable with a fresh mtime = the copy
+    step missed them. Only if writes really reach the file does the
+    in-core lead (instruction restart, the trigger build) come back.
+    Also open: our SCSI target should report a write to a read-only
+    image as a write-protect error (DATA PROTECT sense), not succeed
+    silently - check what `rtl/scsi.v` does with a dropped write.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
@@ -21542,6 +21592,25 @@ against UM 9.5.3 (A/UX's pager is its first user); (b) the
 data-cache-off debug build for the board (Daniel's go, ~40 min); the
 board runs are: fresh image copy, 16 MB, 24-bit, no CD, say when the
 bomb is up.
+
+**END OF SESSION 2026-10-13 (23:30, Daniel closed it: "I think I am
+going to stop now") - READ THIS TO RESUME.** Daniel asked for a rethink
+of KNOWN ISSUES 20 (40-minute compiles on the off-chance); the review and
+the new plan are in KNOWN ISSUES 20 ("SUPERSEDED - the rethink"), the
+cache-off build dropped. No compile tonight; compile 58 on the board.
+Four 16 MB runs (KNOWN ISSUES 20, "THE RETHINK'S FIRST EVENING"): every
+failure is a Mac process jumping to logical 0. **The lead: the image
+files copied back from the SD card hold none of A/UX's writes** - stale
+swap would explain everything. **First thing next session:** Daniel
+reads the OSD's SCSI-0 file name and `ls -l` of it on the MiSTer. New
+tools (committed): `scripts/poll_btrace.tcl` (follows the trace for a
+whole boot; its JTAG call blocked once at 451 s - kill and re-read),
+`scripts/aux_peekpc.tcl` (PIFA/PLAS histogram + code at an address),
+`scripts/aux_sigframe.tcl` (user-mode frames in the u-areas, loose
+filter), `scripts/aux_ustack.tcl` (registers at the last kernel entry +
+the a6 chain); the peek scripts hold the machine and restart it at the
+end - warn Daniel first. The kernel's .text is at physical $5C000 (PIFA
+is physical).
 
 ---
 
