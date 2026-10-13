@@ -21461,6 +21461,28 @@ NOT on the board: Daniel flashes it, boots A/UX, says when the bomb
 appears, `quartus_stp -t scripts/read_btrace.tcl` at once. KNOWN ISSUES 18 opened (the GLUE's handshake
 bus-error timeout, not replicated; no effect seen).
 
+**END OF SESSION 2026-10-13 (21:10, Daniel closed it: "We'll stop now
+and continue another time") - READ THIS TO RESUME.** The day's A/UX
+work, all on dev (19 commits unpushed): KNOWN ISSUES 17 closed (the
+IO-stall watchdog, compile 56); KNOWN ISSUES 19 fixed and board-proven
+(the user-mode RTR function code, compile 57); KNOWN ISSUES 20 open: the
+boot-time Mac environment's "System" bus error - traced to QuickDraw's
+`movea.l ([$16,a2]),a1` after `a2 = ([$CC8])` reading garbage that
+changes per recursion level, while the shared GDevice chain on the board
+equals MAME's (which runs the image to a root shell); the data cache
+audited against UM section 6 and found faithful. Tools made today:
+`sim/rtr_fc`, `scripts/read_btrace.tcl` (compile 58 = the trace build,
+`MacSE30_50ca8805_btrace.rbf`, on the board), `scripts/aux_gdevice.tcl`
+(one peek session walks a process's page tables off the board),
+`tools/auxunix` (ufsread find/newer, coff disall/str/hex/ptrs),
+`tools/sdlat`, MAME's `aux/dumpram2.lua` with its RAM images
+(`C:\temp\Mac\mame\aux\s2_*.bin`). **Next (KNOWN ISSUES 20's last
+block):** (a) a sim bench of the PMMU walker's U/M descriptor write-back
+against UM 9.5.3 (A/UX's pager is its first user); (b) the
+data-cache-off debug build for the board (Daniel's go, ~40 min); the
+board runs are: fresh image copy, 16 MB, 24-bit, no CD, say when the
+bomb is up.
+
 ---
 
 ## Appendix - where the sources are
