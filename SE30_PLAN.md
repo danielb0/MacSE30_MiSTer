@@ -18505,6 +18505,40 @@ Daniel - add to it, move items out when fixed).**
     next (its ATC under A/UX's clears and context switches). The
     alternative without a compile: A/UX's own cache-off boot (the
     kernel's `m20cache` from the boot configuration) - not found yet.
+    **The data cache against UM section 6 (Daniel asked, 2026-10-13
+    21:00; 1.16.2's rules, 1.16.3's build, the RTL, 6.1.2 and 6.1.2.1
+    re-read): faithful on every rule checked.** Tag A31-A8 with FC2-FC0;
+    write-through, a hit written whatever the size and even frozen; WA=1
+    allocating only an aligned long, other write misses clearing the
+    entry's valid bit with the tag unaltered (6.1.2.1 word for word);
+    WA=0 leaving misses alone; CPU space and table searches never cached;
+    the MMU's CI honoured; CD/CED/reset clears; the posted-write buffer
+    (1.17.7) takes a RAM write as one beat per kernel request at the same
+    S1 the cache is written, with the same data the buffer latches (a
+    misaligned operand is the kernel's own two requests). The one
+    documented deviation (1.16.2: a hit needs no translation on the chip,
+    ours translates first) can only fault where the chip would serve a
+    hit on an unmapped page - the safer side. So the cache is not shown
+    wrong by the manual; the board experiment stays the test of it.
+    **What A/UX exercises for the first time** (the ROM never does, the
+    board never has): (1) the data cache under aliasing and per-switch
+    clears; (2) **the walker's U/M descriptor write-back** (UM 9.5.3:
+    `W_TABLE_UPDATE`/`W_UPDATE_DESC` in `TG68K_PMMU_030.vhd` ~4680-4760;
+    the ROM's tables have U and M pre-set, and 1.7's bench asserts the
+    walker NEVER writes under the ROM - so this path has no bench of its
+    own and no board hours); (3) PTEST level 7 (`realvtopte`,
+    `vtopte_sr`, ext `$9D08`: the PTE's address into A0, MMUSR with the
+    descriptor's M), which A/UX's pager uses to find and judge pages;
+    (4) PFLUSH by address (`fl_userpg`, ext `$3893`: user FCs at an EA)
+    besides PFLUSHA (`fl_atc`, `turnon_mmu`, the signal paths). A stale
+    M bit (a dirty page the pager believes clean, discarded, re-read from
+    swap) gives exactly a value that changes as the recursion pages -
+    as good a fit as the cache. **Next, in this order:** (a) a bench of
+    the walker's write-back against UM 9.5.3 (a table with U and M
+    clear: U set on the first touch, M on the first write, the write-back
+    as a read-modify-write of the descriptor, the ATC's M copy, PTEST 7's
+    MMUSR after it) - sim, no board; (b) the data-cache-off debug build
+    for the board (Daniel's go); whichever shows the fault first.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
