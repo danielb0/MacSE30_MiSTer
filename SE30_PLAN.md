@@ -18198,6 +18198,25 @@ Daniel - add to it, move items out when fixed).**
       copy of the image, 16 MB, 24-bit: expect no "Aborted Command"; see
       whether the memory faults (6) and the Mac environment's bomb (4) go
       with it; recheck the 1970 clock (5).
+    - **BOARD RESULT, compile 56 (Daniel, 2026-10-13 15:2x, fresh image
+      copy, 16 MB, 24-bit): THE DISK ABORTS ARE GONE.** The boot ran past
+      the point of the three "Aborted Command" lines (right after
+      `telinit v`, screenshot `..._152412`) with none, and Daniel saw none
+      of the first run's errors anywhere ("last time there were lots of
+      errors, this time I don't see any"); disk activity continued
+      normally after (catsearchd's first index). The clock read correctly
+      this time (`Today is: Tue Oct 13 14:23:09 GMT 2026`, `..._152325`),
+      so item 5 closes with it. **The disk side of this item is CLOSED:
+      the cause was our IO-stall watchdog at 535 ms on Main_MiSTer's
+      O_SYNC SD-card writes, fixed by the 8.6 s value.** Still open from
+      the first run: **item 4, the Mac environment's bomb** - this time
+      the box had text, `"System" bus error` (`..._152218`), over a kernel
+      that kept running (`..._152325`): the A/UX Toolbox process dies on
+      an access the kernel refuses or a real bus error; and `errdemon`'s
+      exit 204 (item 6's INIT line, still printed). Next for those: the
+      core files on the image (`find / -name core` via `ufsread.py`:
+      PC, fault address and registers of each crashed process) and the
+      PMMU fault-and-restart path (plan 1.18), now that the disk is clean.
     - Not reached: `scsitask`'s phase handling and `scsiirq`'s RPI read
       (the listing is there, `scsi.dis`); with our target the IRQ is off
       the disk's critical path, so it waits. `tools/auxunix/coff.py` grew
@@ -21119,9 +21138,13 @@ every path of ours positive); the only misses are the framework's
 `ascal` (`o_h_lum_pix` -> `o_poly_lum`): -0.184 ns at slow -40C, -0.014
 at slow 100C (KNOWN ISSUES 6, the accepted precedent; compile 54 had
 -0.461/-0.278 on the same path); no combinational loop. NOT on the board.**
-NEXT (Daniel, board): (1) `tools/sdlat/sdlat` on the MiSTer (~5 min) for
-the card's O_SYNC write latency; (2) A/UX from a FRESH copy of the image
-on the new build (~30 min). KNOWN ISSUES 18 opened (the GLUE's handshake
+BOARD-PROVEN the same evening: sdlat measured the card (one ~20-write
+episode at ~340 ms each), and A/UX on compile 56 from a fresh image copy
+ran with NO disk aborts and none of the first run's errors - the disk
+side of KNOWN ISSUES 17 is CLOSED; the clock is right too. OPEN from it:
+the Mac environment's "System" bus error bomb and errdemon's exit 204 -
+next = the core files off the image (ufsread.py), then plan 1.18's PMMU
+restart path. KNOWN ISSUES 18 opened (the GLUE's handshake
 bus-error timeout, not replicated; no effect seen).
 
 ---
