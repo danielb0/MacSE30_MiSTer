@@ -21604,9 +21604,14 @@ Four 16 MB runs (KNOWN ISSUES 20, "THE RETHINK'S FIRST EVENING"): every
 failure is a Mac process jumping to logical 0. **The lead: the image
 files copied back from the SD card hold none of A/UX's writes** - stale
 swap would explain everything. **First thing next session:** Daniel
-runs `ls -l` on `...removed-3.vhd` on the MiSTer (it WAS the mounted
-image - Daniel): read-only = the writes were dropped; writable = our
-core's writes failed (PSCS's write counters, `rtl/scsi.v`). Note: the 2 bytes that
+NOT a read-only file (Daniel: the image was edited this evening; and a
+Mac OS write did land on it) - **our core lost A/UX's own SCSI writes**
+(its driver's polled / blind-handshake path, KNOWN ISSUES 17-18), while
+the ROM SCSI Manager's write landed. **Next:** what differs from
+compile 57, whose A/UX core files reached the image (compile 58 itself?
+swap vs core-dump writes? their timing?): PSCS's write counters during a
+run, `rtl/scsi.v` against `scsi.dis`, a seam bench of A/UX's write path.
+The instruction-restart lead is shelved until this is settled. Note: the 2 bytes that
 DID change are in the Mac partition (sector 1,900,636) - a Mac OS write
 before A/UX started landed, which argues the file is writable and A/UX's
 own writes (its driver's path, KNOWN ISSUES 17/18) are the ones lost;
