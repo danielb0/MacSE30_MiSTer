@@ -17102,7 +17102,7 @@ status and where each was decided. Test tooling is not listed here.
 | 3 | **128 MB RAM with a 32-bit-clean ROM** (a IIsi / IIfx ROM file) | upgrade after the first release; wanted (Daniel, 2026-09-27) | MVP and upgrades; 3.7 |
 | 4 | **A colour video card** in the PDS pseudo-slots `$9`-`$B`, an OSD option; the card, and one output or two screens, open. **Build it as a self-contained slot device, shared with item 8** (the IIcx puts the same card in a NuBus slot) | **nice to have** (Daniel, 2026-10-07): does not fit beside the MVP. **Measured proxy (2026-10-09, the LC core's fit report):** its colour video is V8 timing and scanout 655 ALMs + RAMDAC/CLUT 72 (2 M10K) + VRAM glue 185 with the screen in block RAM (384 M10K), + a reconfigurable video PLL 570 that one fixed mode (640 x 480, 67 Hz) does not need: **~1,000-1,100 ALMs** with the slot interface and declaration ROM. 640 x 480 x 8 = ~300 M10K; beside the mono screen only 191 are free (release 362/553), so this option is 4-bit in block RAM, or the screen in SDRAM (a burst video port, ~18 MB/s) | MVP and upgrades |
 | 5 | **32 and 64 MB RAM**: the SDRAM controller learning the 64 MB modules, the OSD offering only what the fitted module holds | later, a separate decision (Daniel, 2026-10-07) | Section 13 |
-| 6 | **A/UX** | long-term compatibility target (Daniel, 2026-10-07) | FUTURE BOARD TESTS item 9 |
+| 6 | **A/UX** | long-term compatibility target (Daniel, 2026-10-07); **first run 2026-10-13: the kernel boots, disk writes abort - KNOWN ISSUES 17** | FUTURE BOARD TESTS item 9 |
 | 7 | **The second (external) floppy drive**: built (compile 25), out of the builds since compile 37 for space | **probably never** (Daniel, 2026-10-09: "we're probably never going to restore the second drive"); `sim/gcrread` now exercises one drive, `+twodrives` keeps the old run | MVP and upgrades; 5.14 |
 | 8 | **A Macintosh IIcx build**, a compile option of this core: the SE/30's ROM ($97221136), CPU, 68882, GLUE, VIAs, SCC, SCSI, SWIM, ASC, ADB and RTC unchanged; the mono pseudo-slot video out; NuBus slots with item 4's colour card; the machine's ID bits for a IIcx (which VIA lines: from the *Guide*); soft power (Shut Down stops or resets the core). Build options already exist (`SE30_EXT_DRIVE`, CD-ROM, PBER) | **STARTED 2026-10-09 (Daniel: "we should start working on the Mac IIcx/ci variant"); the IIcx first. **The IIcx is to be finished (Daniel, 2026-10-09: "definitely finish the cx. It's cheap, and there are no other colour 68030 models"); **after it, NO MORE MAC MODELS (Daniel, 2026-10-09).** His tests: a model must be properly emulated (authentic speed on the DE10-Nano) and distinguishable by the user. Reviewed that day against the MiSTer core list (Apple I, II+/IIe, IIgs, Lisa, MacPlus, LC, SE/30; danifunker's Quadra 800 and IIvi; his Power Mac, expected at about half speed): Mac II/IIx = a IIcx to the user; Classic II, Color Classic, LC II/III = the SE/30 and LC cores; IIci and PowerBook 140/170 = faster or portable SE/30/IIcx-class machines; Centris/Quadra = the Quadra 800 core; IIfx (40 MHz) and the Power Macs cannot run at authentic speed; the Portable/PowerBook 100 = the MacPlus core's 16 MHz mode with another screen (Daniel). The Lisa (Macintosh XL) has its own core.** **The IIci is OPEN, LOW PRIORITY** (Daniel, 2026-10-09: "Leave it open but low priority. I doubt there's much point to it." - to the user a IIci is a faster IIcx with more RAM: Low End Mac's real machines, Speedometer 4.02 8-bit, IIci CPU 0.38 / Graphics 0.39 / Math 1.25 (0.40 / 0.46 / 1.37 with the 32 KB cache card) against the IIcx's 0.26 / 0.25 / 0.96, the same 640 x 480 x 8-bit screen; the Quadra 800 core already offers a fast colour Mac. Earlier: "leave it open" - my proposal to follow with it was never his decision; his test: no point in cores the user cannot tell apart). It is a new machine on the same parts: ROM $368CADFE, MDU decode, RBV video and VIA2, 25 MHz.** **Packaging decided (Daniel, 2026-10-09): one repository, a second Quartus project** - `MacIIcx.qpf/.qsf/.srf` beside `MacSE30.*` sharing `rtl/` and `sys/`, a define switching the differences; `releases/MacIIcx_<date>.rbf` beside `MacSE30_<date>.rbf`; a second wiki Cores row `| [Apple Macintosh IIcx](https://github.com/MiSTer-devel/MacSE30_MiSTer) |MACIICX| Yes | |` (the distribution takes, per row, the rbfs whose names contain that row's home, so the two names must not contain each other; undated `releases/` files go to both games folders). Precedent: MiSTer-devel/Atari800_MiSTer (Atari800 + Atari5200) and Daniel's UK101 core. Was: planned, after the SE/30's release (Daniel, 2026-10-09: "we will attempt it, maybe when the SE/30 is released"). Fit estimate: release 37,372 - mono video 91 + card ~1,000-1,100 = **~38,300-38,400 ALMs, at the ~38.3k ceiling**; M10K: the mono screen's 136 freed leaves ~327, an 8-bit 640 x 480 screen (~300) plus CLUT and declaration ROM fits in block RAM, barely. Levers if over: CD-ROM (776), floppy writing (~1,100), the CPU/FPU audit. Chosen over a IIvi: the IIvi (VASP, Egret, 1 MB ROM, 0.5-1 MB VRAM) is a different chipset; the MacIIvi_MiSTer core stalled at 93-98 % ALMs and 98 % M10K without an FPU, its peripherals the LC's (SCSI 7,988 against our 1,731, Egret 2,256, Ethernet 888), timing hunted by seed, Speedometer CPU 3.95x slower than a real Performa 600 | here |
 | 9 | **MIDI: an Apple MIDI Interface on the modem port.** The Mac had no MIDI port: an interface on a serial port clocked the SCC itself (1 MHz on HSKi, which the board ties to /TRxC; the SCC's x32 factor gives 31,250 baud). Ours: a 1 MHz clock on channel A's HSKi (0.5 / 2 MHz as options, as Apple's MIDI Driver offers), TxD to MIDI out, MIDI in to RxD (`MacSE30.sv` ties both ports empty today, `scc_port_in`). Out to the **MT32-pi** on the USER port (`sys/mt32pi.sv` is already in our framework; the LC core's measured 123 ALMs) and/or **MidiLink** over the UART (USB MIDI devices, the ARM's software synths), in from MidiLink; an OSD choice as on the LC (`MIDI` in CONF_STR). Est. 150-250 ALMs. Tests: a seam bench (the SCC at x32 on 1 MHz: bytes at 31,250, both ways), then the board | **wanted** (Daniel, 2026-10-09; soon after the release): his ST setup - Cubase to the MT32-pi, a keyboard in over USB MIDI. Test material on `MacPack_minivmac.dsk`: Applications:Music - **Cubase 2.5.1r3** (with Apple MIDI Manager, Apple MIDI Driver, PatchBay, and Roland MT32 / GS instrument sets) and **ConcertWare+MIDI** (MIDI Manager, MIDI Setup, example songs) | here |
@@ -17941,6 +17941,105 @@ Daniel - add to it, move items out when fixed).**
     drops a trailing `_2026...`, so the name must differ before it).
     README: the swap rule (dev and release).
 
+17. **OPEN (2026-10-13, Daniel's first A/UX boot): A/UX's disk writes
+    fail with ABORTED COMMAND - our own target's watchdogs, the lead
+    suspect for everything else that went wrong.** Image:
+    `C:\temp\Mac\AUX disk\AUX_3_1_1GB.dsk` (1,048,576,000 bytes, file date
+    2018-03-09; renamed `.img` for the SCSI-0 slot, which takes IMG/VHD
+    only). Read here (2026-10-13): DDM `ER`, 512-byte blocks, 2,048,000
+    blocks, one driver at block 64 (10 blocks, `.SCSI00A`); map: driver
+    64+32, **UNIX Root&Usr slice 0** 96+1,769,468 (864 MB), **Swap**
+    1,769,564+131,070 (64 MB), **MacOS** HFS "Macintosh HD"
+    1,900,634+141,222 (69 MB), **Eschatology 1** 2,041,856+6,144 (A/UX's
+    recovery partition). The HFS side: System 7.1 (with a System Enabler
+    040 - built on a Quadra or QEMU), A/UX Startup 3.1 (`vers`) and its
+    alias in Startup Items, the standalone tools (`fsck`, `newfs`, `dd`,
+    ...). The root: A/UX 3.1 ("Friday, February 25, 1994" on the console)
+    over 3.0.1 strings; the kernel names itself `A/UX localhos 3.0.1 SVR2
+    mc68020 Sat Mar 10 03:50:10 PST 20..` (rebuilt with the install,
+    2018). The filename says 3.1.1; the tune-up is not confirmed. The disk
+    fits the target as built (capacity from `img_blocks`, READ(10) served;
+    ID 0 = A/UX Startup's default root).
+    **The run on the board (Daniel, 2026-10-13, 16 MB, 24-bit, build not
+    recorded):**
+    1. System 7.1 boots; A/UX Startup runs **fsck** with its progress bar -
+       very slow (Daniel's first estimate: an hour), intermittent disk
+       activity, the bar jumping ~20 % at once (progress set by the work,
+       not a fixed wait per transfer); it completed.
+    2. "Loading" (the kernel) then stalled for minutes with the pointer
+       live (the Mac OS alive). Daniel: **the CD-ROM drivers held it up**
+       (the empty AppleCD at ID 3; cf. KNOWN ISSUES 15 - 7.1's Apple
+       CD-ROM 4.0.x/5.0.x crawl with an empty drive). After a restart it
+       went much further.
+    3. **The kernel came up:** the Mac desktop vanished, A/UX's console
+       showed the boot (`/etc/sysinitrc`), A/UX 3.1, `Swap device =
+       0x1f01`, "Rebuilding disk device files..." (normal on new
+       hardware). **The PMMU, 32-bit mode and the kernel's take-over of
+       the machine work.**
+    4. **The Mac environment bombed**: a System Error box with the bomb
+       icon and NO text (seen first as "a blank, flashing error box"),
+       then `/etc/macsysinit: Timed out waiting for CommandShell to grab
+       console messages.` - the A/UX Toolbox (CommandShell/Finder) died.
+       Screenshot `C:\temp\Mac\Screenshots\20261013_120127-screen.png`.
+    5. **The clock:** `Today is: Thu Jan 1 01:29:32 GMT 1970` - A/UX got
+       no valid time (its own RTC driver; the Mac side had the date). A
+       lead, not yet a fault.
+    6. `/etc/rc: 96 Memory fault - core dumped` and `/etc/rc: 100 Memory
+       fault - core dumped` (96/100 most likely PIDs); `INIT: bad exit
+       status for proc id 'er': 204` (errdemon). Screenshot
+       `..._120233-screen.png`.
+    7. **Writes fail** (`..._120517-screen.png`): `Disk write c100d0s0
+       Error: Aborted Command` / `Generic Disk write c100d0s0 Failure:
+       Logical block 1524080, physical blocks 1524176-1524191`, the same
+       at 1532304 (1532400-1532415) and 1548752 (1548848-1548863) - 8 KB
+       writes in the root slice (physical = logical + 96).
+    Daniel stopped there (12:10). That copy of the image is suspect now
+    (failed writes mid-run): **start the next run from a fresh copy.**
+    **Why it is ours:** key `$B` ABORTED COMMAND is raised by `scsi.v` on
+    a write only by its watchdogs (`rtl/scsi.v:1348-1355`; the other
+    `$B`, `frontier_breach`, is reads only, `:1331`): the **bus watchdog**
+    (`WDOG_LOG` 22, ~129 ms with no ACK edge in any phase but idle,
+    `:1521`, `:1550`) or the **IO-stall watchdog** (`IOWDOG_LOG` 24, ~516
+    ms on one HPS transfer, `:1538`). The ASC carries the stalled opcode
+    (`:1355`); A/UX did not print it. The bus watchdog's own comment
+    (`:1515`): "In normal operation this can never fire - the initiator
+    answers in microseconds". True of the ROM (a polled driver, no
+    interrupts - the ROM survey in Section 9: "A/UX, per the *Guide*,
+    may"), not of A/UX: its driver is interrupt-driven and shares the CPU
+    with a scheduler and a pager. **A real target never times out its
+    initiator mid-command** (it waits for ACK), so this is our safety net
+    firing, not authentic behaviour.
+    **One cause for all of it (hypothesis):** a failed page-in/page-out
+    kills a process with "Memory fault - core dumped" (item 6) and could
+    bomb the paging-heavy Mac environment (4); the slow fsck (1) may be
+    retries. So the PMMU's restart path (format `$B` frames, plan 1.18) is
+    NOT the lead until the disk path is clean.
+    **The question to settle:** is A/UX merely slow (then the fix is the
+    spec: no watchdog in DATA/STATUS/MESSAGE phases, where the initiator
+    sets the pace; keep it for an unknown CDB's COMMAND phase, its reason
+    to exist, `:1505-1510`), or waiting for something we never give - the
+    53C80's IRQ (VIA2 CB2) or DRQ (VIA2 CA2) in a case A/UX relies on (then
+    a 53C80 fault: `rtl/se30_ncr53c80.v` raises IRQ on phase mismatch in
+    DMA mode, loss of BSY, selection and RST, `:272-287`; no EOP, as the
+    board ties it)?
+    **Next, options (estimates for Daniel):**
+    (a) **A/UX's SCSI driver, disassembled** from `/unix` on the image
+        (A/UX kernels keep their symbol table): what it waits for between
+        bytes and before STATUS. Needs a reader for A/UX's root file
+        system (SVFS or UFS - check first). ~1-2 h, offline, no board, no
+        compile. The software itself, so documentation-grade.
+    (b) **The board's SCSI probe** (`read_probes.tcl scsitime`, PSCS, as
+        planned for KNOWN ISSUES 15) on the existing debug build
+        (`MacSE30_dd3e3881_chk2.rbf`, compile 54): no compile; shows the
+        command stream and where the abort fires. Daniel's board time.
+    (c) MAME's SE/30 with the same image - a cross-check only; unknown
+        whether it boots A/UX.
+    Then the **core files** (`find / -name core`): each crashed process
+    left its registers, PC and fault address - read them off the image if
+    the memory faults remain after the disk fix.
+    The CD-ROM stall (2) and the 1970 clock (5) are separate, smaller
+    leads; recheck both after the fix.
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users
@@ -17992,6 +18091,7 @@ suspect until shown otherwise:
 | Dark Castle | 51 | 24-bit | the demo runs | from a floppy, under System 7.5.5; Daniel, 2026-10-07 |
 | Crystal Raider (1985) | 52/53 | 24-bit | runs on System 6, not on System 7; runs far too fast | the speed is authentic (CPU-loop timing written for an 8 MHz 68000; the core's CPU = the real SE/30's); System 7 failure: how it fails not yet known |
 | Shufflepuck Cafe v1.0 (floppy) | 53 | 24-bit | **an extension conflict, NOT the core (closed 2026-10-07).** Under System 7.5.5 with Daniel's extensions (ATM, networking, enablers, the 32-bit extension off) it crashes every time the menu comes up after a game: an odd sound, then the screen full of a repeating pattern. **With the extensions switched off in Extensions Manager it works.** MAME's SE/30 with the same System (Daniel's backup `mac_80mb-restored.vhd`) and the same floppy does the same: a blank message box, then garbage on the screen (Daniel played it, 19:1x). (Shift at start-up works when pressed after the chime - KNOWN ISSUES 11, closed.) | MAME: an extension moves vectors 2-5 into RAM during the boot (a BSR.S table at $33A9A, 27.8 s; on the board $36A5A); after the game low memory is overwritten - vector 2 = $01784EFA, the very value the board's probe deck showed (254.1 s), then a $19111911 pattern. Board (probed 18:28 and live 18:4x): the same Toolbox calls each time before the crash (NewHandle, BlockMove, HSetState, GetString, GetResource, GetTrapAddress); the crash handler then bus-errors on itself and a 92-byte format-$B frame tiles memory downward through RAM, I/O (the ASC: the sound) and video. Same software fault on both machines; only the aftermath differs (MAME acknowledges every address) |
+| A/UX 3.1 (3.0.1 base; image `AUX_3_1_1GB.dsk`, 2018) | not recorded | A/UX (kernel 32-bit), 16 MB | **the kernel boots; disk writes fail, two processes memory-fault, the Mac environment bombs** (Daniel, 2026-10-13) - **KNOWN ISSUES 17, a core suspect (our SCSI target's watchdogs)** | fsck from A/UX Startup completes (slowly); the kernel load stalled once on the empty CD-ROM; the console reaches `/etc/rc`, cron, catsearchd; "Aborted Command" on 8 KB root writes; the clock reads 1970 |
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
@@ -18143,6 +18243,9 @@ strike what is done).** Each on a scratch copy of the image unless noted.
      Shoebill (plan Appendix) runs A/UX on the IIx, the SE/30's sibling,
      and can say whether an image is sound before the core runs it.
    - Not a release blocker.
+   - **First run 2026-10-13** (Daniel, `AUX_3_1_1GB.dsk`, A/UX 3.1):
+     the kernel boots; disk writes abort in our SCSI target - KNOWN
+     ISSUES 17.
 
 10. **Cold-start every memory configuration** (from KNOWN ISSUES 13,
     2026-10-08). An OSD reset keeps RAM, so the warm-start flag ('WLSC'
@@ -20789,6 +20892,22 @@ Power switch's Locked on restarts it.
 The distribution then puts every undated releases/ file in both games
 folders (boot3.rom and MacIIcx.nvr also land in games/MACSE30, boot1.rom
 and MacSE30.nvr in games/MACIICX - harmless, FUTURE BOARD TESTS 12).
+
+**END OF SESSION 2026-10-13 (12:15, Daniel stopped: "We will work on
+this later") - READ THIS TO RESUME.** A/UX's first run on the board:
+**KNOWN ISSUES 17** has it all (the image's layout, the run step by step,
+the three screenshots, the analysis). In short: A/UX 3.1 boots its
+kernel on the core - PMMU, 32-bit mode and the take-over work - but its
+disk writes come back ABORTED COMMAND, which on a write only our target's
+watchdogs raise (`rtl/scsi.v:1348-1355`, 129 ms bus / 516 ms IO-stall);
+a real target never times out its initiator. Probably the cause of the
+memory faults and the Mac environment's bomb too. **Next:** choose
+between (a) disassembling A/UX's SCSI driver from `/unix` on the image
+(~1-2 h offline) and (b) the PSCS probe on the compile-54 debug build
+(board time, no compile), to learn whether A/UX is slow or waiting on a
+53C80 signal; then fix the RTL with a seam bench, compile, and rerun
+A/UX **from a fresh copy of the image**. No RTL changed this session;
+Daniel's `sim/gcrread` change and the `sim/mmu16` logs still uncommitted.
 
 ---
 
