@@ -18040,6 +18040,72 @@ Daniel - add to it, move items out when fixed).**
     the memory faults remain after the disk fix.
     The 1970 clock (5) is a separate, smaller lead; recheck it after the
     fix. (The CD-ROM stall (2) is KNOWN ISSUES 15, authentic.)
+    **Option (a), first session (2026-10-13 pm, unfinished).** Read from
+    the ORIGINAL image (2018 file, never booted on the board):
+    - The root slice is **UFS** (4.2BSD FFS, big-endian, 8 KB blocks, 1 KB
+      fragments, 216 cylinder groups). `tools/auxunix/ufsread.py IMG ls|get
+      PATH [OUT]` reads it, read-only (set `MSYS_NO_PATHCONV=1` in Git
+      Bash). `tools/auxunix/fsprobe.py` tells UFS from SVFS.
+    - `/nextunix` holds `/unix`, so **`/unix` is the booted kernel**
+      (837,678 bytes; `/newunix` 865,990 is an unused autoconfig build).
+      m68k COFF (magic `$0150`): `pstart` $54000, `.text` $10000000,
+      `.data` $11000000, `.bss` $12000000, $1711 symbols, statics
+      included. `tools/auxunix/coff.py FILE sects | syms REGEX | dis SYM...`
+      (capstone 5.0.7, 68030 mode; run with `python -E -P`, not `-I`, or
+      the user site-packages with capstone are skipped). Extracts and the
+      full SCSI listing: `C:\temp\Mac\AUX disk\extract\` (`unix`,
+      `newunix`, `scsi.dis`).
+    - **The SCSI manager is Apple's, in the kernel:** `scsidma.c` 2.6
+      (92/11/11), `scsifsm.c` 2.12, `scsireq.c` 2.10, `scsitask.c` 2.12,
+      `scsitrace.c` 2.5. A state machine (`scsisched` $1004AA84 with
+      `statetable`/`eventnames` in `.data`), events `SI_FSEL SI_SEL
+      SI_RESET SI_PHASE SI_PARITY SI_FREE SI_UNK SI_NEWTASK SI_DONE SI_ABT
+      SI_BSY SI_DMA SI_EOP SI_DMAWDOG SI_WAITP` (0-14), states `SG_IDLE
+      SG_CHOOSE SG_RUN SG_WPHASE SG_WRECON SG_WBUS SG_WRESET SG_ABORTJ
+      SG_RESET SG_NOTIFY SG_DMA SG_EOP SG_PANIC`. Its strings show it
+      **waits for a phase change by interrupt and polls only as a
+      fallback**: "awaiting phase via int", "very long waitp poll",
+      "pretend phase int", "dead phase wait"; plus its own DMA watchdog
+      ("dma wdog", `SI_DMAWDOG`) and `watchdog` ($1004D8A8). It also has a
+      built-in trace (`tracescsi`, gated by bit 2 of `curstp->$38`;
+      `scsitraceid`, `scsitracespeed`) - a possible instrument later.
+    - **`scsiirq` ($1004B9CA), the SE/30 path** (`machineID != $B`; 53C80
+      registers at stride $10 from `scsi_addr`: $40 CSR, $50 BSR, $20 MR,
+      $70 RPI). No BSR.IRQ -> "ignoring bogus irq". Else, in order: CSR.RST
+      -> `SI_RESET`; BSR.EOP and DMA flag -> `SI_EOP`; BSR busy-error ->
+      `SI_FREE`; BSR parity -> `SI_PARITY`; CSR.SEL with our ID on the
+      data bus -> `SI_SEL`; **BSR phase-match clear with CSR.BSY ->
+      `SI_PHASE`**; BSY gone -> `SI_FREE`; else `SI_UNK`. Then: BSY gone
+      -> clear MR.MONBSY; `SI_PHASE` -> clear MR.DMA; `SI_SEL` -> clear
+      SER; read RPI; clear the VIA2 flag; `scsisched(event)`.
+    - **`scsi_in` ($1004A2A4) / `scsi_out` ($1004A6B2)**, by transfer mode
+      (third argument): **5** = real DMA (IIfx-style; arms a $2FAF080
+      timeout, `scsisched(SI_DMA)`); **4** = **blind through `shsk_addr`**
+      (GLUE's handshake port, our `$50006000`, `rtl/se30_glue.v:236`):
+      reads wait for BSR & $48 == $48 (DRQ + phase match), then move 128
+      bytes as 32 `move.l` with NO further check; writes send 4 bytes
+      polled through `sdma_addr`, then 60 bytes as 15 `move.l`, per 64;
+      after the last byte wait for DRQ to clear with phase still matching
+      ("write finish" on timeout). Otherwise polled bytes through
+      `sdma_addr`. Every poll gives up after 2,000,000 tries, or at once
+      when phase match or BSY drops. Both catch a **bus error** around the
+      blind loop (`nofault` at $12FFF0A0 -> `berrflag`, "scsiin buserr" /
+      "scsiout buserr") - so on the real machine a blind access can end
+      in a bus error, which the driver expects and recovers from.
+    **Working hypothesis (not yet shown):** the 129 ms gap our bus
+    watchdog sees is the host in `SG_WPHASE` after a data phase, waiting
+    for the phase-mismatch IRQ (DATA -> STATUS) and polling only after its
+    "very long waitp poll" delay. If our 53C80 does not raise IRQ there
+    (DMA mode set, REQ asserted in a new phase, `rtl/se30_ncr53c80.v:
+    272-287`), the watchdog fires first.
+    **Next (~1 h, offline):** read `scsisched`'s `SG_WPHASE`/`SI_WAITP`
+    path (how long before "very long waitp poll"), `watchdog`, and
+    `scsitask`'s phase handling (`SPH_DOUT`, `SPH_STAT`); check whether
+    `/unix` uses mode 4 on the SE/30 (`scsi_dmatype` $10049FC8); then
+    compare the 53C80 datasheet's IRQ conditions with
+    `rtl/se30_ncr53c80.v`. Also check the documentation for what the SE/30
+    GLUE does when a `$50006000` access waits for DRQ too long (the
+    driver's bus-error catch suggests a timeout; ours waits indefinitely).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
@@ -20909,6 +20975,20 @@ between (a) disassembling A/UX's SCSI driver from `/unix` on the image
 53C80 signal; then fix the RTL with a seam bench, compile, and rerun
 A/UX **from a fresh copy of the image**. No RTL changed this session;
 Daniel's `sim/gcrread` change and the `sim/mmu16` logs still uncommitted.
+
+**END OF SESSION 2026-10-13 (afternoon, Daniel closed it) - READ THIS TO
+RESUME.** Started option (a) of KNOWN ISSUES 17. Done: a read-only UFS
+reader and a COFF/capstone disassembler (`tools/auxunix/`); `/unix` extracted
+(the booted kernel, symbols intact); A/UX's SCSI manager located and
+`scsiirq`, `scsi_in`, `scsi_out` read. Findings and the hypothesis are in
+KNOWN ISSUES 17 under "Option (a), first session". In short: A/UX's
+driver is a state machine that **waits for the 53C80's phase-mismatch
+interrupt** between phases and only polls after a long delay, and it moves
+data in blind 64/128-byte bursts through GLUE's handshake port. **Next:**
+read `scsisched`'s `SG_WPHASE` path and `watchdog` (the listing is in
+`C:\temp\Mac\AUX disk\extract\scsi.dis`), then check `rtl/se30_ncr53c80.v`'s
+IRQ against the 53C80 datasheet. No RTL changed; nothing committed this
+session (`tools/auxunix/` and this plan edit are new).
 
 ---
 
