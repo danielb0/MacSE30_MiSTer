@@ -1535,7 +1535,17 @@ parameter WDOG_LOG = 22;               // 2^22 clks @32.5MHz = ~129 ms
 // is not optional: io_busy suppresses REQ, so without it the abort could not
 // even send its own CHECK CONDITION, and the next command would inherit the
 // wedge (the same failure the any_rst clear exists to prevent).
-parameter IOWDOG_LOG = 24;             // 2^24 clks @32.5MHz = ~516 ms
+//
+// Its length is set by the HPS, not by the bus. Main_MiSTer opens a writable
+// image O_SYNC (user_io.cpp, the mount), so every write flush is a synchronous
+// SD-card write, and SD cards stall for hundreds of milliseconds, at times
+// seconds, while they shuffle erase blocks. At 2^24 (~535 ms at 31.3 MHz) this
+// fired on A/UX 3.1's 8 KB root writes after its core dumps (SE30_PLAN.md
+// KNOWN ISSUES 17, 2026-10-13): A/UX itself polls for the status phase for
+// several seconds, and a real drive holds the bus for as long as its medium
+// needs, so this timer sits well beyond any SD stall and still ends a transfer
+// that never completes at all (an image unmounted mid-command).
+parameter IOWDOG_LOG = 28;             // 2^28 clks @31.3MHz = ~8.6 s
 reg [IOWDOG_LOG-1:0] iowdog = 0;
 wire iowdog_expired = &iowdog;
 wire iostall_abort  = iowdog_expired;

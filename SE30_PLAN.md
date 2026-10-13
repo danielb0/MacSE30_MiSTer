@@ -18106,6 +18106,102 @@ Daniel - add to it, move items out when fixed).**
     `rtl/se30_ncr53c80.v`. Also check the documentation for what the SE/30
     GLUE does when a `$50006000` access waits for DRQ too long (the
     driver's bus-error catch suggests a timeout; ours waits indefinitely).
+    **Option (a), second session (2026-10-13 evening): the driver's wait
+    for the next phase is decoded, and a WRITE never waits on the 53C80's
+    interrupt - the abort was the IO-stall watchdog on a slow HPS write.**
+    - `scsisched`'s state `SG_WPHASE` (`$1004ACA8-$1004AE0C`, the SE/30
+      path): it returns to await the interrupt ("awaiting phase via int")
+      only when MR.DMA is set, CSR.REQ is clear and BSR reads phase match
+      WITHOUT DRQ (`BSR & $48 == $08`). Otherwise it clears MR.DMA (which
+      releases the ACK the DMA logic holds, SP-1051 10.5.2/10.5.3; ours
+      does, `rtl/se30_ncr53c80.v:208`) and polls CSR for BSY with REQ up
+      to 2,000,000 times ("very long waitp poll" traced past 125,000),
+      counting `iowaits`: REQ seen -> `SI_PHASE` ("pretend phase int") ->
+      `SG_RUN`; none -> `printf("dead phase wait: md=%x,cs=%x,bs=%x")` on
+      the console and `SI_ABT`. One iteration is ~12 instructions with one
+      53C80 read, roughly 3 us, so A/UX waits several seconds for a
+      target's next phase before giving up. The dispatch runs at `splhi`,
+      so nothing preempts the poll. (State entry also programs VIA2's IER
+      from `state_atribs` bit 0 - `$88` enable / `$08` disable the CB2
+      interrupt - and clears the CB2 flag in IFR first, `$1004ABC8`.)
+    - `scsi_out` (`$1004A6B2`), mode 4 on the SE/30: sets MR.DMA, writes
+      Start DMA Send, sends 64-byte groups (4 bytes polled through
+      `sdma_addr`, 15 `move.l` through `shsk_addr`), and after the last
+      byte waits while `BSR & $48 == $08` - for DRQ (the chip asking for
+      a byte once the target took the last one) or a phase change - then
+      returns with MR.DMA still set. So after a WRITE's data the host
+      reaches `SG_WPHASE` with DRQ set and takes the POLL path: the
+      53C80's phase-mismatch interrupt is not on a write's path at all.
+      (After a READ the last blind group leaves DRQ clear, so the
+      interrupt path is armed; our target moves to STATUS within clocks
+      of the last ACK, so the host finds REQ already up and polls there
+      too. The IRQ is raised, `:272`, and latched until `scsiirq` reads
+      RPI.)
+    - `watchdog` (`$1004D8A8`): a `timeout()` every 2 x hz ticks that
+      counts each active task's `$3C` against its `$3A` limit; "jammed"
+      -> `unjam` -> a bus reset (ICR `$80`). Not involved.
+    - So in a WRITE only the TARGET can stall the host, and ours does:
+      `scsi.v` holds REQ low while a flush is in flight (`io_busy`,
+      `:295-297`), and the IO-stall watchdog ends one HPS transfer that
+      runs longer than `IOWDOG_LOG` 24 = 2^24 clocks: **535 ms at 31.3344
+      MHz** (the bus watchdog 2^22 = 134 ms; the 516/129 ms above were
+      MacPlus figures at 32.5 MHz). The bus watchdog cannot fire here (the
+      host answers REQ within microseconds), and the host's own "dead
+      phase wait" prints to the console - the screenshot `..._120517`
+      shows only the three aborted writes.
+    - **The HPS side:** Main_MiSTer opens a writable image `O_RDWR |
+      O_SYNC` (`user_io.cpp:2200`, master `2263b65` of 2026-09-14) and
+      serves a write request with one `write()` (`:3514`): every flush is
+      a synchronous SD-card write. SD cards stall for hundreds of
+      milliseconds, at times seconds, in their own erase-block
+      housekeeping, and A/UX had just dumped two cores (item 6) when the
+      three 8 KB writes failed. **Verdict: the IO-stall watchdog fired on
+      SD-card write latency - our value; neither A/UX nor the 53C80.**
+    - **FIX APPLIED: `IOWDOG_LOG` 24 -> 28** (`rtl/scsi.v:1548`, 2^28 =
+      8.6 s). To spec: a real target holds the bus for as long as its
+      medium needs (a drive's bad-sector retries run for seconds) and
+      never aborts for a slow medium; the timer stays as the last resort
+      for a transfer that never completes (an image unmounted
+      mid-command, FUTURE BOARD TESTS 8: 8.6 s to the abort now instead
+      of 0.5). The host's own limits come first, as on the real machine
+      (A/UX's poll of several seconds, Mac OS's SCSI Manager completion
+      timeouts). `sim/scsi_seam` 298 PASS, `sim/ncr53c80` 107 PASS
+      (neither exercises the value; the MacPlus benches override it).
+      The compile is recorded in the END OF SESSION block below.
+    - **The measurement (board, Daniel, ~5 min, no compile):**
+      `tools/sdlat/sdlat.c`, cross-built in WSL as `tools/sdlat/sdlat`
+      (static ARM, untracked): `scp` it to the MiSTer and run
+      `./sdlat /media/fat/sdlat.tmp 8192 2000` - 2,000 O_SYNC writes of
+      8 KB at random offsets in a 256 MB scratch file; prints the latency
+      histogram and the ten worst. Any entry at or over 500 ms is the
+      abort seen; the maximum says whether 8.6 s is clear of the card.
+      Delete the scratch file after.
+    - **Then the rerun (board, Daniel, ~30 min):** the new build, a FRESH
+      copy of the image, 16 MB, 24-bit: expect no "Aborted Command"; see
+      whether the memory faults (6) and the Mac environment's bomb (4) go
+      with it; recheck the 1970 clock (5).
+    - Not reached: `scsitask`'s phase handling and `scsiirq`'s RPI read
+      (the listing is there, `scsi.dis`); with our target the IRQ is off
+      the disk's critical path, so it waits. `tools/auxunix/coff.py` grew
+      `str ADDR...`, `hex ADDR LEN` and `ptrs ADDR N` for the `.data`
+      side (strings, tables, pointer arrays).
+
+18. **OPEN (2026-10-13, from the A/UX driver reading): a pseudo-DMA
+    access that waits for DRQ too long ends in a bus error on the real
+    machine; ours waits forever.** The *Guide*'s SCSI chapter
+    (`Guide.txt` 18635): on every model after the Plus, a SCSI read or
+    write that does not complete within a time "different for different
+    machines" ends with the general logic IC asserting /BERR; the SE's
+    BBU figure is 265 ms (its signal table, 21026); the SE/30 GLUE's is
+    not given. A/UX's `scsi_in`/`scsi_out` wrap their blind loops in a
+    `nofault` catch ("scsiin buserr" / "scsiout buserr") and recover, so
+    the software expects it. `rtl/se30_glue.v:236` (`dc_adv`) holds a
+    handshake access until DRQ with no limit. Consequence today: none
+    seen - the ROM and A/UX both end their groups on 512-byte boundaries,
+    where our target's flush gaps fall, so a stall lands in a BSR poll,
+    not in a handshake access. To replicate: the GLUE's timeout (the
+    GLUE PAL equations in `Docs`, or MAME), then a counter in `dc_adv`
+    that ends the cycle with a bus error. Low; after KNOWN ISSUES 17.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
@@ -20989,6 +21085,19 @@ read `scsisched`'s `SG_WPHASE` path and `watchdog` (the listing is in
 `C:\temp\Mac\AUX disk\extract\scsi.dis`), then check `rtl/se30_ncr53c80.v`'s
 IRQ against the 53C80 datasheet. No RTL changed; nothing committed this
 session (`tools/auxunix/` and this plan edit are new).
+
+**END OF SESSION 2026-10-13 (evening) - READ THIS TO RESUME.** KNOWN
+ISSUES 17 diagnosed from the driver (option (a), second session): A/UX's
+write path polls for the next phase and never waits on the 53C80
+interrupt, so the only thing that could abort its writes was our IO-stall
+watchdog on a slow HPS write - and Main_MiSTer writes images O_SYNC to
+the SD card. FIX: `IOWDOG_LOG` 24 -> 28 (535 ms -> 8.6 s, `rtl/scsi.v`),
+to spec (a target waits for its medium); `sim/scsi_seam` and
+`sim/ncr53c80` pass. COMPILE: see the line that follows this block.
+NEXT (Daniel, board): (1) `tools/sdlat/sdlat` on the MiSTer (~5 min) for
+the card's O_SYNC write latency; (2) A/UX from a FRESH copy of the image
+on the new build (~30 min). KNOWN ISSUES 18 opened (the GLUE's handshake
+bus-error timeout, not replicated; no effect seen).
 
 ---
 
