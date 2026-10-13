@@ -17968,9 +17968,10 @@ Daniel - add to it, move items out when fixed).**
        not a fixed wait per transfer); it completed.
     2. "Loading" (the kernel) then stalled for minutes with the pointer
        live (the Mac OS alive). Daniel: **the CD-ROM drivers held it up**
-       (the empty AppleCD at ID 3; cf. KNOWN ISSUES 15 - 7.1's Apple
-       CD-ROM 4.0.x/5.0.x crawl with an empty drive). After a restart it
-       went much further.
+       (the empty AppleCD at ID 3). **Known and authentic: KNOWN ISSUES
+       15** - the early Apple CD-ROM drivers (4.0.x, 5.0.1) slow the Mac
+       with no disc in the drive, 5.1.7 and later do not; this 7.1 carries
+       an early one. Not a lead. After a restart it went much further.
     3. **The kernel came up:** the Mac desktop vanished, A/UX's console
        showed the boot (`/etc/sysinitrc`), A/UX 3.1, `Swap device =
        0x1f01`, "Rebuilding disk device files..." (normal on new
@@ -18037,8 +18038,8 @@ Daniel - add to it, move items out when fixed).**
     Then the **core files** (`find / -name core`): each crashed process
     left its registers, PC and fault address - read them off the image if
     the memory faults remain after the disk fix.
-    The CD-ROM stall (2) and the 1970 clock (5) are separate, smaller
-    leads; recheck both after the fix.
+    The 1970 clock (5) is a separate, smaller lead; recheck it after the
+    fix. (The CD-ROM stall (2) is KNOWN ISSUES 15, authentic.)
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
@@ -18091,7 +18092,7 @@ suspect until shown otherwise:
 | Dark Castle | 51 | 24-bit | the demo runs | from a floppy, under System 7.5.5; Daniel, 2026-10-07 |
 | Crystal Raider (1985) | 52/53 | 24-bit | runs on System 6, not on System 7; runs far too fast | the speed is authentic (CPU-loop timing written for an 8 MHz 68000; the core's CPU = the real SE/30's); System 7 failure: how it fails not yet known |
 | Shufflepuck Cafe v1.0 (floppy) | 53 | 24-bit | **an extension conflict, NOT the core (closed 2026-10-07).** Under System 7.5.5 with Daniel's extensions (ATM, networking, enablers, the 32-bit extension off) it crashes every time the menu comes up after a game: an odd sound, then the screen full of a repeating pattern. **With the extensions switched off in Extensions Manager it works.** MAME's SE/30 with the same System (Daniel's backup `mac_80mb-restored.vhd`) and the same floppy does the same: a blank message box, then garbage on the screen (Daniel played it, 19:1x). (Shift at start-up works when pressed after the chime - KNOWN ISSUES 11, closed.) | MAME: an extension moves vectors 2-5 into RAM during the boot (a BSR.S table at $33A9A, 27.8 s; on the board $36A5A); after the game low memory is overwritten - vector 2 = $01784EFA, the very value the board's probe deck showed (254.1 s), then a $19111911 pattern. Board (probed 18:28 and live 18:4x): the same Toolbox calls each time before the crash (NewHandle, BlockMove, HSetState, GetString, GetResource, GetTrapAddress); the crash handler then bus-errors on itself and a 92-byte format-$B frame tiles memory downward through RAM, I/O (the ASC: the sound) and video. Same software fault on both machines; only the aftermath differs (MAME acknowledges every address) |
-| A/UX 3.1 (3.0.1 base; image `AUX_3_1_1GB.dsk`, 2018) | not recorded | A/UX (kernel 32-bit), 16 MB | **the kernel boots; disk writes fail, two processes memory-fault, the Mac environment bombs** (Daniel, 2026-10-13) - **KNOWN ISSUES 17, a core suspect (our SCSI target's watchdogs)** | fsck from A/UX Startup completes (slowly); the kernel load stalled once on the empty CD-ROM; the console reaches `/etc/rc`, cron, catsearchd; "Aborted Command" on 8 KB root writes; the clock reads 1970 |
+| A/UX 3.1 (3.0.1 base; image `AUX_3_1_1GB.dsk`, 2018) | not recorded | A/UX (kernel 32-bit), 16 MB | **the kernel boots; disk writes fail, two processes memory-fault, the Mac environment bombs** (Daniel, 2026-10-13) - **KNOWN ISSUES 17, a core suspect (our SCSI target's watchdogs)** | fsck from A/UX Startup completes (slowly); the kernel load stalled once on the empty CD-ROM (KNOWN ISSUES 15, the early driver - authentic); the console reaches `/etc/rc`, cron, catsearchd; "Aborted Command" on 8 KB root writes; the clock reads 1970 |
 
 **FUTURE BOARD TESTS (the list, opened 2026-10-04 by Daniel; add to it,
 strike what is done).** Each on a scratch copy of the image unless noted.
