@@ -103,6 +103,14 @@ localparam PBER = 1;
 `else
 localparam PBER = 0;
 `endif
+// The bus-error trace (KNOWN ISSUES 20; dbg_probes.sv's g_btrace, about 4
+// M10K and little logic) is a build option: define SE30_BTRACE in the qsf
+// for a debug build, as SE30_CARD_PROBE is.
+`ifdef SE30_BTRACE
+localparam BTRACE = 1;
+`else
+localparam BTRACE = 0;
+`endif
 
 // The CD-ROM (plan Section 12): an AppleCD SC at SCSI ID 3 on hps_io slot
 // 4, data only (no CD audio, so no CUE/BIN/CHD: flat ISO and Toast images,
@@ -934,7 +942,7 @@ always @(posedge clk_sys) begin
 	if (!pk_hold) begin pk_req_r <= 0; raw_req_r <= 0; pk_st <= 0; end
 end
 
-dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER)) probes
+dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE)) probes
 (
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),

@@ -155,7 +155,8 @@
 
 module dbg_probes #(
 	parameter PERF_PROBES = 0,            // PSCT, PFPU, PPRF: MacSE30.sv's SE30_PERF_PROBES (plan 10.4)
-	parameter PBER = 0                    // PBER: MacSE30.sv's SE30_PBER (KNOWN ISSUES 8; off by default, Daniel 2026-10-07)
+	parameter PBER = 0,                   // PBER: MacSE30.sv's SE30_PBER (KNOWN ISSUES 8; off by default, Daniel 2026-10-07)
+	parameter BTRACE = 0                  // PBTD/PBTC: the bus-error trace (KNOWN ISSUES 20), MacSE30.sv's SE30_BTRACE
 ) (
 	input  wire        clk,
 	input  wire        phi1,
@@ -351,6 +352,58 @@ module dbg_probes #(
 			.instance_id ("PBER"), .probe_width (432), .source_width (1),
 			.sld_auto_instance_index ("YES")
 		) cp_pber (.probe({n_ber, ber_ring}), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
+
+	// The bus-error TRACE (KNOWN ISSUES 20, 2026-10-13): A/UX's page faults
+	// are bus errors too, hundreds a second, so PBER's four entries never
+	// hold the one that killed the Mac environment.  Two rings in block RAM:
+	//   all:      every vector-2 exception, 256 entries, {opcode[15:0],
+	//             PC[31:0], berr_state[55:0] (the PMMU's last fault), the
+	//             fault's sequence number[23:0]};
+	//   external: only those with the bus BERR pending (GLUE refused the
+	//             access - rare under A/UX, the likeliest fatal one), 32
+	//             entries, {opcode, PC, 8'b0, the bus address at BERR[31:0],
+	//             4'b0, FC[2:0], read, 8'b0, sequence number[23:0]}.
+	// Read by scripts/read_btrace.tcl: PBTD's source {ring, row[7:0]} picks
+	// the entry its probe shows; PBTC = {all count[23:0], external count
+	// [15:0], all write pointer[7:0], external write pointer[4:0], 3'b0}.
+	generate if (BTRACE) begin : g_btrace
+		reg [127:0] bt_mem [0:255];
+		reg [127:0] bx_mem [0:31];
+		reg   [7:0] bt_wp = 0;
+		reg   [4:0] bx_wp = 0;
+		reg  [23:0] n_bt = 0;
+		reg  [15:0] n_bx = 0;
+		reg  [31:0] bx_addr = 0;              // the bus address, FC and direction as BERR asserted
+		reg   [2:0] bx_fc = 0;
+		reg         bx_rd = 0, berr_q = 0;
+		reg [127:0] bt_q = 0, bx_q = 0;
+		wire  [9:0] bt_src;
+		wire        is_ext = berr_state[54];
+		always @(posedge clk) begin
+			berr_q <= berr;
+			if (berr && !berr_q) begin bx_addr <= cpu_addr; bx_fc <= cpu_fc; bx_rd <= cpu_rw_n; end
+			if (exc_take && exc_vec == 8'd2) begin
+				bt_mem[bt_wp] <= {exc_opc, exc_pc, berr_state, n_bt};
+				bt_wp <= bt_wp + 1'd1;
+				n_bt  <= n_bt + 1'd1;
+				if (is_ext) begin
+					bx_mem[bx_wp] <= {exc_opc, exc_pc, 8'd0, bx_addr, 4'd0, bx_fc, bx_rd, 8'd0, n_bt};
+					bx_wp <= bx_wp + 1'd1;
+					n_bx  <= n_bx + 1'd1;
+				end
+			end
+			bt_q <= bt_mem[bt_src[7:0]];
+			bx_q <= bx_mem[bt_src[4:0]];
+		end
+		altsource_probe #(
+			.instance_id ("PBTD"), .probe_width (128), .source_width (10),
+			.sld_auto_instance_index ("YES")
+		) cp_pbtd (.probe(bt_src[9] ? bx_q : bt_q), .source(bt_src), .source_clk(clk), .source_ena(1'b1));
+		altsource_probe #(
+			.instance_id ("PBTC"), .probe_width (56), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pbtc (.probe({n_bt, n_bx, bt_wp, bx_wp, 3'b0}), .source(), .source_clk(clk), .source_ena(1'b1));
 	end endgenerate
 
 	// the floppy (the header's PFLP)
