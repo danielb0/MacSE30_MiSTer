@@ -18539,6 +18539,66 @@ Daniel - add to it, move items out when fixed).**
     as a read-modify-write of the descriptor, the ATC's M copy, PTEST 7's
     MMUSR after it) - sim, no board; (b) the data-cache-off debug build
     for the board (Daniel's go); whichever shows the fault first.
+    **SUPERSEDED - the rethink (Daniel, 2026-10-14: "We don't seem to be
+    getting very far and we are doing 40-minute compiles on the
+    off-chance").** The review of the trail above:
+    (1) **The fault addresses were misread.** `btrace_1.txt`'s 50 reads
+    at `$2D7C54` are not garbage: an exact arithmetic sequence,
+    `$DCC40080` down to `$03540080`, each exactly `$468000` below the
+    last, the low word `$0080` throughout, unbroken across the handler's
+    re-entries. That is a COMPUTED value. A read answered from the wrong
+    place (a stale or mis-tagged cache line, a dirty page re-read from
+    swap) gives unrelated values; neither the data cache nor the stale-M
+    suspect predicts a sequence. Something deterministic is doing
+    arithmetic on a register - the code, our CPU, or both.
+    (2) **The first fault was never examined.** #1750 is already at a
+    wrong address; everything after it is consequence. The register
+    state that made it (a2, the memory-indirect's intermediate pointer)
+    was never seen. The four GDevice-walk sessions read the surviving
+    process (`startmac`); the one that bombed was dead with its tables
+    freed, so the walk could not hold the answer.
+    (3) **The trace instrument is partly broken:** every entry shows
+    opcode `4E71`, every MMUSR is `$0400` "levels 0" (ordinary page-ins
+    included, which walked three levels), and the external ring holds
+    `F1FFFFFF FC=5` for everything. Only the PC, fault address, FC and
+    direction are trusted.
+    (4) **"MAME has no cache" is not evidence** - MAME lacks a great deal
+    we have; the audit found the cache faithful, and the cache-off build
+    stayed next anyway. Against the specs-from-documentation rule.
+    (5) **A lead dropped: the restart of an instruction after a page
+    fault** (plan 1.18; named as next before the GDevice chase). A/UX
+    demand-pages user code, which Mac OS on this machine (no VM in
+    normal use) never does. The ~1,700 page-ins in the trace that resumed
+    are nearly all simple writes (PCs `$5568C`, `$164B0`). A restart that
+    resumes with a stale or doubly applied internal register ((An)+,
+    -(An), a memory-indirect intermediate, MOVEM) corrupts a register
+    silently and deterministically - a later computed bad pointer, which
+    fits (1). KNOWN ISSUES 19 was in the same neighbourhood (the RTE
+    micro-state).
+    **The new plan - no compile until it answers a stated question:**
+    (1) **Desk, ~45 min, no board:** read the routine in MAME's RAM image
+    (`s2_4.bin`) from a2's load to `$2D7C50`, and the path by which the
+    bus-error handler re-enters it; find the quantity that falls by
+    `$468000` per entry - it names a register or a stack value.
+    (2) **One board run, ~15 min, no compile** (compile 58 is flashed):
+    boot to the bomb, `read_btrace.tcl` again. The same first address
+    and stride = deterministic: away from cache and timing races, toward
+    instruction semantics (restart, an addressing mode) - sim benches
+    test that. Different values = timing-dependent: the cache, the ATC
+    and the write buffer return.
+    (3) **Sim benches, guided by (1) and (2):** an instruction that
+    page-faults mid-way and is restarted through the format $B frame -
+    (An)+, -(An), the memory-indirect modes with the fault on the
+    intermediate fetch, MOVEM; and the walker's U/M write-back against
+    UM 9.5.3 (still worth having - that path has never run - but it does
+    not explain the sequence).
+    (4) **Only if a compile is still needed: a trigger build, not
+    cache-off** - freeze the trace at the first user-mode fault outside
+    the page-in pattern (or at a PC in `$2D7C4x`) and capture the CPU's
+    registers there, with the opcode, MMUSR and external-ring fields
+    fixed. That compile answers "what was a2 and where did it come
+    from" whatever the outcome; the cache-off build answers yes or no to
+    a hunch.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
