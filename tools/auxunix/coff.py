@@ -1,5 +1,6 @@
 # A/UX m68k COFF reader: sections, symbols, and capstone disassembly.
-# usage: coff.py FILE syms [regex] | dis SYMBOL [SYMBOL...] | sects
+# usage: coff.py FILE syms [regex] | dis SYMBOL [SYMBOL...] | sects | disall OUT
+#        | str ADDR... | hex ADDR LEN | ptrs ADDR N
 import sys, struct, re
 import capstone
 
@@ -71,6 +72,27 @@ elif cmd == 'dis':
                 if a in byaddr:
                     ops += '   <' + byaddr[a] + '>'
             print('  %08x  %-8s %s' % (ins.address, ins.mnemonic, ops))
+elif cmd == 'disall':
+    # disall OUT: every .text and pstart function in one listing (grep it for a symbol's callers)
+    md = capstone.Cs(capstone.CS_ARCH_M68K, capstone.CS_MODE_M68K_030 | capstone.CS_MODE_BIG_ENDIAN)
+    out = open(sys.argv[3], 'w')
+    for k, (name, start, scn, scl) in enumerate(text):
+        end = text[k + 1][1] if k + 1 < len(text) else start + 0x400
+        sect = sect_of(start)
+        if end <= start or not sect:
+            continue
+        n, v, sz, o = sect
+        code = d[o + start - v:o + min(end, v + sz) - v]
+        out.write('\n==== %s %08x-%08x\n' % (name, start, end))
+        for ins in md.disasm(code, start):
+            ops = ins.op_str
+            for m in re.findall(r'\$([0-9a-f]{5,8})', ops):
+                a = int(m, 16)
+                if a in byaddr:
+                    ops += '   <' + byaddr[a] + '>'
+            out.write('  %08x  %-8s %s\n' % (ins.address, ins.mnemonic, ops))
+    out.close()
+    print('wrote', sys.argv[3])
 elif cmd == 'str':
     # str ADDR...: the C strings at those addresses
     for a in sys.argv[3:]:

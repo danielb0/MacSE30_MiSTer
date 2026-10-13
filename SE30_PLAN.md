@@ -18329,8 +18329,49 @@ Daniel - add to it, move items out when fixed).**
       39,651 ALMs (95 %); timing MET at every corner, the framework's
       `ascal` included this time (worst +0.114 ns; the capture by A or B
       everywhere); no combinational loop. NOT on the board.**
-    - **Expected on the board:** A/UX boots to its Login dialog with the
-      Mac environment alive, no "Illegal instruction", errdemon stays up.
+    - **BOARD RESULT, compile 57 (Daniel, 2026-10-13 17:xx, three runs):
+      the signal-return deaths are GONE - no "Illegal instruction", no
+      "Memory fault", no errdemon 204 in any run (Daniel: "I have seen no
+      error messages or bombs yet at all" - except macsysinit's
+      CommandShell timeout). FIXED on the board.** What remains is the
+      boot-time Mac environment itself, now KNOWN ISSUES 20:
+      - run 3 (16 MB, a CD mounted, screenshots `..._172844`): no bomb;
+        the environment came up blocked - the kernel in its idle loop
+        (`idle1%`, PIFA `$548DC`), no runnable process, `startmsg -n5`
+        waiting on the environment, whose last Toolbox traps were
+        SetDateTime then three ReadDateTimes (PTRP unchanged for minutes);
+        the ADB driver autopolling the keyboard (address 2, "last command
+        2C") and never the mouse; the pointer did not move, keys did
+        nothing. (A run at 8 MB by mistake bombed blank; not evidence.)
+      - run 4 (16 MB, no CD, the HFS System Folder's CD-ROM, printing and
+        networking extensions removed by Daniel; `..._175058`,
+        `..._175243`): the "System" bus error bomb of run 2 again, drawn
+        in full (PTRP: the dialog's QuickDraw traps), over a kernel that
+        boots on underneath (loopback up, no "usage: mount" this time);
+        the ADB driver autopolling the mouse (3C) this time.
+      So the environment reaches different points on different runs, and
+      ends either blocked or with a bus error it catches itself (no core).
+      One F-line exception on opcode `$FFD8` at a user address appeared in
+      both runs (PFLN: `$153E82`, `$296E82`), the kernel's vector 11 is
+      `faulthdlr` (vectors 3, 4, 8, 10, 11 share it); unexplained, not yet
+      tied to the bomb. TRAP #15 = `syscall1%`, A/UX's second system-call
+      trap (the Toolbox's), not a fault.
+
+20. **OPEN (2026-10-13): A/UX's boot-time Mac environment (the Startup
+    System Folder's, no extensions) ends in a "System" bus error it
+    catches itself, or blocks with the kernel idle - after KNOWN ISSUES
+    17 and 19 are fixed.** Facts above (KNOWN ISSUES 19's board result).
+    Candidates: our core (a PMMU fault on a mapped page; an access the
+    environment makes to hardware A/UX lets it reach - ROM, video, VIA -
+    that our GLUE refuses; the ADB/event path, since the pointer never
+    moved in the blocked run), or the image's software (a Quadra/QEMU
+    install). **Next, in this order:** (a) MAME's `macse30` with the
+    original image as a CHD (software ground truth, ~30 min, Daniel's
+    go-ahead; `C:\temp\Mac\mame`); (b) if MAME runs it, a debug build
+    with a bus-error TRACE long enough to survive A/UX's page faults
+    (PBER keeps four; a 256-entry ring of {PC, fault address, FC,
+    status} in M10K), read the moment the bomb appears; (c) the kernel's
+    `buserr%`/`faulthdlr` path for what it records of a user fault.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
