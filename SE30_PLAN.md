@@ -21093,7 +21093,14 @@ interrupt, so the only thing that could abort its writes was our IO-stall
 watchdog on a slow HPS write - and Main_MiSTer writes images O_SYNC to
 the SD card. FIX: `IOWDOG_LOG` 24 -> 28 (535 ms -> 8.6 s, `rtl/scsi.v`),
 to spec (a target waits for its medium); `sim/scsi_seam` and
-`sim/ncr53c80` pass. COMPILE: see the line that follows this block.
+`sim/ncr53c80` pass. **COMPILE 56 (2026-10-13 14:20-14:58, 38 min): tag
+`51087951`, archived `output_files/MacSE30_51087951_iowdog.rbf` (md5
+c11ab862...), 39,589 ALMs (94 %); OUR timing met at every corner
+(`sta_corners.tcl`: the capture by A or B everywhere, SDRAM pins and
+every path of ours positive); the only misses are the framework's
+`ascal` (`o_h_lum_pix` -> `o_poly_lum`): -0.184 ns at slow -40C, -0.014
+at slow 100C (KNOWN ISSUES 6, the accepted precedent; compile 54 had
+-0.461/-0.278 on the same path); no combinational loop. NOT on the board.**
 NEXT (Daniel, board): (1) `tools/sdlat/sdlat` on the MiSTer (~5 min) for
 the card's O_SYNC write latency; (2) A/UX from a FRESH copy of the image
 on the new build (~30 min). KNOWN ISSUES 18 opened (the GLUE's handshake
