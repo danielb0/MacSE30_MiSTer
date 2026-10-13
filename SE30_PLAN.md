@@ -18459,6 +18459,52 @@ Daniel - add to it, move items out when fixed).**
     `quartus_stp -t scripts/aux_gdevice.tcl` (~5 min of peeks). The
     difference from MAME's values names the field, and the kernel's
     `ui_*` code that fills it names the hardware fact behind it.
+    **RUN (Daniel, 2026-10-13 20:0x-20:2x, four board sessions to get the
+    script right - the u-areas swap out at 16 MB, the root tables are
+    16-byte aligned, a Tcl quoting slip; `board_gdevice_6.txt`): THE
+    SHARED SCREEN DEVICE RECORD ON THE BOARD IS IDENTICAL TO MAME'S,
+    field for field** - `startmac`'s logical 0 at physical `$497000`,
+    ScrnBase `$FEE08040`, the three globals = handle `$205C` -> `$206C`:
+    gdRefNum `$FFCD`, gdType 1, gdFlags `$A800`, gdPMap `$2054`, gdRect
+    0,0,342,512, gdMode `$80`; PixMap baseAddr `$FEE08040`, rowBytes
+    `$8040`, bounds 0,0,342,512, pixelSize 1 (the whole chain, both
+    machines: one screen device, 1 bit deep, in the Toolbox's shared
+    pages). The kernel's process table at the bomb: sched, init, vhand,
+    kmemd, syncd, macsysinit, fidd, startmac (proc 13, alive, its
+    tables walked) and two entries (procs 10, 11, u_comm gone, root
+    tables that map nothing) - **the process that bombed is already dead
+    at the bomb, its tables freed**; the dialog is the Toolbox's.
+    **The faulting routine, fully read from MAME's image** (physical
+    `$4DAC22` in `s2_4.bin`, logical `$2D72A6`-...): a Color QuickDraw
+    blit (link `#$FCFC`; saves and sets TheGDevice `$CC8`; dispatches
+    through the A/UX Toolbox's table at `$1A08`/`$1A84`/`$1C5C`...);
+    the fault instruction is **`$2D7C50: movea.l ([$16,a2]),a1`** with
+    `a2 = ([$CC8])` = the GDevice pointer through TheGDevice's handle
+    (absolute, not base-relative - the earlier reading corrected), then
+    `cmpi.w #$10,$1E(a1)` (pixelType). On the board that instruction read
+    `$DCC40080, $D85C0080, ...` - so in the DYING process `([$CC8])`
+    gave a garbage GDevice pointer (`$DCC4006A`, ...), different at every
+    recursion level by exactly `$468000`, while the same handle chain in
+    the shared pages is sound. A value that changes with the recursion
+    depth is not a stale copy of anything; it is a read answered from the
+    wrong place.
+    **The suspect that MAME cannot show: the 68030's caches.** MAME
+    emulates no cache; the real 68030's data cache is logically tagged
+    (ours too, `rtl/tg68k/se30_cache030.v`: A31-A8 and FC) and A/UX
+    clears both caches at every context switch (`movec` CACR with `$808`
+    OR'd in, pstart `$543B8`/`$54450`); the kernel writes the Mac
+    process's structures through its own mappings (`ui_kmap`). Any
+    divergence of our data cache from UM section 6 (a hit answered for
+    the wrong tag, a write not reaching a cached entry, the MMU's CI not
+    honoured on a user page, CD/CED timing) would show exactly here -
+    under A/UX's aliasing and context switches - and nowhere under Mac
+    OS. **Next, the decisive experiment: a debug build with the data
+    cache held off** (CDIS* asserted for the data cache, or ED ignored;
+    ~40 min compile), the same A/UX run: the bomb gone = the data cache;
+    the bomb unchanged = the cache is cleared and the PMMU's paths are
+    next (its ATC under A/UX's clears and context switches). The
+    alternative without a compile: A/UX's own cache-off boot (the
+    kernel's `m20cache` from the boot configuration) - not found yet.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
