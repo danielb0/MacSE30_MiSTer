@@ -18405,6 +18405,60 @@ Daniel - add to it, move items out when fixed).**
     archive (not committed). **NOT on the board.** Then: Daniel flashes
     it, boots A/UX (fresh copy, 16 MB, 24-bit, no CD) and says the moment
     the bomb appears; I run `quartus_stp -t scripts/read_btrace.tcl`.
+    **THE TRACE, read at the bomb (Daniel's run 5 on compile 58, 2026-10-13
+    ~19:00; `C:\temp\Mac\AUX disk\extract\btrace_1.txt`):** 1,814 bus
+    errors since reset; the "external" ring did not filter (the kernel
+    flags its PMMU faults through the same pending bit), the 256-entry
+    ring is the evidence. Its first 200 entries are ordinary page-ins (the
+    environment's start: `PC $164B0`/`$5568C` clearing pages, the ROM's
+    code at `$4080F006` running in user mode pushing a stack). Then, from
+    fault #1750, **a loop: reads at PC `$2D7C54` of impossible addresses
+    `$DCC40080, $D85C0080, $D3F40080 ... $03540080`, each $468000 below
+    the last, 50 of them, each a bus error FC 1**, and between every two
+    or three a write one page lower on the user stack (`$7F7FFE, $7F6E66,
+    $7F5FE2 ... $7EFFFC` from PCs `$2D7FAA`/`$2CBE7A`/`$2D289C`/`$2D80BA`):
+    the environment's own bus-error handler catching each fault and
+    running deeper each time, until the stack is gone and the "System"
+    bus error bomb is drawn (its QuickDraw traps in PTRP). Not one bad
+    access, then, but code walking garbage pointers under a recursing
+    handler.
+    **MAME names the code (2026-10-13 19:1x-19:4x; `C:\temp\Mac\mame\aux\`):**
+    a Lua script (`dumpram2.lua`) sampled MAME's run every 20 s - the
+    current process's name from the u-area (`u_comm` at `$12FFF340`),
+    longwords at the trace's logical addresses through the MMU as it
+    stood, and the 16 MB of physical RAM (`s2_<n>.txt/.bin`). The code at
+    `$2D7C54` (seen through a Mac process's mapping, sample 4) is
+    QuickDraw: `movea.l ([$CC8,a0]),a2` (TheGDevice, low-memory `$CC8`,
+    through a base register), then **`$2D7C54: movea.l ([$16,a2]),a1`** -
+    the GDevice's `gdPMap` handle dereferenced memory-indirect - then
+    `cmpi.w #$10,$1E(a1)` (the PixMap's `pixelType`). So the faulting
+    reads are the dereference of `gdPMap` (or of a garbage GDevice pointer
+    `$16` below the fault address): **the boot-time environment's screen
+    GDevice chain holds garbage on our core.** The kernel builds and uses
+    it: `ui_bootscreen`/`ui_findscreen` read the process's MainDevice
+    (`$8A4`), DeviceList (`$8A8`) and the GDevices through `ui_kmap`,
+    `ui_useGDevice`/`ui_setscreen` set the console screen from them.
+    **MAME's reference values** (its RAM image walked with the process's
+    own page tables - the proc struct at u-area+0 holds the PMMU root
+    table at `+$42`; A/UX 3: TIA 5, TIB 7, TIC 8, 4 KB pages; the walk is
+    in the session's scratch and in `scripts/aux_gdevice.tcl`): both Mac
+    processes (`startmac`, `StartMonitor`) have ScrnBase `$FEE08040`,
+    MainDevice = DeviceList = TheGDevice = handle `$205C` -> GDevice at
+    `$206C`: gdRefNum `$FFCD`, gdID 0, gdType 1, gdFlags `$A800`, gdPMap
+    handle `$2054`, gdNextGD 0, gdRect 0,0,342,512, gdMode `$80`,
+    gdCCDepth 1; the PixMap at `$20C8`: baseAddr `$FEE08040`, rowBytes
+    `$8040`, bounds 0,0,342,512, pixelType 0, pixelSize 1, cmpCount 1,
+    cmpSize 1, hRes/vRes `$00480000`. (The SE/30's screen under A/UX:
+    slot E's space, `$FEE08000` + `$40`.)
+    **NEXT: `scripts/aux_gdevice.tcl`** (written 2026-10-13 20:00, unrun):
+    one JTAG peek session at the bomb - finds the environments'
+    low-memory pages (ROMBase at `+$2AE`), the named process's u-area and
+    root table, walks its tables and prints the same GDevice and PixMap
+    off the BOARD, plus the code at `$2D7C40` if mapped; the machine
+    restarts at the end. Daniel boots compile 58 to the bomb, then
+    `quartus_stp -t scripts/aux_gdevice.tcl` (~5 min of peeks). The
+    difference from MAME's values names the field, and the kernel's
+    `ui_*` code that fills it names the hardware fact behind it.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
