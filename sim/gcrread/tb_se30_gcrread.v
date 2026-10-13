@@ -73,6 +73,11 @@
 //   +groups    part 4 reads cylinders 0, 16, 32, 48 and 64
 //   +no56      skips parts 5 and 6
 //   +stop0     ends after cylinder 0 (for debugging)
+//   +twodrives both drives, as described above.  Without it only the
+//              internal drive is exercised (the builds have had one drive
+//              since compile 36, and the second is not coming back:
+//              Daniel, 2026-10-09): parts 1-5 run on drive 1 alone, 4b
+//              is skipped.  The bench still wires both drives.
 //   +rom=PATH  the 97221136 ROM image (a default path otherwise)
 //
 // THE CLOCKS
@@ -1277,6 +1282,7 @@ module tb_se30_gcrread;
 
   // ------------------------------------------------------------ the run
   integer i, c, s, k, n, fd, r, quick, ok, e, list_n, w;
+  integer nd;                                       // drives exercised: 1, or 2 with +twodrives
   integer cyls [0:79];
   reg [7:0] romimg [0:262143];
   reg [8*200-1:0] rompath;
@@ -1288,6 +1294,7 @@ module tb_se30_gcrread;
     step_polls_max = 0;
     pf = $fopen("prog.txt", "w");
     quick = $test$plusargs("quick");
+    nd = $test$plusargs("twodrives") ? 2 : 1;
     if (!$value$plusargs("rom=%s", rompath)) rompath = "C:/temp/Mac/ROMS/256KB ROMs/1988-09 - 97221136 - Mac II FDHD & IIx & IIcx.ROM";
 
     // the ROM, into SDRAM where the machine keeps it (word $400000)
@@ -1303,12 +1310,12 @@ module tb_se30_gcrread;
     progress("SDRAM ready");
 
     // ---- 1. the start-up's VIA1 set-up, then Open: the probe, both drives
-    $display("---- 1. Open: the SWIM probe and both drives' reads");
+    $display("---- 1. Open: the SWIM probe and %0s reads", nd == 2 ? "both drives'" : "drive 1's");
     wrb(ORA, 8'h01); wrb(DDRA, 8'h3F);                   // $4080009A: ORA $01, DDRA $3F (PA5 an output)
     swim_probe;
     check(found_swim, "Open's probe finds a SWIM: the ISM switch and three phase echoes ($134 set)", found_swim, 1);
     check(swim_double == 0, "every SWIM bus cycle is one chip access (the strobe's one C16M)", swim_double, 0);
-    for (w = 0; w < 2; w = w + 1) begin
+    for (w = 0; w < nd; w = w + 1) begin
       drv = w; cpu(T_R); drv_enable;
       drv_read(4'hD); $sformat(line, "Open: drive %0d is there ($D)", w + 1); check(sns == 0, line, sns, 0);
       drv_read(4'h9); $sformat(line, "Open: drive %0d double-sided ($9)", w + 1); check(sns == 1, line, sns, 1);
@@ -1318,22 +1325,25 @@ module tb_se30_gcrread;
     end
 
     // ---- 2. both images load at once
-    $display("---- 2. both drives' images load at once: an 800K DiskCopy 4.2 with tags in each");
-    build_dc42_800k(0); build_dc42_800k(1);
-    mount_start(0, fsize); mount_start(1, fsize2);
+    if (nd == 2) $display("---- 2. both drives' images load at once: an 800K DiskCopy 4.2 with tags in each");
+    else         $display("---- 2. drive 1's image loads: an 800K DiskCopy 4.2 with tags");
+    build_dc42_800k(0); if (nd == 2) build_dc42_800k(1);
+    mount_start(0, fsize); if (nd == 2) mount_start(1, fsize2);
     while (loading || loading2) @(posedge clk);
-    progress("both 800K images loaded");
+    progress("the 800K images loaded");
     check(disk_in && img_ds && img_tags && img_800k, "drive 1's disk is in: double-sided, 800K, tags", {disk_in, img_ds, img_tags, img_800k}, 15);
-    check(disk2_in && img2_ds && img2_tags && img2_800k, "drive 2's disk is in: double-sided, 800K, tags", {disk2_in, img2_ds, img2_tags, img2_800k}, 15);
-    check(ov_loads > 0 && sw_ld > 0, "the two loads ran at once, the port passing between the loaders", sw_ld, 1);
-    for (w = 0; w < 2; w = w + 1) begin
+    if (nd == 2) begin
+      check(disk2_in && img2_ds && img2_tags && img2_800k, "drive 2's disk is in: double-sided, 800K, tags", {disk2_in, img2_ds, img2_tags, img2_800k}, 15);
+      check(ov_loads > 0 && sw_ld > 0, "the two loads ran at once, the port passing between the loaders", sw_ld, 1);
+    end
+    for (w = 0; w < nd; w = w + 1) begin
       drv = w; cpu(T_R); drv_enable;
       drv_read(4'h2); $sformat(line, "drive %0d: the VBL task's $2 (/CSTIN) reads the disk in", w + 1); check(sns == 0, line, sns, 0);
     end
 
     // ---- 3. the recalibrate of each drive, with the ISM entry and the power-up
     $display("---- 3. each drive's recalibrate: the ISM entry, the mode loop, the power-up");
-    for (w = 0; w < 2; w = w + 1) begin
+    for (w = 0; w < nd; w = w + 1) begin
       drv = w;
       recal;
       $sformat(line, "drive %0d recalibrated", w + 1); progress(line);
@@ -1356,7 +1366,7 @@ module tb_se30_gcrread;
     ok = 1; secs_d[0] = 0; secs_d[1] = 0;
     for (i = 0; i < list_n; i = i + 1) begin
       c = cyls[i];
-      for (w = 0; w < 2; w = w + 1) begin
+      for (w = 0; w < nd; w = w + 1) begin
         select(w);
         read_cyl(c, 1, 8'h22);
         if (!cyl_ok) ok = 0;
@@ -1372,11 +1382,11 @@ module tb_se30_gcrread;
     check(ok, "every seek, both drives: /STEP handshakes, /READY within the ROM's polls, the head where asked", ok, 1);
     n = 0; for (i = 0; i < list_n; i = i + 1) n = n + 2 * spt(cyls[i]);
     check(secs_d[0] == n, "drive 1: every sector read back byte for byte (tags at $2FC, data in RAM)", secs_d[0], n);
-    check(secs_d[1] == n, "drive 2: every sector read back byte for byte - its own image, not drive 1's", secs_d[1], n);
-    check(tot_secs == 2 * n && tot_bad_data == 0, "both drives: no sector read wrong", tot_secs - tot_bad_data, 2 * n);
+    if (nd == 2) check(secs_d[1] == n, "drive 2: every sector read back byte for byte - its own image, not drive 1's", secs_d[1], n);
+    check(tot_secs == nd * n && tot_bad_data == 0, "no sector read wrong", tot_secs - tot_bad_data, nd * n);
     for (e = 0; e < 5; e = e + 1) begin
-      n = 0; for (i = 0; i < list_n; i = i + 1) if (cyls[i] / 16 == e) n = n + 4 * spt(cyls[i]);
-      $sformat(line, "speed group %0d (%0d sectors a side): every sector of both drives", e + 1, 12 - e);
+      n = 0; for (i = 0; i < list_n; i = i + 1) if (cyls[i] / 16 == e) n = n + 2 * nd * spt(cyls[i]);
+      $sformat(line, "speed group %0d (%0d sectors a side): every sector, %0d drive(s)", e + 1, 12 - e, nd);
       check(grp_secs[e] == n, line, grp_secs[e], n);
     end
     check(tot_bad_hdr == 0, "every address field: cylinder, side and format $22 as laid", tot_bad_hdr, 0);
@@ -1386,6 +1396,8 @@ module tb_se30_gcrread;
     check(step_polls_max <= 81, "/STEP read 1 within the seek's 81 polls", step_polls_max, 81);
 
     // ---- 4b. a load while the other drive reads
+    if (nd == 1) $display("---- 4b. (one drive: skipped)");
+    else begin : part4b
     $display("---- 4b. drive 2 loads a raw 400K image while the ROM reads drive 1");
     build_raw_400k(1);
     mount_start(1, fsize2);
@@ -1400,6 +1412,7 @@ module tb_se30_gcrread;
           "drive 1 reads byte for byte while drive 2's image loads", secs_d[0], n);
     check(sw_ld_en > 0, "the port passed between drive 1's encoder and drive 2's loader", sw_ld_en, 1);
     check(disk2_in && !img2_ds && !img2_800k, "drive 2's 400K disk is in, single-sided", {disk2_in, img2_ds, img2_800k}, 4);
+    end
 
     if ($test$plusargs("no56")) $display("---- 5, 6. (+no56: skipped)");
     else begin : parts56
@@ -1408,7 +1421,7 @@ module tb_se30_gcrread;
     build_raw_400k(0);
     mount(0, fsize);
     check(disk_in && !img_ds && !img_800k, "drive 1's 400K disk is in, single-sided", {disk_in, img_ds, img_800k}, 4);
-    for (w = 1; w >= 0; w = w - 1) begin
+    for (w = nd - 1; w >= 0; w = w - 1) begin
       tot_secs = 0; tot_bad_data = 0; tot_errs = 0; tot_bad_hdr = 0; n = 0; ok = 0;
       for (i = 0; i < 6; i = i + 1) begin
         c = (i == 5) ? 79 : 16 * i;

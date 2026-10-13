@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run tb_se30_gcrread under Icarus Verilog: the GCR read gate (plan 5.12.9
-# item 6, 5.12.12 item 6), with both drives (5.14).  See the header of
+# item 6, 5.12.12 item 6), on the internal drive (+twodrives adds the
+# second, 5.14; not in the builds).  See the header of
 # tb_se30_gcrread.v for what it proves.  IVERILOG: the iverilog bin
 # directory.
 #
