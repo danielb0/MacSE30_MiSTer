@@ -6439,7 +6439,16 @@ PROCESS (clk, Reset, FlagsSR, last_data_read, OP2out, exec)
 				-- frame. Those remaining stack reads are still supervisor-data
 				-- cycles; only the following instruction/data cycles use the
 				-- restored user/supervisor mode.
-				IF cpu(1)='1' AND (
+				-- RTE only (opcode bit 2 clear): RTR shares rte1/rte2 but is
+				-- unprivileged, and pops its CCR word and PC in the data space of
+				-- its OWN privilege level - FC 1 from the USP in user mode (UM 3.6,
+				-- Table 3-14).  Found on A/UX 3.1 (SE30_PLAN.md KNOWN ISSUES 19,
+				-- 2026-10-13): with the hold applied to RTR, every user process
+				-- returning from a signal handler popped its stack with FC 5, which
+				-- the PMMU refused (the user stack is not mapped in supervisor
+				-- space): format $B frame, SSW $0165, in /etc/init's core.
+				-- sim/rtr_fc is the bench.
+				IF cpu(1)='1' AND opcode(2)='0' AND (
 				   next_micro_state = rte1 OR next_micro_state = rte2 OR
 				   next_micro_state = rte3 OR next_micro_state = rte4 OR
 				   next_micro_state = rte5 OR next_micro_state = rte6) THEN

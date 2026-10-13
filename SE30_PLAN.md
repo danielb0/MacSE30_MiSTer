@@ -18266,6 +18266,69 @@ Daniel - add to it, move items out when fixed).**
     GLUE PAL equations in `Docs`, or MAME), then a counter in `dc_adv`
     that ends the cycle with a bus error. Low; after KNOWN ISSUES 17.
 
+19. **FIXED IN RTL 2026-10-13 (compile pending): a user-mode RTR popped its
+    CCR word and PC with the SUPERVISOR function code - every A/UX process
+    returning from a signal handler died.** The remaining symptom of
+    KNOWN ISSUES 17's second run, read off the booted image
+    (`C:\temp\Mac\AUX disk\used\AUX_3_1_1GB.vhd`, extracts in
+    `..\extract\used\`; `tools/auxunix/ufsread.py` grew `find PATH REGEX`
+    and `newer PATH EPOCH`):
+    - What the run wrote: `/core` (94,208 bytes, 14:27:50), `/tmp/Login_output`
+      ("-sh: 130 Illegal instruction - core dumped" from `/etc/loginrc`'s
+      script, then its `date`/`ls`), `/tmp/mac32sm.139` ("The toolbox
+      environment already exists"), `sulog`, cron's log, utmp/wtmp. The
+      core's text is `/etc/init`'s (telinit is the same binary: "Usage:
+      0123456sS"): process 130 = `telinit`, dead of SIGILL. `errdemon`'s
+      "bad exit status 204" is octal: $84 = core dumped + signal 4, SIGILL
+      too. A/UX reports a bus fault it cannot classify as SIGILL.
+    - **The u-area in the core holds the 68030 frame** (offset `$FA2`):
+      SR `$0004` (user mode), PC `$0000776E`, format/vector `$B008` - a
+      long bus-fault frame for vector 2 (bus error) - SSW `$0165`: DF
+      (data fault), RW read, SIZE word, **FC 5 = supervisor data**; fault
+      address `$FFFFFBF8` = the saved USP (A7 at `$F98`). `init`'s text
+      (`.text` at `$A8`, from `/etc/init` on the image) at `$776E` is
+      `RTR`, the last instruction of its signal-return trampoline (`$7734`:
+      link, save D0-D1/A0-A1, push sig and code, `jsr` the handler,
+      restore, `tst.w 8(a7)`, `adda.w #$A,a7`, **`rtr`**). `errdemon` has
+      the same trampoline (file offset `$5A2`). So: a USER-mode RTR
+      reading its CCR word from the user stack with FC 5; A/UX's PMMU
+      tables map the user stack in user space only, the kernel's own in
+      supervisor space -> the read faults -> SIGILL/bus error for every
+      process on its first signal return. The Mac environment (signals
+      for its console, timers, children) bombs with "System" bus error;
+      the first run's `/etc/rc` "Memory fault" lines were the same with a
+      different classification.
+    - **The kernel:** `rtl/tg68k/TG68KdotC_Kernel.vhd` forced
+      `fc_internal(2) <= '1'` (supervisor) whenever `next_micro_state` was
+      any of `rte1..rte6` ("RTE restores the stacked SR before it has
+      finished reading the frame; those remaining stack reads are still
+      supervisor-data cycles" - right for RTE). RTR (4E77) is decoded with
+      RTE (4E73) and runs the same `rte1`/`rte2` micro-states for its CCR
+      and PC pops (`opcode(2)` tells them apart, as `rte1` already does for
+      the frame length) - so the hold applied to RTR too, in user mode.
+      Upstream's code (imported at `8366903`); the ROM never runs RTR in
+      user mode with a PMMU mapping that would refuse it, so Mac OS never
+      showed it. **The spec:** RTR is unprivileged - "(SP) -> CCR; SP+2 ->
+      SP; (SP) -> PC; SP+4 -> SP" (UM Table 3-14), from the active stack
+      in the data space of the current privilege level: FC 1 from the USP
+      in user mode.
+    - **The bench, written first and failing: `sim/rtr_fc/`** (ModelSim,
+      the kernel alone on a 32-bit port, `gen_program.py` hand-assembled):
+      a supervisor RTR (the control: pops with FC 5), then MOVE #0,SR and
+      a user RTR whose stacked word is `$2715` (S and IPL set, CCR `$15`).
+      Checks: the user pops at `$6FF8`/`$6FFA` carry FC 1; the user code's
+      fetches FC 2 and its writes FC 1; `MOVE CCR,D0` stored `$0015` (the
+      high byte ignored, S stayed clear); the end marker reached its slot.
+      Unfixed: "FAIL: user RTR CCR pop with FC 1 - addr 00006ff8 FC 5" and
+      the PC pop the same, 27 passes (the CCR handling itself was right).
+    - **The fix:** the hold takes `opcode(2)='0'` - RTE only. `sim/rtr_fc`
+      29 PASS; `sim/kernel_bus` 338, `sim/busfault` 14, `sim/busfault_dib`
+      18, `sim/machine` 17 PASS; `sim/system` and the PMMU benches below.
+    - **Expected on the board:** A/UX boots to its Login dialog with the
+      Mac environment alive, no "Illegal instruction", errdemon stays up.
+      Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
+      ROM's flat mapping read the same bytes either way).
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users

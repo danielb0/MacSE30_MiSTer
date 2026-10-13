@@ -1,5 +1,5 @@
 # Read-only 4.2BSD FFS reader for the A/UX root slice (big-endian).
-# usage: ufsread.py IMG ls PATH | get PATH OUT
+# usage: ufsread.py IMG ls PATH | get PATH OUT | find PATH REGEX | newer PATH EPOCH
 import sys, struct
 
 IMG, CMD, PATH = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -77,8 +77,32 @@ def lookup(path):
         ino = m[part]
     return ino
 
+def walk(ino, prefix, seen):
+    # every (path, inode) under a directory; symlinks and mounts are not followed
+    for n, i in sorted(readdir(ino)):
+        if n in ('.', '..') or i in seen:
+            continue
+        seen.add(i)
+        di = inode(i)
+        mode = struct.unpack('>H', di[0:2])[0]
+        yield prefix + '/' + n, i, di
+        if mode & 0o170000 == 0o040000:
+            yield from walk(i, prefix + '/' + n, seen)
+
 ino = lookup(PATH)
-if CMD == 'ls':
+if CMD in ('find', 'newer'):
+    # find PATH REGEX: paths whose last component matches; newer PATH EPOCH:
+    # files modified at or after the epoch seconds (what a board run wrote)
+    import re, time
+    arg = sys.argv[4]
+    rx = re.compile(arg) if CMD == 'find' else None
+    for path, i, di in walk(ino, PATH.rstrip('/'), set()):
+        mode = struct.unpack('>H', di[0:2])[0]
+        size = struct.unpack('>I', di[12:16])[0]
+        mtime = struct.unpack('>I', di[24:28])[0]
+        if (rx and rx.search(path.rsplit('/', 1)[-1])) or (rx is None and mtime >= int(arg)):
+            print('%06o %10d %s %s' % (mode, size, time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(mtime)), path))
+elif CMD == 'ls':
     for n, i in sorted(readdir(ino)):
         di = inode(i)
         mode = struct.unpack('>H', di[0:2])[0]
