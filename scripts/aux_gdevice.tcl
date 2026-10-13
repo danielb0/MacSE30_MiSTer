@@ -37,6 +37,7 @@ start_insystem_source_probe -hardware_name $hw -device_name $dev
 
 proc rd {name} { global idx; return [expr 0b[read_probe_data -instance_index $idx($name)]] }
 set ::go 0
+set ::pk_ok 1
 proc pk_op {flags lw} {
 	global idx go
 	set src [expr {(1 << 30) | ($flags << 28) | ($lw & 0x7FFFFF)}]
@@ -47,8 +48,8 @@ proc pk_op {flags lw} {
 	set tries 0
 	while {1} {
 		set v [rd PPEK]
-		if {(($v >> 32) & 0xFF) != $before} { return [expr {$v & 0xFFFFFFFF}] }
-		if {[incr tries] >= 50} { puts "  (peek timeout at longword [format %06X $lw])"; return 0 }
+		if {(($v >> 32) & 0xFF) != $before} { set ::pk_ok 1; return [expr {$v & 0xFFFFFFFF}] }
+		if {[incr tries] >= 50} { set ::pk_ok 0; return 0 }
 		after 2
 	}
 }
@@ -59,7 +60,14 @@ proc pk_poke {lw data be} {
 }
 proc release {} { global idx; write_source_data -instance_index $idx(PPEK) -value_in_hex -value 00000000; puts "machine released from reset (it restarts)" }
 # a longword at a physical BYTE address (4-aligned)
-proc pl {b} { return [pk_op 0 [expr {$b >> 2}]] }
+proc pl {b} {
+	# a peek that timed out (rare, ~1 %) is retried; the hold stays up throughout
+	for {set k 0} {$k < 4} {incr k} {
+		set r [pk_op 0 [expr {$b >> 2}]]
+		if {$::pk_ok} { return $r }
+	}
+	return $r
+}
 proc pw {b} { set v [pl [expr {$b & ~3}]]; return [expr {($b & 2) ? ($v & 0xFFFF) : ($v >> 16)}] }
 # an unaligned longword
 proc plu {b} { if {($b & 3) == 0} { return [pl $b] }; return [expr {(([pw $b] << 16) | [pw [expr {$b + 2}]]) & 0xFFFFFFFF}] }
@@ -80,25 +88,23 @@ for {set p 0} {$p < $RAM} {incr p 4096} {
 		}
 	}
 }
-puts "---- 2. the u-area of '$want' (u_comm at +\$340):"
-set root 0
-set w1 [expr {0x[binary encode hex [string range $want 0 3]]}]
+puts "---- 2. the u-areas (proc pointer at +0 in the proc table, a name at +\$340):"
+set roots {}
 for {set p 0} {$p < $RAM} {incr p 4096} {
-	if {[pl [expr {$p + 0x340}]] == $w1} {
-		set n ""
-		for {set k 0} {$k < 16} {incr k 4} {
-			set v [pl [expr {$p + 0x340 + $k}]]
-			append n [binary decode hex [format %08X $v]]
-		}
-		set n [string range $n 0 [expr {[string first "\0" $n] - 1}]]
-		if {$n ne $want} { continue }
-		set proc_ [pl $p]
-		set r [plu [expr {$proc_ + 0x42}]]
-		puts [format "  u-area %06X  proc %08X  root table %08X" $p $proc_ $r]
-		set root $r
-	}
+	set pp [pl $p]
+	if {$pp < 0x001B0000 || $pp > 0x001FFFFF} { continue }
+	set n ""
+	for {set k 0} {$k < 16} {incr k 4} { append n [binary decode hex [format %08X [pl [expr {$p + 0x340 + $k}]]]] }
+	set z [string first "\0" $n]
+	if {$z < 1} { continue }
+	set n [string range $n 0 [expr {$z - 1}]]
+	if {![string is print $n]} { continue }
+	set r [plu [expr {$pp + 0x42}]]
+	if {($r & 0xFFF) != 0 || $r == 0 || $r >= $RAM} { continue }
+	puts [format "  u-area %06X  proc %08X  root table %08X  u_comm=%s" $p $pp $r $n]
+	lappend roots [list $n $r]
 }
-if {$root == 0} { puts "no u-area named $want; stopping"; release; end_insystem_source_probe; exit 1 }
+if {[llength $roots] == 0} { puts "no u-areas found; stopping"; release; end_insystem_source_probe; exit 1 }
 
 proc walk {la} {
 	global root
@@ -114,8 +120,11 @@ proc walk {la} {
 proc L {la} { set pa [walk $la]; if {$pa < 0} { return -1 }; return [plu $pa] }
 proc W {la} { set pa [walk $la]; if {$pa < 0} { return -1 }; return [pw $pa] }
 
-puts "---- 3. through its page tables:"
-puts [format "  logical 0 -> physical %s" [expr {[walk 0] < 0 ? "unmapped" : [format %06X [walk 0]]}]]
+puts "---- 3. through the page tables of every Mac process (its logical 0 is a low-memory page):"
+foreach pr $roots {
+lassign $pr pname root
+if {[walk 0] < 0 || [lsearch -exact $lowmem [expr {[walk 0] & ~0xFFF}]] < 0} { continue }
+puts [format "== %s: logical 0 -> physical %06X" $pname [walk 0]]
 puts [format "  ScrnBase %08X  MainDevice %08X  DeviceList %08X  TheGDevice %08X  ROMBase %08X" [L 0x824] [L 0x8A4] [L 0x8A8] [L 0xCC8] [L 0x2AE]]
 foreach nm {MainDevice TheGDevice DeviceList} off {0x8A4 0xCC8 0x8A8} {
 	set h [L $off]
@@ -135,12 +144,12 @@ foreach nm {MainDevice TheGDevice DeviceList} off {0x8A4 0xCC8 0x8A8} {
 		[L $pm] [W [expr {$pm+4}]] [W [expr {$pm+6}]] [W [expr {$pm+8}]] [W [expr {$pm+10}]] [W [expr {$pm+12}]] [W [expr {$pm+0xE}]] [W [expr {$pm+0x10}]] [L [expr {$pm+0x16}]] [L [expr {$pm+0x1A}]] \
 		[W [expr {$pm+0x1E}]] [W [expr {$pm+0x20}]] [W [expr {$pm+0x22}]] [W [expr {$pm+0x24}]] [L [expr {$pm+0x2A}]]]
 }
-puts "---- 4. the code at the trace's PC, if mapped:"
 set pa [walk 0x2D7C40]
 if {$pa < 0} { puts "  2D7C40 unmapped in this process" } else {
 	for {set a 0x2D7C40} {$a < 0x2D7C80} {incr a 16} {
 		puts [format "  %08X: %08X %08X %08X %08X" $a [L $a] [L [expr {$a+4}]] [L [expr {$a+8}]] [L [expr {$a+12}]]]
 	}
+}
 }
 release
 end_insystem_source_probe
