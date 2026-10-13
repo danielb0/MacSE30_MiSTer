@@ -21611,7 +21611,18 @@ the ROM SCSI Manager's write landed. **Next:** what differs from
 compile 57, whose A/UX core files reached the image (compile 58 itself?
 swap vs core-dump writes? their timing?): PSCS's write counters during a
 run, `rtl/scsi.v` against `scsi.dis`, a seam bench of A/UX's write path.
-The instruction-restart lead is shelved until this is settled. Note: the 2 bytes that
+The instruction-restart lead is shelved until this is settled.
+**Daniel: could an earlier fix have regressed it?** Compile 56 wrote
+A/UX core files to the image; compile 57's image was never read back;
+compile 58 lost the writes. **FIRST: bisect on the board, no compile** -
+boot compile 56 (`MacSE30_51087951_iowdog.rbf`) with a fresh copy, run
+to the hang/bomb, copy back, `cmp` against the original (~15 min).
+Writes land = the regression is in 57/58: bench the RTE supervisor-FC
+hold, now gated on `opcode(2)='0'` (4f706c9) - if `opcode` does not
+hold RTE's word through every rte micro-state, a long frame (format $B,
+A/UX's page-fault restart) returning to user mode finishes its reads
+with the user FC. Writes missing = older: A/UX's driver path in
+`rtl/scsi.v`. Note: the 2 bytes that
 DID change are in the Mac partition (sector 1,900,636) - a Mac OS write
 before A/UX started landed, which argues the file is writable and A/UX's
 own writes (its driver's path, KNOWN ISSUES 17/18) are the ones lost;
