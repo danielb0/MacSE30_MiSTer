@@ -1,0 +1,396 @@
+Reading C:/intelFPGA_lite/17.0/modelsim_ase/tcl/vsim/pref.tcl
+
+# 10.5b
+
+# vsim -c -quiet "+MAXCLK=4000000" -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_mmu16 
+# Start time: 09:05:37 on Oct 08,2026
+# ** Warning: (vsim-3017) tb_mmu16.v(52): [TFMPC] - Too few port connections. Expected 27, found 21.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu File: ../../rtl/tg68k/tg68k.v
+# ** Warning: (vsim-3722) tb_mmu16.v(52): [TFMPC] - Missing connection for port 'dbg_d6'.
+# ** Warning: (vsim-3722) tb_mmu16.v(52): [TFMPC] - Missing connection for port 'dbg_d7'.
+# ** Warning: (vsim-3722) tb_mmu16.v(52): [TFMPC] - Missing connection for port 'dbg_exc'.
+# ** Warning: (vsim-3722) tb_mmu16.v(52): [TFMPC] - Missing connection for port 'dbg_pace'.
+# ** Warning: (vsim-3722) tb_mmu16.v(52): [TFMPC] - Missing connection for port 'dbg_cache'.
+# ** Warning: (vsim-3722) tb_mmu16.v(52): [TFMPC] - Missing connection for port 'dbg_mmuf'.
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'nUDS'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'nLDS'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'longword'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'skipFetch'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'regin_out'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'VBR_out'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cache_inv_req'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cache_op_scope'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cache_op_cache'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cacr_ie'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cacr_de'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cacr_ifreeze'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cacr_dfreeze'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cacr_ibe'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cacr_dbe'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'cacr_wa'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'pmmu_reg_we'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'pmmu_reg_re'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'pmmu_reg_sel'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'pmmu_reg_wdat'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'pmmu_reg_part'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'pmmu_addr_log'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'pmmu_addr_phys'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_SVmode'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_preSVmode'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_FlagsSR_S'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_changeMode'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_setopcode'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_exec_directSR'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_exec_to_SR'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmove_dn_mode'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmove_dn_regnum'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_state'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_setstate'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_last_opc_read'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_data_read'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_direct_data'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_setnextpass'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_TG68_PC'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_memaddr_reg'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_memaddr_delta'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_oddout'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_brief'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_moves_bus_pending'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_moves_writeback_pending'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_clkena_lw'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_d0'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_a0'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_fline_context_valid'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_trap_1111'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_trapmake'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_brief'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_use_base'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rf_source_addr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmove_ea_latched'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_reg_QA'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_last_data_read'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_last_opc_pc'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_getbrief'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_get_2ndopc'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_fline_brief_pending'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_fline_opcode_pc'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_exe_PC'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_memaddr_delta_rega'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_memaddr_delta_regb'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_addsub_q'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_memmaskmux'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_fline_opcode_latch'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_ea_mode_latched'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_exec_direct_delta'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_exec_directPC'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_bus_beat_poisoned'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_exec_mem_addsub'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_set_addrlong'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_mdelta_src'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pc_brw'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pc_word'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_d1'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_d2'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_d3'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_d4'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_d5'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_a1'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_a2'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_a3'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_a4'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_a5'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_a6'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_a7'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_we'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_waddr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_regfile_wdata'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_trap_illegal'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_trap_priv'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_trap_addr_error'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pc_add'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pc_dataa'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pc_datab'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_stop'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_interrupt'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_setendOPC'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_IPL_nr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_micro_state'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_next_micro_state'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_memmask'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_sndOPC'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_reg_we'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_reg_re'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_reg_sel'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_reg_wdat'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_reg_part'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_reg_rdat'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_berr_exception_active'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_fault_dispatched'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_fault_was_cleared'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_trap_format_error'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_format_error_rte_word'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_format_error_pc'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_format_error_addr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_format_error_sr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_tc'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_tt0'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_tt1'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_crp_hi'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_crp_lo'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_srp_hi'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_srp_lo'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_wstate'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_atc_buserr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_atc_valid'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_pending_flags'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_fault_status'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_saved_addr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_walk_desc_addr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_walk_desc_data'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_ptr1_desc_addr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_ptr1_desc_data'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_ptr2_desc_addr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_ptr2_desc_data'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_ptr3_desc_addr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_ptr3_desc_data'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_pmmu_saved_fc'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_make_trace'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_trace_pending_grp2'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_useStackframe2'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_exec_trap_chk'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_set_trap_chk'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_data_write_tmp'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_FlagsSR'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_USP'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_MSP'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_ISP'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_a7_is_msp'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_interrupt_mode'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_saved_mbit'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_format_word'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_mmu_fix_ssw'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_mmu_fix_opcode'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_mmu_fix_write'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_fmt_a_state1'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_fmt_a_ssw'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_fmt_a_fault_addr'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_fmt_a_data_out'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_fmt_a_replay_needed'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-8822) ../../rtl/tg68k/tg68k.v(142): [TFMPC] - Missing Verilog connection for formal VHDL port 'debug_rte_format_b_version_error'.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/cpu/kernel File: ../../rtl/tg68k/TG68KdotC_Kernel.vhd
+# ** Warning: (vsim-3017) tb_mmu16.v(88): [TFMPC] - Too few port connections. Expected 60, found 56.
+#    Time: 0 ps  Iteration: 0  Instance: /tb_mmu16/glue File: ../../rtl/se30_glue.v
+# ** Warning: (vsim-3722) tb_mmu16.v(88): [TFMPC] - Missing connection for port 'fpu_sel'.
+# ** Warning: (vsim-3722) tb_mmu16.v(88): [TFMPC] - Missing connection for port 'fpu_dsack_n'.
+# ** Warning: (vsim-3722) tb_mmu16.v(88): [TFMPC] - Missing connection for port 'fpu_rdata'.
+# ** Warning: (vsim-3722) tb_mmu16.v(88): [TFMPC] - Missing connection for port 'dbg_hs_wait'.
+# ** Warning: Design size of 17274 statements exceeds ModelSim-Intel FPGA Starter Edition recommended capacity.
+# Expect performance to be adversely affected.
+# set StdArithNoWarnings 1
+# 1
+#  set NumericStdNoWarnings 1
+# 1
+#  run -all
+# ** Note: PMMU_REG_WRITE: sel=16 wdat_hi=1024 wdat_lo=0 part='0'
+#    Time: 4037121 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: BUG387_TC_WRITE: tc_val=0x0_0
+#    Time: 4037121 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: sel=19 wdat_hi=32767 wdat_lo=2 part='1'
+#    Time: 5568993 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: CRP_H reg_part='1' reg_wdat=2147418114
+#    Time: 5568993 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: sel=19 wdat_hi=16512 wdat_lo=80 part='0'
+#    Time: 6079617 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: CRP_L reg_part='0' reg_wdat=1082130512
+#    Time: 6079617 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: sel=16 wdat_hi=33016 wdat_lo=17664 part='0'
+#    Time: 7037037 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: BUG387_TC_WRITE: tc_val=0x33016_17664
+#    Time: 7037037 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: sel=16 wdat_hi=1024 wdat_lo=0 part='0'
+#    Time: 10036953 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: BUG387_TC_WRITE: tc_val=0x0_0
+#    Time: 10036953 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: sel=19 wdat_hi=32767 wdat_lo=2 part='1'
+#    Time: 11568825 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: CRP_H reg_part='1' reg_wdat=2147418114
+#    Time: 11568825 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: sel=19 wdat_hi=16515 wdat_lo=62880 part='0'
+#    Time: 12079449 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: CRP_L reg_part='0' reg_wdat=1082389920
+#    Time: 12079449 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: PMMU_REG_WRITE: sel=16 wdat_hi=33008 wdat_lo=19712 part='0'
+#    Time: 13036869 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ** Note: BUG387_TC_WRITE: tc_val=0x33008_19712
+#    Time: 13036869 ps  Iteration: 1  Instance: /tb_mmu16/cpu/kernel/PMMU_030
+# ---- 447626 clocks
+# FAIL run 0: D6 dae5d8ec
+# ==== FAIL: 1 failures, 0 passes
+# ** Note: $finish    : tb_mmu16.v(213)
+#    Time: 14286158487 ps  Iteration: 1  Instance: /tb_mmu16
+# End time: 09:16:06 on Oct 08,2026, Elapsed time: 0:10:29
+# Errors: 0, Warnings: 178
