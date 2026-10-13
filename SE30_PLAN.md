@@ -21606,7 +21606,11 @@ files copied back from the SD card hold none of A/UX's writes** - stale
 swap would explain everything. **First thing next session:** Daniel
 runs `ls -l` on `...removed-3.vhd` on the MiSTer (it WAS the mounted
 image - Daniel): read-only = the writes were dropped; writable = our
-core's writes failed (PSCS's write counters, `rtl/scsi.v`). New
+core's writes failed (PSCS's write counters, `rtl/scsi.v`). Note: the 2 bytes that
+DID change are in the Mac partition (sector 1,900,636) - a Mac OS write
+before A/UX started landed, which argues the file is writable and A/UX's
+own writes (its driver's path, KNOWN ISSUES 17/18) are the ones lost;
+yet compile 57's A/UX cores did reach the image. Compare the two. New
 tools (committed): `scripts/poll_btrace.tcl` (follows the trace for a
 whole boot; its JTAG call blocked once at 451 s - kill and re-read),
 `scripts/aux_peekpc.tcl` (PIFA/PLAS histogram + code at an address),
