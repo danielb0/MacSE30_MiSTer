@@ -156,7 +156,9 @@
 module dbg_probes #(
 	parameter PERF_PROBES = 0,            // PSCT, PFPU, PPRF: MacSE30.sv's SE30_PERF_PROBES (plan 10.4)
 	parameter PBER = 0,                   // PBER: MacSE30.sv's SE30_PBER (KNOWN ISSUES 8; off by default, Daniel 2026-10-07)
-	parameter BTRACE = 0                  // PBTD/PBTC: the bus-error trace (KNOWN ISSUES 20), MacSE30.sv's SE30_BTRACE
+	parameter BTRACE = 0,                 // PBTD/PBTC: the bus-error trace (KNOWN ISSUES 20), MacSE30.sv's SE30_BTRACE
+	parameter LEAN = 0                    // MacSE30.sv's SE30_LEAN_PROBES: only PBLD, PPEK/PPOK/PPKS and the opt-in
+	                                      //   groups (PBER, BTRACE, PERF) - the rest left out to make room (2026-10-14)
 ) (
 	input  wire        clk,
 	input  wire        phi1,
@@ -239,54 +241,68 @@ module dbg_probes #(
 		.sld_auto_instance_index ("YES")
 	) cp_pbld (.probe(build_tag_w), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	altsource_probe #(
-		.instance_id ("PIFA"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pifa (.probe(pifa_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pifa
+		altsource_probe #(
+			.instance_id ("PIFA"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pifa (.probe(pifa_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PLAS"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_plas (.probe(plas_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_plas
+		altsource_probe #(
+			.instance_id ("PLAS"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_plas (.probe(plas_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PSTA"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_psta (.probe(psta), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_psta
+		altsource_probe #(
+			.instance_id ("PSTA"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_psta (.probe(psta), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the test manager's registers (the header's PREG): one register stage
 	// off the kernel's register file
 	reg [63:0] preg_r = 0;
 	always @(posedge clk) preg_r <= cpu_regs;
 
-	altsource_probe #(
-		.instance_id ("PREG"), .probe_width (64), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_preg (.probe(preg_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_preg
+		altsource_probe #(
+			.instance_id ("PREG"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_preg (.probe(preg_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the SWIM and its drive (the header's PSWM): one register stage
 	reg [63:0] pswm_r = 0;
 	always @(posedge clk) pswm_r <= swim_state;
 
-	altsource_probe #(
-		.instance_id ("PSWM"), .probe_width (64), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pswm (.probe(pswm_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pswm
+		altsource_probe #(
+			.instance_id ("PSWM"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pswm (.probe(pswm_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the ADB and the clock chip (the header's PADB, PRTC)
 	reg [63:0] padb_r = 0;
 	reg [31:0] prtc_r = 0;
 	always @(posedge clk) begin padb_r <= adb_state; prtc_r <= rtc_state; end
 
-	altsource_probe #(
-		.instance_id ("PADB"), .probe_width (64), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_padb (.probe(padb_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_padb
+		altsource_probe #(
+			.instance_id ("PADB"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_padb (.probe(padb_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PRTC"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_prtc (.probe(prtc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_prtc
+		altsource_probe #(
+			.instance_id ("PRTC"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_prtc (.probe(prtc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the CPU's exceptions (the header's PEXC, PTRP): one pulse per
 	// exception from the kernel, with its vector number and the opcode
@@ -318,21 +334,27 @@ module dbg_probes #(
 		end
 	end
 
-	altsource_probe #(
-		.instance_id ("PEXC"), .probe_width (160), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pexc (.probe({n_exc, n_aline, n_irq, n_fline, n_addr, n_ill, n_berr, n_other, exc_ring}),
-	           .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pexc
+		altsource_probe #(
+			.instance_id ("PEXC"), .probe_width (160), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pexc (.probe({n_exc, n_aline, n_irq, n_fline, n_addr, n_ill, n_berr, n_other, exc_ring}),
+		           .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PTRP"), .probe_width (256), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_ptrp (.probe(trp_ring), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_ptrp
+		altsource_probe #(
+			.instance_id ("PTRP"), .probe_width (256), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_ptrp (.probe(trp_ring), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PFLN"), .probe_width (192), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pfln (.probe(fln_ring), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pfln
+		altsource_probe #(
+			.instance_id ("PFLN"), .probe_width (192), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pfln (.probe(fln_ring), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// PBER (KNOWN ISSUES 8, 2026-10-05): the last four bus-error exceptions,
 	// newest in [103:0], each {opcode[15:0], PC[31:0], tg68k.v's dbg_mmuf
@@ -452,19 +474,23 @@ module dbg_probes #(
 	reg [63:0] pflp_r = 0;
 	always @(posedge clk) pflp_r <= flp_state;
 
-	altsource_probe #(
-		.instance_id ("PFLP"), .probe_width (64), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pflp
+		altsource_probe #(
+			.instance_id ("PFLP"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pflp (.probe(pflp_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// SCSI (the header's PSCS)
 	reg [31:0] pscs_r = 0;
 	always @(posedge clk) pscs_r <= scsi_state;
 
-	altsource_probe #(
-		.instance_id ("PSCS"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pscs (.probe(pscs_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pscs
+		altsource_probe #(
+			.instance_id ("PSCS"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pscs (.probe(pscs_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the SCSI disk's time (the header's PSCT): one probe, so one read is
 	// one moment's counters
@@ -482,19 +508,23 @@ module dbg_probes #(
 	reg [31:0] pasc_r = 0;
 	always @(posedge clk) pasc_r <= asc_state;
 
-	altsource_probe #(
-		.instance_id ("PASC"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pasc (.probe(pasc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pasc
+		altsource_probe #(
+			.instance_id ("PASC"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pasc (.probe(pasc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the SCC (the header's PSCC)
 	reg [31:0] pscc_r = 0;
 	always @(posedge clk) pscc_r <= scc_state;
 
-	altsource_probe #(
-		.instance_id ("PSCC"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pscc (.probe(pscc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pscc
+		altsource_probe #(
+			.instance_id ("PSCC"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pscc (.probe(pscc_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the Math figure (the header's PFPU): the CPU's cycles to the 68882
 	// (CPU space, A19-A13 = 0010 001, the CIRs at A4-A0), the 68882's busy
@@ -597,55 +627,71 @@ module dbg_probes #(
 	reg [63:0] pcch_r = 0;
 	always @(posedge clk) pcch_r <= cache_state;
 
-	altsource_probe #(
-		.instance_id ("PCCH"), .probe_width (64), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pcch (.probe(pcch_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pcch
+		altsource_probe #(
+			.instance_id ("PCCH"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pcch (.probe(pcch_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the internal drive's writing (the header's PFWR)
 	reg [63:0] pfwr_r = 0;
 	always @(posedge clk) pfwr_r <= fwr_state;
 
-	altsource_probe #(
-		.instance_id ("PFWR"), .probe_width (64), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pfwr (.probe(pfwr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pfwr
+		altsource_probe #(
+			.instance_id ("PFWR"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pfwr (.probe(pfwr_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the external drive (the header's PFL2)
 	reg [63:0] pfl2_r = 0;
 	always @(posedge clk) pfl2_r <= flp2_state;
 
-	altsource_probe #(
-		.instance_id ("PFL2"), .probe_width (64), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pfl2 (.probe(pfl2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pfl2
+		altsource_probe #(
+			.instance_id ("PFL2"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pfl2 (.probe(pfl2_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PACT"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pact (.probe(pact_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pact
+		altsource_probe #(
+			.instance_id ("PACT"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pact (.probe(pact_r), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PVIA"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pvia (.probe(via_state), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pvia
+		altsource_probe #(
+			.instance_id ("PVIA"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pvia (.probe(via_state), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PIRQ"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pirq (.probe({irq2_cnt, irq1_cnt}), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pirq
+		altsource_probe #(
+			.instance_id ("PIRQ"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pirq (.probe({irq2_cnt, irq1_cnt}), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// since plan 3.8 item 18: the read-capture training's counts, and what
 	// the machine last read from memory
-	altsource_probe #(
-		.instance_id ("PCAP"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pcap (.probe(cap_detail), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pcap
+		altsource_probe #(
+			.instance_id ("PCAP"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pcap (.probe(cap_detail), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
-	altsource_probe #(
-		.instance_id ("PMEM"), .probe_width (32), .source_width (1),
-		.sld_auto_instance_index ("YES")
-	) cp_pmem (.probe(mem_last), .source(), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_pmem
+		altsource_probe #(
+			.instance_id ("PMEM"), .probe_width (32), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pmem (.probe(mem_last), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
 
 	// the JTAG memory peek and poke (MacSE30.sv, plan 3.8 items 18 and
 	// 19): the host writes the sources, the top runs the operation, PPEK
@@ -660,10 +706,14 @@ module dbg_probes #(
 		.sld_auto_instance_index ("YES")
 	) cp_ppok (.probe(1'b0), .source(poke_src), .source_clk(clk), .source_ena(1'b1));
 
-	altsource_probe #(
-		.instance_id ("PRAW"), .probe_width (1), .source_width (64),
-		.sld_auto_instance_index ("YES")
-	) cp_praw (.probe(1'b0), .source(raw_src), .source_clk(clk), .source_ena(1'b1));
+	generate if (!LEAN) begin : g_praw
+		altsource_probe #(
+			.instance_id ("PRAW"), .probe_width (1), .source_width (64),
+			.sld_auto_instance_index ("YES")
+		) cp_praw (.probe(1'b0), .source(raw_src), .source_clk(clk), .source_ena(1'b1));
+	end else begin : g_praw_off
+		assign raw_src = 64'd0;
+	end endgenerate
 
 	altsource_probe #(
 		.instance_id ("PPKS"), .probe_width (16), .source_width (1),

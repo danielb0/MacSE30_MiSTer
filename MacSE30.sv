@@ -111,6 +111,14 @@ localparam BTRACE = 1;
 `else
 localparam BTRACE = 0;
 `endif
+// A lean probe deck (2026-10-14, KNOWN ISSUES 20): define SE30_LEAN_PROBES in
+// the qsf to keep only PBLD, the peek/poke and the opt-in groups, freeing
+// room for a debug build on a full device.
+`ifdef SE30_LEAN_PROBES
+localparam LEAN = 1;
+`else
+localparam LEAN = 0;
+`endif
 
 // The CD-ROM (plan Section 12): an AppleCD SC at SCSI ID 3 on hps_io slot
 // 4, data only (no CD audio, so no CUE/BIN/CHD: flat ISO and Toast images,
@@ -945,7 +953,7 @@ always @(posedge clk_sys) begin
 	if (!pk_hold) begin pk_req_r <= 0; raw_req_r <= 0; pk_st <= 0; end
 end
 
-dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE)) probes
+dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE), .LEAN(LEAN)) probes
 (
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
