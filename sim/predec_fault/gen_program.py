@@ -32,8 +32,8 @@ THE PROGRAM (supervisor, from $1000)
       reference (the source for blockmove, the model's output for dcmp), the
       handler count and A2 to the case's slots
     STOP #$2700
-    vector 2 (bus error), $1C00: count the entry ($3100), log the fault
-      address, SSW and format word ($3200 on), make the faulting page's
+    vector 2 (bus error), $1C00: count the entry ($3200), log the fault
+      address, SSW and format word ($3300 on), make the faulting page's
       descriptor valid, PFLUSHA, RTE with the frame untouched (DF set: the
       faulted cycle reruns, UM 8.2.1) - more than 100 entries = a loop:
       stop at $1D80
@@ -54,7 +54,7 @@ CASESET = os.environ.get("CASESET", "all")
 ORG, BERR, TRAP0, LOOPSTOP, EXC = 0x1000, 0x1C00, 0x1D00, 0x1D80, 0x1E00
 TBL_A, TBL_B, CRP_AT = 0x4000, 0x4100, 0x3E00
 TC = 0x80C84800
-SLOTS, COUNT, LOGP, LOG = 0x3000, 0x3100, 0x3104, 0x3200
+SLOTS, COUNT, LOGP, LOG = 0x3000, 0x3200, 0x3204, 0x3300
 SIZE = 0x80000                                   # the image: 512 KB
 
 # the decompressor's expansion loop, $296E40-$296E8F (MAME, identical in all 20 hits)

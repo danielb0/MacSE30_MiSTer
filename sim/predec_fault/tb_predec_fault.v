@@ -191,14 +191,14 @@ module tb_predec_fault;
     while (!done && !halted && n < maxclk) begin @(posedge clk); n = n + 1; end
     if (halted) begin fails = fails + 1; $display("FAIL: the CPU halted (double bus fault) after %0d clocks", n); end
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
-    $display("---- %0d clocks, %0d bus-error handler entries", n, ram[32'h3100 >> 2]);
+    $display("---- %0d clocks, %0d bus-error handler entries", n, ram[32'h3200 >> 2]);
     v = ram[32'h3F00 >> 2];
     if (v[31:16] == 16'hBBBB) begin fails = fails + 1; $display("FAIL: the bus-error handler ran more than 100 times (a fault that never resolves)"); end
     else if (v != 0) begin
       fails = fails + 1;
       $display("FAIL: an exception: format/vector word %04x, stacked PC %08x", v[15:0], ram[32'h3F04 >> 2]);
     end
-    for (la = 32'h3200; la < ram[32'h3104 >> 2] && la < 32'h3400; la = la + 8)
+    for (la = 32'h3300; la < ram[32'h3204 >> 2] && la < 32'h3600; la = la + 8)
       $display("---- fault: address %08x  SSW %04x  format word %04x", ram[la >> 2], ram[(la + 4) >> 2] >> 16, ram[(la + 4) >> 2] & 16'hFFFF);
     fd = $fopen({prog_dir, "/expect.txt"}, "r"); nrun = 0;
     while ($fscanf(fd, "%h %h", slot, want) == 2) begin

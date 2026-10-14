@@ -477,6 +477,11 @@ module se30_sdram #(
                    S_VR = 4'd8;
   reg  [3:0] state;
   reg  [3:0] seq;                      // clocks since the ACTIVE
+  // seq's next value, and its comparisons registered from it: the output
+  // pins' decisions read these flags, not a compare of seq (compile 60:
+  // seq -> Equal6 -> two LUTs -> sd_addr[12]'s I/O register, -0.475 ns)
+  reg  [3:0] seq_n;
+  reg        seq_is0, seq_is2, seq_is3, seq_ge2, seq_ge5, seq_le5;
   wire [1:0] r_k = seq[1:0] - 2'd2;    // the schedule's index on clocks 2..5 of a raw experiment
   wire [1:0] r_kn = seq[1:0] - 2'd1;   // and the next clock's, loaded a clock ahead
   reg  [3:0] busy;                     // clocks until the next ACTIVE or refresh may issue
@@ -524,7 +529,7 @@ module se30_sdram #(
 
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0;
+      state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; seq_is0 <= 1; seq_is2 <= 0; seq_is3 <= 0; seq_ge2 <= 0; seq_ge5 <= 0; seq_le5 <= 1; busy <= 0;
       cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_pre <= 0; oe_pre <= 0;
       cpu_ack <= 0; cpu_rdata <= 0; dl_ack <= 0; raw_ack <= 0; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0;
       dk_ack <= 0; dk_rdata <= 0; vr_ack <= 0; vr_rdata <= 0;
@@ -535,6 +540,7 @@ module se30_sdram #(
       cap_sel <= 0; cap_ok <= 2'b00; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
       cap_fail_a <= 0; cap_fail_b <= 0;
     end else begin
+      seq_n = seq;
       cmd    <= CMD_NOP;
       if (busy != 0) busy <= busy - 1'b1;
       if (ref_cnt != 10'h3FF) ref_cnt <= ref_cnt + 1'b1;
@@ -564,7 +570,7 @@ module se30_sdram #(
             4'd1:  begin cmd <= CMD_PRECHARGE; sd_addr[10] <= 1'b1; init_step <= 2; init_cnt <= 0; end
             4'd10: if (init_cnt == 15'd8) begin cmd <= CMD_LOAD_MODE; sd_addr <= MODE; sd_ba <= 0; init_step <= 11; init_cnt <= 0; end
             4'd11: if (init_cnt == 15'd2) begin
-              state <= S_TRAIN; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; seq <= 0; cap_sel <= 0;
+              state <= S_TRAIN; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; seq_n = 0; cap_sel <= 0;
             end
             default: if (init_cnt == 15'd8) begin cmd <= CMD_REFRESH; init_step <= init_step + 1'b1; init_cnt <= 0; end
           endcase
@@ -576,33 +582,33 @@ module se30_sdram #(
         // at 7 and 8 - and the next ACTIVE comes ten clocks after the last
         // (tRC 63, a write's tWR + tRP inside).
         S_TRAIN: begin
-          seq <= seq + 1'b1;
+          seq_n = seq + 1'b1;
           case (tr_step)
             2'd0: begin                                             // the pair: two WRITEs, the second auto-precharged
-              if (seq == 4'd0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
-              if (seq == 4'd2) begin
+              if (seq_is0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
+              if (seq_is2) begin
                 cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b0, 1'b0, TR_COL};
               end
-              if (seq == 4'd3) begin
+              if (seq_is3) begin
                 cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL | 9'd1};
               end
-              if (seq == 4'd9) begin tr_step <= 1; seq <= 0; end
+              if (seq == 4'd9) begin tr_step <= 1; seq_n = 0; end
             end
             2'd1: begin                                             // a read, the same clocks as S_ACC's
-              if (seq == 4'd0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
-              if (seq == 4'd2) begin cmd <= CMD_READ; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL}; end
+              if (seq_is0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
+              if (seq_is2) begin cmd <= CMD_READ; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL}; end
               if (seq == 4'd7) tr_w1 <= dq_m;
               if (seq == 4'd8) begin
                 if (tr_w1 == TR_W1 && dq_m == TR_W2) tr_good <= tr_good + 1'b1;
                 tr_n <= tr_n + 1'b1;
               end
               if (seq == 4'd9) begin
-                seq <= 0;
+                seq_n = 0;
                 if (tr_n == TR_READS) tr_step <= 2;
               end
             end
             default: begin                                          // judge this pass; switch; settle 16 clocks
-              if (seq == 4'd0) begin
+              if (seq_is0) begin
                 if (!tr_pass) begin
                   cap_ok[1] <= (tr_fail == 0); cap_fail_a <= tr_fail;
                   cap_sel <= 1;                                     // B next
@@ -614,7 +620,7 @@ module se30_sdram #(
                 tr_n <= 0; tr_good <= 0;
               end
               if (seq == 4'd15) begin
-                seq <= 0;
+                seq_n = 0;
                 if (!tr_pass) begin tr_pass <= 1; tr_step <= 1; end
                 else begin state <= S_IDLE; ref_cnt <= 0; busy <= 0; end
               end
@@ -637,47 +643,47 @@ module se30_sdram #(
               cmd <= CMD_ACTIVE; sd_ba <= a_bank; sd_addr <= a_row;
               a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_col_r <= a_col;
               a_be <= xs_be; a_wdata <= xs_wdata;
-              seq <= 1; busy <= ACT_BUSY; start_pend <= 0;
+              seq_n = 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
             end else if (ref_due || (ref_early && win_ref)) begin
               cmd <= CMD_REFRESH; busy <= REF_BUSY; ref_cnt <= 0;
             end else if (dl_req_q && !dl_ack) begin
               cmd <= CMD_ACTIVE; sd_ba <= d_bank; sd_addr <= d_row;
-              seq <= 1; busy <= ACT_BUSY;
+              seq_n = 1; busy <= ACT_BUSY;
               state <= S_DL;
             end else if (dk_req_q && !dk_ack && win_dk) begin
               // a disk word: in the window after a start, or on an idle bus
               cmd <= CMD_ACTIVE; sd_ba <= k_bank; sd_addr <= k_row;
               k_we_r <= xs_dk_we; k_bank_r <= k_bank; k_col_r <= k_col; k_wdata_r <= xs_dk_wdata;
-              seq <= 1; busy <= ACT_BUSY;
+              seq_n = 1; busy <= ACT_BUSY;
               state <= S_DK;
             end else if (vr_req_q && !vr_ack && win_dk) begin
               // a VRAM longword: the disk's window, the disk first
               cmd <= CMD_ACTIVE; sd_ba <= v_word[23:22]; sd_addr <= v_word[21:9];
               v_we_r <= xs_vr_we; v_bank_r <= v_word[23:22]; v_col_r <= v_word[8:0];
               v_be_r <= xs_vr_be; v_wdata_r <= xs_vr_wdata;
-              seq <= 1; busy <= ACT_BUSY;
+              seq_n = 1; busy <= ACT_BUSY;
               state <= S_VR;
             end else if (raw_req_q && !raw_ack) begin
               // an experiment (the header): every row is closed here, so
               // a LOAD MODE may follow a PRECHARGE ALL at once
               if (r_kind) begin cmd <= CMD_PRECHARGE; sd_addr <= 13'h0400; busy <= 4'd6; end
               else begin cmd <= CMD_ACTIVE; sd_ba <= r_bank; sd_addr <= r_row; busy <= ACT_BUSY; end
-              seq <= 1; state <= S_RAW;
+              seq_n = 1; state <= S_RAW;
             end
           end
         end
 
         // ------------------------------------------- a CPU access
         S_ACC: begin
-          seq <= seq + 1'b1;
+          seq_n = seq + 1'b1;
           if (!a_we) begin
             // a read: speculative, auto-precharged; the two words reach
             // dq_m for our rising edges at 7 and 8 clocks after ACTIVE:
             // the READ at 2, the words valid at the chip's edges 4.6 and
             // 5.6, captured into dq_q at 5 and 6, dq_w at 6 and 7, dq_m
             // at 6.5 and 7.5 (the timeline above)
-            if (seq == 4'd2) begin cmd <= CMD_READ; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r}; end
+            if (seq_is2) begin cmd <= CMD_READ; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r}; end
             if (seq == 4'd7) cpu_rdata[31:16] <= dq_m;
             if (seq == 4'd8) begin
               cpu_rdata[15:0] <= dq_m; cpu_ack <= req_q;
@@ -690,12 +696,12 @@ module se30_sdram #(
             // (GLUE's refresh window) and is precharged if another start
             // supersedes it
             if (!a_written) begin
-              if (seq == 4'd15) seq <= 4'd15;                       // count the wait, saturating
-              if (req_q && seq >= 4'd2) begin                       // tRCD met at 2
+              if (seq == 4'd15) seq_n = 4'd15;                       // count the wait, saturating
+              if (req_q && seq_ge2) begin                       // tRCD met at 2
                 cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {~a_be[3:2], 1'b0, 1'b0, a_col_r};
-                a_written <= 1; seq <= 4'd3; cpu_ack <= 1;
+                a_written <= 1; seq_n = 4'd3; cpu_ack <= 1;
                 busy <= 4'd6;                                       // the low word, tWR, tRP: 4.8 from here
-              end else if (seq >= 4'd5) begin
+              end else if (seq_ge5) begin
                 // no request by now: the cycle was aborted (a request that
                 // GLUE's refresh window delays comes later and re-opens the
                 // row from S_IDLE).  tRAS is met at 5.
@@ -703,7 +709,7 @@ module se30_sdram #(
                 busy <= 4'd2; state <= S_IDLE;
               end
             end else begin
-              if (seq == 4'd3) begin                                // the low word, auto-precharged
+              if (seq_is3) begin                                // the low word, auto-precharged
                 cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {~a_be[1:0], 1'b1, 1'b0, a_col_r | 9'd1};
               end
               if (seq == 4'd4) state <= S_DONE;
@@ -738,7 +744,7 @@ module se30_sdram #(
               cmd <= CMD_ACTIVE; sd_ba <= a_bank; sd_addr <= a_row;
               a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_col_r <= a_col;
               a_be <= xs_be; a_wdata <= xs_wdata;
-              seq <= 1; busy <= ACT_BUSY; start_pend <= 0;
+              seq_n = 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
             end
           end
@@ -750,8 +756,8 @@ module se30_sdram #(
         // with the second beat masked, and the board's chip wrote both).
         // Acknowledged as posted; the level clears with the request.
         S_DL: begin
-          seq <= seq + 1'b1;
-          if (seq == 4'd2) begin
+          seq_n = seq + 1'b1;
+          if (seq_is2) begin
             cmd <= CMD_WRITE; sd_ba <= d_bank; sd_addr <= {2'b00, 1'b1, 1'b0, d_col};
             dl_ack <= 1;
           end
@@ -766,8 +772,8 @@ module se30_sdram #(
         // at 7 as a CPU read's first word is.  Either way the next ACTIVE
         // waits for busy, set at the ACTIVE.
         S_DK: begin
-          seq <= seq + 1'b1;
-          if (seq == 4'd2) begin
+          seq_n = seq + 1'b1;
+          if (seq_is2) begin
             cmd <= k_we_r ? CMD_WRITE : CMD_READ; sd_ba <= k_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, k_col_r};
             if (k_we_r) dk_ack <= 1;
           end
@@ -781,36 +787,36 @@ module se30_sdram #(
         // enables, the second auto-precharged - both acknowledged as the
         // disk's are.
         S_VR: begin
-          seq <= seq + 1'b1;
+          seq_n = seq + 1'b1;
           if (!v_we_r) begin
-            if (seq == 4'd2) begin cmd <= CMD_READ; sd_ba <= v_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, v_col_r}; end
+            if (seq_is2) begin cmd <= CMD_READ; sd_ba <= v_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, v_col_r}; end
             if (seq == 4'd7) vr_rdata[31:16] <= dq_m;
             if (seq == 4'd8) begin vr_rdata[15:0] <= dq_m; vr_ack <= 1; state <= S_IDLE; end
           end else begin
-            if (seq == 4'd2) begin
+            if (seq_is2) begin
               cmd <= CMD_WRITE; sd_ba <= v_bank_r; sd_addr <= {~v_be_r[3:2], 1'b0, 1'b0, v_col_r};
               vr_ack <= 1;
             end
-            if (seq == 4'd3) begin cmd <= CMD_WRITE; sd_ba <= v_bank_r; sd_addr <= {~v_be_r[1:0], 1'b1, 1'b0, v_col_r | 9'd1}; end
+            if (seq_is3) begin cmd <= CMD_WRITE; sd_ba <= v_bank_r; sd_addr <= {~v_be_r[1:0], 1'b1, 1'b0, v_col_r | 9'd1}; end
             if (seq == 4'd4) state <= S_IDLE;
           end
         end
 
         // ------------------------------------- a raw experiment (the header)
         S_RAW: begin
-          seq <= seq + 1'b1;
+          seq_n = seq + 1'b1;
           if (r_kind) begin                                         // PRECHARGE ALL was issued at entry
-            if (seq == 4'd2) begin cmd <= CMD_LOAD_MODE; sd_addr <= r_mode; sd_ba <= 0; end
+            if (seq_is2) begin cmd <= CMD_LOAD_MODE; sd_addr <= r_mode; sd_ba <= 0; end
             if (seq == 4'd4) begin raw_ack <= 1; state <= S_IDLE; end  // tMRD met by busy
           end else begin
-            if (seq == 4'd2) begin
+            if (seq_is2) begin
               cmd <= r_read ? CMD_READ : CMD_WRITE; sd_ba <= r_bank;
               sd_addr <= {2'b00, r_ap && !(r_second && !r_read), 1'b0, r_col};
             end
             if (seq == 4'd3 && r_second && !r_read) begin
               cmd <= CMD_WRITE; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap, 1'b0, r_col | 9'd1};
             end
-            if (seq >= 4'd2 && seq <= 4'd5)                         // the schedule's mask (its data and enable: below)
+            if (seq_ge2 && seq_le5)                         // the schedule's mask (its data and enable: below)
               sd_addr[12:11] <= r_dqm[2 * r_k +: 2];               // after the column address: the schedule wins
             if (r_read && seq == 4'd7) cpu_rdata[31:16] <= dq_m;   // a read's words, as S_ACC takes them
             if (r_read && seq == 4'd8) cpu_rdata[15:0]  <= dq_m;
@@ -849,6 +855,9 @@ module se30_sdram #(
       // but never into a mode register's reserved bits; the last
       // assignment wins
       if (dbg_dqm_force && state != S_INIT && !(state == S_RAW && r_kind)) sd_addr[12:11] <= 2'b11;
+      seq <= seq_n;
+      seq_is0 <= (seq_n == 4'd0); seq_is2 <= (seq_n == 4'd2); seq_is3 <= (seq_n == 4'd3);
+      seq_ge2 <= (seq_n >= 4'd2); seq_ge5 <= (seq_n >= 4'd5); seq_le5 <= (seq_n <= 4'd5);
     end
 
 endmodule
