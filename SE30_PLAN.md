@@ -18745,9 +18745,21 @@ Daniel - add to it, move items out when fixed).**
     bomb (a mis-expanded or abandoned resource reaching QuickDraw's
     GDevice) is inferred, not shown - the board run decides. Noted, not
     changed: `insn_fetch_consumer` (~2103) lists `ld_AnXn1` the same
-    way for instruction-fetch faults. **Next:** the full `predec_fault`
-    with caches on (~35-40 min, Daniel's call), compile 59, A/UX at 16 MB
-    from a fresh image.
+    way for instruction-fetch faults. The full `predec_fault` with CACR
+    `$3111` (both kinds, 7 cases): **PASS, 38 checks, 24 faults.**
+    **COMPILE 59 (2026-10-14 12:09-13:00, 51 min; `QUARTUS_REVISION=
+    MacSE30` - the repo now holds MacIIcx.qsf too): tag `cc9f8167`,
+    `SE30_BTRACE` in the qsf for this build (as compile 58; restored
+    after), archived `output_files/MacSE30_cc9f8167_fmtapc.rbf` (md5
+    2db00fab...), 39,427 ALMs (94 %), 369 RAM blocks. `sta_corners.tcl`:
+    the capture met by A or B at every corner, SDRAM pins +2.438, every
+    path of ours positive (CPU clocks' worst +0.895); the one miss is
+    the FRAMEWORK's HDMI chain, `shadowmask|dout` -> `osd:hdmi_osd|
+    nrdout1`, -0.177 / -0.121 ns at slow 100C only (sys/, KNOWN ISSUES 6's
+    kind). No combinational loop in STA. NOT on the board: Daniel boots
+    A/UX at 16 MB from a fresh `...removed.vhd` copy - fixed = the
+    StartMonitor's bar fills and the desktop comes up, as on MAME; if it
+    still bombs, `read_btrace.tcl` at once (the deck is in).**
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
