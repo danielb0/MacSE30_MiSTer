@@ -18821,6 +18821,49 @@ Daniel - add to it, move items out when fixed).**
     the chain entry A1-D1). **NEXT: the board run** - arm at `$7FF4C2`,
     boot A/UX at 16 MB from a fresh image, dump at the freeze, compare
     the entry with MAME's chain.
+    **THE TRIGGER RUNS (2026-10-14 evening, compiles 62 and 64): the bomb
+    is CORRUPT DATA, not a register, cache or trap bug.** Fired at 39-60 s
+    every run, the same registers (fault `$5C070C0C`, D1 `$FC02`, A3
+    `$7FF338`, A5 `$328972`, A6 `$7FF9E4` - A3/A6 as MAME's). Findings in
+    order: (1) the current process is startmac: A/UX keeps the running
+    root in `cpu_rp` (`$5B068`, +4) and maps the u-area at `$12FFF000`
+    by rewriting one descriptor (`uptbl`, `$5B09C`; `resume030`/`fp30`);
+    **A/UX 3's TC is `$82C07760`: SRE, 4 KB pages, IS 0, TIA 7, TIB 7,
+    TIC 6** - the "TIA 5, TIB 7, TIC 8" written above was wrong (only
+    logical 0 had been walked, where every geometry agrees); Mac
+    environments map their whole 32 MB block with an early-terminating
+    top-level descriptor (logical 0 at physical `$497000`/`$637000`); the
+    kernel's symbols (`/unix` via `tools/auxunix/coff.py`): `system_root`
+    `$5B91C`, `sup_rp` `$5B060`, `cpu_rp` `$5B068`, `m20cache` `$5AF74`,
+    `proc` `$12006D30`, `u` `$12FFF000`. (2) `$7FF2B0-$7FF500` on
+    startmac's stack is A/UX's JUMP-TABLE LOADER (relocator `$7FF4B2`,
+    callback `$7FF338`, recursion, `_BlockMove` A-line round trips
+    through the kernel - MAME trace `aux/reloc_trace.txt`, 87,525
+    instructions). (3) The cache experiment (compile 64, `coff 3`, both
+    caches off): **the same freeze, the same registers - NOT the cache.**
+    (4) `sim/insn_probe` (new): the loader's unusual instructions -
+    CMPA.W An,An (the 16-bit-fit idiom), SUBQ/ADDQ.W on An, the
+    (d8,PC,Xn) forms, SUBA, MOVEM save/restore around a callback, BSET -
+    PASS on the bare kernel (19) and through the whole wrapper
+    (`run_wrapper.sh`, caches off and `$3111`). (5) The whole stack
+    (`C:\temp\Mac\AUX disk\extract\stack_64.txt`): the faulting call is
+    a NESTED relocator call whose entry save (`$7FDE24`) holds D1 `$FC03`
+    and A1 `$5C06100A` - loaded by `$7FF30C-$7FF312` (`movea.l -(a0),a1;
+    move.w -(a0),d1`) from memory at `$32CC5E`/`$32CC60` = A5+`$42EC`.
+    **(6) That table (8-byte entries {pointer, length, flags}) matches
+    MAME's entry for entry to `$32CC48`, then the board has 32 BYTES OF
+    JUNK INSERTED at `$32CC4E` (`0CFC 0504 FD05 FFFE 1313 38FD 020C FFFE
+    0003 5C06 100A FFFE 10FD 1C01 FD04 FFFE`) and the rest of the table
+    follows correctly, shifted up `$20`** (`jt_board.txt`; MAME's at
+    A5-relative offsets in `aux/rb_heap.bin`). The junk looks like
+    compressed resource data copied unexpanded into the output - a
+    decompressor or copy that emitted 32 bytes of its input and then went
+    on in step: a resumed instruction's source pointer wrong once, or a
+    decompressor desync. **NEXT: a write watchpoint in MAME on the
+    table's matching address (`$32BA4A` there) names the routine that
+    builds it; then the trigger build captures that routine on the board
+    at the corrupt spot (its fault, its PC), and a bench reproduces it.**
+    The relocator, the caches and the A-line path are cleared.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
