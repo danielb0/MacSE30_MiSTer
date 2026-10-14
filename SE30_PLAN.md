@@ -18931,6 +18931,36 @@ Daniel - add to it, move items out when fixed).**
     in startmac's launch - MAME: watch `CurrentA5` (`$904`) and the A5
     loads; the inputs (a low-memory global, a resource field, the
     partition/heap arithmetic) compared on the board at a freeze.
+    **CORRECTED AND LOCATED (2026-10-15 ~01:30): THE CORRUPTION IS AT THE
+    TOP OF EVERY PAGE THE BIG BLOCKMOVE FAULTS ON.** A5 is its own
+    `_NewPtr` block (`$7FEF5E-$7FEF6A`: size from two header words + 14,
+    `lea 10(a0),a5` - MAME registerpoint `aux/rp_a5.lua`), so its offset to
+    the image legitimately differs; the "junk" is leftover image data the
+    jump-table loader (`$7FF15A-$7FF1E4`, an encoded byte stream: `$FC n`
+    = skip n entries) never overwrote - the board's loader skipped four
+    entries. The stream lives in the MOVED copy of the 208 KB block. A
+    freeze after a reboot on the same image (399 s, the same registers -
+    deterministic) and a dump of `$33D000-$374000` (`moved_67.txt`,
+    `scratchpad diff_moved.py`): the moved block at `$340514` equals
+    MAME's decompressed output except (a) the expected 4-byte relocation
+    patches and (b) **the last 8 bytes of every page the big BlockMove
+    faulted on (`$341FF8`, `$343FF8` ... `$36BFF8`): `XX 00 00 00 YY 00 00
+    00` where MAME has 8 bytes - the long at `$xxxFFC` (the faulted write,
+    #1287-#1323) and the long at `$xxxFF8` (the next MOVE.L's) each wrote
+    only their most significant byte**; the rest are the page clear's
+    zeros. A/UX's `hardflt` (`$59850`, from `user_buserr`) maps the page
+    (`hardsegflt`, then `ld_userpg` PLOAD or `fl_userpg` PFLUSH by
+    address) and returns for the hardware rerun - no software completion.
+    `sim/predec_fault`'s identical case (aligned, destination invalid,
+    PFLUSHA) passes, so the board's path differs: the handler's PLOAD/
+    PFLUSH-by-address, its length, interrupts or a context switch before
+    the RTE, real SDRAM timing, the posted-write buffer. The NEXT write
+    being damaged too says some state outlives the replay (byte enables,
+    size, the post buffer's lanes). **NEXT:** the bench's handler as
+    `hardflt` does it (PFLUSH by address / PLOAD, a long path, an
+    interrupt pending at the RTE), checking the page tops; failing that, a
+    probe recording the size and byte enables of the two writes after a
+    format $A replay on the board.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
