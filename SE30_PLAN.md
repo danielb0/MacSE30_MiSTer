@@ -18651,6 +18651,29 @@ Daniel - add to it, move items out when fixed).**
     Also open: our SCSI target should report a write to a read-only
     image as a write-protect error (DATA PROTECT sense), not succeed
     silently - check what `rtl/scsi.v` does with a dropped write.
+    **THE LEAD CLOSED (2026-10-14 morning): NO WRITE REGRESSION.** Three
+    16 MB board runs from `...removed.vhd` (pristine for A/UX: it differs
+    from the 2018 image only in 25 HFS sectors, the extension removal),
+    each run to the bomb and copied back with no JTAG and no reset;
+    changed sectors against the base (scratchpad `diffparts.py`, by
+    partition map entry):
+    | compile | image | root slice | MacOS (HFS) | swap |
+    |---|---|---|---|---|
+    | 56 `51087951` | `used/...removed2-2.vhd` | 56 | 47 | 0 |
+    | 57 `7125a2fd` | `used/...removed-4.vhd` | 28 | 47 | 0 |
+    | 58 `50ca8805` | `used/...removed-5.vhd` | 28 | 47 | 0 |
+    Every build writes; the probe deck only observes. Last night's 0
+    was the procedure: every run there ended in a reset (the peek
+    scripts restart the machine) - A/UX's writes sit in its buffer cache
+    (no `update` in `inittab` or `/etc/rc`), and an unflushed reset
+    leaves the disk pristine and clean, so the next boot's fsck writes
+    nothing either - or the wrong file was copied (Daniel: possibly his
+    mistake). The single HFS sector (2, the MDB) is the Mac OS boot
+    stage's, written before A/UX starts. No run ever wrote swap, so stale
+    swap was never the explanation. **The bomb stands as a core fault
+    with the disk writing normally** - every run here bombed. **Rule:**
+    never reset before copying an image back; leave it running ~2 min
+    after the failure.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
