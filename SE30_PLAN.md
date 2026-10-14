@@ -18790,6 +18790,37 @@ Daniel - add to it, move items out when fixed).**
     Both format $A bugs are also upstream (Minimig `030_mmu2` c3e8a0d: the
     continuation-PC rule at its line 4599, SIZE from the datatype at
     4488); Daniel: offer the fixes eventually, not yet.
+    **COMPILE 60 (7ae4435f, archived `..._straddle_TIMINGFAIL.rbf`):
+    TIMING NOT MET in ours** - `se30_sdram|seq` -> `Equal6` -> two LUTs ->
+    `sd_addr[12]` (A12/DQM I/O register), -0.475 slow 100C, -0.234 slow
+    -40C (84 % wire; compile 59 had the same logic at +0.895). Fixed in
+    the RTL (75b0dde): the pins' seq decisions read registered flags
+    loaded from seq's next value; sim/sdram 202 + trainings, machine 17.
+    **BOARD, compile 60 (Daniel, diagnostic despite the miss):** the same
+    bomb - the BlockMove (straddles at `$33FFFE`/`$33BFFE`, now resumed
+    per UM 8.2.2), then #1324 at PC `$007FF4C2` reading `$5C070C0C`. So
+    the straddle bug was real but not this crash. MAME (`aux/bp7ff.lua`):
+    `$7FF4C2` is legitimate code on the stack - `adda.l d1,a1; move.w
+    (a1),d1` walking an offset chain, `jsr (a3)` per entry; in MAME the
+    chain starts at `$33EA98`, inside the destination of a 208 KB
+    BlockMove (`aux/bpbm.lua`: `a1` `$371791`, `d0` `$32D01`, both ends odd
+    there; the board's heap differs - its big copy is long-aligned, its
+    faults one per fresh destination page, the bench's passing shape).
+    **COMPILE 61 stopped** (Daniel: 62 supersedes it). **COMPILE 62
+    (2026-10-14 17:57-18:39, tag `6f6a9b87`, `SE30_BTRACE` in, archived
+    `output_files/MacSE30_6f6a9b87_trigger.rbf`, md5 46dae3bf...,
+    40,236 ALMs 96 %): every path of ours met at every corner** (the
+    SDRAM fix: slow 100C reg-to-reg +0.201; capture by A or B
+    everywhere; SDRAM pins +2.438); the only misses the framework's
+    `ascal` on the HDMI clock, -0.181 at slow -40C (KNOWN ISSUES 6's
+    path). No combinational loop. It carries THE TRIGGER (6f6a9b8): PBTT,
+    armed over JTAG with a PC; the first bus-error exception there
+    snapshots D1/A1/A3/A5/A6 and the fault address and holds the machine
+    in reset; `scripts/aux_trigger.tcl arm|wait|dump|disarm` (dump walks
+    the faulting process's tables: the routine, the user stack from A6,
+    the chain entry A1-D1). **NEXT: the board run** - arm at `$7FF4C2`,
+    boot A/UX at 16 MB from a fresh image, dump at the freeze, compare
+    the entry with MAME's chain.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
