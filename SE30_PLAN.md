@@ -18864,6 +18864,29 @@ Daniel - add to it, move items out when fixed).**
     builds it; then the trigger build captures that routine on the board
     at the corrupt spot (its fault, its PC), and a bench reproduces it.**
     The relocator, the caches and the A-line path are cleared.
+    **LATER THE SAME NIGHT - who writes the table.** MAME's watchpoints are
+    PHYSICAL: Lua's `read_u32` scan (`aux/find_table.lua`, every 3 s) found
+    the table only around t=45 s, at physical `$631A44` (startmac's
+    logical + `$306000` there); a write watchpoint on it
+    (`aux/wp_table2.lua`) named its writers: the kernel's page clear
+    (`$561EA`), then **the decompressor** (`$296E60`/`$62` literal pairs,
+    `$296E80` table words) writing the table, then the jump-table loader
+    (`$7FF1xx-$7FF3xx`) patching entries. On the board (fresh image, the
+    trigger at 48 s, `table_65.txt`, `dcmpout_65.txt`): the board's only
+    decompressor faults (`$2FB000-$304000`) are a CODE segment's expansion
+    - that region holds 68k code, not the table; the table's decompression
+    wrote into an A5-world page already present, so it took NO page
+    fault: none of today's resume paths were involved. Left: (1) the
+    COMPRESSED INPUT was already wrong (32 bytes damaged on the way from
+    the disk - A/UX's SCSI path, KNOWN ISSUES 17/18 - or by an earlier
+    copy) and the decompressor expanded it faithfully, or (2) the
+    decompressor mis-executed with no fault (unlikely: `sim/predec_fault`
+    dcmp and `sim/insn_probe` show the loop right). **NEXT (decisive):**
+    MAME - a breakpoint at the decompressor's entry `$296DE8` when its
+    destination (8(a6)/$C(a6)) is the table's block: its source pointer,
+    header and compressed bytes; then the board at the trigger's freeze
+    reads the same compressed bytes - differ = corrupt input (follow it to
+    the disk read), equal = the decompressor.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
