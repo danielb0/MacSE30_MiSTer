@@ -18909,6 +18909,28 @@ Daniel - add to it, move items out when fixed).**
     loader's `$7FF36E`) whose destination covers the table's physical
     `$631A4E`; then at the board's freeze compare that copy's SOURCE with
     the table (equal source + bad table = the copy; bad source = earlier).
+    **SETTLED (2026-10-15 ~00:30): the "junk" is CORRECT decompressor
+    output - the board's A5 is $440 BYTES TOO LOW relative to the image.**
+    MAME's watchpoint (`debug_wp2.log`) shows the table area written by the
+    A/UX kernel's `bcopy` (`$100139B2`, Duff's device; the compressed
+    resource read from the file into the top of the block), then the
+    208 KB decompression IN PLACE (input `$126` ahead there), then the
+    loader's patches. The junk bytes are a contiguous run of the correct
+    compressed input (`src+$27021..$2703A`) and belong to a group whose
+    flag byte is `$00` - eight literal pairs, which MAME writes verbatim at
+    output offset `$31FA0`; on the board they sit at block offset `$31F9E`
+    - the same, correct. A trigger at the decompressor's first fault
+    (`$296E5E`, board: 50 s) read its frame (A6 `$7FDF06`): header
+    `$7FDF3C` (as MAME's), destination `$2FACB0`, source `$305D23` -
+    source-destination `$B073` as MAME's, header byte-identical; the
+    board's decompression is right. **But A5 (the table, the globals) sits
+    at block + `$2DCC2` on the board, block + `$2E102` in MAME: `$440`
+    lower**, so every A5-relative read lands 1,088 bytes off - the loader
+    reads jump-table entries from the wrong place and the chain ends in
+    QuickDraw's bomb. **NEXT:** what computes A5 (or the block's address)
+    in startmac's launch - MAME: watch `CurrentA5` (`$904`) and the A5
+    loads; the inputs (a low-memory global, a resource field, the
+    partition/heap arithmetic) compared on the board at a freeze.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
