@@ -18760,6 +18760,36 @@ Daniel - add to it, move items out when fixed).**
     A/UX at 16 MB from a fresh `...removed.vhd` copy - fixed = the
     StartMonitor's bar fills and the desktop comes up, as on MAME; if it
     still bombs, `read_btrace.tcl` at once (the deck is in).**
+    **BOARD, compile 59 (Daniel, 2026-10-14 ~13:20, fresh image, 16 MB):
+    still bombs - but the decompressor now runs through its faults
+    (`$2FB000`...`$304000`, `poll_8.txt`), so the fix took; the first
+    bad read moved (`$CE740080`, 945 faults at `$2D7C54`). The run-up:
+    a BlockMove whose long writes STRADDLE pages (#1271/#1272 at
+    `$33FFFE`/`$33BFFE`), then #1324 the process executing on its stack
+    (PC `$007FF4C2`), then the bomb.** `sim/predec_fault` CASESET=straddle
+    (the ROM loop on word- and byte-aligned blocks, six cases): **FAILED**
+    on a long at `$xxxFFE` whose UPPER word's page was invalid - the frame
+    stacked SIZE long (SSW `$0101`) for the faulted second cycle and the
+    replay wrote a whole long at `$1A000`. UM 8.2.2: the frame describes
+    the faulted cycle - its address, its size, the DOB right-justified.
+    **Fix (kernel):** SSW.SIZE = the operand's bytes from the fault address
+    on (`fault_beat_rem`: operand size - (fault address - the operand's
+    first-beat address, `op_start_addr`) - beat_rem itself proved unusable,
+    the beat engine moves on while the walker resolves the faulting beat;
+    the first try broke the lower-word case), and the RTE replay of a
+    3-byte cycle (SIZE `11`) as a long's last three bytes (memmask
+    `100011`, gated to the final rte5 cycle - ungated it turned the last
+    frame pops into 3-byte reads and the replay went to `$000007B0`).
+    **PASS:** straddle 30 checks, 8 faults (SIZE long `$0101`, word
+    `$0121`, byte `$0111`, 3 bytes `$0131`); `rtr_fc` 29, `busfault` 14,
+    `busfault_dib` 18, `kernel_bus` 338, `machine` 17 unchanged. The bench
+    now counts its checks (a 120-character description buffer had cut one
+    run to 11 of 20 silently; earlier counts were full) and takes a trace
+    time window (+BTT0/+BTT1, ns). Whether the straddle bug caused compile
+    59's bomb is inferred, not shown - compile 60 and the board decide.
+    Both format $A bugs are also upstream (Minimig `030_mmu2` c3e8a0d: the
+    continuation-PC rule at its line 4599, SIZE from the datatype at
+    4488); Daniel: offer the fixes eventually, not yet.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 

@@ -682,6 +682,12 @@ architecture logic of TG68KdotC_Kernel is
 	signal berr_external_siz      : std_logic_vector(1 downto 0);   -- SSW.SIZE: the bytes remaining at the faulted beat, as SIZ showed them (UM 8.2.1, 5.2.4; 1.18)
 	signal berr_external_rmw      : std_logic;                       -- Locked RMW state latched at external BERR first-fire
 	signal berr_pmmu_datatype     : std_logic_vector(1 downto 0);   -- PMMU datatype latched at first-fire for SSW.SIZE
+	signal berr_pmmu_beat_rem     : integer range 0 to 5 := 4;      -- the faulted beat's bytes still to go (SSW.SIZE, UM 8.2.2)
+	signal op_start_addr          : std_logic_vector(31 downto 0) := (others => '0');  -- the data operand's first beat's address
+	signal op_full                : std_logic;                      -- this beat is the operand's first (all of it to go)
+	signal fault_op_size          : integer range 1 to 4;
+	signal fault_op_off           : std_logic_vector(31 downto 0);
+	signal fault_beat_rem         : integer range 0 to 5;           -- the faulted cycle's bytes, from the fault address
 	signal berr_pmmu_fault_addr   : std_logic_vector(31 downto 0);  -- PMMU fault address latched at first-fire
 	signal berr_pmmu_fault_fc     : std_logic_vector(2 downto 0);   -- PMMU fault FC latched at first-fire
 	signal berr_pmmu_fault_rw     : std_logic;                      -- PMMU fault R/W latched at first-fire
@@ -1945,6 +1951,27 @@ ALU: TG68K_ALU
 	            2 WHEN memmask(3)='0' ELSE
 	            1 WHEN memmask(4)='0' ELSE 0;
 	op5_now <= '1' WHEN memmask="100000" OR op5='1' ELSE '0';
+	-- The faulted cycle's size for SSW.SIZE (UM 8.2.2: the cycle's own size,
+	-- the DOB right-justified): the operand's bytes from the fault address on.
+	-- From the address, not beat_rem - the beat engine can move on while the
+	-- walker resolves the beat that faults (KNOWN ISSUES 20).
+	op_full <= '1' WHEN (datatype="10" AND beat_rem=4) OR (datatype="01" AND beat_rem=2) OR
+	                    (datatype="00" AND beat_rem=1) ELSE '0';
+	fault_op_size <= 4 WHEN datatype="10" ELSE 2 WHEN datatype="01" ELSE 1;
+	fault_op_off <= pmmu_fault_addr_out - op_start_addr;
+	fault_beat_rem <= fault_op_size WHEN op_full='1' OR op5_now='1' ELSE
+	                  fault_op_size - conv_integer(fault_op_off(2 downto 0))
+	                      WHEN fault_op_off(31 downto 3) = "00000000000000000000000000000" AND
+	                           conv_integer(fault_op_off(2 downto 0)) < fault_op_size ELSE
+	                  beat_rem;
+	PROCESS (clk)
+	BEGIN
+		IF rising_edge(clk) THEN
+			IF state(1)='1' AND op_full='1' THEN
+				op_start_addr <= addr;
+			END IF;
+		END IF;
+	END PROCESS;
 	-- The port: how many bytes it can take from this address, and which lane
 	-- the first of them rides. The 16-bit shape is a 16-bit port on lanes 0-1;
 	-- the 32-bit shape reads the width from dsack (UM Table 7-1) and the lanes
@@ -4567,6 +4594,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 	variable v_is_cof : std_logic;  -- T0 trace: change-of-flow instruction
 	variable v_irq_pending : std_logic;
 	variable v_pmmu_datatype : std_logic_vector(1 downto 0);
+	variable v_pmmu_beat_rem : integer range 0 to 5;
 	BEGIN
 	
 		PC_dataa <= TG68_PC;
@@ -4848,6 +4876,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					berr_external_siz <= "10";
 					berr_external_rmw <= '0';
 					berr_pmmu_datatype <= "10";
+					berr_pmmu_beat_rem <= 4;
 					berr_pmmu_fault_addr <= (others => '0');
 					berr_pmmu_fault_fc <= (others => '0');
 					berr_pmmu_fault_rw <= '1';
@@ -5189,6 +5218,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					pmmu_fault_was_cleared <= '0';
 					mmu_restart_restore <= '0';
 					v_pmmu_datatype := berr_pmmu_datatype;
+					v_pmmu_beat_rem := berr_pmmu_beat_rem;
 					interrupt <= setinterrupt;
 					decodeOPC <= setopcode;
 					endOPC <= setendOPC;
@@ -5285,6 +5315,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- cannot corrupt SSW.SIZE for the eventual bus/MMU frame.
 					if (pmmu_tc_en='0' or pmmu_fault='0') and make_berr='0' and trap_berr='0' and trap_mmu_berr='0' and berr_exception_active='0' then
 						berr_pmmu_datatype <= "10";
+						berr_pmmu_beat_rem <= 4;
 						berr_pmmu_fault_valid <= '0';
 						berr_pmmu_fault_from_rte_replay <= '0';
 						-- Self-clearing squash window: a restart fault that evaporates
@@ -5302,6 +5333,9 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						-- the restored PC; that request must not replace the write metadata.
 						IF berr_pmmu_fault_valid = '0' THEN
 							berr_pmmu_datatype <= datatype;
+							-- the faulted BEAT's size: a split operand's later beat carries
+							-- only the bytes still to go (UM 7.2.2, 8.2.2)
+							berr_pmmu_beat_rem <= fault_beat_rem;
 							-- Continuation PC for a LASTWRITE Format $A frame, decided at
 							-- first-fire while the faulted store is still the executing
 							-- instruction. A store's write beat can only run after every
@@ -5336,6 +5370,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								berr_restart_pc <= exe_pc;
 							END IF;
 							v_pmmu_datatype := datatype;
+							v_pmmu_beat_rem := fault_beat_rem;
 							-- data_write_muxin includes register-forwarded MOVES writes.
 							berr_pmmu_write_data <= data_write_muxin;
 						END IF;
@@ -5629,10 +5664,14 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 										berr_ssw(12) <= '0';
 										berr_ssw(8) <= '1';   -- DF=1
 											berr_ssw(9) <= '0';   -- Reserved on 68020/030 SSW
-										-- SIZE from datatype latched at PMMU fault first-fire
-										case v_pmmu_datatype is
-											when "00" => berr_ssw(5 downto 4) <= "01";  -- Byte
-											when "01" => berr_ssw(5 downto 4) <= "10";  -- Word
+										-- SIZE: the faulted bus cycle's, latched at first-fire - for a
+										-- split operand's later beat the bytes still to go, the DOB
+										-- right-justified (UM 8.2.2; KNOWN ISSUES 20: a long at $xxxFFE
+										-- whose second word faulted was stacked, and replayed, as a long)
+										case v_pmmu_beat_rem is
+											when 1 => berr_ssw(5 downto 4) <= "01";  -- Byte
+											when 2 => berr_ssw(5 downto 4) <= "10";  -- Word
+											when 3 => berr_ssw(5 downto 4) <= "11";  -- 3 bytes
 											when others => berr_ssw(5 downto 4) <= "00";  -- Long
 										end case;
 									end if;
@@ -5913,8 +5952,17 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							-- -- Without this check, memmask keeps resetting to "100001" every cycle,
 							-- -- preventing the shift that selects the low word for the second bus cycle.
 							-- IF memmask /= "100001" AND memmask /= "000111" AND memmask /= "011111" THEN
+							IF micro_state = rte5 AND rot_cnt = "000001" AND
+							   rte_fmt_a_replay_needed = '1' AND rte_fmt_a_ssw(5 downto 4) = "11" THEN
+								-- a Format $A replay of a 3-byte cycle: the long's last
+								-- three bytes (OP1-OP3, the DOB right-justified), as the
+								-- second beat of a 1+3 split (UM 7.2.2, 8.2.2)
+								memmask <= "100011";
+								wbmemmask <= "100011";
+							ELSE
 							 	memmask <= "100001";
 							 	wbmemmask <= "100001";
+							END IF;
 							-- END IF;
 							oddout <= '0';
 --						ELSIF set_datatype="00" AND setstate(1)='1' AND setaddrvalue='0' THEN	

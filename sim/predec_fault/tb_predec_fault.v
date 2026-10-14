@@ -29,7 +29,8 @@
 //   The program image is the first 512 KB of RAM; no ROM.
 //
 //   Plusargs: +PROG=<dir> (default .), +MAXCLK=<n> (default 20,000,000),
-//   +BTLO=<hex> +BTHI=<hex> (the bus trace, as sim/mmu16), +NOPOST, +NOPACE.
+//   +BTLO=<hex> +BTHI=<hex> (the bus trace, as sim/mmu16), +BTT0=<ns>
+//   +BTT1=<ns> (only cycles in that time window), +NOPOST, +NOPACE.
 
 `timescale 1ns/1ps
 
@@ -142,10 +143,12 @@ module tb_predec_fault;
   // ------------------------------------------------------ the bus trace
   // each cycle printed once, at the first clock of its acknowledge
   reg [31:0] bt_lo = 0, bt_hi = 0; reg btrace = 0;
+  reg [63:0] bt_t0 = 0, bt_t1 = 64'hFFFFFFFFFFFFFFFF;   // +BTT0/+BTT1 (ns): a time window for the trace
   reg bt_ack_seen = 0;
   always @(posedge clk) if (phi1 && btrace) begin
     if (!cpu_as_n && dsack_n != 2'b11 && !bt_ack_seen &&
-        ((cpu_addr >= bt_lo && cpu_addr < bt_hi) || (cpu.k_addr_log >= bt_lo && cpu.k_addr_log < bt_hi)))
+        ((cpu_addr >= bt_lo && cpu_addr < bt_hi) || (cpu.k_addr_log >= bt_lo && cpu.k_addr_log < bt_hi)) &&
+        ($time >= bt_t0 && $time < bt_t1))
       $display("BT %0t %s a=%08x fc=%0d siz=%0d d=%08x  log=%08x op=%04x pc=%08x",
                $time, cpu_rw_n ? "R" : "W", cpu_addr, cpu_fc, cpu_siz, cpu_rw_n ? cpu_din : cpu_dout,
                cpu.k_addr_log, cpu.k_opcode, cpu.k_opcode_pc);
@@ -160,7 +163,8 @@ module tb_predec_fault;
   integer n, kk, maxclk, fails = 0, pass = 0; integer fd, r;
   reg [31:0] stop_at, v, slot, want, la;
   reg [8*200-1:0] prog_dir;
-  reg [8*120-1:0] what;
+  reg [8*400-1:0] what;
+  integer nexp, nrun;
   reg done = 0; integer tail = -1;
   always @(posedge clk) if (phi1 && reset_n && !done) begin
     if (!cpu_as_n && cpu_fc == 3'd6 && cpu_addr[31:2] == stop_at[31:2] && tail < 0) tail = 200;
@@ -172,13 +176,15 @@ module tb_predec_fault;
     if (!$value$plusargs("PROG=%s", prog_dir)) prog_dir = ".";
     if (!$value$plusargs("MAXCLK=%d", maxclk)) maxclk = 20000000;
     if ($value$plusargs("BTLO=%h", bt_lo) && $value$plusargs("BTHI=%h", bt_hi)) btrace = 1;
+    if ($value$plusargs("BTT0=%d", bt_t0)) ;
+    if ($value$plusargs("BTT1=%d", bt_t1)) ;
     pace_en = !$test$plusargs("NOPACE");
     post_en = !$test$plusargs("NOPOST");
     for (i = 0; i < 4194304; i = i + 1) ram[i] = 32'h0;
     for (i = 0; i < 65536; i = i + 1) rom[i] = 32'h0;
     $readmemh({prog_dir, "/program.hex"}, img);
     for (i = 0; i < 131072; i = i + 1) ram[i] = {img[2*i], img[2*i+1]};
-    fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h", stop_at); $fclose(fd);
+    fd = $fopen({prog_dir, "/stop_at.txt"}, "r"); r = $fscanf(fd, "%h %d", stop_at, nexp); $fclose(fd);
     repeat (20) @(posedge clk);
     reset_n = 1;
     n = 0;
@@ -194,14 +200,15 @@ module tb_predec_fault;
     end
     for (la = 32'h3200; la < ram[32'h3104 >> 2] && la < 32'h3400; la = la + 8)
       $display("---- fault: address %08x  SSW %04x  format word %04x", ram[la >> 2], ram[(la + 4) >> 2] >> 16, ram[(la + 4) >> 2] & 16'hFFFF);
-    fd = $fopen({prog_dir, "/expect.txt"}, "r");
+    fd = $fopen({prog_dir, "/expect.txt"}, "r"); nrun = 0;
     while ($fscanf(fd, "%h %h", slot, want) == 2) begin
-      r = $fgets(what, fd);
+      r = $fgets(what, fd); nrun = nrun + 1;
       v = ram[slot[23:2]];
       if (v === want) pass = pass + 1;
-      else begin fails = fails + 1; $display("FAIL: %0s - got %08x, want %08x", what[8*119-1:0], v, want); end
+      else begin fails = fails + 1; $display("FAIL: %0s - got %08x, want %08x", what[8*399-1:0], v, want); end
     end
     $fclose(fd);
+    if (nrun != nexp) begin fails = fails + 1; $display("FAIL: %0d checks read from expect.txt, %0d written", nrun, nexp); end
     if (fails == 0) $display("==== PASS: %0d checks - every faulted instruction resumed correctly", pass);
     else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
     $finish;

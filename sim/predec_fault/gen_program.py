@@ -7,6 +7,8 @@ board's trace caught faulting before the Mac environment's bomb.
   blockmove  the ROM's BlockMove backward loop, $4080EFFE-$4080F01F byte for
              byte: MOVE.L D0,D1; LSR.L #5,D1; 8 x MOVE.L -(A0),-(A1) under
              two DBRAs (the board: #1063-#1097)
+  straddle   the BlockMove loop on word-aligned blocks: a long at $xxxFFE spans
+             two pages, and the lower or the upper word's page is invalid
   dcmp       the decompressor the board faulted in at $296E5E/$296E7C
              (#1246/#1247), captured from MAME's run of the same image
              (C:\\temp\\Mac\\mame\\aux\\bp296.lua; the routine at $296DE8):
@@ -23,7 +25,7 @@ THE PROGRAM (supervisor, from $1000)
       table B: 256 page descriptors, identity, valid, U and M clear (the
       walker sets them, UM 9.5.3 - A/UX's pages start that way too)
     USP $9000
-    each case (CASES; CASESET=blockmove|dcmp picks one kind): the case's
+    each case (CASES; CASESET=blockmove|straddle|dcmp picks one kind): the case's
       pages made invalid (DT 0) and PFLUSHA; the registers; MOVE #0,SR (user
       mode, as the Mac environment runs); the loop; TRAP #0 back to
       supervisor; A0, A1, D1, the count of output longs that differ from the
@@ -39,7 +41,7 @@ THE PROGRAM (supervisor, from $1000)
       continuation)
     any other exception, $1E00: its format/vector word and PC to $3F00, stop
 
-Writes program.hex (512 KB as 16-bit words), stop_at.txt ({STOP address})
+Writes program.hex (512 KB as 16-bit words), stop_at.txt ({STOP address} {checks})
 and expect.txt ({slot} {value} {what} per line).
 """
 import os
@@ -67,6 +69,17 @@ BLOCKMOVE = [
     (0x24000, 0x34000, 0x2000, [0x24000, 0x25000], "source pages invalid: the reads fault (rollback, re-execute)"),
     (0x28000, 0x38000, 0x2000, [0x28000, 0x29000, 0x38000, 0x39000], "both invalid: a read fault, then a write fault, in one instruction"),
     (0x2C800, 0x3C000, 0x2000, [0x2C000, 0x2D000, 0x2E000, 0x3C000, 0x3D000], "source misaligned to the pages: the faults land mid-loop"),
+]
+# straddle: the same loop on word-aligned blocks, so a long at $xxxFFE spans two
+# pages (the board, compile 59: #1271/#1272 faulted at $33FFFE/$33BFFE, then the
+# process ran on its stack) - (source, destination, bytes, invalid pages, what)
+STRADDLE = [
+    (0x0A002, 0x0C002, 0x2000, [0x0C000, 0x0D000], "straddling writes, the LOWER word's page invalid (the board's #1271)"),
+    (0x10002, 0x14002, 0x2000, [0x10000, 0x11000], "straddling reads, the lower word's page invalid"),
+    (0x16000, 0x18002, 0x2000, [0x1A000], "a straddling write, the UPPER word's page invalid: the first word lands, the second faults"),
+    (0x1A802, 0x1E000, 0x1800, [0x1C000], "a straddling read, the UPPER word's page invalid"),
+    (0x74000, 0x76001, 0x1000, [0x77000], "a long at $xxxFFD: 3 bytes land, the LAST byte's page invalid (SIZE byte)"),
+    (0x78000, 0x7A003, 0x1000, [0x7B000], "a long at $xxxFFF: 1 byte lands, the last 3 bytes' page invalid (SIZE 3 bytes)"),
 ]
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [
@@ -121,11 +134,12 @@ def main():
 
     # the cases as (registers, code, entry offset, reference, destination, bytes, invalid pages, A2 wanted, what)
     cases = []
-    if CASESET in ("all", "blockmove"):
-        for src, dst, n, bad, what in BLOCKMOVE:
+    bm = (BLOCKMOVE if CASESET in ("all", "blockmove") else []) + (STRADDLE if CASESET in ("all", "straddle") else [])
+    if bm:
+        for src, dst, n, bad, what in bm:
             for a in range(src, src + n, 4):
                 put32(a, 0xC0000000 | a)             # the source: every long distinct
-            for a in range(dst - 0x40, dst + n + 0x40, 4):
+            for a in range((dst - 0x40) & ~3, dst + n + 0x40, 4):
                 put32(a, 0xDD000000 | a)             # the destination before: marked
             regs = [(0x207C, src + n), (0x227C, dst + n), (0x203C, n)]      # A0, A1, D0
             cases.append((regs, words(blockmove), 0, src, dst, n, bad, None,
@@ -272,7 +286,7 @@ def main():
         for x in mem:
             f.write("%04x\n" % x)
     with open(os.path.join(HERE, "stop_at.txt"), "w") as f:
-        f.write("%x\n" % at["fin"])
+        f.write("%x %d\n" % (at["fin"], len(expect)))
     with open(os.path.join(HERE, "expect.txt"), "w") as f:
         for a, v, what in expect:
             f.write("%08x %08x %s\n" % (a, v, what))
