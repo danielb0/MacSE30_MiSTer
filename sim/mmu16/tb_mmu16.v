@@ -53,7 +53,7 @@ module tb_mmu16;
     .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .pace_en(pace_en), .post_en(post_en),
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .coff(2'b00), .pace_en(pace_en), .post_en(post_en),
     .reset_out_n(reset_out_n), .halted(halted), .ecs(ecs));
 
   wire        ram_req, ram_we, ram_refresh, rom_req;

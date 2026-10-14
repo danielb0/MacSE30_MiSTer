@@ -93,6 +93,7 @@ module tg68k (
   input         berr,
   input   [2:0] ipl_n,
   input         cdis,                  // CDIS* asserted (VIA2 PB0 low): the caches disabled
+  input   [1:0] coff,                  // {instruction cache off, data cache off}: the JTAG experiment (KNOWN ISSUES 20)
   input         pace_en,               // hold each instruction to the 68030's time (plan 1.17.5); low: unpaced
   input         post_en,               // the write pending buffer (plan 1.17.7); low: every write waited for
 
@@ -294,7 +295,7 @@ module tg68k (
   wire  [7:0] pb_nbyte = pb_lanes[31 - 8 * pb_ln -: 8];
   se30_cache030 cache (
     .clk(clk), .reset_n(reset_n),
-    .cacr(k_cacr[13:0]), .caar(k_cache_op_addr[7:2]), .cdis(cdis),
+    .cacr(k_cacr[13:0] & ~{5'b0, coff[0], 7'b0, coff[1]}), .caar(k_cache_op_addr[7:2]), .cdis(cdis),   // coff: EI/ED cleared
     .la(k_addr_log[31:2]), .fc(k_fc), .i_hit(i_hit), .i_q(i_q),
     .i_fill(i_fill), .fill_la(cyc_la), .fill_fc(cyc_fc), .fill_data(cpu_din),
     .d_hit(d_hit), .d_q(d_q), .d_fill(d_fill),

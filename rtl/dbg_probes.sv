@@ -190,6 +190,7 @@ module dbg_probes #(
 	input  wire [55:0] berr_state,        // PBER: the PMMU's last fault (tg68k.v's dbg_mmuf)
 	input  wire [159:0] trg_regs,         // PBTT: {D1, A1, A3, A5, A6} live, for the trigger's snapshot (KNOWN ISSUES 20)
 	output wire        trg_hold,          // the trigger fired: hold the machine in reset, memory as it stood
+	output wire  [1:0] coff,              // PCOF: {instruction cache off, data cache off} from the host (KNOWN ISSUES 20)
 	input  wire [63:0] cache_state,       // PCCH: the 68030's caches (plan 1.16.3)
 	input  wire [31:0] scsi_state,        // PSCS: the SCSI bus and the disks' slots (plan 9.8)
 	input  wire [463:0] scsi_meter,       // PSCT: the SCSI disk's time (plan 10.4 item 3)
@@ -432,8 +433,19 @@ module dbg_probes #(
 			.instance_id ("PBTT"), .probe_width (200), .source_width (33),
 			.sld_auto_instance_index ("YES")
 		) cp_pbtt (.probe({tt_fired, 7'b0, tt_faddr, tt_regs}), .source(tt_src), .source_clk(clk), .source_ena(1'b1));
+		// THE CACHE EXPERIMENT (2026-10-14): PCOF's source turns the 68030's
+		// caches off from the host - bit 1 the instruction cache, bit 0 the
+		// data cache (EI/ED masked in tg68k.v) - for whole boots, nothing else
+		// changed; its probe reads the bits back
+		wire [1:0] cof_src;
+		assign coff = cof_src;
+		altsource_probe #(
+			.instance_id ("PCOF"), .probe_width (2), .source_width (2),
+			.sld_auto_instance_index ("YES")
+		) cp_pcof (.probe(cof_src), .source(cof_src), .source_clk(clk), .source_ena(1'b1));
 	end else begin : g_no_trigger
 		assign trg_hold = 1'b0;
+		assign coff = 2'b00;
 	end endgenerate
 
 	// the floppy (the header's PFLP)

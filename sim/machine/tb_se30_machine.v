@@ -126,6 +126,7 @@ module tb_se30_machine;
   wire        cpu_as_n, cpu_rw_n, berr, halted, reset_out_n;
 
   se30_machine #(.DECLROM_HEX("declrom.hex"), .FPU_UCODE("../../rtl/fpu/ucode/"), .IICX(IICX)) machine (
+    .dbg_coff(2'b00),
     .clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .ram16(1'b0),
     .mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
     .mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),

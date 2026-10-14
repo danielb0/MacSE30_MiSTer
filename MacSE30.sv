@@ -714,6 +714,7 @@ wire        dbg_as_n, dbg_rw_n, dbg_berr, dbg_halted, reset_out_n;
 wire [31:0] dbg_via;
 wire [63:0] dbg_regs;
 wire [159:0] dbg_trg;
+wire   [1:0] dbg_coff;                  // the cache experiment (dbg_probes' PCOF, SE30_BTRACE builds)
 wire [63:0] dbg_swim, dbg_adb;
 wire [31:0] dbg_rtc;
 wire        dbg_swim_vread;
@@ -760,7 +761,7 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
 	.disk2_wprot(disk2_wprot), .disk2_hd(img2_hd), .trk2_we(trk2_we), .trk2_wbit(trk2_wbit), .trk2_cells(trk2_cells),
 	.arc2_done(arc2_done), .arc2_side(arc2_side), .arc2_start(arc2_start), .arc2_end(arc2_end), .arc2_whole(arc2_whole),
-	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_trg(dbg_trg), .dbg_exc(dbg_exc), .dbg_mmuf(dbg_mmuf), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
+	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_trg(dbg_trg), .dbg_coff(dbg_coff), .dbg_exc(dbg_exc), .dbg_mmuf(dbg_mmuf), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
 	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc), .dbg_asc(dbg_asc), .dbg_fpu(dbg_fpu), .dbg_pace(dbg_pace),
 	.audio_l(asc_audio_l), .audio_r(asc_audio_r),
 	.scsi_img_mounted(img_mounted[4:2]), .scsi_img_blocks(img_size[40:9]),
@@ -961,7 +962,7 @@ dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE)) probes
 	.flp2_state({ld2_dbg, en2_dbg, dbg_fdhd2, flp2_words}),
 	.fwr_state({de_dbg, wr_dbg}),
 	.exc_state(dbg_exc), .berr_state(dbg_mmuf),
-	.trg_regs(dbg_trg), .trg_hold(trg_hold),
+	.trg_regs(dbg_trg), .trg_hold(trg_hold), .coff(dbg_coff),
 	.cache_state(dbg_cache),
 	.scsi_state({dbg_scsi, scsi_io_rd[1:0], scsi_io_wr[1:0], sd_ack[3:2], scsi_sectors}),
 	.scsi_meter(scsi_meter),
@@ -973,6 +974,7 @@ dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE)) probes
 `else
 assign pk_hold = 1'b0;
 assign trg_hold = 1'b0;
+assign dbg_coff = 2'b00;
 assign pk_start = 1'b0;
 assign pk_req = 1'b0;
 assign pk_we = 1'b0;
