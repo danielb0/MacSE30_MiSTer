@@ -21946,6 +21946,55 @@ the a6 chain); the peek scripts hold the machine and restart it at the
 end - warn Daniel first. The kernel's .text is at physical $5C000 (PIFA
 is physical).
 
+**END OF SESSION 2026-10-14/15 (~01:40, Daniel closed it: "I am stopping
+now. We will continue next session") - READ THIS TO RESUME.** A long day
+on KNOWN ISSUES 20 (its blocks from "THE LEAD CLOSED" on hold the detail).
+**Where it stands:** the A/UX bomb is DATA corruption, located exactly:
+when the ROM's BlockMove (`$4080F006-$4080F014`, `move.l -(a0),-(a1)`)
+moves startmac's 208 KB block and takes a write page fault on each fresh
+destination page (a long at `$xxxFFC`), **the faulted long and the NEXT
+long (`$xxxFF8`) are each written as a single byte** (MSB only, the rest
+the page clear's zeros) - every faulted page top of the moved block
+(`$340514` on the board) differs from MAME's output that way and nowhere
+else (`C:\temp\Mac\AUX disk\extract\moved_67.txt`, scratchpad
+`diff_moved.py`). That damages the jump-table loader's encoded stream; it
+skips entries; A5-relative data goes wrong; QuickDraw bombs.
+Deterministic (identical registers every run, caches on or off).
+A/UX's `hardflt` (`$59850`) maps the page (PLOAD `ld_userpg` or PFLUSH by
+address `fl_userpg`) and returns for the hardware RERUN - no software
+completion. `sim/predec_fault`'s identical case passes, so the board's
+path differs. **NEXT:** (1) the bench's handler as `hardflt` does it -
+PFLUSH by address / PLOAD, a long path, an interrupt pending at the RTE -
+checking the two page-top longs; (2) failing that, a probe recording the
+size and byte enables of the first two writes after a format $A replay
+on the board (lean build). Suspects: state outliving the replay (byte
+enables, size, the posted-write buffer's lanes).
+**Done today (16 commits on dev, 43 ahead of origin, unpushed):**
+the lost-writes lead closed (resets before A/UX flushed; never reset
+before copying an image back); two real format $A bugs fixed and benched
+(48e0fa2: the continuation PC after a brief-index write; 7ae4435: the
+SSW SIZE of a split operand's faulted beat + the 3-byte replay); the SDRAM
+`sd_addr[12]` timing path fixed in the RTL (75b0dde); the bus-error
+trigger (6f6a9b8, `scripts/aux_trigger.tcl arm|wait|dump|procs|peek|
+lpeek|coff|disarm`), the cache switch (9178baf, PCOF) and the lean probe
+deck (627ae2a, `SE30_LEAN_PROBES` - dev debug builds need it: 38.5k ALMs
+met, the full deck at 40.2k struggles); benches `sim/predec_fault`
+(BlockMove, straddle, decompressor; 68 checks) and `sim/insn_probe`
+(c00c337). **Builds:** compile 59 (`MacSE30_cc9f8167_fmtapc.rbf`), 60
+(timing fail, archived `_TIMINGFAIL`), 62 (`_6f6a9b87_trigger`), 64
+(`MacSE30_627ae2a9_cacheoff_lean.rbf`: everything + trigger + cache
+switch + lean deck; ours met every corner; the board build to use next
+session). Builds need `QUARTUS_REVISION=MacSE30` (MacIIcx.qsf exists).
+**Facts found:** A/UX 3's TC is `$82C07760` (TIA 7, TIB 7, TIC 6, SRE;
+Mac environments map 32 MB by early-terminating top-level descriptors);
+the current root is at `cpu_rp`+4 (`$5B06C`); kernel symbols via
+`tools/auxunix/coff.py` on `/unix`. MAME's watchpoints are PHYSICAL
+(find addresses with a Lua `read_u32` scan); registerpoints (`rpset`)
+catch a register's first value; MAME scripts in `C:\temp\Mac\mame\aux\`
+(`cap_reloc`, `cap_dcmp`, `log_dcmp`, `log_bm`, `wp_table2`, `rp_a5`,
+`find_table`). The trigger's disarm reboots the board by itself (fsck
+adds ~6 min); a 208 KB board dump takes ~25 min over JTAG.
+
 ---
 
 ## Appendix - where the sources are
