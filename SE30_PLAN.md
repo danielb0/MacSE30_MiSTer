@@ -18716,6 +18716,38 @@ Daniel - add to it, move items out when fixed).**
     touched the bomb's stack page; `startmac`'s downward loop at
     `$10001A2C` (#994-#1044); and the kernel's reads at #1152-#1155
     (`$FFFFFFFC`, `$01784EEE`, `$00800008`, PCs `$15B44`-`$1628A`).
+    **FOUND AND FIXED IN SIM (2026-10-14): the format $A continuation PC
+    after an indexed write.** MAME's debugger (`aux/bp296.lua`, image
+    `aux/aux_rm.chd` = `...removed.vhd`, headless, 20 hits) named the
+    code at #1246/#1247: a resource DECOMPRESSOR (routine `$296DE8`),
+    expanding into a fresh heap block one output word at a time - two
+    literal bytes (`$296E5E: move.b (a0)+,(a2)+` twice) or a table word
+    (`$296E7C: move.w (a1,d0.w),(a2)+`). `sim/predec_fault` runs its loop
+    `$296E40-$296E8F` byte for byte (CASESET=dcmp; a Python model gives
+    the expected output) with the destination, source and table pages
+    invalid: **FAILED** - after the second write fault the core resumed
+    at `$10C4`, the `dbra`'s displacement word, an F-line on `$FFD8`:
+    **the board's unexplained F-line on `$FFD8` at `$296E82` (KNOWN
+    ISSUES 20, compile 57 runs) is this.** UM 8.1.2 / 8.4: the short
+    frame is taken at an instruction boundary and its PC is the
+    instruction in execution - the next one, `$10C2`; ours stacked
+    `$10C4`: `insn_next_pc` (the LASTWRITE continuation PC) counted the
+    opcode, the brief word at getbrief, and again `ld_AnXn1`'s `state
+    "00"` cycle - the next instruction's prefetch (a brief-format index
+    reads no stream word in AnXn1; it sets `setstate "01"`). Measured
+    with a temporary sim-only trace, since removed. **Fix**
+    (TG68KdotC_Kernel.vhd ~5741): `ld_AnXn1`/`st_AnXn1` count only for
+    the full format; the full-format path is unchanged and unbenched.
+    **PASS** after: dcmp 18 checks, 11 faults (SSW `$0111`/`$0121`
+    byte/word writes, `$0151` source reads, `$0161` the indexed table
+    read); regressions unchanged - `rtr_fc` 29, `busfault` 14,
+    `busfault_dib` 18, `kernel_bus` 338, `machine` 17. The chain to the
+    bomb (a mis-expanded or abandoned resource reaching QuickDraw's
+    GDevice) is inferred, not shown - the board run decides. Noted, not
+    changed: `insn_fetch_consumer` (~2103) lists `ld_AnXn1` the same
+    way for instruction-fetch faults. **Next:** the full `predec_fault`
+    with caches on (~35-40 min, Daniel's call), compile 59, A/UX at 16 MB
+    from a fresh image.
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 

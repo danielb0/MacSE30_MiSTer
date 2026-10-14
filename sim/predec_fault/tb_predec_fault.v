@@ -202,7 +202,7 @@ module tb_predec_fault;
       else begin fails = fails + 1; $display("FAIL: %0s - got %08x, want %08x", what[8*119-1:0], v, want); end
     end
     $fclose(fd);
-    if (fails == 0) $display("==== PASS: %0d checks - MOVE.L -(A0),-(A1) resumes correctly after every page fault", pass);
+    if (fails == 0) $display("==== PASS: %0d checks - every faulted instruction resumed correctly", pass);
     else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
     $finish;
   end

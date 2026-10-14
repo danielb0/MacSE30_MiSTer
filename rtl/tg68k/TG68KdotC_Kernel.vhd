@@ -5741,8 +5741,13 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					      (exec(update_ld)='1' OR
 					       micro_state = ld_nn  OR micro_state = st_nn  OR
 					       micro_state = ld_dAn1 OR micro_state = st_dAn1 OR
-					       micro_state = ld_AnXn1 OR micro_state = ld_AnXn2 OR
-					       micro_state = st_AnXn1 OR micro_state = st_AnXn2 OR
+					       -- d8(An,Xn) brief format: the brief word was counted at
+					       -- getbrief and AnXn1 reads no stream word - its "00" cycle is
+					       -- the next instruction's prefetch (KNOWN ISSUES 20: MOVE.W
+					       -- (A1,D0.W),(A2)+ stacked a Format $A PC one word long)
+					       ((micro_state = ld_AnXn1 OR micro_state = st_AnXn1) AND
+					        NOT (brief(8)='0' OR extAddr_Mode=0 OR (cpu(1)='0' AND extAddr_Mode=2))) OR
+					       micro_state = ld_AnXn2 OR micro_state = st_AnXn2 OR
 					       micro_state = ld_AnXnbd1 OR micro_state = ld_AnXnbd2 OR micro_state = ld_AnXnbd3 OR
 					       micro_state = ld_229_1 OR micro_state = ld_229_2 OR
 					       micro_state = ld_229_3 OR micro_state = ld_229_4 OR
