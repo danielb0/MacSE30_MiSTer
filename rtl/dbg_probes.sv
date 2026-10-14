@@ -188,6 +188,8 @@ module dbg_probes #(
 	input  wire [63:0] fwr_state,         // PFWR: the internal drive's writing (plan 5.15)
 	input  wire [56:0] exc_state,         // PEXC, PTRP, PFLN: {an exception taken, its vector, the opcode, its PC} (item 8)
 	input  wire [55:0] berr_state,        // PBER: the PMMU's last fault (tg68k.v's dbg_mmuf)
+	input  wire [159:0] trg_regs,         // PBTT: {D1, A1, A3, A5, A6} live, for the trigger's snapshot (KNOWN ISSUES 20)
+	output wire        trg_hold,          // the trigger fired: hold the machine in reset, memory as it stood
 	input  wire [63:0] cache_state,       // PCCH: the 68030's caches (plan 1.16.3)
 	input  wire [31:0] scsi_state,        // PSCS: the SCSI bus and the disks' slots (plan 9.8)
 	input  wire [463:0] scsi_meter,       // PSCT: the SCSI disk's time (plan 10.4 item 3)
@@ -404,6 +406,34 @@ module dbg_probes #(
 			.instance_id ("PBTC"), .probe_width (56), .source_width (1),
 			.sld_auto_instance_index ("YES")
 		) cp_pbtc (.probe({n_bt, n_bx, bt_wp, bx_wp, 3'b0}), .source(), .source_clk(clk), .source_ena(1'b1));
+
+		// The TRIGGER (KNOWN ISSUES 20, 2026-10-14): armed from PBTT's source
+		// {arm, PC[31:0]}, the first bus-error exception taken at that PC
+		// snapshots D1, A1, A3, A5, A6 as they stand at the exception and
+		// holds the machine in reset (trg_hold), so memory - the faulting
+		// process's tables, stack and data - stays as it was for the peek
+		// scripts.  Disarming releases the hold (the machine restarts).
+		// PBTT's probe: {fired, 7'b0, the fault address the PMMU latched
+		// [31:0], the snapshot [159:0]}.
+		wire [32:0] tt_src;
+		reg         tt_fired = 0;
+		reg [159:0] tt_regs = 0;
+		reg  [31:0] tt_faddr = 0;
+		always @(posedge clk) begin
+			if (!tt_src[32]) tt_fired <= 1'b0;
+			else if (!tt_fired && exc_take && exc_vec == 8'd2 && exc_pc == tt_src[31:0]) begin
+				tt_fired <= 1'b1;
+				tt_regs  <= trg_regs;
+				tt_faddr <= berr_state[31:0];
+			end
+		end
+		assign trg_hold = tt_src[32] && tt_fired;
+		altsource_probe #(
+			.instance_id ("PBTT"), .probe_width (200), .source_width (33),
+			.sld_auto_instance_index ("YES")
+		) cp_pbtt (.probe({tt_fired, 7'b0, tt_faddr, tt_regs}), .source(tt_src), .source_clk(clk), .source_ena(1'b1));
+	end else begin : g_no_trigger
+		assign trg_hold = 1'b0;
 	end endgenerate
 
 	// the floppy (the header's PFLP)

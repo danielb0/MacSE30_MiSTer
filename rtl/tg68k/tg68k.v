@@ -100,6 +100,7 @@ module tg68k (
   output        halted,                // double bus fault
   output [31:0] dbg_d6,                // D6 and D7, for the probe deck: the ROM's test manager
   output [31:0] dbg_d7,                //   keeps a failed test's code there (plan 3.8 item 23)
+  output [159:0] dbg_trg,              // {D1, A1, A3, A5, A6}: the bus-error trigger's snapshot (KNOWN ISSUES 20)
   output [56:0] dbg_exc,               // {an exception taken (one clk), its vector number, the opcode, its PC}:
                                        //   the probe deck's PEXC and PTRP (plan 5.12.12 item 8)
   output [35:0] dbg_pace,              // one instruction released by the pace: {release (one clk), its decoder row[7:0],
@@ -150,6 +151,8 @@ module tg68k (
     .debug_pmmu_busy(k_pmmu_busy), .debug_pmmu_fault(k_pmmu_fault),
     .debug_make_berr(k_make_berr), .debug_trap_berr(k_trap_berr), .debug_cpu_halted(k_halted),
     .debug_regfile_d6(dbg_d6), .debug_regfile_d7(dbg_d7),
+    .debug_regfile_d1(dbg_trg[159:128]), .debug_regfile_a1(dbg_trg[127:96]), .debug_regfile_a3(dbg_trg[95:64]),
+    .debug_regfile_a5(dbg_trg[63:32]), .debug_regfile_a6(dbg_trg[31:0]),
     .debug_exc_take(k_exc_take), .debug_trap_vector(k_trap_vector), .debug_opcode(k_opcode), .debug_opcode_pc(k_opcode_pc),
     .debug_decodeOPC(k_decode),
     .debug_pmmu_fault_addr(k_f_addr), .debug_pmmu_fault_mmusr(k_f_mmusr), .debug_pmmu_fault_fc(k_f_fc),
