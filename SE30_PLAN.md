@@ -18887,6 +18887,28 @@ Daniel - add to it, move items out when fixed).**
     header and compressed bytes; then the board at the trigger's freeze
     reads the same compressed bytes - differ = corrupt input (follow it to
     the disk read), equal = the decompressor.
+    **SUPERSEDED THE SAME NIGHT (~23:45): the decompression is CORRECT on
+    the board.** MAME logged every decompressor call (`aux/log_dcmp.lua`,
+    31 calls, header `A89F6572 0012 09 01 <size>`); the 208 KB one (size
+    `$32D01`, in place: source `$3046DF`, output `$2F966C` in MAME;
+    `$11` = 3: a custom word table at the source's head) was captured
+    (`aux/cap_dcmp.lua`: `dcmp_code/hdr/src/out.bin`) and a Python model
+    reproduces MAME's output byte for byte (its in-place margin reaches 0
+    at output offset `$30BDC`). The board's block (one more trigger run,
+    `block_66.txt`, read at the freeze) sits at `$2FACB0` (MAME + `$1644`)
+    and **equals MAME's output for its first `$2DCAC` bytes**; from board
+    `$32895C` on the space holds the A5 WORLD (jump-table JMPs) - the block
+    was moved away (the big BlockMove) and its space reused. So the table
+    at A5+`$42EC` is not decompressor output: MAME's physical watchpoint on
+    it (`$631A40`, `aux/wp_table2.lua`) also lists the jump-table loader's
+    stores (`$7FF378/37C/3BE/350/324/1xx`), **`_BlockMove`'s byte path
+    (`$4080EF12/EF14`, called from the loader's `$7FF36E`)** and startmac's
+    `$100139B2` - the loader assembles the table, copying from CODE 0.
+    The 32-byte insertion fits one BlockMove pass going wrong. **NEXT:**
+    in MAME, the `_BlockMove` calls (A0/A1/D0 at `$4080EF..` entry, or the
+    loader's `$7FF36E`) whose destination covers the table's physical
+    `$631A4E`; then at the board's freeze compare that copy's SOURCE with
+    the table (equal source + bad table = the copy; bad source = earlier).
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
