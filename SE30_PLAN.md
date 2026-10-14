@@ -18674,6 +18674,48 @@ Daniel - add to it, move items out when fixed).**
     with the disk writing normally** - every run here bombed. **Rule:**
     never reset before copying an image back; leave it running ~2 min
     after the failure.
+    **THE BOMB, PLACED AND MEASURED (2026-10-14, compile 58, fresh image,
+    no JTAG holds).** Daniel: on MAME a second progress bar (A/UX's
+    StartMonitor, `inittab`'s `startmsg -n5`) then the desktop; on the
+    core the StartMonitor's window frame draws, then the bomb before its
+    contents - the first Mac drawing under A/UX (`macsysinit` onward).
+    Four out of four from a fresh image. `poll_btrace.tcl` over the whole
+    boot (`C:\temp\Mac\AUX disk\extract\poll_7.txt`) and `read_btrace.tcl`
+    at the bomb (`btrace_7.txt`): **deterministic** - the first bad read
+    at `$2D7C54` is `$DCC40080` again (#1249; yesterday's btrace_1 #1750),
+    the stride **`$04680000`** (the high word falls by `$468` = 1128, the
+    low word stays `$0080`; the `$468000` above is a misreading) x20 and
+    one `$05F00000`, as before. `$468` is the bomb handler's stack frame
+    per recursion: the stack pages fault one per 3-4 bad reads
+    (`$7FCFFE`, `$7FBDB6`, `$7FAFE0`, ...). The routine (MAME's `s2_4.bin`
+    at logical + `$203000`; scratchpad `dis_bin.py`, capstone 5.0.7): a
+    Color QuickDraw blit at `$2D72A6` (`link #$FCFC`) that saves
+    TheGDevice on the stack (`$2D7312`), sets it to `$8A0`, calls
+    `[$1A08]`, pops it back (`$2D732A: move.l (a7)+,$cc8.w`), and at
+    `$2D7C4A` loads `a2 = ([$cc8])`, then `$2D7C50: movea.l ([$16,a2]),a1`
+    faults on a2+$16: a2 = `$DCC4006A` - two bytes off a stack-pointer
+    value `$007FDCC4`. **Lead tested and cleared - the ROM's BlockMove
+    under page faults:** ~6 s before the bomb the dying process ran
+    `$4080F006`'s eight `move.l -(a0),-(a1)` over ~100 KB of its heap
+    (#1063-#1097), 34 faults on the destination write, one (#1074) on the
+    source read; our kernel resumes such faults by rollback and
+    re-execution (`MMU_RESTART` at TG68KdotC_Kernel.vhd:415), or by the
+    format $A last-write replay. **`sim/predec_fault`** (new): the ROM's
+    loop byte for byte, in user mode, through the PMMU (TC `$80C84800`,
+    4 KB pages, U and M clear), four cases - destination invalid,
+    source invalid, both (a read then a write fault in one instruction),
+    a source misaligned to the pages - and a handler that validates the
+    page, PFLUSHA, RTE with the frame untouched. **PASS, 20 checks, 13
+    faults (format $A SSW `$0101` for the writes, $B `$0141` for the
+    reads), caches off AND CACR `$3111`** (~15-20 min a run). So the
+    corruption is not BlockMove's resume. **Still unexamined:** the last
+    two mid-instruction faults before the first bad read, #1246/#1247 -
+    user code at `$296E5E`/`$296E7C` writing the fresh pages `$2FB000`/
+    `$2FC000` - whose code is in no MAME sample (zeros at sample time:
+    heap code, freed); the `bsr.w` at `$4081340A` (#1160) that first
+    touched the bomb's stack page; `startmac`'s downward loop at
+    `$10001A2C` (#994-#1044); and the kernel's reads at #1152-#1155
+    (`$FFFFFFFC`, `$01784EEE`, `$00800008`, PCs `$15B44`-`$1628A`).
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
