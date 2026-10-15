@@ -5,6 +5,8 @@
 # (e.g. +BTLO=00031FF0 +BTHI=00032000).  About 15-20 min a run.
 #
 #   CACR      the cache control register for the run (default 0)
+#   SDRAM     1: the board's memory path - rtl/se30_sdram.v and the chip
+#             model (sim/sdram) in place of the bench's RAM array
 #   MODELSIM  the win32aloem bin directory
 #   ROM       the 256 KB SE/30 ROM image (the loop is copied from it)
 set -u
@@ -19,7 +21,8 @@ rm -rf work
 for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; do
   "$MODELSIM/vcom.exe" -quiet -93 -work work "$RTL/tg68k/$f" || exit 1
 done
-"$MODELSIM/vlog.exe" -quiet -work work "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" "$RTL/se30_via.v" "$RTL/se30_simms.v" tb_predec_fault.v || exit 1
+SD=(); [ "${SDRAM:-0}" = 1 ] && SD=(+define+SDRAM +define+SIMULATION "$RTL/se30_sdram.v" ../sdram/sdram_model.v)
+"$MODELSIM/vlog.exe" -quiet -work work "${SD[@]}" "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" "$RTL/se30_via.v" "$RTL/se30_simms.v" tb_predec_fault.v || exit 1
 "$MODELSIM/vsim.exe" -c -quiet "$@" -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_predec_fault > run.log 2>&1
 grep -E '^# (---- |==== |FAIL)' run.log | sed 's/^# //'
 

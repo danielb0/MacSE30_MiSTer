@@ -17,6 +17,22 @@ board's trace caught faulting before the Mac environment's bomb.
              word two literal bytes (MOVE.B (A0)+,(A2)+ twice, $296E5E) or a
              word from a table (MOVE.W (A1,D0.W),(A2)+, $296E7C), a zero flag
              byte eight literal pairs; D1 = the output words, D5 = 0
+  aux7       the board's big move (compile 62, #1275-#1323): the BlockMove
+             loop with every destination page top written by the SEVENTH
+             MOVE.L ($4080F012) and the next long by the eighth
+
+HANDLER (the bus-error handler's flush): pflusha (default); aux = A/UX's
+fl_userpg, PFLUSH #3,#4,(A0) on the fault address; auxirq = aux, run at
+$2700 with VIA2 T1 started and waited for, so a level-2 interrupt is
+pending at the RTE (A/UX's ret_user2; VIA2 reached through TT0)
+
+TCMODE (the translation): bench (default, below); aux = A/UX 3's: TC
+$82C07760 (E, SRE, PS 4 KB, IS 0, TIA 7, TIB 7, TIC 6), so user accesses
+walk CRP's tree and supervisor ones SRP's - two separate identity trees of
+three levels (A at $4000/$4600, B $4200/$4800, the page tables $4400/$4A00,
+128 pages each, U and M clear); the cases' pages are made invalid in the
+USER tree only, and the handler (supervisor) repairs them through its own
+identity mapping, as A/UX's hardflt does
 
 THE PROGRAM (supervisor, from $1000)
     CACR from the CACR environment variable (default 0: caches off)
@@ -51,9 +67,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROM = os.environ.get("ROM", "C:/temp/Mac/ROMS/256KB ROMs/1988-09 - 97221136 - Mac II FDHD & IIx & IIcx.ROM")
 CACR = int(os.environ.get("CACR", "0"), 0)
 CASESET = os.environ.get("CASESET", "all")
+HANDLER = os.environ.get("HANDLER", "pflusha")
 ORG, BERR, TRAP0, LOOPSTOP, EXC = 0x1000, 0x1C00, 0x1D00, 0x1D80, 0x1E00
 TBL_A, TBL_B, CRP_AT = 0x4000, 0x4100, 0x3E00
-TC = 0x80C84800
+TCMODE = os.environ.get("TCMODE", "bench")
+# aux: (A, B, page table) for the user (CRP) and the supervisor (SRP) trees
+AUX_U, AUX_S = (0x4000, 0x4200, 0x4400), (0x4600, 0x4800, 0x4A00)
+PG_TBL = AUX_U[2] if TCMODE == "aux" else TBL_B  # the user tree's page descriptors, 4 bytes a page
+IRQ, VIA2 = 0x1F00, 0x50002000                   # auxirq: the level-2 handler; VIA2 (register n at +n x $200)
+TT0 = 0x50008507                                 # $50xxxxxx transparent (E, CI, RWM, every FC): VIA2 untranslated
+IRQCOUNT = 0x3208
+TC = 0x82C07760 if TCMODE == "aux" else 0x80C84800
 SLOTS, COUNT, LOGP, LOG = 0x3000, 0x3200, 0x3204, 0x3300
 SIZE = 0x80000                                   # the image: 512 KB
 
@@ -80,6 +104,13 @@ STRADDLE = [
     (0x1A802, 0x1E000, 0x1800, [0x1C000], "a straddling read, the UPPER word's page invalid"),
     (0x74000, 0x76001, 0x1000, [0x77000], "a long at $xxxFFD: 3 bytes land, the LAST byte's page invalid (SIZE byte)"),
     (0x78000, 0x7A003, 0x1000, [0x7B000], "a long at $xxxFFF: 1 byte lands, the last 3 bytes' page invalid (SIZE 3 bytes)"),
+]
+# aux7: the board's big move (compile 62, #1275-#1323): every page top's write
+# fault on the SEVENTH MOVE.L ($4080F012), the next long by the eighth - the
+# destination's end at $18 mod $20 - (source, destination, bytes, invalid pages, what)
+AUX7 = [
+    (0x20000, 0x30018, 0x4000, [0x30000, 0x31000, 0x32000, 0x33000, 0x34000],
+     "destination pages invalid, each page top written by the 7th MOVE.L (the board's $4080F012)"),
 ]
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [
@@ -134,7 +165,7 @@ def main():
 
     # the cases as (registers, code, entry offset, reference, destination, bytes, invalid pages, A2 wanted, what)
     cases = []
-    bm = (BLOCKMOVE if CASESET in ("all", "blockmove") else []) + (STRADDLE if CASESET in ("all", "straddle") else [])
+    bm = (BLOCKMOVE if CASESET in ("all", "blockmove") else []) + (STRADDLE if CASESET in ("all", "straddle") else []) + (AUX7 if CASESET in ("all", "aux7") else [])
     if bm:
         for src, dst, n, bad, what in bm:
             for a in range(src, src + n, 4):
@@ -181,15 +212,21 @@ def main():
     emit(0x4E7B, 0x0002)                             # MOVEC D0,CACR
     emit(0x41F9); l32(CRP_AT)                        # LEA CRP_AT,A0
     emit(0xF010, 0x4C00)                             # PMOVE (A0),CRP
+    if TCMODE == "aux":
+        emit(0x41F9); l32(CRP_AT + 16)               # LEA CRP_AT+16,A0
+        emit(0xF010, 0x4800)                         # PMOVE (A0),SRP
     emit(0x41F9); l32(CRP_AT + 8)                    # LEA CRP_AT+8,A0
     emit(0xF010, 0x4000)                             # PMOVE (A0),TC
+    if HANDLER == "auxirq":
+        emit(0x41F9); l32(CRP_AT + 12)               # LEA CRP_AT+12,A0
+        emit(0xF010, 0x0800)                         # PMOVE (A0),TT0
     emit(0x41F9); l32(0x9000)                        # LEA $9000,A0
     emit(0x4E60)                                     # MOVE.L A0,USP
     expect = []
     handled = 0
     for k, (regs, code, entry, ref, dst, n, bad, a2_want, want, what) in enumerate(cases):
         for p in bad:
-            emit(0x02B9); l32(0xFFFFFFFC); l32(TBL_B + 4 * (p >> 12))   # ANDI.L #~3,desc: DT 0
+            emit(0x02B9); l32(0xFFFFFFFC); l32(PG_TBL + 4 * (p >> 12))  # ANDI.L #~3,desc: DT 0
         emit(0xF000, 0x2400)                         # PFLUSHA
         emit(0x4BF9); absref("cont%d" % k)           # LEA cont,A5
         for op, v in regs:
@@ -240,6 +277,12 @@ def main():
     def b(*ws):
         berr.extend(ws)
     b(0x48E7, 0x8080)                                # MOVEM.L D0/A0,-(A7)
+    if HANDLER == "auxirq":
+        # A/UX's ret_user2 runs at $2700 and RTEs to mask 0: an interrupt
+        # that came in meanwhile is pending at the RTE (VIA2 T1, level 2)
+        b(0x46FC, 0x2700)                            # MOVE #$2700,SR
+        for reg, v in ((11, 0x00), (14, 0xC0), (4, 0x02), (5, 0x00)):   # ACR one-shot, IER T1, T1 count 2: started
+            b(0x13FC, v); b((VIA2 + reg * 0x200) >> 16, (VIA2 + reg * 0x200) & 0xFFFF)
     b(0x52B8, COUNT)                                 # ADDQ.L #1,COUNT.W
     b(0x0CB8, 0x0000, 0x0064, COUNT)                 # CMPI.L #100,COUNT.W
     b(0x6200, 0)                                     # BHI.W LOOPSTOP (fixed below)
@@ -253,15 +296,27 @@ def main():
     b(0xE088)                                        # LSR.L #8,D0
     b(0xE888)                                        # LSR.L #4,D0: the page
     b(0xE588)                                        # LSL.L #2,D0
-    b(0x0680, TBL_B >> 16, TBL_B & 0xFFFF)           # ADDI.L #TBL_B,D0
+    b(0x0680, PG_TBL >> 16, PG_TBL & 0xFFFF)         # ADDI.L #PG_TBL,D0
     b(0x2040)                                        # MOVEA.L D0,A0
     b(0x0090, 0x0000, 0x0001)                        # ORI.L #1,(A0): DT 1, a page
-    b(0xF000, 0x2400)                                # PFLUSHA
+    if HANDLER in ("aux", "auxirq"):
+        b(0x206F, 0x0018)                            # MOVEA.L $18(A7),A0: the fault address
+        b(0xF010, 0x3893)                            # PFLUSH #3,#4,(A0): A/UX's fl_userpg ($550A8)
+    else:
+        b(0xF000, 0x2400)                            # PFLUSHA
+    if HANDLER == "auxirq":
+        ifr = VIA2 + 13 * 0x200
+        b(0x0839, 0x0006, ifr >> 16, ifr & 0xFFFF)   # BTST #6,IFR: T1 has fired
+        b(0x67F6)                                    # BEQ.S the BTST
     b(0x4CDF, 0x0101)                                # MOVEM.L (A7)+,D0/A0
     b(0x4E73)                                        # RTE
     berr[bhi] = (LOOPSTOP - (BERR + 2 * bhi)) & 0xFFFF   # BHI.W: displacement from its extension word
     trap0 = [0x4FEF, 0x0008,                         # LEA 8(A7),A7
              0x4ED5]                                 # JMP (A5)
+    ifr = VIA2 + 13 * 0x200
+    irq = [0x13FC, 0x0040, ifr >> 16, ifr & 0xFFFF,  # MOVE.B #$40,IFR: T1's flag cleared
+           0x52B8, IRQCOUNT,                         # ADDQ.L #1,IRQCOUNT.W
+           0x4E73]                                   # RTE
     loopstop = [0x33FC, 0xBBBB, 0x0000, 0x3F00,      # MOVE.W #$BBBB,$3F00: the handler looped
                 0x4EF9, at["fin"] >> 16, at["fin"] & 0xFFFF]
     exc = [0x33EF, 0x0006, 0x0000, 0x3F02,           # MOVE.W 6(A7),$3F02
@@ -271,16 +326,27 @@ def main():
 
     mem[0:4] = [0x0000, 0x8000, 0x0000, ORG]         # SSP, PC
     for v in range(2, 64):
-        t = BERR if v == 2 else TRAP0 if v == 32 else EXC
+        t = BERR if v == 2 else TRAP0 if v == 32 else IRQ if v == 26 else EXC
         mem[2 * v], mem[2 * v + 1] = t >> 16, t & 0xFFFF
-    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc)):
+    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq)):
         for i, x in enumerate(code):
             mem[base // 2 + i] = x
     put32(LOGP, LOG)
-    put32(CRP_AT, 0x7FFF0002); put32(CRP_AT + 4, TBL_A); put32(CRP_AT + 8, TC)
-    put32(TBL_A, TBL_B | 2)                          # entry 0: table B, short descriptors
-    for p in range(256):
-        put32(TBL_B + 4 * p, (p << 12) | 1)          # identity pages, valid, U and M clear
+    put32(CRP_AT + 8, TC); put32(CRP_AT + 12, TT0)
+    if TCMODE == "aux":
+        put32(CRP_AT, 0x7FFF0002); put32(CRP_AT + 4, AUX_U[0])
+        put32(CRP_AT + 16, 0x7FFF0002); put32(CRP_AT + 20, AUX_S[0])
+        for ta, tb, tp in (AUX_U, AUX_S):
+            put32(ta, tb | 2)                        # A entry 0 ($0-$1FFFFFF): table B
+            for i in range(2):                       # B entries 0-1 ($0-$7FFFF): 64 pages each
+                put32(tb + 4 * i, (tp + 0x100 * i) | 2)
+            for p in range(128):
+                put32(tp + 4 * p, (p << 12) | 1)     # identity pages, valid, U and M clear
+    else:
+        put32(CRP_AT, 0x7FFF0002); put32(CRP_AT + 4, TBL_A)
+        put32(TBL_A, TBL_B | 2)                      # entry 0: table B, short descriptors
+        for p in range(256):
+            put32(TBL_B + 4 * p, (p << 12) | 1)      # identity pages, valid, U and M clear
 
     with open(os.path.join(HERE, "program.hex"), "w") as f:
         for x in mem:
@@ -292,7 +358,7 @@ def main():
             f.write("%08x %08x %s\n" % (a, v, what))
     with open(os.path.join(HERE, "listing.bin"), "wb") as f:
         f.write(b"".join(x.to_bytes(2, "big") for x in mem[ORG // 2:(EXC + 0x40) // 2]))
-    print("predec_fault: %d cases (%s), %d invalid pages, CACR $%X, STOP at $%X" % (len(cases), CASESET, handled, CACR, at["fin"]))
+    print("predec_fault: %d cases (%s), %d invalid pages, CACR $%X, handler %s, TC $%08X, STOP at $%X" % (len(cases), CASESET, handled, CACR, HANDLER, TC, at["fin"]))
 
 
 if __name__ == "__main__":

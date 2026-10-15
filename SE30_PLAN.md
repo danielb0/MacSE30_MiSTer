@@ -18961,6 +18961,43 @@ Daniel - add to it, move items out when fixed).**
     interrupt pending at the RTE), checking the page tops; failing that, a
     probe recording the size and byte enables of the two writes after a
     format $A replay on the board.
+    **THE BENCH WITH A/UX'S CONDITIONS (2026-10-15 morning): EVERY VARIANT
+    PASSES.** `sim/predec_fault` gained the board's geometry (CASESET=aux7:
+    every destination page top written by the SEVENTH MOVE.L, `$4080F012`,
+    as all of compile 62's #1275-#1323 were, the next long by the eighth;
+    the bench had only ever faulted the first, `$F006`), A/UX's flush
+    (HANDLER=aux: `fl_userpg`'s `PFLUSH #3,#4,(A0)` on the fault address,
+    `$F010 $3893`; A/UX's `hardflt` for a data write: `hardsegflt`, then
+    `fl_userpg` - `ld_userpg`, PLOADW, only for RM - and it never edits a
+    data fault's frame), an interrupt pending at the RTE (HANDLER=auxirq:
+    the handler at `$2700`, VIA2 T1 started and waited for, as `ret_user2`
+    leaves one; VIA2 through TT0), slow RAM (+RAMLAT=4, 10) and the
+    BOARD'S MEMORY PATH (SDRAM=1: `rtl/se30_sdram.v` and the chip model,
+    DQM on A12/A11, as sim/machine). Results, all on aux7 (5 faults,
+    format $A, SSW `$0101`): PFLUSHA 7 min PASS; aux 7.5 min PASS; aux
+    RAMLAT 4 10.5 min PASS, 10 16.7 min PASS; auxirq 7.6 min PASS (5
+    interrupts taken); auxirq SDRAM 10.5 min PASS, no datasheet
+    violation. The bus trace at `$31FFC`: the walker reads the new
+    descriptor and writes it back with U and M (`$31019`), the replay
+    writes `$31FFC` as a long, the eighth MOVE `$31FF8` as a long. Noted:
+    the pending interrupt is taken one instruction after the RTE, not at
+    its end (UM: at the next instruction boundary) - not this bug.
+    **The board's damage re-read (`moved_67.txt` against MAME's
+    `dcmp_out.bin`):** every page top of the moved block differs - `XX 00
+    00 00 YY 00 00 00` at `$xxxFF8` - except `$342FF8`, the one page
+    compile 62's trace shows NOT faulting (#1322 `$343FFC`, #1323
+    `$341FFC`), and `$357FF8`, zeros in MAME too: the damage is the
+    fault's. But the page was cleared first, so the picture does not say
+    whether the two writes were byte cycles (be `1000`) or longs carrying
+    `XX000000` (the replay's DOB, the eighth MOVE's source read) - a board
+    probe of those two cycles' SIZ, byte enables and data settles which.
+    Then SRE (TCMODE=aux: TC `$82C07760`, separate three-level CRP and SRP
+    identity trees, the cases' pages invalid in the user tree only, the
+    handler repairing them through its own): auxirq 8 min PASS - the user
+    walk through all three levels, the replay and the eighth MOVE longs.
+    Left untried: the handler's CACR writes and its length. **NEXT: the
+    board probe** of the two writes after a format $A replay (SIZ, byte
+    enables, data), which tells (a) from (b).
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
