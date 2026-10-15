@@ -54,7 +54,7 @@ THE PROGRAM (supervisor, from $1000)
       walker sets them, UM 9.5.3 - A/UX's pages start that way too)
     USP $9000
     each case (CASES; CASESET=blockmove|straddle|dcmp|aux7 picks one kind; moves,
-      wp, jsr, bf and bfx run only alone): the case's
+      wp, jsr, bf, bfx and ifetch run only alone): the case's
       pages made invalid (DT 0) and PFLUSHA; the registers; MOVE #0,SR (user
       mode, as the Mac environment runs); the loop; TRAP #0 back to
       supervisor; A0, A1, D1, the count of output longs that differ from the
@@ -190,6 +190,29 @@ BF = [
 BFX = [
     (0xEAD0, 0x3DFFD, "BFCHG (A0){4:32}: the long itself straddling, its first beat writable"),
 ]
+# ifetch: instruction-fetch page faults, as A/UX demand-pages code and its
+# static shared libraries (the board, compile 71: telinit and macgetty
+# jumped to address 0 right after calls into the shared C library's
+# branch table at $47F0xxxx).  Each case's inline code (user mode) JSRs to
+# code placed on pages invalid in the user tree; every path adds to A2,
+# so a skipped or misdirected jump shows - (entry, {address: words}, A2
+# wanted, invalid pages, what):
+IFETCH = [
+    (0x41000, {0x41000: [0x528A, 0x4E75]}, 1, [0x41000],
+     "JSR into a non-resident page"),
+    (0x42FFE, {0x42FFE: [0x4EF9, 0x0004, 0x4000], 0x44000: [0x528A, 0x4E75]}, 1, [0x43000, 0x44000],
+     "JMP (xxx).L: the opcode a resident page's last word, its address on the next, non-resident page"),
+    (0x45FFC, {0x45FFC: [0x4EF9, 0x0004, 0x7000], 0x47000: [0x528A, 0x4E75]}, 1, [0x46000, 0x47000],
+     "JMP (xxx).L: the address straddling (high word resident, low word not)"),
+    (0x48FFE, {0x48FFE: [0x4EB9, 0x0004, 0xA000, 0x528A, 0x4E75], 0x4A000: [0x528A, 0x4E75]}, 2, [0x49000, 0x4A000],
+     "JSR (xxx).L straddling, the return onto the page it straddled"),
+    (0x4BFF8, {0x4BFF8: [0x4E71, 0x4E71, 0x4E71, 0x4E71], 0x4C000: [0x528A, 0x4E75]}, 1, [0x4C000],
+     "straight-line code running off a resident page into a non-resident one"),
+    (0x4DFFC, {0x4DFFC: [0x263C, 0x1234, 0x5678, 0x0483, 0x1234, 0x5677, 0xD5C3, 0x4E75]}, 1, [0x4E000],
+     "MOVE.L #imm,D3: the immediate's low word on a non-resident page"),
+    (0x4F100, {0x4F100: [0x4EF9, 0x0005, 0x0200], 0x50200: [0x528A, 0x4E75]}, 1, [0x4F000, 0x50000],
+     "a shared-library call: JSR to a branch-table JMP $target.l, table and target non-resident"),
+]
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [
     (0x40000, 0x41000, 0x48F00, 0x50000, 0x2000, 1, "dst", "destination pages invalid: the byte and word writes fault, as on the board"),
@@ -316,6 +339,17 @@ def main():
             regs = [(0x207C, a0), (0x227C, 0), (0x72FF, None), (0x203C, 0x12345678)]   # A0, A1, MOVEQ #-1,D1, D0
             cases.append((regs, [op, 0x0100, 0x4E40], 0, ref, lo, 0x40, [a0 & ~0xFFF, (a0 & ~0xFFF) + 0x1000], None,
                           {"A0": a0, "A1": 0, "wp": True}, "bf: " + what))
+    if CASESET == "ifetch":
+        sel = os.environ.get("IFONLY")                # one case alone: an exception stops the run
+        for k, (entry, blobs, a2, bad, what) in enumerate(IFETCH):
+            if sel is not None and k != int(sel):
+                continue
+            for a, ws in blobs.items():
+                putbytes(a, b"".join(x.to_bytes(2, "big") for x in ws))
+            code = [0x4EB9, entry >> 16, entry & 0xFFFF, 0x4E40]   # JSR entry.L; TRAP #0
+            regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+            cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, a2,
+                          {"A0": 0x77, "A1": 0x55}, "ifetch: " + what))
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)

@@ -224,9 +224,11 @@ module tb_predec_fault;
   // the kernel's side of the bus, every clk in +KT0..+KT1 (ns): its beats,
   // the PMMU's state and the wrapper's releases
   reg [63:0] kt0 = 0, kt1 = 0;
+  integer ms = 0;                          // the kernel's micro_state (TG68K_Pack's micro_states position)
+  initial $init_signal_spy("/tb_predec_fault/cpu/kernel/debug_micro_state", "/tb_predec_fault/ms", 1);
   always @(posedge clk) if ($time >= kt0 && $time < kt1)
-    $display("KT %0t %s ce=%b bv=%b bs=%b a=%08x log=%08x siz=%0d d=%08x busy=%b flt=%b faddr=%08x s=%0d post=%b",
-             $time, phi1 ? "p1" : "p2", cpu.k_clkena, cpu.k_beat_valid, cpu.k_busstate, cpu.k_addr, cpu.k_addr_log,
+    $display("KT %0t ms=%0d %s ce=%b bv=%b bs=%b a=%08x log=%08x siz=%0d d=%08x busy=%b flt=%b faddr=%08x s=%0d post=%b",
+             $time, ms, phi1 ? "p1" : "p2", cpu.k_clkena, cpu.k_beat_valid, cpu.k_busstate, cpu.k_addr, cpu.k_addr_log,
              cpu.k_siz, cpu.k_dout, cpu.k_pmmu_busy, cpu.k_pmmu_fault, cpu.k_f_addr, cpu.s, cpu.post);
 
   // ------------------------------------------------------ the bus trace

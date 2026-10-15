@@ -19095,6 +19095,46 @@ Daniel - add to it, move items out when fixed).**
     words over write-protected pages), `jsr` (JSR, BSR, LINK pushes onto a
     fresh page), `bf` (five-byte BFINS/BFCHG across write-protected pages).
     MOVES and copy-on-write were already correct.
+    **COMPILE 69 -> 71, AND A/UX's FIRST FULL BOOT (2026-10-15 evening).**
+    Compile 69 (`b8116be5_jsrfix`): the Mac environment got past the pointer
+    - the menu bar appeared - then StartMonitor (A/UX's own Mac application,
+    `/mac/sys/Startup System Folder/StartMonitor`, a COFF binary linked to
+    SVR3 static shared libraries at fixed addresses, `.lt12058` $47E00000
+    ...) bombed "bad F-Line instruction": its progress bar's arithmetic
+    `FMOVE.W ([$47EC2204],$5A),FP0` at $1000626C (a shared library's global
+    through a memory-indirect EA) - the coprocessor dialog computed only the
+    brief extension format and raised the F-line ON PURPOSE for the full
+    format. FIXED `5f59b90`: the full format (UM 2.2) in the coprocessor's
+    EA (cp_fbd/cp_fx/cp_fmi/cp_fy/cp_fod; bd, the memory-indirect pointer as
+    a data beat, od; every stream fetch back through an internal step so
+    the resume record's PC is past the word; B5c resume codes). sim/cpfpu
+    `fullea` ($DEAD000B before, PASS 10) and `fulleab` (bus errors on five
+    beats inside the new states, PASS 21). Compile 71
+    (`MacSE30_5f59b909_fullea.rbf`, RTRACE + PFLN, ascal -0.025 only):
+    **StartMonitor's progress bars ran; on the second boot of that image
+    A/UX 3.1 came up to the Finder - About This Macintosh "Macintosh SE/30,
+    System Software 7.0.1, 16,384K", CommandShell with a root shell
+    (localhost.root #, ls /)** (Daniel, 2026-10-15 ~23:10; screenshots
+    20261015_2307*-2313*). Daniel posted a short celebratory note (no
+    detail). 10 defects in 3 days: 5108795 (SCSI watchdog), 4f706c9 (RTR
+    FC), 48e0fa2, 7ae4435, 75b0dde (SDRAM timing), 067fa7c, b8116be (JSR/
+    BSR; bit fields x2), 5f59b90 - 8 in the CPU core, none in the PMMU's
+    translation or the 68882's arithmetic.
+    **NOT STABLE.** A fresh image's boot (and a later one) hung at the grey
+    hand-over to the user session, pointer dead: `startmac` gone from the
+    process table (`scripts/aux_ustack.tcl`), the kernel's console ring
+    (`scripts/aux_putbuf.tcl`: putbuf $120199F4 -> physical $1189F4,
+    mapping verified by the proc pointer $105D30 = $1BC880) only the boot
+    banner. Core files on the images (`tools/auxunix/ufsread.py`, extracts
+    in `C:\temp\Mac\AUX disk\extract\core_71`, `core_71b`): the good
+    boot's `/core` = telinit (init's binary), the hung boot's = **macgetty**
+    (the Mac session's login process) - both a format $A frame in user mode
+    at PC $00000008 / $00000014 writing to address 0: **a jump to address
+    0**. macgetty died in its routine at $0C78 calling into the shared C
+    library's branch table (`JSR $47F02192/22E8/2360.l`, packed 6-byte
+    `JMP $xxxxxxxx.L` entries, demand-paged). PFLN on the good boot: two
+    F-lines, opcode $FFFF at $FFFFFE58 (a process executing on its stack -
+    not yet placed). -> KNOWN ISSUES 22.
 21. **OPEN, accepted for now (2026-10-15): the restart design's limit.** Our
     kernel resumes a faulted instruction by rollback and re-execution
     (TG68K cannot save a half-done instruction), with a format $A replay
@@ -19107,6 +19147,40 @@ Daniel - add to it, move items out when fixed).**
     boundary inside the operand - an invalid page faults on the
     instruction's READ first, so the write never faults. The cure is to
     pre-check the second page before the first write, or continuation.
+22. **OPEN (2026-10-16, reproduced in sim): an instruction-fetch page fault
+    on an instruction's OWN extension words is classified as an unused
+    prefetch and dropped - the instruction takes stale words.**
+    `sim/predec_fault` CASESET=ifetch (IFONLY=k runs case k alone - the
+    bench stops at the first exception), TCMODE=aux HANDLER=aux, CACR 0 or
+    $2101 alike: PASS - 0 JSR to a non-resident page's start, 2 JMP.L whose
+    address straddles (high word resident), 4 straight-line code off a page,
+    6 a shared-library call (JSR to a branch-table JMP.L, table and target
+    non-resident); **FAIL - 1 JMP.L with its opcode a resident page's last
+    word and its address on the next, non-resident page: jumps to $00004EF9
+    (its own opcode as the address); 3 the same with JSR.L ($00004EB9); 5
+    MOVE.L #imm whose low word is on the next page: a wrong value.** The
+    trace (+KT0/+KT1 with the micro-state spy `ms`, TG68K_Pack's
+    micro_states position: 0 idle, 1 nop, 2 ld_nn): the prefetcher asks for
+    the long at $43000 while decode is still idle; it faults (the walk
+    finds DT 0), the beat is force-released (ce=1 bv=0) and the first-fire
+    latch takes it as a fault with no consumer (insn_fetch_consumer = 0:
+    no mmu_restart_pending); one clock later ld_nn - a listed consumer -
+    consumes those very words, the fault is live again and force-released
+    again, but nothing dispatches; the JMP uses the garbage. A 68030 takes
+    a stage B/C fault only when the word is USED (UM 8.1.2) and then; ours
+    decides at the instant of the fault. On the board this is a JMP/JSR
+    through A/UX's shared-library branch tables (packed 6-byte entries: some
+    straddle a page) whose next page is not resident -> a jump to garbage:
+    the telinit/macgetty cores, the Mac session dying at the hand-over.
+    **Fix (next session; the most-patched code in the kernel - NetBSD and
+    Amiga fixes on this path, an earlier restart loop in its history,
+    MMU_RESTART_DESIGN.md section 9):** a fetch fault first fired with no
+    consumer stays PENDING; when a consumer state consumes that word (the
+    same strobes as insn_fetch_consumer) it dispatches as a restartable
+    fault (rollback, restart PC = exe_pc), else it is dropped when the
+    stream moves on (a branch). Then every bench: ifetch 0-6, aux7, moves,
+    wp, jsr, bf, CASESET=all, mmu16, busfault, busfault_dib, kernel_bus,
+    rtr_fc, cache030, machine, every cpfpu program.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
@@ -22200,6 +22274,28 @@ boot A/UX at 16 MB from a fresh image; after the bomb
 counts). Reading: K SIZ byte / lanes 1000 = byte cycles (the kernel's
 size after the replay); K long with data XX000000 = the DOB or the next
 MOVE's source read; K right but S DQM or words wrong = the memory path.
+
+**END OF SESSION 2026-10-15/16 (~00:45, Daniel closed it) - READ THIS TO
+RESUME.** A/UX 3.1 boots to the Finder and a root shell on the core (compile
+71, `MacSE30_5f59b909_fullea.rbf`, on its second boot of an image), but not
+reliably: the Mac session dies at the grey hand-over on other boots. KNOWN
+ISSUES 20's block "COMPILE 69 -> 71" has the evening; KNOWN ISSUES 21 (the
+restart design's BFCHG/CAS2 limit, accepted) and **22 (the fetch-fault
+race, reproduced: sim/predec_fault CASESET=ifetch cases 1, 3, 5 fail)**.
+**NEXT: KNOWN ISSUES 22's fix, as designed there, then the full bench list,
+then a compile with the CPU probes (compile 72's deck: SE30_LEAN_PROBES +
+SE30_LEAN_CPU) and fresh-image boots.** Builds archived tonight: 66
+(`3c0b2f11_rtrace`), 68 (`9e6727aa_splitfix`), 69 (`b8116be5_jsrfix`), 71
+(`5f59b909_fullea`), 72 (`c5bd6ad9_cpuprobes`: compile 71's kernel, PIFA
+PLAS PSTA PEXC PTRP PFLN, no RTRACE; not yet on the board); 65, 67 failed
+timing (not archived), 70 was stopped. Our core met timing at every corner
+in each archived build; ascal (KNOWN ISSUES 6) and once the JTAG hub
+missed. Scripts: `read_rtrace.tcl` (arm/status/dump), `aux_putbuf.tcl`
+(the kernel's console ring; `keep` holds the machine), `aux_ustack.tcl`
+(needs only the peek probes now; it RELEASES the machine - read
+everything else first). The images: `C:\temp\Mac\AUX disk\used\First
+boot\` (booted to the Finder) and `...\Failed boot\` (macgetty's core).
+dev = 955d5dc + this record + the ifetch bench, unpushed.
 
 ---
 
