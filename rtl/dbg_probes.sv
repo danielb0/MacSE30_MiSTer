@@ -158,8 +158,10 @@ module dbg_probes #(
 	parameter PBER = 0,                   // PBER: MacSE30.sv's SE30_PBER (KNOWN ISSUES 8; off by default, Daniel 2026-10-07)
 	parameter BTRACE = 0,                 // PBTD/PBTC: the bus-error trace (KNOWN ISSUES 20), MacSE30.sv's SE30_BTRACE
 	parameter RTRACE = 0,                 // PRTD/PRTC: the format $A replay trace (KNOWN ISSUES 20), MacSE30.sv's SE30_RTRACE
-	parameter LEAN = 0                    // MacSE30.sv's SE30_LEAN_PROBES: only PBLD, PPEK/PPOK/PPKS and the opt-in
+	parameter LEAN = 0,                   // MacSE30.sv's SE30_LEAN_PROBES: only PBLD, PPEK/PPOK/PPKS and the opt-in
 	                                      //   groups (PBER, BTRACE, PERF) - the rest left out to make room (2026-10-14)
+	parameter LEAN_CPU = 0                // MacSE30.sv's SE30_LEAN_CPU: a lean deck keeps the CPU's own - PIFA, PLAS,
+	                                      //   PSTA, PEXC, PTRP, PFLN: where it is, why it stopped (KNOWN ISSUES 20)
 ) (
 	input  wire        clk,
 	input  wire        phi1,
@@ -245,21 +247,21 @@ module dbg_probes #(
 		.sld_auto_instance_index ("YES")
 	) cp_pbld (.probe(build_tag_w), .source(), .source_clk(clk), .source_ena(1'b1));
 
-	generate if (!LEAN) begin : g_pifa
+	generate if (!LEAN || LEAN_CPU) begin : g_pifa
 		altsource_probe #(
 			.instance_id ("PIFA"), .probe_width (32), .source_width (1),
 			.sld_auto_instance_index ("YES")
 		) cp_pifa (.probe(pifa_r), .source(), .source_clk(clk), .source_ena(1'b1));
 	end endgenerate
 
-	generate if (!LEAN) begin : g_plas
+	generate if (!LEAN || LEAN_CPU) begin : g_plas
 		altsource_probe #(
 			.instance_id ("PLAS"), .probe_width (32), .source_width (1),
 			.sld_auto_instance_index ("YES")
 		) cp_plas (.probe(plas_r), .source(), .source_clk(clk), .source_ena(1'b1));
 	end endgenerate
 
-	generate if (!LEAN) begin : g_psta
+	generate if (!LEAN || LEAN_CPU) begin : g_psta
 		altsource_probe #(
 			.instance_id ("PSTA"), .probe_width (32), .source_width (1),
 			.sld_auto_instance_index ("YES")
@@ -338,7 +340,7 @@ module dbg_probes #(
 		end
 	end
 
-	generate if (!LEAN) begin : g_pexc
+	generate if (!LEAN || LEAN_CPU) begin : g_pexc
 		altsource_probe #(
 			.instance_id ("PEXC"), .probe_width (160), .source_width (1),
 			.sld_auto_instance_index ("YES")
@@ -346,7 +348,7 @@ module dbg_probes #(
 		           .source(), .source_clk(clk), .source_ena(1'b1));
 	end endgenerate
 
-	generate if (!LEAN) begin : g_ptrp
+	generate if (!LEAN || LEAN_CPU) begin : g_ptrp
 		altsource_probe #(
 			.instance_id ("PTRP"), .probe_width (256), .source_width (1),
 			.sld_auto_instance_index ("YES")
@@ -355,7 +357,7 @@ module dbg_probes #(
 
 	// PFLN rides with RTRACE in a lean build (KNOWN ISSUES 20, 2026-10-15:
 	// the Mac environment's F-line bomb - its opcode and PC)
-	generate if (!LEAN || RTRACE) begin : g_pfln
+	generate if (!LEAN || RTRACE || LEAN_CPU) begin : g_pfln
 		altsource_probe #(
 			.instance_id ("PFLN"), .probe_width (192), .source_width (1),
 			.sld_auto_instance_index ("YES")

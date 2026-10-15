@@ -127,6 +127,13 @@ localparam RTRACE = 1;
 `else
 localparam RTRACE = 0;
 `endif
+// The CPU's probes in a lean deck (2026-10-15): define SE30_LEAN_CPU with
+// SE30_LEAN_PROBES to keep PIFA, PLAS, PSTA, PEXC, PTRP and PFLN.
+`ifdef SE30_LEAN_CPU
+localparam LEAN_CPU = 1;
+`else
+localparam LEAN_CPU = 0;
+`endif
 
 // The CD-ROM (plan Section 12): an AppleCD SC at SCSI ID 3 on hps_io slot
 // 4, data only (no CD audio, so no CUE/BIN/CHD: flat ISO and Toast images,
@@ -964,7 +971,7 @@ always @(posedge clk_sys) begin
 	if (!pk_hold) begin pk_req_r <= 0; raw_req_r <= 0; pk_st <= 0; end
 end
 
-dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE), .RTRACE(RTRACE), .LEAN(LEAN)) probes
+dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE), .RTRACE(RTRACE), .LEAN(LEAN), .LEAN_CPU(LEAN_CPU)) probes
 (
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
