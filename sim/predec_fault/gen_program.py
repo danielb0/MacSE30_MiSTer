@@ -136,6 +136,30 @@ AUX7 = [
      "destination pages invalid, each page top written by the 7th MOVE.L (the board's $4080F012)" +
      (", the destination %d off long alignment" % DSTOFF if DSTOFF else "")),
 ]
+# moves: A/UX's copy loops through MOVES (unix.dis: copyout $556F0, copyin
+# $554F0, uclear $557D0), run in SUPERVISOR mode with SFC = DFC = 1 (user
+# data) on user pages invalid in the user tree, the user pointer off long
+# alignment - (kind, kernel side, user side, bytes, invalid pages, what):
+#   copyout  move.l -(a1),d2 / moves.l d2,-(a0): the user side written
+#   uclear   moves.l a1,-(a0), A1 = 0: the user side cleared (bss at launch)
+#   copyin   moves.l -(a1),d2 / move.l d2,-(a0): the user side read
+MOVES = [
+    ("copyout", 0x20000, 0x30001, 0x2000, [0x30000, 0x31000, 0x32000], "copyout, the user destination 1 off alignment"),
+    ("copyout", 0x24000, 0x34003, 0x2000, [0x34000, 0x35000, 0x36000], "copyout, the user destination 3 off alignment"),
+    ("uclear",  0x28000, 0x38001, 0x2000, [0x38000, 0x39000, 0x3A000], "uclear, the user destination 1 off alignment"),
+    ("copyin",  0x3C000, 0x2C001, 0x2000, [0x2C000, 0x2D000, 0x2E000], "copyin, the user source 1 off alignment"),
+]
+# wp: copy-on-write, as A/UX's fork leaves a process's pages - VALID but
+# write-protected (WP, bit 2) in the user tree; a write faults on a page
+# the instruction may just have read, and the handler clears WP.  The
+# operation runs up the block through (A0)+, user mode - (opcode, size,
+# destination, bytes, what):
+WP = [
+    (0xD198, 4, 0x30001, 0x2000, "ADD.L D0,(A0)+, 1 off alignment: read-modify-write longs straddling WP page tops"),
+    (0xD198, 4, 0x34002, 0x2000, "ADD.L D0,(A0)+, 2 off alignment"),
+    (0xD158, 2, 0x38001, 0x2000, "ADD.W D0,(A0)+ at odd addresses: byte + byte words, read-modify-write"),
+    (0x30C0, 2, 0x3C001, 0x2000, "MOVE.W D0,(A0)+ at odd addresses: byte + byte words, written"),
+]
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [
     (0x40000, 0x41000, 0x48F00, 0x50000, 0x2000, 1, "dst", "destination pages invalid: the byte and word writes fault, as on the board"),
@@ -199,6 +223,42 @@ def main():
             regs = [(0x207C, src + n), (0x227C, dst + n), (0x203C, n)]      # A0, A1, D0
             cases.append((regs, words(blockmove), 0, src, dst, n, bad, None,
                           {"A0": src, "A1": dst}, "blockmove: " + what))
+    if CASESET == "moves":
+        loops = {"copyout": [0x2421, 0x0EA0, 0x2800],    # MOVE.L -(A1),D2 / MOVES.L D2,-(A0)
+                 "uclear":  [0x0EA0, 0x9800],            # MOVES.L A1,-(A0)
+                 "copyin":  [0x0EA1, 0x2000, 0x2102]}    # MOVES.L -(A1),D2 / MOVE.L D2,-(A0)
+        for kind, kern, user, n, bad, what in MOVES:
+            src, dst = (user, kern) if kind == "copyin" else (kern, user)
+            ref = 0x2A000 if kind == "uclear" else src   # uclear: a page of zeros nothing writes
+            if kind != "uclear":
+                for a in range(src & ~3, src + n + 4, 4):
+                    put32(a, 0xC0000000 | a)
+            for a in range((dst - 0x40) & ~3, dst + n + 0x40, 4):
+                put32(a, 0xDD000000 | a)
+            body = loops[kind]
+            code = body + [0x51C9, (-(2 * len(body) + 2)) & 0xFFFF, 0x4E40]   # DBRA D1,loop; TRAP #0
+            a1 = 0 if kind == "uclear" else (kern + n if kind == "copyout" else user + n)
+            a0 = user + n if kind != "copyin" else kern + n
+            regs = [(0x207C, a0), (0x227C, a1), (0x223C, 0xFFFF0000 | (n // 4 - 1))]   # A0, A1, D1: DBRA's count
+            want = {"A0": a0 - n, "A1": 0 if kind == "uclear" else a1 - n, "super": True}
+            cases.append((regs, code, 0, ref, dst, n, bad, None, want, "moves: " + what))
+    if CASESET == "wp":
+        for k, (op, sz, dst, n, what) in enumerate(WP):
+            ref = 0x20000 + 0x4000 * k
+            init = bytearray((dst + i * 7 + (i >> 8)) & 0xFF for i in range(n + 8))
+            out = bytearray(init)
+            for i in range(0, n, sz):
+                v = int.from_bytes(out[i:i + sz], "big")
+                v = (0x0101 if op == 0x30C0 else (v + 0x01010101) & (1 << 8 * sz) - 1)
+                out[i:i + sz] = v.to_bytes(sz, "big")
+            # the destination's bytes: from the long below dst, so putbytes stays even
+            base = dst & ~3
+            putbytes(base, bytes((0xDD,) * (dst - base)) + bytes(init))
+            putbytes(ref, bytes(out))
+            regs = [(0x207C, dst), (0x227C, 0), (0x203C, 0x01010101), (0x223C, 0xFFFF0000 | (n // sz - 1))]
+            code = [op, 0x51C9, 0xFFFC, 0x4E40]           # op; DBRA D1,op; TRAP #0
+            cases.append((regs, code, 0, ref, dst, n, pages(dst, dst + n), None,
+                          {"A0": dst + n, "A1": 0, "wp": True}, "wp: " + what))
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)
@@ -246,18 +306,25 @@ def main():
         emit(0xF010, 0x0800)                         # PMOVE (A0),TT0
     emit(0x41F9); l32(0x9000)                        # LEA $9000,A0
     emit(0x4E60)                                     # MOVE.L A0,USP
+    emit(0x7001)                                     # MOVEQ #1,D0
+    emit(0x4E7B, 0x0000)                             # MOVEC D0,SFC: user data, A/UX's copy loops'
+    emit(0x4E7B, 0x0001)                             # MOVEC D0,DFC
     expect = []
     handled = 0
     for k, (regs, code, entry, ref, dst, n, bad, a2_want, want, what) in enumerate(cases):
         for p in bad:
-            emit(0x02B9); l32(0xFFFFFFFC); l32(PG_TBL + 4 * (p >> 12))  # ANDI.L #~3,desc: DT 0
+            if want.get("wp"):
+                emit(0x00B9); l32(0x00000004); l32(PG_TBL + 4 * (p >> 12))  # ORI.L #4,desc: WP
+            else:
+                emit(0x02B9); l32(0xFFFFFFFC); l32(PG_TBL + 4 * (p >> 12))  # ANDI.L #~3,desc: DT 0
         emit(0xF000, 0x2400)                         # PFLUSHA
         emit(0x4BF9); absref("cont%d" % k)           # LEA cont,A5
         for op, v in regs:
             emit(op)
             if v is not None:
                 l32(v)
-        emit(0x46FC, 0x0000)                         # MOVE.W #0,SR: user mode
+        if not want.get("super"):
+            emit(0x46FC, 0x0000)                     # MOVE.W #0,SR: user mode
         if entry:
             emit(0x6000 | entry)                     # BRA.B the loop's entry
         emit(*code)
@@ -362,6 +429,7 @@ def main():
         b(0x0080, 0x0000, 0x0001)                    # ORI.L #1,D0: DT 1, a page
         b(0x2080)                                    # MOVE.L D0,(A0): the descriptor, a long store
     else:
+        b(0x0290, 0xFFFF, 0xFFFB)                    # ANDI.L #~4,(A0): WP clear (CASESET=wp's copy-on-write)
         b(0x0090, 0x0000, 0x0001)                    # ORI.L #1,(A0): DT 1, a page
     if H_ADDR:
         b(0x206F, FA)                                # MOVEA.L FA(A7),A0: the fault address

@@ -287,7 +287,7 @@ module tb_predec_fault;
           2'b01: begin
             ssw = q[109:94]; fa = q[77:46]; dob = q[45:14]; nr = nr + 1; st = 1;
             $display("RT %3d R t=%04x ssw=%04x state1=%04x fault=%08x dob=%08x #%0d", e, q[125:110], ssw, q[93:78], fa, dob, q[13:0]);
-            want_siz = (ssw[5:4] == 2'b01) ? 2'b01 : (ssw[5:4] == 2'b10) ? 2'b10 : 2'b00;
+            want_siz = ssw[5:4];         // the replay's SIZ is the faulted cycle's: 00 long, 01 byte, 10 word, 11 three bytes
             if (!ssw[8] || ssw[6]) begin rfails = rfails + 1; $display("FAIL: RTRACE R %0d: SSW %04x is not a data write fault", e, ssw); end
           end
           2'b10: begin
@@ -295,8 +295,8 @@ module tb_predec_fault;
             if (st == 1) klanes = q[7:4];
             $display("RT %3d K t=%04x log=%08x phys=%08x d=%08x siz=%0d fc=%0d post=%0d lanes=%b", e, q[125:110], kl, kp, kd, ksiz, q[11:9], q[8], q[7:4]);
             if (st == 1) begin                 // the replay's own beat
-              if (kl !== fa || ksiz !== want_siz || (ksiz == 2'b00 && kl[1:0] == 2'b00 && kd !== dob)) begin
-                rfails = rfails + 1; $display("FAIL: RTRACE K %0d: the replay's beat is not the frame's (log %08x siz %0d d %08x)", e, kl, ksiz, kd);
+              if (kl !== fa || ksiz !== want_siz || q[11:9] !== ssw[2:0] || (ksiz == 2'b00 && kl[1:0] == 2'b00 && kd !== dob)) begin
+                rfails = rfails + 1; $display("FAIL: RTRACE K %0d: the replay's beat is not the frame's (log %08x siz %0d fc %0d d %08x)", e, kl, ksiz, q[11:9], kd);
               end
               st = 2;
             end
