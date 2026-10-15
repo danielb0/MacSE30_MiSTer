@@ -22032,6 +22032,24 @@ catch a register's first value; MAME scripts in `C:\temp\Mac\mame\aux\`
 `find_table`). The trigger's disarm reboots the board by itself (fsck
 adds ~6 min); a 208 KB board dump takes ~25 min over JTAG.
 
+
+**END OF SESSION 2026-10-15 (~11:15, Daniel closed it) - READ THIS TO
+RESUME.** KNOWN ISSUES 20's block "THE BENCH WITH A/UX'S CONDITIONS" holds
+the detail. `sim/predec_fault` ran the BlockMove page-top fault under every
+A/UX condition that could be modelled - the board's geometry (CASESET=aux7),
+A/UX's PFLUSH by address (HANDLER=aux), an interrupt pending at the RTE
+(auxirq), slow RAM (+RAMLAT), the board's SDRAM path (SDRAM=1) and SRE with
+TC `$82C07760` (TCMODE=aux): all PASS. The board's damage is tied to the
+fault (every faulted page top; the unfaulted `$342xxx` clean), but over a
+cleared page byte cycles (be `1000`) and longs of `XX000000` look the same.
+**NEXT:** the board probe of the two writes after a format $A replay (SIZ,
+byte enables, data) - a lean debug build (`SE30_LEAN_PROBES`, compile
+~45-50 min) and Daniel's A/UX boot at 16 MB from a fresh image; (a) byte
+cycles points at the kernel's size after the replay, (b) `XX000000` at the
+replay's DOB and the next MOVE's source read. dev 1 ahead of origin
+(4486f2c + this record), unpushed. Board build still compile 64
+(`MacSE30_627ae2a9_cacheoff_lean.rbf`).
+
 ---
 
 ## Appendix - where the sources are
