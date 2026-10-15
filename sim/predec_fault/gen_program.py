@@ -24,7 +24,19 @@ board's trace caught faulting before the Mac environment's bomb.
 HANDLER (the bus-error handler's flush): pflusha (default); aux = A/UX's
 fl_userpg, PFLUSH #3,#4,(A0) on the fault address; auxirq = aux, run at
 $2700 with VIA2 T1 started and waited for, so a level-2 interrupt is
-pending at the RTE (A/UX's ret_user2; VIA2 reached through TT0)
+pending at the RTE (A/UX's ret_user2; VIA2 reached through TT0); auxfull =
+aux plus everything A/UX's path does on EVERY user bus error (unix.dis:
+buserr% $54C08, user_buserr $54C20, hardflt $59850, hardsegflt $5A866,
+ret_user2 $54A66, ret_user3 $54AE6): the whole register file saved; MOVEC
+CACR with m20cache ($2101: EI, ED, WA - the SE/30's, enable_caches $5465E)
+at entry; LINK/UNLK; the fresh page CLEARED through the supervisor's own
+mapping by A/UX's MOVEM.L pattern (Pg_ptr $561E0: 12 then 4 x 13 registers
+a 256-byte stride) before its user descriptor is written as a long;
+PFLUSH #3,#4,(A0); MOVE #$2700,SR then #$2000,SR; MOVEC CACR with the
+process's mode (CACRX, default $2101 - u+$530's value is unread); MOVE to
+USP; MOVEM restore; RTE.  Needs TCMODE=aux (the supervisor tree is the
+alias) and a destination-invalid case set (aux7).  auxfullirq = auxfull
+with auxirq's pending interrupt
 
 TCMODE (the translation): bench (default, below); aux = A/UX 3's: TC
 $82C07760 (E, SRE, PS 4 KB, IS 0, TIA 7, TIB 7, TIC 6), so user accesses
@@ -53,7 +65,7 @@ THE PROGRAM (supervisor, from $1000)
       descriptor valid, PFLUSHA, RTE with the frame untouched (DF set: the
       faulted cycle reruns, UM 8.2.1) - more than 100 entries = a loop:
       stop at $1D80
-    TRAP #0 (vector 32), $1D00: drop its frame, JMP (A5) (the case's
+    TRAP #0 (vector 32), $1D40: drop its frame, JMP (A5) (the case's
       continuation)
     any other exception, $1E00: its format/vector word and PC to $3F00, stop
 
@@ -66,9 +78,15 @@ import random
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROM = os.environ.get("ROM", "C:/temp/Mac/ROMS/256KB ROMs/1988-09 - 97221136 - Mac II FDHD & IIx & IIcx.ROM")
 CACR = int(os.environ.get("CACR", "0"), 0)
+CACRX = int(os.environ.get("CACRX", "0x2101"), 0)   # auxfull: the CACR the handler leaves (ret_user3's set_cachemode)
+M20CACHE = 0x2101                                    # auxfull: enable_caches' value on the SE/30 (no burst)
 CASESET = os.environ.get("CASESET", "all")
 HANDLER = os.environ.get("HANDLER", "pflusha")
-ORG, BERR, TRAP0, LOOPSTOP, EXC = 0x1000, 0x1C00, 0x1D00, 0x1D80, 0x1E00
+H_ADDR = HANDLER in ("aux", "auxirq", "auxfull", "auxfullirq")   # PFLUSH by address
+H_IRQ = HANDLER in ("auxirq", "auxfullirq")                       # an interrupt pending at the RTE
+H_FULL = HANDLER in ("auxfull", "auxfullirq")                     # A/UX's every-fault path
+IRQIN = os.environ.get("IRQIN", "0") == "1"                       # auxfullirq: lower the mask to $2000 inside the handler (LQR%9), so the interrupt is taken before the RTE
+ORG, BERR, TRAP0, LOOPSTOP, EXC = 0x1000, 0x1C00, 0x1D40, 0x1D80, 0x1E00
 TBL_A, TBL_B, CRP_AT = 0x4000, 0x4100, 0x3E00
 TCMODE = os.environ.get("TCMODE", "bench")
 # aux: (A, B, page table) for the user (CRP) and the supervisor (SRP) trees
@@ -217,7 +235,7 @@ def main():
         emit(0xF010, 0x4800)                         # PMOVE (A0),SRP
     emit(0x41F9); l32(CRP_AT + 8)                    # LEA CRP_AT+8,A0
     emit(0xF010, 0x4000)                             # PMOVE (A0),TC
-    if HANDLER == "auxirq":
+    if H_IRQ:
         emit(0x41F9); l32(CRP_AT + 12)               # LEA CRP_AT+12,A0
         emit(0xF010, 0x0800)                         # PMOVE (A0),TT0
     emit(0x41F9); l32(0x9000)                        # LEA $9000,A0
@@ -276,8 +294,20 @@ def main():
     berr = []
     def b(*ws):
         berr.extend(ws)
-    b(0x48E7, 0x8080)                                # MOVEM.L D0/A0,-(A7)
-    if HANDLER == "auxirq":
+    if H_FULL:
+        assert TCMODE == "aux" and CASESET == "aux7", "auxfull needs TCMODE=aux (the supervisor tree is the page clear's alias) and CASESET=aux7"
+        SAVE = 60
+        b(0x48E7, 0xFFFE)                            # MOVEM.L D0-D7/A0-A6,-(A7): buserr%'s save
+        b(0x203C, M20CACHE >> 16, M20CACHE & 0xFFFF) # MOVE.L #m20cache,D0
+        b(0x4E7B, 0x0002)                            # MOVEC D0,CACR: user_buserr's
+        b(0x4E56, 0xFFD8)                            # LINK A6,#-40: hardflt's frame
+    else:
+        SAVE = 8
+        b(0x48E7, 0x8080)                            # MOVEM.L D0/A0,-(A7)
+    FA, SSW, FMT = SAVE + 0x10, SAVE + 0x0A, SAVE + 0x06   # the frame's fault address, SSW and format word from A7
+    if H_FULL:
+        FA, SSW, FMT = FA + 44, SSW + 44, FMT + 44   # ... below LINK's saved A6 and its 40-byte frame
+    if H_IRQ:
         # A/UX's ret_user2 runs at $2700 and RTEs to mask 0: an interrupt
         # that came in meanwhile is pending at the RTE (VIA2 T1, level 2)
         b(0x46FC, 0x2700)                            # MOVE #$2700,SR
@@ -287,30 +317,70 @@ def main():
     b(0x0CB8, 0x0000, 0x0064, COUNT)                 # CMPI.L #100,COUNT.W
     b(0x6200, 0)                                     # BHI.W LOOPSTOP (fixed below)
     bhi = len(berr) - 1
-    b(0x202F, 0x0018)                                # MOVE.L $18(A7),D0: the fault address
+    b(0x202F, FA)                                    # MOVE.L FA(A7),D0: the fault address
     b(0x2078, LOGP)                                  # MOVEA.L LOGP.W,A0
     b(0x20C0)                                        # MOVE.L D0,(A0)+
-    b(0x30EF, 0x0012)                                # MOVE.W $12(A7),(A0)+: the SSW
-    b(0x30EF, 0x000E)                                # MOVE.W $E(A7),(A0)+: the format word
+    b(0x30EF, SSW)                                   # MOVE.W SSW(A7),(A0)+: the SSW
+    b(0x30EF, FMT)                                   # MOVE.W FMT(A7),(A0)+: the format word
     b(0x21C8, LOGP)                                  # MOVE.L A0,LOGP.W
+    if H_FULL:
+        # hardsegflt: the fresh page cleared through the kernel's own mapping
+        # (the SRP tree here) by Pg_ptr's MOVEM.L pattern, then its descriptor
+        # written as a long
+        b(0x2F0E)                                    # MOVE.L A6,-(A7): Pg_ptr saves what it clobbers
+        b(0x2200)                                    # MOVE.L D0,D1
+        b(0x0281, 0xFFFF, 0xF000)                    # ANDI.L #$FFFFF000,D1: the page
+        b(0x2041)                                    # MOVEA.L D1,A0
+        b(0x7000)                                    # MOVEQ #0,D0
+        for r in (0x2200, 0x2400, 0x2600, 0x2800, 0x2A00, 0x2C00, 0x2E00):   # MOVE.L D0,D1..D7
+            b(r)
+        for r in (0x2240, 0x2440, 0x2640, 0x2840, 0x2A40, 0x2C40):           # MOVEA.L D0,A1..A6
+            b(r)
+        b(0x303C, 0x000F)                            # MOVE.W #15,D0: 16 x 256 bytes
+        clr = len(berr)
+        b(0x48D0, 0x7CFE)                            # MOVEM.L D1-D7/A2-A6,(A0): 48 bytes
+        for off in (0x30, 0x64, 0x98, 0xCC):
+            b(0x48E8, 0x7EFE, off)                   # MOVEM.L D1-D7/A1-A6,off(A0): 52 bytes (A1 = 0 too)
+        b(0x41E8, 0x0100)                            # LEA $100(A0),A0
+        b(0x51C8, (BERR + 2 * clr - (BERR + 2 * len(berr) + 2)) & 0xFFFF)   # DBRA D0,clr
+        b(0x2C5F)                                    # MOVEA.L (A7)+,A6
+        b(0x202F, FA)                                # MOVE.L FA(A7),D0: the fault address again
     b(0xE088)                                        # LSR.L #8,D0
     b(0xE888)                                        # LSR.L #4,D0: the page
     b(0xE588)                                        # LSL.L #2,D0
     b(0x0680, PG_TBL >> 16, PG_TBL & 0xFFFF)         # ADDI.L #PG_TBL,D0
     b(0x2040)                                        # MOVEA.L D0,A0
-    b(0x0090, 0x0000, 0x0001)                        # ORI.L #1,(A0): DT 1, a page
-    if HANDLER in ("aux", "auxirq"):
-        b(0x206F, 0x0018)                            # MOVEA.L $18(A7),A0: the fault address
+    if H_FULL:
+        b(0x202F, FA)                                # MOVE.L FA(A7),D0
+        b(0x0280, 0xFFFF, 0xF000)                    # ANDI.L #$FFFFF000,D0
+        b(0x0080, 0x0000, 0x0001)                    # ORI.L #1,D0: DT 1, a page
+        b(0x2080)                                    # MOVE.L D0,(A0): the descriptor, a long store
+    else:
+        b(0x0090, 0x0000, 0x0001)                    # ORI.L #1,(A0): DT 1, a page
+    if H_ADDR:
+        b(0x206F, FA)                                # MOVEA.L FA(A7),A0: the fault address
         b(0xF010, 0x3893)                            # PFLUSH #3,#4,(A0): A/UX's fl_userpg ($550A8)
     else:
         b(0xF000, 0x2400)                            # PFLUSHA
-    if HANDLER == "auxirq":
+    if H_IRQ:
         ifr = VIA2 + 13 * 0x200
         b(0x0839, 0x0006, ifr >> 16, ifr & 0xFFFF)   # BTST #6,IFR: T1 has fired
         b(0x67F6)                                    # BEQ.S the BTST
-    b(0x4CDF, 0x0101)                                # MOVEM.L (A7)+,D0/A0
+    if H_FULL:
+        b(0x4E5E)                                    # UNLK A6
+        b(0x46FC, 0x2700)                            # MOVE #$2700,SR: ret_user2
+        if IRQIN:
+            b(0x46FC, 0x2000)                        # MOVE #$2000,SR: LQR%9's reschedule path - a pending interrupt is taken HERE, inside the handler
+        b(0x203C, CACRX >> 16, CACRX & 0xFFFF)       # MOVE.L #CACRX,D0
+        b(0x4E7B, 0x0002)                            # MOVEC D0,CACR: ret_user3's set_cachemode
+        b(0x4E68)                                    # MOVE USP,A0
+        b(0x4E60)                                    # MOVE A0,USP
+        b(0x4CDF, 0x7FFF)                            # MOVEM.L (A7)+,D0-D7/A0-A6
+    else:
+        b(0x4CDF, 0x0101)                            # MOVEM.L (A7)+,D0/A0
     b(0x4E73)                                        # RTE
     berr[bhi] = (LOOPSTOP - (BERR + 2 * bhi)) & 0xFFFF   # BHI.W: displacement from its extension word
+    assert BERR + 2 * len(berr) <= TRAP0, "the bus-error handler overruns TRAP0's stub"
     trap0 = [0x4FEF, 0x0008,                         # LEA 8(A7),A7
              0x4ED5]                                 # JMP (A5)
     ifr = VIA2 + 13 * 0x200
@@ -358,7 +428,7 @@ def main():
             f.write("%08x %08x %s\n" % (a, v, what))
     with open(os.path.join(HERE, "listing.bin"), "wb") as f:
         f.write(b"".join(x.to_bytes(2, "big") for x in mem[ORG // 2:(EXC + 0x40) // 2]))
-    print("predec_fault: %d cases (%s), %d invalid pages, CACR $%X, handler %s, TC $%08X, STOP at $%X" % (len(cases), CASESET, handled, CACR, HANDLER, TC, at["fin"]))
+    print("predec_fault: %d cases (%s), %d invalid pages, CACR $%X, handler %s%s, TC $%08X, STOP at $%X" % (len(cases), CASESET, handled, CACR, HANDLER, (" (exit CACR $%X)" % CACRX) if H_FULL else "", TC, at["fin"]))
 
 
 if __name__ == "__main__":

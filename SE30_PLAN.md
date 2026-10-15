@@ -18998,6 +18998,71 @@ Daniel - add to it, move items out when fixed).**
     Left untried: the handler's CACR writes and its length. **NEXT: the
     board probe** of the two writes after a format $A replay (SIZ, byte
     enables, data), which tells (a) from (b).
+    **THE REVIEW AND A/UX'S EVERY-FAULT PATH (2026-10-15 ~11:30-12:30,
+    Daniel asked for a review of the trail).** What the trail had not done:
+    (1) the frame the board STACKS was never observed - the replay's size
+    comes only from SSW bits 5:4 and its data only from the stacked DOB
+    (`TG68KdotC_Kernel.vhd` ~2203 `rte_fmt_a_replay_size`, ~3550
+    `rte_fmt_a_data_out`), and btrace records MMUSR, not the SSW; (2) the
+    bench's handler was fifteen instructions, not A/UX's common path. From
+    `unix.dis`, EVERY user bus error runs: `buserr%` $54C08 (SUBA #$A,
+    MOVEM save, USP to the save), `user_buserr` $54C20 (MOVEC CACR with
+    `m20cache` - $2101 on the SE/30: EI, ED, WA, `enable_caches` $5465E),
+    `hardflt` $59850 (LINK, the frame read with bitfield ops - SSW at
+    $50(A2), fault address $56(A2) - `vtopreg`, then `hardsegflt` $5A866:
+    the page allocated, CLEARED through the kernel's own mapping by
+    `Pg_ptr`'s MOVEM.L pattern at $561E0 (12 then 4 x 13 registers a
+    256-byte stride), its descriptor stored), `fl_userpg` $550A4 (PFLUSH
+    #3,#4,(A0) on the fault address; `ld_userpg` PLOAD only for RM),
+    `ret_user2` $54A66 (MOVE #$2700,SR; `dosir%`/streams if flagged;
+    `runrun` -> MOVE #$2000,SR and `reschedule` - a context switch, and an
+    interrupt taken INSIDE the handler), `ret_chkfp` (`fprest` $54814 =
+    FRESTORE from u+$450 when u+$3E0 is set - `resume030` sets it, so the
+    first return to user after every context switch), `ret_user3` $54AE6
+    (MOVEC CACR from u+$530, MOVE to USP, MOVEM restore, ADDA #$A, RTE).
+    hardflt never writes the frame. A 24-bit process (u flags $880) has its
+    fault address masked; startmac is 32-bit. (3) The damage predates the
+    straddle fix and the SDRAM pin change: compiles 59 and 60 froze at the
+    same loader PC with the same symptom. (4) `moved_67` re-checked against
+    MAME's `dcmp_out.bin`: $341FF8 `A8000000 20000000` vs `A823121F
+    201F4A01` - MSB only, both longs. **BOARD (compile 64, Daniel's run,
+    the trigger at $7FF4C2 fired at 18 s with the same registers as every
+    run; the machine held):** startmac's u-area at physical $4AE000
+    (`procs`): u+$530 = `$2101` = m20cache, so both CACR writes on the path
+    write the value in force - no cache transition around the RTE; u+$3E0 =
+    0 at the freeze but u+$450 = `1F380000 F2800000...`, a 68882 idle FSAVE
+    frame - startmac HAS FP state, so a FRESTORE precedes the RTE after
+    every context switch (not every fault); u+4 = $27D17 (32-bit); u+$534 =
+    $7FDE28, the last fault address. The u-area is in the supervisor tree
+    only (`lpeek` through CRP finds it unmapped). **BENCH:
+    `sim/predec_fault` HANDLER=auxfull / auxfullirq** (the docstring):
+    A/UX's every-fault path as listed - the whole register file saved,
+    MOVEC CACR $2101 at entry, LINK, the page cleared through the SRP tree
+    by Pg_ptr's pattern before its descriptor is stored as a long, PFLUSH
+    by address, MOVE #$2700,SR, MOVEC CACR with CACRX (default $2101, the
+    board's value), MOVE to USP, MOVEM restore, RTE; `IRQIN=1` adds LQR%9's
+    MOVE #$2000,SR so the pending interrupt is taken inside the handler
+    before the format $A RTE. All on aux7, TCMODE=aux, CACR $2101:
+    **auxfull PASS (5 faults, SSW $0101), auxfull SDRAM=1 PASS (no
+    datasheet violation), auxfullirq PASS (5 interrupts pending at the
+    RTE), auxfullirq IRQIN=1 PASS (the interrupt's own frame and RTE
+    between the fault and the replay)** - each 6-7 min. Two bench bugs on
+    the way, both mine: the clear loop zeroed A6 under LINK (UNLK then
+    popped garbage: an exception at the setup's $1006), and the longer
+    handler overran TRAP #0's stub at $1D00 (the trace showed the MOVEM pop
+    then a fetch at $1D04, never the RTE) - the stub is at $1D40 now with a
+    size assert; `tb_predec_fault.v` prints got/want before the
+    description. **So A/UX's every-fault software path is cleared in sim as
+    well as the geometry and the memory path.** Left unmodelled: FRESTORE
+    before the RTE (the FPU is not in this bench's build - add
+    `rtl/fpu/se30_fpu.v` to run.sh and an idle-frame FRESTORE in
+    ret_chkfp's place), a full context switch (another process's exceptions
+    and RTEs between the fault and this RTE), hardflt's real length. **NEXT
+    unchanged - the board probe - with three levels for the two writes
+    after a replay: the frame as stacked (SSW, DOB), the kernel's datatype
+    with the wrapper's `pb_lanes`, and the SDRAM write command's DQM; and
+    btrace's opcode / pending / external-ring fields fixed in the same
+    build.**
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
 
@@ -22049,6 +22114,21 @@ cycles points at the kernel's size after the replay, (b) `XX000000` at the
 replay's DOB and the next MOVE's source read. dev 1 ahead of origin
 (4486f2c + this record), unpushed. Board build still compile 64
 (`MacSE30_627ae2a9_cacheoff_lean.rbf`).
+
+**UPDATE 2026-10-15 (~12:30) - READ THIS TO RESUME.** Daniel asked for a
+review of the A/UX trail; KNOWN ISSUES 20's block "THE REVIEW AND A/UX'S
+EVERY-FAULT PATH" holds it. Found missing: the stacked frame (SSW, DOB) never
+observed on the board; the bench's handler not A/UX's common path (CACR
+writes, the page clear through the kernel's alias, SR/USP writes, an
+interrupt taken inside the handler, FRESTORE after a context switch). Board
+(compile 64, trigger at 18 s): u+$530 = $2101 = m20cache (no cache-mode
+change), startmac holds a 68882 idle FSAVE frame (FRESTORE after every
+switch), 32-bit process. Bench: HANDLER=auxfull / auxfullirq (+IRQIN=1) =
+A/UX's whole path - ALL PASS, with and without SDRAM=1. **NEXT:** the board
+probe as before, now capturing the frame as stacked, the kernel's datatype
+and `pb_lanes`, and the SDRAM DQM for the two writes after a replay, plus
+btrace's broken fields; optionally the FPU into predec_fault for the
+FRESTORE case. The trigger still holds the board until Daniel disarms.
 
 ---
 

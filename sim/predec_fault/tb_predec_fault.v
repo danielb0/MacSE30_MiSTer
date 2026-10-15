@@ -298,7 +298,7 @@ module tb_predec_fault;
       r = $fgets(what, fd); nrun = nrun + 1;
       v = rd32(slot);
       if (v === want) pass = pass + 1;
-      else begin fails = fails + 1; $display("FAIL: %0s - got %08x, want %08x", what[8*399-1:0], v, want); end
+      else begin fails = fails + 1; $display("FAIL: got %08x, want %08x - %0s", v, want, what[8*399-1:0]); end
     end
     $fclose(fd);
     if (nrun != nexp) begin fails = fails + 1; $display("FAIL: %0d checks read from expect.txt, %0d written", nrun, nexp); end
