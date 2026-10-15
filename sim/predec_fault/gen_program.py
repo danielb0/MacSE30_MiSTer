@@ -126,9 +126,15 @@ STRADDLE = [
 # aux7: the board's big move (compile 62, #1275-#1323): every page top's write
 # fault on the SEVENTH MOVE.L ($4080F012), the next long by the eighth - the
 # destination's end at $18 mod $20 - (source, destination, bytes, invalid pages, what)
+# DSTOFF (1-3) moves the destination off long alignment, as the board's
+# RTRACE showed it (compile 66: the writes after each replay at $xxxFF5,
+# $xxxFF1 - A1 = 1 mod 4 - and in an earlier move at $xxxFF7, 3 mod 4), so
+# every long is two beats and a page top's faults land between them
+DSTOFF = int(os.environ.get("DSTOFF", "0"), 0)
 AUX7 = [
-    (0x20000, 0x30018, 0x4000, [0x30000, 0x31000, 0x32000, 0x33000, 0x34000],
-     "destination pages invalid, each page top written by the 7th MOVE.L (the board's $4080F012)"),
+    (0x20000, 0x30018 + DSTOFF, 0x4000, [0x30000, 0x31000, 0x32000, 0x33000, 0x34000],
+     "destination pages invalid, each page top written by the 7th MOVE.L (the board's $4080F012)" +
+     (", the destination %d off long alignment" % DSTOFF if DSTOFF else "")),
 ]
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [

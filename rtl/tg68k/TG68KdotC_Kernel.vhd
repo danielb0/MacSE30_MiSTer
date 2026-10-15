@@ -905,6 +905,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_init      : std_logic := '0';               -- the initiating CIR access is on the bus
 	signal cp_nocp      : std_logic;                      -- ... and has ended in a bus error
 	signal berr_k       : std_logic;                      -- berr, but for the initiating access's
+	signal pmmu_dfault_k : std_logic;                     -- a data beat released by its PMMU fault (KNOWN ISSUES 20)
 	signal cp_cof       : std_logic := '0';               -- B5: this coprocessor instruction branched (T0 trace)
 	-- B5c: a bus error after the initiating access (UM 10.5.2.8).  Each beat
 	-- a dialog state schedules is kept (cp_bk_*): the state it goes to, its
@@ -2034,7 +2035,17 @@ ALU: TG68K_ALU
 	-- what the frame holds), so a split operand's later beats never go out
 	-- (1.18; the board ran a misaligned long's second word after its first
 	-- had faulted, and stacked the second word's address).
-	memmaskmux(3) <= '1' WHEN beat_n = beat_rem OR (berr_k = '1' AND state(1) = '1') ELSE '0';
+	-- So does a beat the PMMU faults (KNOWN ISSUES 20, the board's RTRACE,
+	-- compile 66): released with beat_valid low, it is the operand's end, so
+	-- clkena_lw latches ITS address and the operand's bytes from it (a long
+	-- at $xxxFF9 on an invalid page: the long at $xxxFF9).  Before, a split
+	-- operand's first beat released only clkena_core, the beat engine moved
+	-- to the second beat, which faulted again on the same page and was
+	-- stacked - the replay wrote the last byte alone and the first beat's
+	-- bytes were never written.
+	pmmu_dfault_k <= '1' WHEN pmmu_tc_en = '1' AND pmmu_fault = '1' AND pmmu_fault_is_insn_out = '0' AND
+	                          dib_sub_hit = '0' AND beat_valid = '0' ELSE '0';
+	memmaskmux(3) <= '1' WHEN beat_n = beat_rem OR ((berr_k = '1' OR pmmu_dfault_k = '1') AND state(1) = '1') ELSE '0';
 	-- the strobe pair as a 16-bit bus would show it - nUDS/nLDS in the 16-bit
 	-- shape, and memread's record of "a single byte at an odd/even address"
 	-- in both (the sign extension and the first-beat test read it)

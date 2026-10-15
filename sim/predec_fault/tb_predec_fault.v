@@ -30,7 +30,8 @@
 //
 //   Plusargs: +PROG=<dir> (default .), +MAXCLK=<n> (default 20,000,000),
 //   +BTLO=<hex> +BTHI=<hex> (the bus trace, as sim/mmu16), +BTT0=<ns>
-//   +BTT1=<ns> (only cycles in that time window), +NOPOST, +NOPACE,
+//   +BTT1=<ns> (only cycles in that time window), +KT0=<ns> +KT1=<ns> (the
+//   kernel's side, every clk in the window), +NOPOST, +NOPACE,
 //   +RAMLAT=<n> (each RAM access acknowledged n 16 MHz ticks later than
 //   the default, as the board's SDRAM is).  Compiled with +define+SDRAM
 //   (run.sh's SDRAM=1) the RAM is the board's memory path instead:
@@ -220,6 +221,14 @@ module tb_predec_fault;
 `endif
 
 
+  // the kernel's side of the bus, every clk in +KT0..+KT1 (ns): its beats,
+  // the PMMU's state and the wrapper's releases
+  reg [63:0] kt0 = 0, kt1 = 0;
+  always @(posedge clk) if ($time >= kt0 && $time < kt1)
+    $display("KT %0t %s ce=%b bv=%b bs=%b a=%08x log=%08x siz=%0d d=%08x busy=%b flt=%b faddr=%08x s=%0d post=%b",
+             $time, phi1 ? "p1" : "p2", cpu.k_clkena, cpu.k_beat_valid, cpu.k_busstate, cpu.k_addr, cpu.k_addr_log,
+             cpu.k_siz, cpu.k_dout, cpu.k_pmmu_busy, cpu.k_pmmu_fault, cpu.k_f_addr, cpu.s, cpu.post);
+
   // ------------------------------------------------------ the bus trace
   // each cycle printed once, at the first clock of its acknowledge
   reg [31:0] bt_lo = 0, bt_hi = 0; reg btrace = 0;
@@ -269,7 +278,7 @@ module tb_predec_fault;
     integer e, nr, nk, ns, st, rfails;
     reg [127:0] q;
     reg  [15:0] ssw; reg [31:0] fa, dob, kl, kp, kd; reg [1:0] ksiz, want_siz;
-    reg  [22:0] sxs; reg [3:0] sdqm; reg [31:0] sd;
+    reg  [22:0] sxs; reg [3:0] sdqm, klanes; reg [31:0] sd;
     begin
       nr = 0; nk = 0; ns = 0; st = 0; rfails = 0;
       for (e = 0; e < rt.wp; e = e + 1) begin
@@ -283,9 +292,10 @@ module tb_predec_fault;
           end
           2'b10: begin
             kl = q[109:78]; kp = q[77:46]; kd = q[45:14]; ksiz = q[13:12]; nk = nk + 1;
+            if (st == 1) klanes = q[7:4];
             $display("RT %3d K t=%04x log=%08x phys=%08x d=%08x siz=%0d fc=%0d post=%0d lanes=%b", e, q[125:110], kl, kp, kd, ksiz, q[11:9], q[8], q[7:4]);
             if (st == 1) begin                 // the replay's own beat
-              if (kl !== fa || ksiz !== want_siz || (ksiz == 2'b00 && kd !== dob)) begin
+              if (kl !== fa || ksiz !== want_siz || (ksiz == 2'b00 && kl[1:0] == 2'b00 && kd !== dob)) begin
                 rfails = rfails + 1; $display("FAIL: RTRACE K %0d: the replay's beat is not the frame's (log %08x siz %0d d %08x)", e, kl, ksiz, kd);
               end
               st = 2;
@@ -295,7 +305,9 @@ module tb_predec_fault;
             sdqm = q[109:106]; sxs = {q[105:104], q[103:91], q[90:83]}; sd = q[81:50]; ns = ns + 1;
             $display("RT %3d S t=%04x dqm=%b/%b long=%06x (byte %08x) d=%08x", e, q[125:110], sdqm[3:2], sdqm[1:0], sxs, {7'd0, sxs, 2'b00}, sd);
             if (st == 2) begin                 // the replay's own pair
-              if (sxs !== kp[24:2] || (ksiz == 2'b00 && (sdqm !== 4'b0000 || sd !== dob))) begin
+              // the pair masks exactly the beat's lanes and carries its bytes there
+              if (sxs !== kp[24:2] || sdqm !== ~klanes ||
+                  ((sd ^ kd) & {{8{klanes[3]}}, {8{klanes[2]}}, {8{klanes[1]}}, {8{klanes[0]}}}) !== 32'd0) begin
                 rfails = rfails + 1; $display("FAIL: RTRACE S %0d: the replay's WRITE pair is not its beat (long %06x dqm %b d %08x)", e, sxs, sdqm, sd);
               end
               st = 3;
@@ -318,6 +330,8 @@ module tb_predec_fault;
     if ($value$plusargs("BTLO=%h", bt_lo) && $value$plusargs("BTHI=%h", bt_hi)) btrace = 1;
     if ($value$plusargs("BTT0=%d", bt_t0)) ;
     if ($value$plusargs("BTT1=%d", bt_t1)) ;
+    if ($value$plusargs("KT0=%d", kt0)) ;
+    if ($value$plusargs("KT1=%d", kt1)) ;
 `ifndef SDRAM
     if ($value$plusargs("RAMLAT=%d", ramlat)) ;
 `endif
