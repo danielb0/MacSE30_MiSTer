@@ -2043,8 +2043,12 @@ ALU: TG68K_ALU
 	-- to the second beat, which faulted again on the same page and was
 	-- stacked - the replay wrote the last byte alone and the first beat's
 	-- bytes were never written.
+	-- No beat_valid term: while a data fault stands the wrapper parks every
+	-- cycle and hit, so the only edge is the fault's own release; and
+	-- beat_valid carries the pace's stall (p_tail -> xs_wdata missed setup
+	-- by 2 ns at the slow corner with it, compile 67).
 	pmmu_dfault_k <= '1' WHEN pmmu_tc_en = '1' AND pmmu_fault = '1' AND pmmu_fault_is_insn_out = '0' AND
-	                          dib_sub_hit = '0' AND beat_valid = '0' ELSE '0';
+	                          dib_sub_hit = '0' ELSE '0';
 	memmaskmux(3) <= '1' WHEN beat_n = beat_rem OR ((berr_k = '1' OR pmmu_dfault_k = '1') AND state(1) = '1') ELSE '0';
 	-- the strobe pair as a 16-bit bus would show it - nUDS/nLDS in the 16-bit
 	-- shape, and memread's record of "a single byte at an odd/even address"
