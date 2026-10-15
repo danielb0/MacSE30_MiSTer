@@ -22130,6 +22130,35 @@ and `pb_lanes`, and the SDRAM DQM for the two writes after a replay, plus
 btrace's broken fields; optionally the FPU into predec_fault for the
 FRESTORE case. The trigger still held the board at the close (disarm restarts it). dev 2 ahead of origin (139733f + this record), unpushed.
 
+**THE THREE-LEVEL BOARD PROBE BUILT (2026-10-15 ~14:20) - COMPILE 66 =
+`output_files/MacSE30_3c0b2f11_rtrace.rbf`** (md5 `78887c79`; Daniel asked
+for probes lean enough to compile safely). RTRACE (`rtl/dbg_rtrace.v`,
+`SE30_RTRACE` with `SE30_LEAN_PROBES` in the qsf for this build only; no
+btrace, trigger or PCOF): a 512 x 128 block-RAM ring of format $A replays
+filtered by fault address (mask/match; stop at 512 or wrap), each logging
+R = the frame as the RTE read it (state1, SSW, fault address, DOB; new
+kernel strobe `debug_rte_fmt_a_replay`), then the next 4 K = kernel data
+writes as their cycles start (tg68k.v `dbg_rpk`: logical/physical
+address, SIZ, data, FC, posted, lanes) and 6 S = CPU WRITE pairs as the
+SDRAM sequencer issues them (se30_sdram.v `dbg_wr`: DQM per word, bank,
+row, column, words). Bench: `sim/predec_fault` RTRACE=1 SDRAM=1 (aux7,
+auxfull, TCMODE=aux, CACR $2101) PASS - every replay's three levels agree
+(long, lanes 1111, DQM 00/00, the DOB); the S records also show the
+walker's U/M descriptor write before each replay. Compile 65 (`d1f6f86`)
+FAILED timing and was not archived: the first tap read the pin registers
+(cmd/sd_addr/dq_out), the command lost its I/O cell, SDRAM_nRAS -0.684 ns
+at the slow corner; fixed in RTL (`3c0b2f1`: the tap sees the sequencer's
+issue conditions and dq_pre). Compile 66: 38,153 ALMs (91 %, 368 below
+compile 64), 369 M10K, 38.9 min, timing met at every corner (worst
++0.030), no loop in STA. **BOARD RUN (Daniel):** load it; before A/UX,
+`quartus_stp -t scripts/read_rtrace.tcl arm FFF00FFF 00300FFC` (page-top
+replays at $3xxFFC - the BlockMove's faulted pages are $341FFC-$36BFFC);
+boot A/UX at 16 MB from a fresh image; after the bomb
+`quartus_stp -t scripts/read_rtrace.tcl dump` (and `status` for the
+counts). Reading: K SIZ byte / lanes 1000 = byte cycles (the kernel's
+size after the replay); K long with data XX000000 = the DOB or the next
+MOVE's source read; K right but S DQM or words wrong = the memory path.
+
 ---
 
 ## Appendix - where the sources are
