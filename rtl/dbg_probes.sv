@@ -353,7 +353,9 @@ module dbg_probes #(
 		) cp_ptrp (.probe(trp_ring), .source(), .source_clk(clk), .source_ena(1'b1));
 	end endgenerate
 
-	generate if (!LEAN) begin : g_pfln
+	// PFLN rides with RTRACE in a lean build (KNOWN ISSUES 20, 2026-10-15:
+	// the Mac environment's F-line bomb - its opcode and PC)
+	generate if (!LEAN || RTRACE) begin : g_pfln
 		altsource_probe #(
 			.instance_id ("PFLN"), .probe_width (192), .source_width (1),
 			.sld_auto_instance_index ("YES")
