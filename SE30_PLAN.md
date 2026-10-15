@@ -22115,7 +22115,7 @@ replay's DOB and the next MOVE's source read. dev 1 ahead of origin
 (4486f2c + this record), unpushed. Board build still compile 64
 (`MacSE30_627ae2a9_cacheoff_lean.rbf`).
 
-**UPDATE 2026-10-15 (~12:30) - READ THIS TO RESUME.** Daniel asked for a
+**END OF SESSION 2026-10-15 (~12:40, Daniel closed it) - READ THIS TO RESUME.** Daniel asked for a
 review of the A/UX trail; KNOWN ISSUES 20's block "THE REVIEW AND A/UX'S
 EVERY-FAULT PATH" holds it. Found missing: the stacked frame (SSW, DOB) never
 observed on the board; the bench's handler not A/UX's common path (CACR
@@ -22128,7 +22128,7 @@ A/UX's whole path - ALL PASS, with and without SDRAM=1. **NEXT:** the board
 probe as before, now capturing the frame as stacked, the kernel's datatype
 and `pb_lanes`, and the SDRAM DQM for the two writes after a replay, plus
 btrace's broken fields; optionally the FPU into predec_fault for the
-FRESTORE case. The trigger still holds the board until Daniel disarms.
+FRESTORE case. The trigger still held the board at the close (disarm restarts it). dev 2 ahead of origin (139733f + this record), unpushed.
 
 ---
 
