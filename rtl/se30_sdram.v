@@ -501,6 +501,7 @@ module se30_sdram #(
   reg        win_dk;                   // since_start in [WIN_LO, DK_HI], or 63 (an idle bus): a disk word fits
   reg        start_pend;               // a start seen and not yet served
   reg        a_we;                     // the access in flight is a write
+  reg [12:0] a_row_r;                   // its row (RTRACE's tap only; unconnected, pruned)
   reg        a_written;                // its WRITE has issued
   reg  [1:0] a_bank_r;
   reg  [8:0] a_col_r;
@@ -525,19 +526,18 @@ module se30_sdram #(
   wire [17:0] tr_bad = TR_READS - tr_good;
   wire [13:0] tr_fail = (tr_bad > 18'd16383) ? 14'h3FFF : tr_bad[13:0];
   reg [15:0] tr_w1;                    // the burst's first word, held for the compare
-  // RTRACE's tap (dbg_wr): an observer of the pins, nothing fed back.  A
-  // CPU write's WRITEs are the only ones at the pins while S_ACC holds a
-  // write; the high word's has A10 = 0, the low word's A10 = 1 (auto-
-  // precharge), each with its word on dq_out on the same clock
-  reg [12:0] dw_row = 0;
+  // RTRACE's tap (dbg_wr): an observer, nothing fed back, and it reads no
+  // pin register (a fabric load on cmd moved the command out of its I/O
+  // cell, -0.68 ns at the slow corner): it sees each CPU WRITE as the
+  // sequencer issues it - the same conditions, the same address terms -
+  // and its word in dq_pre, which dq_out takes with nothing between
   reg [28:0] dw_hi = 0;
   initial dbg_wr = 0;
   always @(posedge clk) begin
-    if (cmd == CMD_ACTIVE) dw_row <= sd_addr;
-    if (cmd == CMD_WRITE && state == S_ACC && a_we) begin
-      if (!sd_addr[10]) dw_hi <= {sd_addr[12:11], sd_ba, sd_addr[8:0], dq_out};
-      else dbg_wr <= {~dbg_wr[60], dw_hi[28:27], sd_addr[12:11], dw_hi[26:25], dw_row, dw_hi[24:16], dw_hi[15:0], dq_out};
-    end
+    if (state == S_ACC && a_we && !a_written && req_q && seq_ge2)
+      dw_hi <= {~a_be[3:2], a_bank_r, a_col_r, dq_pre};
+    if (state == S_ACC && a_we && a_written && seq_is3)
+      dbg_wr <= {~dbg_wr[60], dw_hi[28:27], ~a_be[1:0], dw_hi[26:25], a_row_r, dw_hi[24:16], dw_hi[15:0], dq_pre};
   end
   assign ready = (state != S_INIT) && (state != S_TRAIN);
   // a CPU access may begin: a start (this clock or pending) or a request
@@ -552,7 +552,7 @@ module se30_sdram #(
       dk_ack <= 0; dk_rdata <= 0; vr_ack <= 0; vr_rdata <= 0;
       v_we_r <= 0; v_bank_r <= 0; v_col_r <= 0; v_be_r <= 0; v_wdata_r <= 0;
       since_start <= 6'd63; win_ref <= 0; win_dk <= 1;
-      start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
+      start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_row_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
       k_we_r <= 0; k_bank_r <= 0; k_col_r <= 0; k_wdata_r <= 0;
       cap_sel <= 0; cap_ok <= 2'b00; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
       cap_fail_a <= 0; cap_fail_b <= 0;
@@ -658,7 +658,7 @@ module se30_sdram #(
           if (busy == 0) begin
             if (go) begin
               cmd <= CMD_ACTIVE; sd_ba <= a_bank; sd_addr <= a_row;
-              a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_col_r <= a_col;
+              a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_row_r <= a_row; a_col_r <= a_col;
               a_be <= xs_be; a_wdata <= xs_wdata;
               seq_n = 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
@@ -759,7 +759,7 @@ module se30_sdram #(
               // the next cycle's start, with this one never requested: the
               // data is discarded and the row for the new one opens now
               cmd <= CMD_ACTIVE; sd_ba <= a_bank; sd_addr <= a_row;
-              a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_col_r <= a_col;
+              a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_row_r <= a_row; a_col_r <= a_col;
               a_be <= xs_be; a_wdata <= xs_wdata;
               seq_n = 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
