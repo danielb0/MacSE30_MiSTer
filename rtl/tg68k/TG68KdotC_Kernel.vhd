@@ -1961,7 +1961,10 @@ ALU: TG68K_ALU
 	                    (datatype="00" AND beat_rem=1) ELSE '0';
 	fault_op_size <= 4 WHEN datatype="10" ELSE 2 WHEN datatype="01" ELSE 1;
 	fault_op_off <= pmmu_fault_addr_out - op_start_addr;
-	fault_beat_rem <= fault_op_size WHEN op_full='1' OR op5_now='1' ELSE
+	-- a five-byte bit field's fifth byte is a byte cycle of its own (UM 11.6.14
+	-- note: two operand cycles), so its frame says SIZE byte (KNOWN ISSUES 20)
+	fault_beat_rem <= 1 WHEN op5_now='1' AND beat_rem=1 ELSE
+	                  fault_op_size WHEN op_full='1' OR op5_now='1' ELSE
 	                  fault_op_size - conv_integer(fault_op_off(2 downto 0))
 	                      WHEN fault_op_off(31 downto 3) = "00000000000000000000000000000" AND
 	                           conv_integer(fault_op_off(2 downto 0)) < fault_op_size ELSE
@@ -2175,7 +2178,21 @@ ALU: TG68K_ALU
 	-- more registers remain), so any case this doesn't positively recognize
 	-- falls back to the existing, already-correct long-frame path.
 	pmmu_fault_effective_rw <= pmmu_fault_rw_out WHEN pmmu_fault = '1' ELSE berr_pmmu_fault_rw;
+	-- JSR and BSR are not eligible either (KNOWN ISSUES 20, the board's
+	-- RTRACE, compile 68): their return-address push is followed by the jump,
+	-- so a short frame resuming at the next instruction skipped the
+	-- subroutine and left the return address on the stack - the Mac
+	-- environment's address error as its stack grew onto a fresh page.
+	-- WinUAE pushes them outside genastore (no gen_set_fault_pc): the long
+	-- frame, and the call re-executed.
 	pmmu_fault_lastwrite_ok <= '1' WHEN pmmu_fault_effective_rw = '0' AND locked_rmw_active = '0' AND
+	                                    exe_opcode(15 downto 6) /= "0100111010" AND      -- JSR
+	                                    exe_opcode(15 downto 8) /= x"61" AND             -- BSR
+	                                    -- a five-byte bit field's FIRST write cycle (the long):
+	                                    -- its fifth byte is still to go, so the long is not the
+	                                    -- last write (WinUAE: bit fields never take the short
+	                                    -- frame).  The fifth byte is, and keeps it.
+	                                    NOT (op5_now = '1' AND beat_rem > 1) AND
 	                                    NOT ((exec(movem_action) = '1' OR movem_actiond = '1') AND movem_run = '1') AND
 	                                    NOT (micro_state = movep1 OR micro_state = movep2 OR micro_state = movep3 OR
 	                                         micro_state = movep4 OR micro_state = movep5)

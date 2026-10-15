@@ -19065,6 +19065,48 @@ Daniel - add to it, move items out when fixed).**
     build.**
       Mac OS unaffected (supervisor RTR unchanged; user-mode RTR under the
       ROM's flat mapping read the same bytes either way).
+    **THE BOARD PROBE AND TWO MORE FAULTS (2026-10-15 afternoon-evening).**
+    RTRACE (compile 66, `3c0b2f1`; `scripts/read_rtrace.tcl`) caught the big
+    BlockMove's destination ONE BYTE OFF long alignment: each long is two
+    beats (3 + 1), and a fresh page's fault was stacked at `$xxxFFC` SIZE
+    byte - the first beat, on the invalid page, released only clkena_core,
+    the beat engine moved on and the second beat's refault was latched.
+    FIXED `067fa7c`/`9e6727a`: a data beat the PMMU faults ends its operand
+    (`pmmu_dfault_k` beside `berr_k` in memmaskmux(3)); bench DSTOFF=1-3.
+    Compile 68 (`MacSE30_9e6727aa_splitfix.rbf`): the page tops now fault at
+    `$xxxFFD` as longs, replayed whole (board-verified with RTRACE) - and the
+    Mac environment still stops at the same moment (as the pointer appears)
+    with an ADDRESS error. RTRACE's last replay before it: a user-stack push
+    at `$7FCFFE` onto a fresh page. Cause: JSR and BSR qualified for the
+    format $A replay, which resumes at the next sequential instruction - the
+    subroutine skipped, its return address left on the stack, the next RTS
+    to garbage. FIXED (uncommitted at this record, compile 69): JSR/BSR take
+    the long frame and re-execute (WinUAE pushes them outside genastore).
+    **THE AUDIT** (Daniel asked for it before compiling; WinUAE
+    `cpummu30.cpp`/`gencpu.cpp` read; MAME's 68030 restarts whole
+    instructions): every instruction's short-frame eligibility against
+    WinUAE's rule (genastore stores only). LINK checked and correct as it
+    was (link2 runs before the dispatch); a five-byte bit field's first
+    write cycle took the short frame and its fifth byte was never written
+    (FIXED: `NOT (op5_now AND beat_rem > 1)`), and the fifth byte's frame
+    said SIZE long (FIXED: `fault_beat_rem` 1). New bench sets, all with
+    TCMODE=aux and RTRACE's three-level check: `moves` (A/UX's copyout,
+    uclear, copyin through MOVES), `wp` (copy-on-write: RMW longs and odd
+    words over write-protected pages), `jsr` (JSR, BSR, LINK pushes onto a
+    fresh page), `bf` (five-byte BFINS/BFCHG across write-protected pages).
+    MOVES and copy-on-write were already correct.
+21. **OPEN, accepted for now (2026-10-15): the restart design's limit.** Our
+    kernel resumes a faulted instruction by rollback and re-execution
+    (TG68K cannot save a half-done instruction), with a format $A replay
+    for a true last write; a 68030 CONTINUES (UM 8). Re-execution is wrong
+    only for a non-idempotent instruction that has already written part of
+    its result: BFCHG whose long straddles from a writable page into a
+    write-protected one (the first beat lands, the second faults, the
+    restart inverts those bytes again; `sim/predec_fault` CASESET=bfx fails
+    by design), and CAS2 after its first write. Needs a copy-on-write page
+    boundary inside the operand - an invalid page faults on the
+    instruction's READ first, so the write never faults. The cure is to
+    pre-check the second page before the first write, or continuation.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs

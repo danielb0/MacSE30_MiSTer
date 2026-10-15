@@ -53,7 +53,8 @@ THE PROGRAM (supervisor, from $1000)
       table B: 256 page descriptors, identity, valid, U and M clear (the
       walker sets them, UM 9.5.3 - A/UX's pages start that way too)
     USP $9000
-    each case (CASES; CASESET=blockmove|straddle|dcmp picks one kind): the case's
+    each case (CASES; CASESET=blockmove|straddle|dcmp|aux7 picks one kind; moves,
+      wp, jsr, bf and bfx run only alone): the case's
       pages made invalid (DT 0) and PFLUSHA; the registers; MOVE #0,SR (user
       mode, as the Mac environment runs); the loop; TRAP #0 back to
       supervisor; A0, A1, D1, the count of output longs that differ from the
@@ -160,6 +161,35 @@ WP = [
     (0xD158, 2, 0x38001, 0x2000, "ADD.W D0,(A0)+ at odd addresses: byte + byte words, read-modify-write"),
     (0x30C0, 2, 0x3C001, 0x2000, "MOVE.W D0,(A0)+ at odd addresses: byte + byte words, written"),
 ]
+# jsr: a call whose return-address push faults on the user stack's fresh
+# page (the board's RTRACE, compile 68: #601 at $7FCFFE just before the
+# Mac environment's address error).  The subroutine adds 1 to A2 and
+# RTSes; A2 = 1 says it ran once - a frame that resumes after the call
+# skips it - (call words, user stack pointer, invalid pages, what):
+JSR = [
+    ([0x4EBA], 0x32000, [0x31000], "JSR (d16,PC): the push wholly on the invalid page"),
+    ([0x4EBA], 0x36002, [0x35000], "JSR (d16,PC): the push straddles, its high word on the invalid page (the board's $7FCFFE)"),
+    ([0x6100], 0x3A000, [0x39000], "BSR.W: the push wholly on the invalid page"),
+    ([0x6100], 0x3E002, [0x3D000], "BSR.W: the push straddles"),
+    ("link", 0x2E000, [0x2D000], "LINK A6,#-8: the push wholly on the invalid page (A2 = A7 after it)"),
+    ("link", 0x26002, [0x25000], "LINK A6,#-8: the push straddles"),
+]
+# bf: five-byte bit fields ({4:32} from (A0): bytes A0..A0+4) across a page
+# boundary, both pages valid but write-protected (copy-on-write): the read
+# succeeds, the long's write faults, then the fifth byte's - (opcode,
+# A0, what):
+BF = [
+    (0xEFD0, 0x31FFC, "BFINS D0,(A0){4:32}: the long on one page, the fifth byte on the next"),
+    (0xEAD0, 0x35FFC, "BFCHG (A0){4:32}: the same - not idempotent, so never re-executed over a written long"),
+    (0xEFD0, 0x39FFD, "BFINS D0,(A0){4:32}: the long itself straddling"),
+]
+# bfx: the restart design's known limit (KNOWN ISSUES 21): BFCHG's long
+# straddles into a write-protected page after its first beat has landed on a
+# writable one; the restart inverts those bytes again.  A 68030 continues
+# from the faulted beat.  Expected to FAIL until the kernel continues.
+BFX = [
+    (0xEAD0, 0x3DFFD, "BFCHG (A0){4:32}: the long itself straddling, its first beat writable"),
+]
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [
     (0x40000, 0x41000, 0x48F00, 0x50000, 0x2000, 1, "dst", "destination pages invalid: the byte and word writes fault, as on the board"),
@@ -259,6 +289,33 @@ def main():
             code = [op, 0x51C9, 0xFFFC, 0x4E40]           # op; DBRA D1,op; TRAP #0
             cases.append((regs, code, 0, ref, dst, n, pages(dst, dst + n), None,
                           {"A0": dst + n, "A1": 0, "wp": True}, "wp: " + what))
+    if CASESET == "jsr":
+        for k, (call, usp, bad, what) in enumerate(JSR):
+            # call sub; TRAP #0; sub: ADDQ.L #1,A2; RTS - the displacement from the call's extension word
+            if call == "link":                       # LINK A6,#-8; MOVEA.L A7,A2; TRAP #0
+                code, a2 = [0x4E56, 0xFFF8, 0x244F, 0x4E40], usp - 4 - 8
+            else:
+                code, a2 = call + [0x0004, 0x4E40, 0x528A, 0x4E75], 1
+            regs = [(0x207C, usp), (0x4E60, None),          # MOVE.L A0,USP: the user stack
+                    (0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+            cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, a2,
+                          {"A0": 0x77, "A1": 0x55}, "jsr: " + what))
+    if CASESET in ("bf", "bfx"):
+        for k, (op, a0, what) in enumerate(BF if CASESET == "bf" else BFX):
+            lo = (a0 & ~0xF) - 0x10                  # the 64 bytes around the field, checked whole
+            ref = 0x20000 + 0x100 * k
+            init = bytearray(((lo + i) * 13 + 0x5A) & 0xFF for i in range(0x40))
+            out = bytearray(init)
+            o = a0 - lo
+            v = int.from_bytes(out[o:o + 5], "big")  # 40 bits; the field is bits 4..35 from the top
+            m = 0xFFFFFFFF << 4
+            v = (v & ~m) | ((0x12345678 << 4) & m) if op == 0xEFD0 else v ^ m
+            out[o:o + 5] = v.to_bytes(5, "big")
+            putbytes(lo, bytes(init))
+            putbytes(ref, bytes(out))
+            regs = [(0x207C, a0), (0x227C, 0), (0x72FF, None), (0x203C, 0x12345678)]   # A0, A1, MOVEQ #-1,D1, D0
+            cases.append((regs, [op, 0x0100, 0x4E40], 0, ref, lo, 0x40, [a0 & ~0xFFF, (a0 & ~0xFFF) + 0x1000], None,
+                          {"A0": a0, "A1": 0, "wp": True}, "bf: " + what))
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)
