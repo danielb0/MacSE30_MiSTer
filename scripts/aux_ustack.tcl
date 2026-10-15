@@ -29,7 +29,7 @@ if {$dev eq ""} { puts "ERROR: no Cyclone V FPGA in the chain"; exit 1 }
 set info [get_insystem_source_probe_instance_info -hardware_name $hw -device_name $dev]
 array set idx {}
 foreach inst $info { set idx([lindex $inst 3]) [lindex $inst 0] }
-foreach need {PPEK PPOK PIFA PLAS} { if {![info exists idx($need)]} { puts "ERROR: no $need in this bitstream"; exit 1 } }
+foreach need {PPEK PPOK} { if {![info exists idx($need)]} { puts "ERROR: no $need in this bitstream"; exit 1 } }
 start_insystem_source_probe -hardware_name $hw -device_name $dev
 
 proc rd {name} { global idx; return [expr 0b[read_probe_data -instance_index $idx($name)]] }
