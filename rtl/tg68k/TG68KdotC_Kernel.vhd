@@ -873,6 +873,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal cp_half      : std_logic := '0';               -- an immediate long: its first word is in
 	signal cp_an        : std_logic_vector(31 downto 0);  -- the EA's register An
 	signal cp_xn        : std_logic_vector(31 downto 0);  -- a brief extension's index, sized and scaled
+	signal cp_fbase     : std_logic_vector(31 downto 0);  -- a full extension's base: An, the PC, or none (BS)
 	signal cp_ea_ok     : std_logic;                      -- the EA is in the primitive's class
 	signal cp_pv        : std_logic;                      -- the primitive is a protocol violation here
 	-- B4, cpSAVE and cpRESTORE (030 UM 10.2.3): no primitives - cp_prim
@@ -1057,6 +1058,9 @@ architecture logic of TG68KdotC_Kernel is
 			WHEN cp_fmtw  => RETURN "10000";
 			WHEN cp_sfw   => RETURN "10001";
 			WHEN cp_rfr   => RETURN "10010";
+			WHEN cp_fbd   => RETURN "10011";
+			WHEN cp_fmi   => RETURN "10100";
+			WHEN cp_fod   => RETURN "10101";
 			WHEN OTHERS   => RETURN "00000";
 		END CASE;
 	END FUNCTION;
@@ -1081,6 +1085,9 @@ architecture logic of TG68KdotC_Kernel is
 			WHEN "10000" => RETURN cp_fmtw;
 			WHEN "10001" => RETURN cp_sfw;
 			WHEN "10010" => RETURN cp_rfr;
+			WHEN "10011" => RETURN cp_fbd;
+			WHEN "10100" => RETURN cp_fmi;
+			WHEN "10101" => RETURN cp_fod;
 			WHEN OTHERS  => RETURN cp_done;
 		END CASE;
 	END FUNCTION;
@@ -3697,6 +3704,11 @@ PROCESS (clk)
 	                      (fline_opcode_latch(6) = '1' AND cp_data(31 downto 28) /= "0000" AND
 	                       cp_data(17 downto 16) /= "00") ELSE '0';
 
+	-- the full extension format's base register (UM 2.2): suppressed (BS),
+	-- An, or for (bd,PC,Xn) the extension word's address
+	cp_fbase <= (OTHERS => '0') WHEN cp_w(7) = '1' ELSE
+	            cp_an WHEN fline_opcode_latch(5 downto 3) = "110" ELSE
+	            cp_pcbase;
 	-- a brief extension word's index: Xn.W sign-extended or Xn.L, scaled
 	PROCESS (cp_w, regfile)
 		VARIABLE x : std_logic_vector(31 downto 0);
@@ -3961,7 +3973,8 @@ PROCESS (clk)
 						cp_scanpc <= TG68_PC;
 					END IF;
 				END IF;
-				IF micro_state = cp_eat OR micro_state = cp_ea1 OR micro_state = cp_extw2 THEN
+				IF micro_state = cp_eat OR micro_state = cp_ea1 OR micro_state = cp_extw2 OR
+				   micro_state = cp_fbd OR micro_state = cp_fmi OR micro_state = cp_fod THEN
 					cp_tea_ld <= '1';
 				ELSE
 					cp_tea_ld <= '0';
@@ -3983,7 +3996,23 @@ PROCESS (clk)
 				ELSIF setopcode = '1' THEN
 					cp_f9 <= '0';
 				END IF;
-				IF micro_state = cp_ea1 THEN
+				-- the full extension format (UM 2.2, KNOWN ISSUES 20: A/UX's
+				-- StartMonitor's FMOVE.W ([bd],od),FP0): cp_w keeps the extension
+				-- word throughout; cp_ea starts at the base (An, or the extension
+				-- word's address for PC; none if BS) plus the index when it comes
+				-- before any indirection (IS = 0 and I/IS = 0xx), then takes bd,
+				-- the pointer (with a postindex added: I/IS = 1xx), and od.  A long
+				-- displacement's high word waits in cp_data(31:16), cp_half
+				-- counting - both in a dialog's fault frame, as cp_ea and cp_w are.
+				IF micro_state = cp_ea1 AND cp_w(8) = '1' AND
+				   (fline_opcode_latch(5 downto 3) = "110" OR fline_opcode_latch(5 downto 0) = "111011") THEN
+					cp_half <= '0';
+					IF cp_w(6) = '0' AND cp_w(2) = '0' THEN
+						cp_ea <= cp_fbase + cp_xn;
+					ELSE
+						cp_ea <= cp_fbase;
+					END IF;
+				ELSIF micro_state = cp_ea1 THEN
 					CASE fline_opcode_latch(5 downto 3) IS
 						WHEN "101" =>
 							cp_ea <= cp_an + ((31 downto 16 => cp_w(15)) & cp_w);
@@ -3997,6 +4026,29 @@ PROCESS (clk)
 								WHEN OTHERS => cp_ea <= cp_pcbase + ((31 downto 8 => cp_w(7)) & cp_w(7 downto 0)) + cp_xn;
 							END CASE;
 					END CASE;
+				END IF;
+				IF (micro_state = cp_fbd OR micro_state = cp_fod) AND beat_valid = '1' THEN
+					-- bd or od: a word sign-extended, or a long's two words
+					IF (micro_state = cp_fbd AND cp_w(5 downto 4) = "11") OR
+					   (micro_state = cp_fod AND cp_w(1 downto 0) = "11") THEN
+						IF cp_half = '0' THEN
+							cp_data(31 downto 16) <= data_read(15 downto 0);
+							cp_half <= '1';
+						ELSE
+							cp_ea <= cp_ea + (cp_data(31 downto 16) & data_read(15 downto 0));
+							cp_half <= '0';
+						END IF;
+					ELSE
+						cp_ea <= cp_ea + ((31 downto 16 => data_read(15)) & data_read(15 downto 0));
+					END IF;
+				END IF;
+				IF micro_state = cp_fmi AND beat_valid = '1' THEN
+					-- the pointer; a postindex (IS = 0, I/IS = 1xx) after it
+					IF cp_w(6) = '0' AND cp_w(2) = '1' THEN
+						cp_ea <= data_read + cp_xn;
+					ELSE
+						cp_ea <= data_read;
+					END IF;
 				END IF;
 				IF micro_state = cp_extw2 AND beat_valid = '1' THEN
 					cp_ea <= cp_wh & data_read(15 downto 0);
@@ -10589,10 +10641,22 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                         setstate <= "00";
                         next_micro_state_c <= cp_extw2;
                     ELSIF (fline_opcode_latch(5 downto 3) = "110" OR fline_opcode_latch(5 downto 0) = "111011") AND
+                          cp_w(8) = '1' AND cp_w(3) = '0' AND cp_w(5 downto 4) /= "00" AND
+                          NOT (cp_w(6) = '0' AND cp_w(2 downto 0) = "100") AND
+                          NOT (cp_w(6) = '1' AND cp_w(2) = '1') THEN
+                        -- the full extension format (UM 2.2; KNOWN ISSUES 20):
+                        -- the base displacement's words first, if any
+                        IF cp_w(5 downto 4) = "01" THEN
+                            next_micro_state_c <= cp_fx;
+                        ELSE
+                            setstate <= "00";
+                            next_micro_state_c <= cp_fbd;
+                        END IF;
+                    ELSIF (fline_opcode_latch(5 downto 3) = "110" OR fline_opcode_latch(5 downto 0) = "111011") AND
                           cp_w(8) = '1' THEN
-                        -- the full extension format (bd, od, memory indirect):
-                        -- not carried yet - the F-line (a save the chip has
-                        -- begun is ended first with AB)
+                        -- a reserved full-format encoding (bit 3 set, BD SIZE 00,
+                        -- I/IS 100, or IS = 1 with I/IS 1xx; UM Table 2-2): the
+                        -- F-line (a save the chip has begun is ended first with AB)
                         IF cp_ss = '1' AND fline_opcode_latch(6) = '0' THEN
                             cp_cir_next <= '1';
                             cp_cir_off <= "00010";
@@ -10605,6 +10669,73 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                             trap_1111 <= '1';
                             trapmake <= '1';
                         END IF;
+                    ELSIF cp_ss = '1' THEN
+                        next_micro_state_c <= cp_ssea;
+                    ELSIF cp_prim(12 downto 8) = "00001" THEN
+                        next_micro_state_c <= cp_rsel;
+                    ELSE
+                        next_micro_state_c <= cp_xfr;
+                    END IF;
+
+                WHEN cp_fbd =>
+                    -- a base displacement word in flight (cp_ea takes it).
+                    -- Every word fetch returns through an internal step, so
+                    -- the next fetch is scheduled with TG68_PC past this word
+                    -- - the resume record's PC (cp_bk_pc), as (xxx).L's
+                    -- second word through cp_ea1
+                    setstate <= "01";
+                    next_micro_state_c <= cp_fx;
+
+                WHEN cp_fx =>
+                    -- a long bd's first word taken (cp_half): its second;
+                    -- else base + bd (+ a preindex) is in cp_ea: the pointer's
+                    -- read, or no indirection (I/IS = 000) and the EA is complete
+                    setstate <= "01";
+                    IF cp_w(5 downto 4) = "11" AND cp_half = '1' THEN
+                        setstate <= "00";
+                        next_micro_state_c <= cp_fbd;
+                    ELSIF cp_w(2 downto 0) /= "000" THEN
+                        cp_mem_next <= '1';
+                        datatype <= "10";
+                        set_datatype <= "10";
+                        setstate <= "10";
+                        next_micro_state_c <= cp_fmi;
+                    ELSIF cp_ss = '1' THEN
+                        next_micro_state_c <= cp_ssea;
+                    ELSIF cp_prim(12 downto 8) = "00001" THEN
+                        next_micro_state_c <= cp_rsel;
+                    ELSE
+                        next_micro_state_c <= cp_xfr;
+                    END IF;
+
+                WHEN cp_fmi =>
+                    -- the pointer in flight; cp_ea takes it (and a postindex)
+                    setstate <= "01";
+                    next_micro_state_c <= cp_fy;
+
+                WHEN cp_fy =>
+                    -- the outer displacement's words, if any (a long od's
+                    -- second word comes back here too, cp_half set)
+                    setstate <= "01";
+                    IF cp_w(1 downto 0) = "01" THEN
+                        IF cp_ss = '1' THEN
+                            next_micro_state_c <= cp_ssea;
+                        ELSIF cp_prim(12 downto 8) = "00001" THEN
+                            next_micro_state_c <= cp_rsel;
+                        ELSE
+                            next_micro_state_c <= cp_xfr;
+                        END IF;
+                    ELSE
+                        setstate <= "00";
+                        next_micro_state_c <= cp_fod;
+                    END IF;
+
+                WHEN cp_fod =>
+                    -- an outer displacement word in flight (cp_ea takes it);
+                    -- a long's first word: back through cp_fy for the second
+                    setstate <= "01";
+                    IF cp_w(1 downto 0) = "11" AND cp_half = '0' THEN
+                        next_micro_state_c <= cp_fy;
                     ELSIF cp_ss = '1' THEN
                         next_micro_state_c <= cp_ssea;
                     ELSIF cp_prim(12 downto 8) = "00001" THEN

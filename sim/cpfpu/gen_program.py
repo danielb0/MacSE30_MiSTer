@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|b5a|b5b|b5c|b5d|mmu|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|b5a|b5b|b5c|b5d|mmu|fullea|fulleab|full]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -106,6 +106,15 @@ mmu (the PMMU through the wrapper) - b5d's tables and walk, an FPU
 instruction fetched translated, and page faults on a plain MOVE's read
 and write, re-run by the handler; the write must not reach memory before
 its fault.
+
+fullea (KNOWN ISSUES 20: A/UX's StartMonitor took "bad F-Line instruction"
+on FMOVE.W ([$47EC2204],$5A),FP0 - the dialog had no full extension
+format): the full format (UM 2.2) through the coprocessor's EA - both of
+StartMonitor's encodings ($01F2: BS, IS, long bd, memory indirect with a
+word od; $0161: word bd from A0, memory indirect, null od, a double
+written through the pointer), preindexed and postindexed with word
+displacements, (bd.L,An,Xn.L*4) without indirection, (bd,PC) and
+([An,Xn.W*4]) with null bd and od.
 
 full: the program the bench must run once stage B is whole (operand
 transfers, FMOVEM, FSAVE/FRESTORE).
@@ -958,6 +967,77 @@ elif MODE == 'b4':
         (0x33FC, 0x00000000, 0x08000000),     # ... the exception pending (bit 27 low)
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
+elif MODE in ('fullea', 'fulleab'):
+    # the full extension format through the coprocessor's EA (UM 2.2);
+    # fulleab bus-errors the first access to five of its beats inside the
+    # dialogs - a long bd's second word, the memory-indirect pointer's read
+    # (twice), the write through a pointer, an od's fetch - and the RTE of
+    # each long frame goes on from the fault
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x3420)                    # lea $3420.w,a0
+    a.emit(0x43F8, 0x3700)                    # lea $3700.w,a1
+    a.emit(0x7403)                            # moveq #3,d2
+    # 1. StartMonitor's $1000626C: BS IS, bd.L, memory indirect, od.W
+    while (a.here() + 8) % 4:
+        a.emit(0x4E71)                        # nop: bd's second word on a long of its own
+    a.label('C1')
+    a.emit(0xF230, 0x5000, 0x01F2, *L(0x3400), 0x005A)   # fmove.w ([$3400.l],$5a),fp0: 300
+    a.emit(0xF238, 0x6000, 0x3300)            # fmove.l fp0,$3300.w
+    # 2. StartMonitor's $1000DA98: bd.W from A0, memory indirect, null od: a write
+    a.emit(0xF200, 0x0100)                    # fmove.x fp0,fp2
+    a.emit(0xF230, 0x7500, 0x0161, 0xFFFC)    # fmove.d fp2,([-4,a0]): through ($341C) to $3600
+    # 3. preindexed: ([$10,a1,d2.w*4],$8)
+    while (a.here() + 8) % 4:
+        a.emit(0x4E71)                        # nop: od on a long of its own
+    a.label('C3')
+    a.emit(0xF231, 0x4180, 0x2522, 0x0010, 0x0008)       # fmove.l ...,fp3: 7
+    a.emit(0xF238, 0x6180, 0x3304)            # fmove.l fp3,$3304.w
+    # 4. postindexed: ([$20,a1],d2.l*2,-4)
+    a.emit(0xF231, 0x4200, 0x2B26, 0x0020, 0xFFFC)       # fmove.l ...,fp4: 9
+    a.emit(0xF238, 0x6200, 0x3308)            # fmove.l fp4,$3308.w
+    # 5. no indirection: ($100.l,a1,d2.l*4)
+    a.emit(0xF231, 0x4280, 0x2D30, *L(0x100)) # fmove.l ...,fp5: 11
+    a.emit(0xF238, 0x6280, 0x330C)            # fmove.l fp5,$330C.w
+    # 6. (bd,PC) in the full format: bd from the extension word's address
+    a.emit(0xF23B, 0x4300)                    # fmove.l (K13,pc),fp6: 13
+    a.label('EXT6'); a.emit(0x0160, 0)
+    a.emit(0xF238, 0x6300, 0x3310)            # fmove.l fp6,$3310.w
+    # 7. null bd and od: ([a1,d2.w*4])
+    a.emit(0xF231, 0x4380, 0x2511)            # fmove.l ...,fp7: 15
+    a.emit(0xF238, 0x6380, 0x3314)            # fmove.l fp7,$3314.w
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    a.label('K13'); a.emit(*L(13))
+    p = a.done()
+    p[(a.lab['EXT6'] - 0x1000) // 2 + 1] = (a.lab['K13'] - a.lab['EXT6']) & 0xFFFF
+    put(0x1000, p)
+    put(0x3400, L(0x3500)); put(0x355A, [300])          # 1: the pointer, the word
+    put(0x341C, L(0x3600))                              # 2: the pointer
+    put(0x371C, L(0x3800)); put(0x3808, L(7))           # 3
+    put(0x3720, L(0x3900)); put(0x3902, L(9))           # 4: $3900 + 3*2 - 4
+    put(0x380C, L(11))                                  # 5: $3700 + $100 + 3*4
+    put(0x370C, L(0x3A00)); put(0x3A00, L(15))          # 7
+    expect = [
+        (0x3300, 300, 0xFFFFFFFF),            # 1
+        (0x3600, 0x4072C000, 0xFFFFFFFF),     # 2: 300.0 as a double
+        (0x3604, 0x00000000, 0xFFFFFFFF),
+        (0x3304, 7, 0xFFFFFFFF),              # 3
+        (0x3308, 9, 0xFFFFFFFF),              # 4
+        (0x330C, 11, 0xFFFFFFFF),             # 5
+        (0x3310, 13, 0xFFFFFFFF),             # 6
+        (0x3314, 15, 0xFFFFFFFF),             # 7
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+    if MODE == 'fulleab':
+        berrs = [a.lab['C1'] + 8, 0x3400 | 1, 0x3600, a.lab['C3'] + 8, 0x3720 | 1]   # (bit 0: the read)
+        put(4 * 2, L(0x2400))                 # vector 2: b5c's handler, a frame's fields per fault
+        put(0x2400, [0x2E38, 0x3010, 0xE98F, 0x4DF8, 0x3020, 0xDDC7, 0x3CAF, 0x0006,
+                     0x3D6F, 0x000A, 0x0002, 0x2D6F, 0x0010, 0x0004, 0x2D6F, 0x0002, 0x0008,
+                     0x52B8, 0x3010, 0x4E73])
+        expect += [(0x3010, 5, 0xFFFFFFFF)]   # five bus errors, each a long frame at its access
+        for k, fa in enumerate([a.lab['C1'] + 8, 0x3400, 0x3600, a.lab['C3'] + 8, 0x3720]):
+            expect += [(0x3020 + 16 * k, 0xB0080000, 0xFFFF0000), (0x3024 + 16 * k, fa, 0xFFFFFFFF)]
+
 elif MODE == 'cmpm':
     # PC Exchange's 11-byte DOS-name compare (EXFS 16 at $E9E - KNOWN ISSUES 9,
     # 2026-10-06): SF D0; CMPM.L (A0)+,(A1)+; BNE; CMPM.L; BNE; CMPM.W; BNE;
