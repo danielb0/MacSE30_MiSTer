@@ -108,10 +108,15 @@ module tg68k (
                                        //   clocks it took[8:0], its budget[9:0], its fetches' wait states[7:0]} (PPRF, plan 10.4 item 4)
   output [63:0] dbg_cache,             // {CDIS*, 1'b0, CACR[13:0], instruction hits[23:0], data hits[23:0]}:
                                        //   the probe deck's PCCH (plan 1.16.3); the counts wrap
-  output [55:0] dbg_mmuf               // the PMMU's last fault, for PBER (KNOWN ISSUES 8): {1'b0, the bus BERR
+  output [55:0] dbg_mmuf,              // the PMMU's last fault, for PBER (KNOWN ISSUES 8): {1'b0, the bus BERR
                                        //   pending, an MMU bus error pending, then as latched at the fault: an
                                        //   instruction fetch, read, FC[2:0], its MMUSR-coded status[15:0], the
                                        //   logical address[31:0]}
+  output [96:0] dbg_rpr,               // RTRACE (KNOWN ISSUES 20): {a format $A replay under way, the frame as the
+                                       //   RTE read it: state1[15:0], SSW[15:0], fault address[31:0], DOB[31:0]}
+  output [106:0] dbg_rpk               // ... and each kernel data write as its cycle starts: {one clk, logical
+                                       //   address[31:0], physical[31:0], data[31:0], SIZ[1:0], FC[2:0], posted,
+                                       //   the long's byte lanes[3:0]}
 );
 
   // ------------------------------------------------------------- kernel
@@ -157,7 +162,9 @@ module tg68k (
     .debug_exc_take(k_exc_take), .debug_trap_vector(k_trap_vector), .debug_opcode(k_opcode), .debug_opcode_pc(k_opcode_pc),
     .debug_decodeOPC(k_decode),
     .debug_pmmu_fault_addr(k_f_addr), .debug_pmmu_fault_mmusr(k_f_mmusr), .debug_pmmu_fault_fc(k_f_fc),
-    .debug_pmmu_fault_rw(k_f_rw), .debug_pmmu_fault_is_insn(k_f_insn), .debug_trap_mmu_berr(k_trap_mmu_berr)
+    .debug_pmmu_fault_rw(k_f_rw), .debug_pmmu_fault_is_insn(k_f_insn), .debug_trap_mmu_berr(k_trap_mmu_berr),
+    .debug_rte_fmt_a_replay(dbg_rpr[96]), .debug_rte_fmt_a_state1(dbg_rpr[95:80]), .debug_rte_fmt_a_ssw(dbg_rpr[79:64]),
+    .debug_rte_fmt_a_fault_addr(dbg_rpr[63:32]), .debug_rte_fmt_a_data_out(dbg_rpr[31:0])
   );
   // the fault as the PMMU raises it: its status register is rewritten by
   // every later translation (the exception's own stack pushes), so it is
@@ -287,6 +294,7 @@ module tg68k (
   // the buffer, having acknowledged early, could only report late (the
   // header).
   wire        k_post   = post_en && k_dwrite && !k_rmc && (k_fc != 3'd7) && ((k_addr[31:30] == 2'b00) || pb_vid);
+  assign      dbg_rpk  = {s1_take && k_dwrite, k_addr_log, k_addr, k_dout, k_siz, k_fc, k_post, d_wbe};
   reg         post_ack;                // the kernel's acknowledge for its posted write, at the next phi1
   reg  [31:0] pb_lanes;                // the long as the kernel drove it: each byte on its own address's lane
   reg   [1:0] pb_lane;                 // the beat's lane in it

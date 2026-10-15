@@ -219,6 +219,7 @@ module tb_predec_fault;
   end
 `endif
 
+
   // ------------------------------------------------------ the bus trace
   // each cycle printed once, at the first clock of its acknowledge
   reg [31:0] bt_lo = 0, bt_hi = 0; reg btrace = 0;
@@ -250,6 +251,66 @@ module tb_predec_fault;
     if (tail > 0) tail = tail - 1;
     if (tail == 0) done <= 1;
   end
+
+`ifdef RTRACE
+  // ------------------------------------------- RTRACE (KNOWN ISSUES 20)
+  // the board's replay trace (rtl/dbg_rtrace.v) on the bench's taps,
+  // armed from reset, every replay matched, stopping at 512 records; the
+  // run's end checks that every replay's frame, kernel beat and SDRAM pair
+  // agree, as on a correct machine they must
+  reg         rt_arm = 0;
+  wire [127:0] rt_q;
+  wire  [63:0] rt_stat;
+  dbg_rtrace rt (
+    .clk(clk), .rpr(cpu.dbg_rpr), .rpk(cpu.dbg_rpk), .sdw(sdram.dbg_wr),
+    .arm(rt_arm), .wrap(1'b0), .mask(32'd0), .match(32'd0), .raddr(9'd0), .rdata(rt_q), .status(rt_stat));
+  always @(posedge clk) rt_arm <= reset_n;
+  task rt_check;
+    integer e, nr, nk, ns, st, rfails;
+    reg [127:0] q;
+    reg  [15:0] ssw; reg [31:0] fa, dob, kl, kp, kd; reg [1:0] ksiz, want_siz;
+    reg  [22:0] sxs; reg [3:0] sdqm; reg [31:0] sd;
+    begin
+      nr = 0; nk = 0; ns = 0; st = 0; rfails = 0;
+      for (e = 0; e < rt.wp; e = e + 1) begin
+        q = rt.mem[e];
+        case (q[127:126])
+          2'b01: begin
+            ssw = q[109:94]; fa = q[77:46]; dob = q[45:14]; nr = nr + 1; st = 1;
+            $display("RT %3d R t=%04x ssw=%04x state1=%04x fault=%08x dob=%08x #%0d", e, q[125:110], ssw, q[93:78], fa, dob, q[13:0]);
+            want_siz = (ssw[5:4] == 2'b01) ? 2'b01 : (ssw[5:4] == 2'b10) ? 2'b10 : 2'b00;
+            if (!ssw[8] || ssw[6]) begin rfails = rfails + 1; $display("FAIL: RTRACE R %0d: SSW %04x is not a data write fault", e, ssw); end
+          end
+          2'b10: begin
+            kl = q[109:78]; kp = q[77:46]; kd = q[45:14]; ksiz = q[13:12]; nk = nk + 1;
+            $display("RT %3d K t=%04x log=%08x phys=%08x d=%08x siz=%0d fc=%0d post=%0d lanes=%b", e, q[125:110], kl, kp, kd, ksiz, q[11:9], q[8], q[7:4]);
+            if (st == 1) begin                 // the replay's own beat
+              if (kl !== fa || ksiz !== want_siz || (ksiz == 2'b00 && kd !== dob)) begin
+                rfails = rfails + 1; $display("FAIL: RTRACE K %0d: the replay's beat is not the frame's (log %08x siz %0d d %08x)", e, kl, ksiz, kd);
+              end
+              st = 2;
+            end
+          end
+          2'b11: begin
+            sdqm = q[109:106]; sxs = {q[105:104], q[103:91], q[90:83]}; sd = q[81:50]; ns = ns + 1;
+            $display("RT %3d S t=%04x dqm=%b/%b long=%06x (byte %08x) d=%08x", e, q[125:110], sdqm[3:2], sdqm[1:0], sxs, {7'd0, sxs, 2'b00}, sd);
+            if (st == 2) begin                 // the replay's own pair
+              if (sxs !== kp[24:2] || (ksiz == 2'b00 && (sdqm !== 4'b0000 || sd !== dob))) begin
+                rfails = rfails + 1; $display("FAIL: RTRACE S %0d: the replay's WRITE pair is not its beat (long %06x dqm %b d %08x)", e, sxs, sdqm, sd);
+              end
+              st = 3;
+            end
+          end
+          default: begin rfails = rfails + 1; $display("FAIL: RTRACE record %0d has no kind", e); end
+        endcase
+      end
+      $display("---- RTRACE: %0d replays seen, %0d matched; %0d records: %0d R, %0d K, %0d S", rt_stat[63:40], rt_stat[39:24], rt.wp, nr, nk, ns);
+      if (nr == 0) begin rfails = rfails + 1; $display("FAIL: RTRACE logged no replay"); end
+      if (nr != rt_stat[39:24]) begin rfails = rfails + 1; $display("FAIL: RTRACE: %0d R records for %0d matched replays", nr, rt_stat[39:24]); end
+      fails = fails + rfails;
+    end
+  endtask
+`endif
 
   initial begin
     if (!$value$plusargs("PROG=%s", prog_dir)) prog_dir = ".";
@@ -284,6 +345,9 @@ module tb_predec_fault;
 `ifdef SDRAM
     $display("---- the SDRAM model saw %0d datasheet violations", chip.errors);
     if (chip.errors != 0) fails = fails + 1;
+`endif
+`ifdef RTRACE
+    rt_check;
 `endif
     v = rd32(32'h3F00);
     if (v[31:16] == 16'hBBBB) begin fails = fails + 1; $display("FAIL: the bus-error handler ran more than 100 times (a fault that never resolves)"); end

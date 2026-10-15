@@ -299,6 +299,9 @@ module se30_sdram #(
   input      [23:0] raw_addr,          // word address
   output reg        raw_ack,
   input             dbg_dqm_force,     // hold both DQM pins high, for a meter on the chip (item 21)
+  output reg [60:0] dbg_wr,            // RTRACE (KNOWN ISSUES 20): a CPU write's WRITE pair as the pins carried it -
+                                       //   {toggles each pair, DQM (A12:11) high word, low word, bank, the ACTIVE's
+                                       //   row, the high WRITE's column, high word, low word}; unconnected, it is pruned
 
   // the chip
   output            sd_clk,
@@ -522,6 +525,20 @@ module se30_sdram #(
   wire [17:0] tr_bad = TR_READS - tr_good;
   wire [13:0] tr_fail = (tr_bad > 18'd16383) ? 14'h3FFF : tr_bad[13:0];
   reg [15:0] tr_w1;                    // the burst's first word, held for the compare
+  // RTRACE's tap (dbg_wr): an observer of the pins, nothing fed back.  A
+  // CPU write's WRITEs are the only ones at the pins while S_ACC holds a
+  // write; the high word's has A10 = 0, the low word's A10 = 1 (auto-
+  // precharge), each with its word on dq_out on the same clock
+  reg [12:0] dw_row = 0;
+  reg [28:0] dw_hi = 0;
+  initial dbg_wr = 0;
+  always @(posedge clk) begin
+    if (cmd == CMD_ACTIVE) dw_row <= sd_addr;
+    if (cmd == CMD_WRITE && state == S_ACC && a_we) begin
+      if (!sd_addr[10]) dw_hi <= {sd_addr[12:11], sd_ba, sd_addr[8:0], dq_out};
+      else dbg_wr <= {~dbg_wr[60], dw_hi[28:27], sd_addr[12:11], dw_hi[26:25], dw_row, dw_hi[24:16], dw_hi[15:0], dq_out};
+    end
+  end
   assign ready = (state != S_INIT) && (state != S_TRAIN);
   // a CPU access may begin: a start (this clock or pending) or a request
   // whose start was missed, the chip ready for an ACTIVE, no overdue refresh

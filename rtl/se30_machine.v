@@ -226,6 +226,8 @@ module se30_machine #(
   output [159:0] dbg_trg,              // {D1, A1, A3, A5, A6}: the bus-error trigger's snapshot (KNOWN ISSUES 20)
   output [56:0] dbg_exc,               // {an exception taken, its vector, the opcode, its PC}: PEXC and PTRP (plan 5.12.12 item 8)
   output [55:0] dbg_mmuf,              // the PMMU's last fault: PBER (KNOWN ISSUES 8)
+  output [96:0] dbg_rpr,               // RTRACE: the format $A replay and its frame (tg68k.v's, KNOWN ISSUES 20)
+  output [106:0] dbg_rpk,              // RTRACE: each kernel data write as its cycle starts (tg68k.v's)
   output [63:0] dbg_cache,             // {CDIS*, 0, CACR[13:0], instruction hits, data hits}: PCCH (plan 1.16.3)
   output [63:0] dbg_swim,              // {the SWIM's 48, the drive's 16} (plan 5.8)
   output [15:0] dbg_fdhd2,             // the external drive's 16, as dbg_swim's low word (plan 5.14)
@@ -253,7 +255,8 @@ module se30_machine #(
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(cpu_cdis), .coff(dbg_coff), .pace_en(pace_en), .post_en(1'b1), .reset_out_n(reset_out_n), .halted(halted),
-    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_trg(dbg_trg), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_pace(dbg_pace), .dbg_mmuf(dbg_mmuf));
+    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_trg(dbg_trg), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_pace(dbg_pace), .dbg_mmuf(dbg_mmuf),
+    .dbg_rpr(dbg_rpr), .dbg_rpk(dbg_rpk));
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;
   assign dbg_rw_n = cpu_rw_n;  assign dbg_dsack_n = dsack_n;  assign dbg_berr = berr;

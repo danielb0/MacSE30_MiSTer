@@ -365,6 +365,7 @@ entity TG68KdotC_Kernel is
 		debug_rte_fmt_a_fault_addr : out std_logic_vector(31 downto 0);
 		debug_rte_fmt_a_data_out : out std_logic_vector(31 downto 0);
 		debug_rte_fmt_a_replay_needed : out std_logic;
+		debug_rte_fmt_a_replay : out std_logic;  -- the replay write is under way (rte_mmu_replay): the RTRACE probe (KNOWN ISSUES 20)
 		debug_rte_format_b_version_error : out std_logic
 			);
 end TG68KdotC_Kernel;
@@ -12616,6 +12617,7 @@ debug_rte_fmt_a_ssw <= rte_fmt_a_ssw;
 debug_rte_fmt_a_fault_addr <= rte_fmt_a_fault_addr;
 debug_rte_fmt_a_data_out <= rte_fmt_a_data_out;
 debug_rte_fmt_a_replay_needed <= rte_fmt_a_replay_needed;
+debug_rte_fmt_a_replay <= '1' when micro_state = rte_mmu_replay else '0';
 debug_rte_format_b_version_error <= rte_format_b_version_error;
 
 -- synthesis translate_off

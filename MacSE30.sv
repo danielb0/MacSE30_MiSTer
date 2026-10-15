@@ -119,6 +119,14 @@ localparam LEAN = 1;
 `else
 localparam LEAN = 0;
 `endif
+// The format $A replay trace (KNOWN ISSUES 20, 2026-10-15; dbg_rtrace.v, 8
+// M10K and a few hundred ALMs): define SE30_RTRACE in the qsf for a debug
+// build, with SE30_LEAN_PROBES and without SE30_BTRACE to stay in the device.
+`ifdef SE30_RTRACE
+localparam RTRACE = 1;
+`else
+localparam RTRACE = 0;
+`endif
 
 // The CD-ROM (plan Section 12): an AppleCD SC at SCSI ID 3 on hps_io slot
 // 4, data only (no CD audio, so no CUE/BIN/CHD: flat ISO and Toast images,
@@ -703,7 +711,7 @@ se30_sdram sdram
 	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
 	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
 	.raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
-	.dbg_dqm_force(dqm_force),
+	.dbg_dqm_force(dqm_force), .dbg_wr(dbg_sdw),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),
 	.sd_dqm({SDRAM_DQMH, SDRAM_DQML}), .sd_cs_n(SDRAM_nCS), .sd_ras_n(SDRAM_nRAS),
 	.sd_cas_n(SDRAM_nCAS), .sd_we_n(SDRAM_nWE)
@@ -728,6 +736,9 @@ wire [31:0] dbg_rtc;
 wire        dbg_swim_vread;
 wire [56:0] dbg_exc;
 wire [55:0] dbg_mmuf;
+wire [96:0] dbg_rpr;                    // RTRACE's taps (dbg_rtrace.v)
+wire [106:0] dbg_rpk;
+wire [60:0] dbg_sdw;
 wire [63:0] dbg_cache;
 wire [15:0] dbg_scsi;
 wire [31:0] dbg_scc;
@@ -769,7 +780,7 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 	.trk2_addr(trk2_addr), .trk2_side(trk2_side), .trk2_bit(trk2_bit),
 	.disk2_wprot(disk2_wprot), .disk2_hd(img2_hd), .trk2_we(trk2_we), .trk2_wbit(trk2_wbit), .trk2_cells(trk2_cells),
 	.arc2_done(arc2_done), .arc2_side(arc2_side), .arc2_start(arc2_start), .arc2_end(arc2_end), .arc2_whole(arc2_whole),
-	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_trg(dbg_trg), .dbg_coff(dbg_coff), .dbg_exc(dbg_exc), .dbg_mmuf(dbg_mmuf), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
+	.dbg_via(dbg_via), .dbg_regs(dbg_regs), .dbg_trg(dbg_trg), .dbg_coff(dbg_coff), .dbg_exc(dbg_exc), .dbg_mmuf(dbg_mmuf), .dbg_rpr(dbg_rpr), .dbg_rpk(dbg_rpk), .dbg_cache(dbg_cache), .dbg_swim(dbg_swim), .dbg_fdhd2(dbg_fdhd2), .dbg_swim_vread(dbg_swim_vread),
 	.dbg_adb(dbg_adb), .dbg_rtc(dbg_rtc), .dbg_scsi(dbg_scsi), .dbg_scc(dbg_scc), .dbg_asc(dbg_asc), .dbg_fpu(dbg_fpu), .dbg_pace(dbg_pace),
 	.audio_l(asc_audio_l), .audio_r(asc_audio_r),
 	.scsi_img_mounted(img_mounted[4:2]), .scsi_img_blocks(img_size[40:9]),
@@ -953,7 +964,7 @@ always @(posedge clk_sys) begin
 	if (!pk_hold) begin pk_req_r <= 0; raw_req_r <= 0; pk_st <= 0; end
 end
 
-dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE), .LEAN(LEAN)) probes
+dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE), .RTRACE(RTRACE), .LEAN(LEAN)) probes
 (
 	.clk(clk_sys), .phi1(phi1), .reset_n(machine_reset_n),
 	.cpu_addr(dbg_addr), .cpu_fc(dbg_fc), .cpu_as_n(dbg_as_n), .cpu_rw_n(dbg_rw_n),
@@ -977,7 +988,8 @@ dbg_probes #(.PERF_PROBES(PERF_PROBES), .PBER(PBER), .BTRACE(BTRACE), .LEAN(LEAN
 	.scc_state(dbg_scc),
 	.asc_state(dbg_asc),
 	.fpu_state(dbg_fpu),
-	.pace_ev(dbg_pace)
+	.pace_ev(dbg_pace),
+	.rpl_frame(dbg_rpr), .rpl_kwrite(dbg_rpk), .rpl_sdram(dbg_sdw)
 );
 `else
 assign pk_hold = 1'b0;

@@ -157,6 +157,7 @@ module dbg_probes #(
 	parameter PERF_PROBES = 0,            // PSCT, PFPU, PPRF: MacSE30.sv's SE30_PERF_PROBES (plan 10.4)
 	parameter PBER = 0,                   // PBER: MacSE30.sv's SE30_PBER (KNOWN ISSUES 8; off by default, Daniel 2026-10-07)
 	parameter BTRACE = 0,                 // PBTD/PBTC: the bus-error trace (KNOWN ISSUES 20), MacSE30.sv's SE30_BTRACE
+	parameter RTRACE = 0,                 // PRTD/PRTC: the format $A replay trace (KNOWN ISSUES 20), MacSE30.sv's SE30_RTRACE
 	parameter LEAN = 0                    // MacSE30.sv's SE30_LEAN_PROBES: only PBLD, PPEK/PPOK/PPKS and the opt-in
 	                                      //   groups (PBER, BTRACE, PERF) - the rest left out to make room (2026-10-14)
 ) (
@@ -199,7 +200,10 @@ module dbg_probes #(
 	input  wire [31:0] scc_state,         // PSCC: the SCC (plan 10.5)
 	input  wire [31:0] asc_state,         // PASC: the ASC (plan 11.3)
 	input  wire  [1:0] fpu_state,         // PFPU: {the 68882 not idle, its APU running} (plan 10.4 item 4)
-	input  wire [35:0] pace_ev            // PPRF: {release, decoder row[7:0], clocks[8:0], budget[9:0], fetch wait states[7:0]} (plan 10.4 item 4)
+	input  wire [35:0] pace_ev,           // PPRF: {release, decoder row[7:0], clocks[8:0], budget[9:0], fetch wait states[7:0]} (plan 10.4 item 4)
+	input  wire [96:0] rpl_frame,         // PRTD: tg68k.v's dbg_rpr (KNOWN ISSUES 20)
+	input  wire [106:0] rpl_kwrite,       // PRTD: tg68k.v's dbg_rpk
+	input  wire [60:0] rpl_sdram          // PRTD: se30_sdram.v's dbg_wr (clk_mem, steady between pairs)
 );
 
 	reg        as_q = 1;
@@ -468,6 +472,29 @@ module dbg_probes #(
 	end else begin : g_no_trigger
 		assign trg_hold = 1'b0;
 		assign coff = 2'b00;
+	end endgenerate
+
+	// RTRACE (KNOWN ISSUES 20, 2026-10-15): dbg_rtrace.v's ring of format $A
+	// replays and the writes after them, at three levels.  PRTD's source
+	// {arm, wrap, mask[31:0], match[31:0], row[8:0]} sets the filter and
+	// picks the record its probe shows; PRTC is the status.  Read by
+	// scripts/read_rtrace.tcl.
+	generate if (RTRACE) begin : g_rtrace
+		wire  [74:0] rt_src;
+		wire [127:0] rt_q;
+		wire  [63:0] rt_stat;
+		dbg_rtrace rt (
+			.clk(clk), .rpr(rpl_frame), .rpk(rpl_kwrite), .sdw(rpl_sdram),
+			.arm(rt_src[74]), .wrap(rt_src[73]), .mask(rt_src[72:41]), .match(rt_src[40:9]), .raddr(rt_src[8:0]),
+			.rdata(rt_q), .status(rt_stat));
+		altsource_probe #(
+			.instance_id ("PRTD"), .probe_width (128), .source_width (75),
+			.sld_auto_instance_index ("YES")
+		) cp_prtd (.probe(rt_q), .source(rt_src), .source_clk(clk), .source_ena(1'b1));
+		altsource_probe #(
+			.instance_id ("PRTC"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_prtc (.probe(rt_stat), .source(), .source_clk(clk), .source_ena(1'b1));
 	end endgenerate
 
 	// the floppy (the header's PFLP)
