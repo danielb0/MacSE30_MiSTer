@@ -19210,8 +19210,14 @@ Daniel - add to it, move items out when fixed).**
     machine 17, cpfpu b1 b2 b3a b3b b3c b4 b5a b5b b5c b5d b7e cmpm mmu
     fullea fulleab all PASS. Bench times measured: an ifetch case 5 s,
     jsr/bf ~15 s, aux7 ~7.5 min (SDRAM 10), blockmove 16 min, straddle
-    ~20 min, wp and moves ~21-22 min. Next: compile with SE30_LEAN_PROBES + SE30_LEAN_CPU, then
-    fresh-image A/UX boots.
+    ~20 min, wp and moves ~21-22 min. **COMPILE 73 DONE (2026-10-16, Daniel: "compile
+    when ready"):** `output_files/MacSE30_3f4c537f_ki22.rbf` (md5 29f09edd,
+    3f4c537 with compile 72's deck: SE30_LEAN_PROBES + SE30_LEAN_CPU set in
+    the qsf for the build only, reverted; 38,836 ALMs, 34 min), timing met
+    at every corner (worst +0.049 ns, slow -40C; the capture met at each
+    corner), no combinational loop. NOT flashed. Next (Daniel): flash it,
+    boot A/UX 3.1 at 16 MB from fresh image copies; expect the Mac session
+    past the grey hand-over on every boot and no telinit/macgetty cores.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
