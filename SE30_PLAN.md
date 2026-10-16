@@ -19329,6 +19329,10 @@ Daniel - add to it, move items out when fixed).**
     (worst +0.023 ns, ascal; our clk_sys +1.014 slow 100C), no loop, qsf and
     tag reverted. NOT flashed. Expected on the board: A/UX 3.1 at 16 MB to the
     Finder on every boot, no new /core.
+    **COMPILE 76 ON THE BOARD (Daniel, 2026-10-16 ~16:50): boot 1 from a
+    fresh image reached the Finder; NO /core** (every boot before the fix
+    left one, the Finder boot of compile 74 included). Further fresh-image
+    boots to confirm.
 
 23. **OPEN (2026-10-16, found by JTRACE's bench check): a stray user fetch
     at a junk PC after an instruction-fetch fault on a JMP (xxx).L's address
