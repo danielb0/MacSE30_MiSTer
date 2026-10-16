@@ -19324,7 +19324,11 @@ Daniel - add to it, move items out when fixed).**
     kernel_bus 338, rtr_fc 29, cache030 60, cpfpu all 15 programs. (One
     auxirq run broke because a second run shared its directory - rerun
     alone: PASS.) Compile with compile 73's deck (no JTRACE: its ALMs
-    tipped compile 75's timing).
+    tipped compile 75's timing). **COMPILE 76 DONE:** `output_files/MacSE30_32a9bb05_fdfix.rbf`
+    (md5 see archive; 38,754 ALMs, 36 min), timing met at EVERY corner
+    (worst +0.023 ns, ascal; our clk_sys +1.014 slow 100C), no loop, qsf and
+    tag reverted. NOT flashed. Expected on the board: A/UX 3.1 at 16 MB to the
+    Finder on every boot, no new /core.
 
 23. **OPEN (2026-10-16, found by JTRACE's bench check): a stray user fetch
     at a junk PC after an instruction-fetch fault on a JMP (xxx).L's address
