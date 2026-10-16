@@ -19401,6 +19401,23 @@ Daniel - add to it, move items out when fixed).**
     (sim/insn_probe) with exactly these four instructions - A6 -> a
     pointer, results and the PC flow checked - failing first; the fix;
     the regression list; a compile (Daniel, 2026-10-16: "fix it later").
+    **Second case, deterministic (Daniel, 2026-10-16 ~18:20): xclock** (the
+    image's /usr/bin/X11/xclock, copy in core_74\xclock) dies the same way;
+    PFLN: F-line, opcode $FFFC at $16BC. xclock there:
+      $16B4 6D00 FFA0            BLT.W $1656
+      $16B8 2036 0162 0008 00B4  MOVE.L ([8,A6],$B4),D0
+      $16C0 6A5A                 BPL.B $171C
+    $16BC is again inside a SOURCE ([bd,An],od) MOVE with ext $0162, and
+    the instruction before is a branch - so the source form is the faulty
+    one (the xeyes destination hypothesis is out). But PFLN's opcode is
+    $FFFC for both, while the word at $16BC is $0008: the kernel may RAISE
+    the F-line deliberately for this extension (IS=1, word bd, word od,
+    I/IS 010), as the coprocessor path did before 5f59b90, $FFFC being a
+    placeholder - then the fix is to implement the case, not to correct a
+    length. Check the full-format decode (ld_229_*) for which BD SIZE /
+    I/IS combinations it accepts. Also seen meanwhile: PEXC illegal=1
+    (vector 4, one, source not placed) and regular vector-8 privilege
+    violations (likely A/UX emulating Mac code's MOVE from SR - to check).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
