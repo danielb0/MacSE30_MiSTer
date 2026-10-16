@@ -19218,6 +19218,37 @@ Daniel - add to it, move items out when fixed).**
     corner), no combinational loop. NOT flashed. Next (Daniel): flash it,
     boot A/UX 3.1 at 16 MB from fresh image copies; expect the Mac session
     past the grey hand-over on every boot and no telinit/macgetty cores.
+    **COMPILE 73 ON THE BOARD (Daniel, 2026-10-16): NOT CURED.** Grey screen
+    at the hand-over; probes: the Mac side stopped (A-line count frozen at
+    46,583), the kernel alive, one F-line $FFFF at $FFFFFF94; putbuf only the
+    banner; startmac gone; the image's /core = macgetty, IDENTICAL in every
+    register to compile 71's (core_71b) - deterministic. The core read with a
+    long frame (the u-area save area sits $18 lower than aux_ustack.tcl
+    assumes; its 'a4 = $14' and 'usp $70000' were frame bytes): format $A,
+    PC $14, a byte write of $03 to 0, usp $FFFFF406, d0 $F7, d7 $52, a0
+    $FFFFF562. Executing macgetty's COFF header (mapped at 0) from PC 0
+    with SP $FFFFF408, d0 0, a0 $FFFFF564 reproduces every one of those
+    values (bchg; ori.b #$52,d7; move.w -(a7),-(a0); two ori.b to d0;
+    ori.b #3,(a4)+ with a4 0 faults). So control reached 0 from login()'s
+    rename() (libc1_s $47F06608: moveq #$7B,d0; TRAP #15; bcs.w; RTS) at
+    its RTS: SP $FFFFF404 -> $FFFFF408 and PC 0, while the core holds
+    $000010DC at $FFFFF404. KNOWN ISSUES 22's link to macgetty (straddling
+    branch-table entries) is WRONG: no entry on that path is near a page
+    boundary. The ifetch fix stands on its own (a real 68030 rule, bench-
+    proven). sim/predec_fault CASESET=rts (RTS pop faulting: whole,
+    straddling either way, after a TRAP #15/RTE stub; RTSONLY=k) all PASS
+    with CACR 0/$2101, SDRAM=1 and auxirq - the bench cannot make it.
+    THE INSTRUMENT (Daniel: build it): JTRACE, rtl/dbg_jtrace.v (c90c774) -
+    every kernel beat (logical/physical address, data, beat_valid, force
+    release, cache/DIB hit, data-cache hit, posted, fault, berr, decode,
+    opcode/PC) in a 512 x 192 ring, ARMED FROM CONFIGURATION (limit $A0),
+    frozen 24 beats after a user fetch below the limit; PJTD/PJTC,
+    scripts/read_jtrace.tcl dump (no restart). Benched: quiet on every rts
+    case, data field = RAM on every long fetch, a raised limit triggers and
+    freezes on the TRAP #15 sequence. Compile 74 = c90c774 with
+    SE30_LEAN_PROBES + SE30_LEAN_CPU + SE30_JTRACE. Board: boot A/UX, at the
+    grey screen run read_jtrace.tcl dump - the RTS's two reads name the
+    source of the 0 (bus, data cache, DIB, or a released beat).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
