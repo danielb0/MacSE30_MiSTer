@@ -230,6 +230,34 @@ module tb_predec_fault;
     $display("KT %0t ms=%0d %s ce=%b bv=%b bs=%b a=%08x log=%08x siz=%0d d=%08x busy=%b flt=%b faddr=%08x s=%0d post=%b",
              $time, ms, phi1 ? "p1" : "p2", cpu.k_clkena, cpu.k_beat_valid, cpu.k_busstate, cpu.k_addr, cpu.k_addr_log,
              cpu.k_siz, cpu.k_dout, cpu.k_pmmu_busy, cpu.k_pmmu_fault, cpu.k_f_addr, cpu.s, cpu.post);
+  // ... and its fault bookkeeping on the same clocks (KX): first-fire latch,
+  // dispatch request, restart arm, consumer strobes, retire
+  reg kx_lw, kx_mb, kx_disp, kx_fv, kx_fi, kx_rp, kx_cons, kx_sop, kx_sint, kx_bea, kx_tb, kx_obv, kx_bad;
+  reg [31:0] kx_pc, kx_epc, kx_lopc; reg [15:0] kx_op, kx_lor; reg [1:0] kx_st;
+  initial begin
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/TG68_PC", "/tb_predec_fault/kx_pc", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/exe_pc", "/tb_predec_fault/kx_epc", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/opcode", "/tb_predec_fault/kx_op", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/last_opc_read", "/tb_predec_fault/kx_lor", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/last_opc_pc", "/tb_predec_fault/kx_lopc", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/state", "/tb_predec_fault/kx_st", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/opc_buf_valid", "/tb_predec_fault/kx_obv", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/stream_take_bad", "/tb_predec_fault/kx_bad", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/clkena_lw", "/tb_predec_fault/kx_lw", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/make_berr", "/tb_predec_fault/kx_mb", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/pmmu_fault_dispatched", "/tb_predec_fault/kx_disp", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/berr_pmmu_fault_valid", "/tb_predec_fault/kx_fv", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/berr_pmmu_fault_is_insn", "/tb_predec_fault/kx_fi", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/mmu_restart_pending", "/tb_predec_fault/kx_rp", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/insn_fetch_consumer", "/tb_predec_fault/kx_cons", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/setopcode", "/tb_predec_fault/kx_sop", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/setinterrupt", "/tb_predec_fault/kx_sint", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/berr_exception_active", "/tb_predec_fault/kx_bea", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/trap_berr", "/tb_predec_fault/kx_tb", 1);
+  end
+  always @(posedge clk) if ($time >= kt0 && $time < kt1)
+    $display("KX %0t lw=%b make_berr=%b disp=%b fvalid=%b f_insn=%b rpend=%b cons=%b bad=%b setopc=%b setint=%b bea=%b trap_berr=%b st=%b pc=%08x epc=%08x op=%04x lor=%04x@%08x obv=%b",
+             $time, kx_lw, kx_mb, kx_disp, kx_fv, kx_fi, kx_rp, kx_cons, kx_bad, kx_sop, kx_sint, kx_bea, kx_tb, kx_st, kx_pc, kx_epc, kx_op, kx_lor, kx_lopc, kx_obv);
 
   // ------------------------------------------------------ the bus trace
   // each cycle printed once, at the first clock of its acknowledge

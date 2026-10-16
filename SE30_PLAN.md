@@ -19181,6 +19181,37 @@ Daniel - add to it, move items out when fixed).**
     stream moves on (a branch). Then every bench: ifetch 0-6, aux7, moves,
     wp, jsr, bf, CASESET=all, mmu16, busfault, busfault_dib, kernel_bus,
     rtr_fc, cache030, machine, every cpfpu program.
+    **FIXED IN SIM (2026-10-16).** The trace (tb_predec_fault's new KX line:
+    the kernel's fault bookkeeping per clock) corrected the diagnosis: the
+    fault is NOT dropped - the first fire, decode idle, sets make_berr
+    (dispatched at the next boundary) but arms no restart, and the
+    first-fire latch (berr_pmmu_fault_valid) keeps ld_nn's consumption from
+    arming one later. So the JMP completed on the garbage words, committed
+    the odd target $4EF9, and the address error took the boundary (the
+    restart dispatch also needs an even TG68_PC). Case 5 was a second hole:
+    a long immediate's last word is taken on the `direct_data` "00" cycle
+    (ea_data <= last_data_read), which insn_fetch_consumer did not list.
+    Fix, rtl/tg68k/TG68KdotC_Kernel.vhd: (1) `ifetch_late_arm` - a pending
+    first-fired instruction fault (make_berr, berr_pmmu_fault_is_insn, no
+    restart armed) whose stream word a consumer now takes from a released
+    beat (`stream_take_bad`: a "00" consuming cycle with beat_valid 0, or a
+    buffered getbrief with opc_buf_valid 0) arms the restart in the
+    clkena_core block (soft, restart PC = exe_pc); (2) the same condition
+    sets ea_to_pc_datum_invalid, so JMP/JSR keep the old PC; (3)
+    direct_data in a "00" cycle is a consumer. `stream_word_take` is the
+    consumed-word list stream_consumed_pc already used (brief AnXn1's
+    readahead left out), now one signal; the continuation-PC count itself
+    is unchanged (direct_data only enters the poison test). Benches (Daniel
+    trimmed the list: CASESET=all x2 skipped, ~3-5 h): ifetch 0-6 with
+    CACR 0 and $2101 14/14 PASS (1, 3, 5 failed before); predec blockmove
+    20, straddle 30, aux7 aux/auxirq/auxfull/auxfullirq/auxfull SDRAM 5
+    each, jsr 36, bf 15, wp 20, moves 20 PASS; mmu16 7 runs PASS (30:40);
+    busfault 14, busfault_dib 18, kernel_bus 338, rtr_fc 29, cache030 60,
+    machine 17, cpfpu b1 b2 b3a b3b b3c b4 b5a b5b b5c b5d b7e cmpm mmu
+    fullea fulleab all PASS. Bench times measured: an ifetch case 5 s,
+    jsr/bf ~15 s, aux7 ~7.5 min (SDRAM 10), blockmove 16 min, straddle
+    ~20 min, wp and moves ~21-22 min. Next: compile with SE30_LEAN_PROBES + SE30_LEAN_CPU, then
+    fresh-image A/UX boots.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs

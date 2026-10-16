@@ -429,6 +429,9 @@ architecture logic of TG68KdotC_Kernel is
 	signal mmu_restart_restore_now	: std_logic;  -- same-edge rollback request plus the one-edge hold
 	signal pmmu_fault_restart_live	: std_logic;
 	signal insn_fetch_consumer	: std_logic;  -- decode is consuming the in-flight stream fetch (extension/immediate)
+	signal stream_word_take	: std_logic;  -- a state "00" cycle that consumes its stream word (not readahead)
+	signal stream_take_bad	: std_logic;  -- ... and the word is a fault-released beat's garbage (KNOWN ISSUES 22)
+	signal ifetch_late_arm	: std_logic;  -- a pending consumer-less fetch fault's word is now used: restart
 	signal berr_stack_fetch_squash	: std_logic;  -- bus-error frame push/vector states: suppress parasitic stale-PC prefetch
 	signal rte_b_resume_refetch	: std_logic := '0';  -- after a $B-frame RTE: first opcode retire must come from a FRESH fetch
 	-- Init '1': the reset bootstrap retires PRESET buffer values (opcode
@@ -2127,8 +2130,10 @@ ALU: TG68K_ALU
 	-- dead page in the one uncovered cycle between setinterrupt and
 	-- micro_state=berr_fill, and pmmu_fault_was_cleared (latched by MOVEM's
 	-- own store translations) armed the double-fault guard.
+	-- KNOWN ISSUES 22: direct_data in a "00" cycle takes an immediate's word
+	-- (ea_data <= last_data_read): MOVE.L #imm whose low word faulted
 	insn_fetch_consumer <= '1' WHEN getbrief='1' OR setnextpass='1' OR exec(update_ld)='1' OR
-	                                 set(get_2ndOPC)='1' OR
+	                                 set(get_2ndOPC)='1' OR (direct_data='1' AND state="00") OR
 	                                 micro_state = ld_nn  OR micro_state = st_nn  OR
 	                                 micro_state = ld_dAn1 OR micro_state = st_dAn1 OR
 	                                 micro_state = ld_AnXn1 OR micro_state = ld_AnXn2 OR
@@ -2139,6 +2144,38 @@ ALU: TG68K_ALU
 	                                 micro_state = st_229_1 OR micro_state = st_229_2 OR
 	                                 micro_state = st_229_3 OR micro_state = st_229_4
 	                        ELSE '0';
+	-- The state "00" cycles that consume the stream word they fetch (the
+	-- stream_consumed_pc count); brief-format d8(An,Xn)'s AnXn1 "00" cycle is
+	-- the next instruction's prefetch and is left out.
+	stream_word_take <= '1' WHEN state = "00" AND
+	                             (exec(update_ld)='1' OR
+	                              micro_state = ld_nn  OR micro_state = st_nn  OR
+	                              micro_state = ld_dAn1 OR micro_state = st_dAn1 OR
+	                              ((micro_state = ld_AnXn1 OR micro_state = st_AnXn1) AND
+	                               NOT (brief(8)='0' OR extAddr_Mode=0 OR (cpu(1)='0' AND extAddr_Mode=2))) OR
+	                              micro_state = ld_AnXn2 OR micro_state = st_AnXn2 OR
+	                              micro_state = ld_AnXnbd1 OR micro_state = ld_AnXnbd2 OR micro_state = ld_AnXnbd3 OR
+	                              micro_state = ld_229_1 OR micro_state = ld_229_2 OR
+	                              micro_state = ld_229_3 OR micro_state = ld_229_4 OR
+	                              micro_state = st_229_1 OR micro_state = st_229_2 OR
+	                              micro_state = st_229_3 OR micro_state = st_229_4)
+	                    ELSE '0';
+	-- KNOWN ISSUES 22: a stream word used while its fetch beat was released
+	-- (UM 8.1.2: a stage B/C fault is taken when the word is used).  The
+	-- prefetcher can fetch an instruction's own extension words while decode
+	-- is idle; their fault then fires with no consumer (make_berr pending, no
+	-- restart armed) and the consumer that follows takes the garbage.
+	stream_take_bad <= '1' WHEN dib_sub_hit = '0' AND
+	                            (((stream_word_take = '1' OR (direct_data = '1' AND state = "00")) AND beat_valid = '0') OR
+	                             (getbrief = '1' AND ((state(1) = '1' AND opc_buf_valid = '0') OR
+	                                                  (state = "00" AND beat_valid = '0'))))
+	                   ELSE '0';
+	ifetch_late_arm <= '1' WHEN stream_take_bad = '1' AND pmmu_tc_en = '1' AND
+	                            make_berr = '1' AND mmu_restart_pending = '0' AND
+	                            berr_pmmu_fault_valid = '1' AND berr_pmmu_fault_is_insn = '1' AND
+	                            trap_berr = '0' AND trap_mmu_berr = '0' AND
+	                            berr_exception_active = '0' AND cp_bf_now = '0'
+	                   ELSE '0';
 	pmmu_fault_restart_live <= '1' WHEN pmmu_tc_en = '1' AND
 	                                     pmmu_fault = '1' AND
 	                                     (pmmu_fault_is_insn_out = '0' OR insn_fetch_consumer = '1') AND
@@ -2615,6 +2652,13 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 					bus_datum_dirty <= '0';
 				ELSIF clkena_lw='1' THEN
 					bus_datum_dirty <= '0';
+				END IF;
+				-- KNOWN ISSUES 22: a JMP/JSR (xxx).L or d16(PC) target built from
+				-- a released stream word is garbage too; hold the PC for the
+				-- restart (an odd garbage target would also block its dispatch)
+				IF stream_take_bad='1' AND setopcode='0' AND
+				   (make_berr='1' OR mmu_restart_pending='1' OR (pmmu_tc_en='1' AND pmmu_fault='1')) THEN
+					ea_to_pc_datum_invalid <= '1';
 				END IF;
 			END IF;
 		END IF;
@@ -5297,6 +5341,14 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					   next_micro_state=idle AND setstate="00" THEN
 						exec_write_back <= '0';
 					END IF;
+					-- KNOWN ISSUES 22: the pending fetch fault's word is used now -
+					-- restart the instruction, as the first-fire arm does for a
+					-- fault that fires under its consumer
+					IF ifetch_late_arm = '1' THEN
+						mmu_restart_pending <= '1';
+						mmu_restart_soft <= '1';
+						berr_restart_pc <= exe_pc;
+					END IF;
 				END IF;
 				IF clkena_lw='1' THEN
 					-- MC68030 double bus fault: Reset stall-monitor flag each active cycle
@@ -5861,22 +5913,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							stream_consumed_pc <= tg68_pc;
 						END IF;
 						insn_next_pc <= insn_next_pc + 2;
-					ELSIF state="00" AND
-					      (exec(update_ld)='1' OR
-					       micro_state = ld_nn  OR micro_state = st_nn  OR
-					       micro_state = ld_dAn1 OR micro_state = st_dAn1 OR
-					       -- d8(An,Xn) brief format: the brief word was counted at
-					       -- getbrief and AnXn1 reads no stream word - its "00" cycle is
-					       -- the next instruction's prefetch (KNOWN ISSUES 20: MOVE.W
-					       -- (A1,D0.W),(A2)+ stacked a Format $A PC one word long)
-					       ((micro_state = ld_AnXn1 OR micro_state = st_AnXn1) AND
-					        NOT (brief(8)='0' OR extAddr_Mode=0 OR (cpu(1)='0' AND extAddr_Mode=2))) OR
-					       micro_state = ld_AnXn2 OR micro_state = st_AnXn2 OR
-					       micro_state = ld_AnXnbd1 OR micro_state = ld_AnXnbd2 OR micro_state = ld_AnXnbd3 OR
-					       micro_state = ld_229_1 OR micro_state = ld_229_2 OR
-					       micro_state = ld_229_3 OR micro_state = ld_229_4 OR
-					       micro_state = st_229_1 OR micro_state = st_229_2 OR
-					       micro_state = st_229_3 OR micro_state = st_229_4) THEN
+					-- d8(An,Xn) brief format: the brief word was counted at getbrief
+					-- and AnXn1 reads no stream word - its "00" cycle is the next
+					-- instruction's prefetch (KNOWN ISSUES 20: MOVE.W (A1,D0.W),(A2)+
+					-- stacked a Format $A PC one word long); stream_word_take has it
+					ELSIF stream_word_take = '1' THEN
 						stream_consumed_pc <= tg68_pc;
 						insn_next_pc <= insn_next_pc + 2;
 					ELSIF state="00" AND
