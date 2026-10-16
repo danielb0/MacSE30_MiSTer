@@ -22541,6 +22541,27 @@ everything else first). The images: `C:\temp\Mac\AUX disk\used\First
 boot\` (booted to the Finder) and `...\Failed boot\` (macgetty's core).
 dev = 955d5dc + this record + the ifetch bench, unpushed.
 
+
+**END OF SESSION 2026-10-16 (~18:30, Daniel closed it) - READ THIS TO
+RESUME.** A/UX 3.1 runs on the core: compile 76
+(`output_files/MacSE30_32a9bb05_fdfix.rbf`, lean probes + LEAN_CPU, met at
+every corner) boots it to the Finder twice in succession with no /core.
+The killer (KNOWN ISSUES 22's blocks): the PMMU took PMOVE's FD from a
+lagging register, so A/UX's PMOVE (A2),CRP after a PMOVE read loaded the
+root without the ATC flush; found with JTRACE (rtl/dbg_jtrace.v,
+scripts/read_jtrace.tcl; the kernel's icode is a legitimate jump to user 0
+at every boot - re-arm past it), fixed 32a9bb0, bench CASESET=ctx. Also
+today: 3f4c537 (the ifetch late arm), KNOWN ISSUES 23 (stray fetch, card
+task_e61f02d4), 24 (IIcx HDMI, from the other session), 25 (OPEN, NEXT:
+the source ([bd,An],od) full-format EA - A/UX's X11 xeyes and xclock die,
+deterministic; bench in sim/insn_probe first). Application tests:
+QuarkXPress 3.32 under A/UX refuses ("Unable to access network",
+authentic - MAME the same) and runs with AppleTalk off. Daniel's order:
+more A/UX boots -> the SE/30 forum test version (a probe-free build from
+the same commit, on his go; README: Quark's AppleTalk workaround) -> KNOWN
+ISSUES 24 -> latent errors (25, 23, the PMMU reg_rdat timing path).
+dev = this record, unpushed (Daniel pushes).
+
 ---
 
 ## Appendix - where the sources are
