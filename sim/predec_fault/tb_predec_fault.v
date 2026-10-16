@@ -354,8 +354,60 @@ module tb_predec_fault;
   endtask
 `endif
 
+  // ------------------------------------------- JTRACE (KNOWN ISSUES 22)
+  // the board's jump-to-low-memory trace (rtl/dbg_jtrace.v) on the bench's
+  // tap, armed from reset.  +JTLIMIT=<hex> moves its trigger (default $A0,
+  // which no case fetches below: it must stay quiet); a limit above the
+  // cases' user code must trigger at their first user fetch and freeze.
+  reg         jt_arm = 0;
+  reg  [31:0] jt_limit = 32'hA0;
+  reg   [8:0] jt_ra = 0;
+  wire [191:0] jt_q;
+  wire  [63:0] jt_stat;
+  dbg_jtrace jt (
+    .clk(clk), .beat(cpu.dbg_jtp[160]), .tap(cpu.dbg_jtp[159:0]),
+    .arm(jt_arm), .limit(jt_limit), .raddr(jt_ra), .rdata(jt_q), .status(jt_stat));
+  always @(posedge clk) jt_arm <= reset_n;
+  task jt_check;
+    integer e, k, jfails, nchk;
+    reg [191:0] q;
+    reg [31:0] la, pa, d;
+    begin
+      jfails = 0; nchk = 0;
+      $display("---- JTRACE: %0d beats, write pointer %0d, full %b, triggered %b at %0d, frozen %b (limit %08x)",
+               jt_stat[63:32], jt.wp, jt.full, jt.trig, jt.tp, jt.frozen, jt_limit);
+      if (jt_limit == 32'hA0 && jt.trig) begin jfails = jfails + 1; $display("FAIL: JTRACE triggered with no user fetch below $A0"); end
+      if (jt_limit != 32'hA0 && !(jt.trig && jt.frozen)) begin jfails = jfails + 1; $display("FAIL: JTRACE did not trigger and freeze"); end
+      for (e = 0; e < 512; e = e + 1) if (jt.full || e < jt.wp) begin
+        q = jt.mem[e]; la = q[170:139]; pa = q[138:107]; d = q[106:75];
+`ifndef SDRAM
+        // a long fetch from the bus, aligned and acknowledged: the RAM's long
+        if (q[177:176] == 2'b00 && q[172:171] == 2'b00 && pa[1:0] == 2'b00 && q[74] && !q[73] && !q[72] && pa < 32'h1000000) begin
+          nchk = nchk + 1;
+          if (d !== ram[pa[23:2]]) begin jfails = jfails + 1; $display("FAIL: JTRACE record %0d: fetch %08x took %08x, RAM holds %08x", e, pa, d, ram[pa[23:2]]); end
+        end
+`endif
+      end
+      if (jt.trig) begin
+        q = jt.mem[jt.tp];
+        if (!(q[177:176] == 2'b00 && q[175:173] == 3'd2 && q[170:139] < jt_limit)) begin
+          jfails = jfails + 1; $display("FAIL: JTRACE's trigger record is not a user fetch below the limit");
+        end
+        for (k = -6; k <= 6; k = k + 1) begin
+          q = jt.mem[(jt.tp + k) & 9'h1FF];
+          $display("  JT %4d t=%5d bs=%b fc=%0d siz=%0d la=%08x pa=%08x d=%08x bv=%b frc=%b hit=%b dhit=%b z=%b post=%b flt=%b berr=%b dec=%b op=%04x@%08x",
+                   k, q[191:178], q[177:176], q[175:173], q[172:171], q[170:139], q[138:107], q[106:75],
+                   q[74], q[73], q[72], q[71], q[70], q[69], q[68], q[67], q[66], q[65:50], q[49:18]);
+        end
+      end
+      $display("---- JTRACE: %0d fetch records checked against RAM, %0d failures", nchk, jfails);
+      fails = fails + jfails;
+    end
+  endtask
+
   initial begin
     if (!$value$plusargs("PROG=%s", prog_dir)) prog_dir = ".";
+    if ($value$plusargs("JTLIMIT=%h", jt_limit)) ;
     if (!$value$plusargs("MAXCLK=%d", maxclk)) maxclk = 20000000;
     if ($value$plusargs("BTLO=%h", bt_lo) && $value$plusargs("BTHI=%h", bt_hi)) btrace = 1;
     if ($value$plusargs("BTT0=%d", bt_t0)) ;
@@ -393,6 +445,7 @@ module tb_predec_fault;
 `ifdef RTRACE
     rt_check;
 `endif
+    jt_check;
     v = rd32(32'h3F00);
     if (v[31:16] == 16'hBBBB) begin fails = fails + 1; $display("FAIL: the bus-error handler ran more than 100 times (a fault that never resolves)"); end
     else if (v != 0) begin

@@ -114,9 +114,10 @@ module tg68k (
                                        //   logical address[31:0]}
   output [96:0] dbg_rpr,               // RTRACE (KNOWN ISSUES 20): {a format $A replay under way, the frame as the
                                        //   RTE read it: state1[15:0], SSW[15:0], fault address[31:0], DOB[31:0]}
-  output [106:0] dbg_rpk               // ... and each kernel data write as its cycle starts: {one clk, logical
+  output [106:0] dbg_rpk,              // ... and each kernel data write as its cycle starts: {one clk, logical
                                        //   address[31:0], physical[31:0], data[31:0], SIZ[1:0], FC[2:0], posted,
                                        //   the long's byte lanes[3:0]}
+  output [160:0] dbg_jtp               // JTRACE (KNOWN ISSUES 22): {a beat taken now, the record dbg_jtrace.v keeps}
 );
 
   // ------------------------------------------------------------- kernel
@@ -435,6 +436,12 @@ module tg68k (
   assign k_clkena     = phi1 && (k_cycle_ack || k_internal || k_force);
   assign k_beat_valid = k_cycle_ack || k_internal;
   assign k_din   = !hit_ack ? din_r : hit_z ? 32'h0 : hit_d ? d_q : i_q;
+  // JTRACE (KNOWN ISSUES 22): every beat the kernel takes, with where its
+  // data came from - the bus, a cache or the DIB, or a fault's release
+  assign dbg_jtp = {k_clkena && (k_busstate != 2'b01),
+                    k_busstate, k_fc, k_siz, k_addr_log, k_addr, (k_busstate == 2'b11) ? k_dout : k_din,
+                    k_beat_valid, k_force, hit_ack, hit_d, hit_z, post_ack, k_pmmu_fault, ack_berr,
+                    k_decode, k_opcode, k_opcode_pc};
 
   // ------------------------------------------------------------ the pace
   // (plan 1.17.5 item 5) The kernel runs its internal work about twice as

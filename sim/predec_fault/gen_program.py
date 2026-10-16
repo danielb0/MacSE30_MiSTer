@@ -93,6 +93,7 @@ TCMODE = os.environ.get("TCMODE", "bench")
 # aux: (A, B, page table) for the user (CRP) and the supervisor (SRP) trees
 AUX_U, AUX_S = (0x4000, 0x4200, 0x4400), (0x4600, 0x4800, 0x4A00)
 PG_TBL = AUX_U[2] if TCMODE == "aux" else TBL_B  # the user tree's page descriptors, 4 bytes a page
+TRAPF = 0x1F40                                   # TRAP #15 (vector 47): the rts cases' syscall return
 IRQ, VIA2 = 0x1F00, 0x50002000                   # auxirq: the level-2 handler; VIA2 (register n at +n x $200)
 TT0 = 0x50008507                                 # $50xxxxxx transparent (E, CI, RWM, every FC): VIA2 untranslated
 IRQCOUNT = 0x3208
@@ -212,6 +213,22 @@ IFETCH = [
      "MOVE.L #imm,D3: the immediate's low word on a non-resident page"),
     (0x4F100, {0x4F100: [0x4EF9, 0x0005, 0x0200], 0x50200: [0x528A, 0x4E75]}, 1, [0x4F000, 0x50000],
      "a shared-library call: JSR to a branch-table JMP $target.l, table and target non-resident"),
+]
+# rts: an RTS whose pop page-faults (the board, compile 73: macgetty's
+# rename() returned to address 0 - its RTS loaded PC 0 with $10DC on the
+# stack and SP advanced by 4).  The return address is already on the user
+# stack, on a page invalid in the user tree; the return stub at RTS_RET adds
+# to A2.  "sys" cases are libc's stub (moveq / TRAP #15 / bcs.w / rts), the
+# TRAP's handler a bare syscall return (MOVEQ #0,D0; RTE) - (code, usp,
+# invalid pages, what):
+RTS_RET = 0x53000
+SYS_STUB = [0x707B, 0x4E4F, 0x6500, 0x0004, 0x4E75, 0x4E40]   # moveq #$7b,d0; trap #15; bcs.w +4; rts; trap #0
+RTS = [
+    ([0x4E75], 0x56F00, [0x56000], "RTS: the pop wholly on the invalid page"),
+    ([0x4E75], 0x58FFE, [0x59000], "RTS: the pop straddles, its low word on the invalid page"),
+    ([0x4E75], 0x5AFFE, [0x5A000], "RTS: the pop straddles, its high word on the invalid page"),
+    (SYS_STUB, 0x5CF00, [0x5C000], "a syscall stub's RTS after TRAP #15/RTE, the pop on the invalid page (macgetty's rename)"),
+    (SYS_STUB, 0x5EFFE, [0x5F000], "the same, the pop straddling"),
 ]
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [
@@ -350,6 +367,17 @@ def main():
             regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
             cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, a2,
                           {"A0": 0x77, "A1": 0x55}, "ifetch: " + what))
+    if CASESET == "rts":
+        sel = os.environ.get("RTSONLY")               # one case alone, as IFONLY
+        putbytes(RTS_RET, bytes.fromhex("528A4E40"))  # ADDQ.L #1,A2; TRAP #0
+        for k, (code, usp, bad, what) in enumerate(RTS):
+            if sel is not None and k != int(sel):
+                continue
+            put32(usp, RTS_RET)                       # the return address, on the stack already
+            regs = [(0x207C, usp), (0x4E60, None),    # MOVE.L A0,USP: the user stack
+                    (0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+            cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, 1,
+                          {"A0": 0x77, "A1": 0x55}, "rts: " + what))
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)
@@ -561,9 +589,10 @@ def main():
 
     mem[0:4] = [0x0000, 0x8000, 0x0000, ORG]         # SSP, PC
     for v in range(2, 64):
-        t = BERR if v == 2 else TRAP0 if v == 32 else IRQ if v == 26 else EXC
+        t = BERR if v == 2 else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else EXC
         mem[2 * v], mem[2 * v + 1] = t >> 16, t & 0xFFFF
-    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq)):
+    trapf = [0x7000, 0x4E73]                         # TRAP #15: MOVEQ #0,D0; RTE - a syscall's return (rts cases)
+    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf)):
         for i, x in enumerate(code):
             mem[base // 2 + i] = x
     put32(LOGP, LOG)

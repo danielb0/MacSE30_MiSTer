@@ -158,6 +158,7 @@ module dbg_probes #(
 	parameter PBER = 0,                   // PBER: MacSE30.sv's SE30_PBER (KNOWN ISSUES 8; off by default, Daniel 2026-10-07)
 	parameter BTRACE = 0,                 // PBTD/PBTC: the bus-error trace (KNOWN ISSUES 20), MacSE30.sv's SE30_BTRACE
 	parameter RTRACE = 0,                 // PRTD/PRTC: the format $A replay trace (KNOWN ISSUES 20), MacSE30.sv's SE30_RTRACE
+	parameter JTRACE = 0,                 // PJTD/PJTC: the jump-to-low-memory trace (KNOWN ISSUES 22), MacSE30.sv's SE30_JTRACE
 	parameter LEAN = 0,                   // MacSE30.sv's SE30_LEAN_PROBES: only PBLD, PPEK/PPOK/PPKS and the opt-in
 	                                      //   groups (PBER, BTRACE, PERF) - the rest left out to make room (2026-10-14)
 	parameter LEAN_CPU = 0                // MacSE30.sv's SE30_LEAN_CPU: a lean deck keeps the CPU's own - PIFA, PLAS,
@@ -205,7 +206,8 @@ module dbg_probes #(
 	input  wire [35:0] pace_ev,           // PPRF: {release, decoder row[7:0], clocks[8:0], budget[9:0], fetch wait states[7:0]} (plan 10.4 item 4)
 	input  wire [96:0] rpl_frame,         // PRTD: tg68k.v's dbg_rpr (KNOWN ISSUES 20)
 	input  wire [106:0] rpl_kwrite,       // PRTD: tg68k.v's dbg_rpk
-	input  wire [60:0] rpl_sdram          // PRTD: se30_sdram.v's dbg_wr (clk_mem, steady between pairs)
+	input  wire [60:0] rpl_sdram,         // PRTD: se30_sdram.v's dbg_wr (clk_mem, steady between pairs)
+	input  wire [160:0] jt_tap            // PJTD: tg68k.v's dbg_jtp (KNOWN ISSUES 22)
 );
 
 	reg        as_q = 1;
@@ -499,6 +501,29 @@ module dbg_probes #(
 			.instance_id ("PRTC"), .probe_width (64), .source_width (1),
 			.sld_auto_instance_index ("YES")
 		) cp_prtc (.probe(rt_stat), .source(), .source_clk(clk), .source_ena(1'b1));
+	end endgenerate
+
+	// JTRACE (KNOWN ISSUES 22, 2026-10-16): dbg_jtrace.v's ring of every beat
+	// the kernel takes, frozen after a user fetch below a limit.  PJTD's source
+	// {disarm, limit ^ $A0 [31:0], row[8:0]}: at its power-up value 0 the ring
+	// is armed with the limit $A0, so a plain boot is traced; PJTC is the
+	// status.  Read by scripts/read_jtrace.tcl.
+	generate if (JTRACE) begin : g_jtrace
+		wire  [41:0] jt_src;
+		wire [191:0] jt_q;
+		wire  [63:0] jt_stat;
+		dbg_jtrace jt (
+			.clk(clk), .beat(jt_tap[160]), .tap(jt_tap[159:0]),
+			.arm(!jt_src[41]), .limit(jt_src[40:9] ^ 32'hA0), .raddr(jt_src[8:0]),
+			.rdata(jt_q), .status(jt_stat));
+		altsource_probe #(
+			.instance_id ("PJTD"), .probe_width (192), .source_width (42),
+			.sld_auto_instance_index ("YES")
+		) cp_pjtd (.probe(jt_q), .source(jt_src), .source_clk(clk), .source_ena(1'b1));
+		altsource_probe #(
+			.instance_id ("PJTC"), .probe_width (64), .source_width (1),
+			.sld_auto_instance_index ("YES")
+		) cp_pjtc (.probe(jt_stat), .source(), .source_clk(clk), .source_ena(1'b1));
 	end endgenerate
 
 	// the floppy (the header's PFLP)
