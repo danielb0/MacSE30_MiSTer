@@ -19340,6 +19340,34 @@ Daniel - add to it, move items out when fixed).**
     fault) on an address the program never named. Not the A/UX killer
     (that was 22's PMOVE FD); to fix after the board result.
 
+24. **OPEN (2026-10-16, forum: Manfred; reproduced on Daniel's board): the
+    IIcx's HDMI output is wrong in every `video_mode` except 1080p with
+    `vsync_adjust=0`.** Manfred (HDMI, `vsync_adjust=2`): an "extremely
+    high" refresh, out of range, in every mode but 1920x1080. Daniel's
+    board, IIcx, `vsync_adjust=0`: modes 0 (720p), 2 and 6 give a monitor
+    error, mode 8 works; `vsync_adjust` 1 and 2 work (HDMI retimed to the
+    card's 66.67 Hz). 0 is Main's default (cfg.cpp:51, the shipped
+    MiSTer.ini), so a default ini with any non-1080p mode hits it. Scope:
+    the menu core at mode 0 and the SE/30 build at mode 6 are fine (the
+    info overlay's Hz is measured from the HDMI output, Main
+    video.cpp:2899) - the IIcx build only.
+    **Lead (from the fit, not proven):** `output_files/MacIIcx.fit.rpt`
+    (compile 9) places pll_hdmi at FRACTIONALPLL_X0_Y32, its counter at
+    PLLOUTPUTCOUNTER_X0_Y31_N1 (pll_vid took X0_Y56, pll_audio went to
+    X0_Y74); MacSE30, MacPlus, MacLC, MultiComp, UK101 and Jupiter all have
+    it at X0_Y1, counter X0_Y5_N1. Main writes the HDMI divider to physical
+    C counter 0 (video.cpp:218, :300); if outclk_0 is not on C0 there, the
+    power-on C = 3 stays: 720p = VCO 445.5 / 3 = 148.5 MHz = 120 Hz,
+    640x480 = 402.8 / 3 = 134 MHz = ~320 Hz, 1080p correct - the report.
+    It does not explain `vsync_adjust` 1/2 working (it predicts 140 MHz at
+    640x480 and 66.67 Hz).
+    **Fix to try:** location assignments in `MacIIcx.qsf` - pll_hdmi at
+    FRACTIONALPLL_X0_Y1, pll_audio at X0_Y56, pll_vid on a free PLL (check
+    its refclk, clk_mem, can reach it) - then FUTURE BOARD TESTS 13.
+    Workaround posted on the forum: `vsync_adjust=1` or `video_mode=8`.
+    Ships in the next IIcx release (Daniel: after the SE/30 release with
+    the A/UX fixes).
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users
@@ -19577,6 +19605,12 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     disk). The MacPlus precedent: a new ROM file broke the original core.
     ~3 minutes.
     **DONE 2026-10-09 (Daniel): "It works with boot3.rom in the folder."**
+13. **The IIcx's HDMI modes** (KNOWN ISSUES 24, before the next IIcx
+    release): the IIcx build at `video_mode` 0, 6 and 8, each with
+    `vsync_adjust` 0, 1 and 2 and `video_info` on; read the overlay's
+    measured Hz. Expected: at 0, 720p 60.0, 640x480 59.9, 1080p 60.0; at 1
+    and 2, 66.7 in every mode. A monitor error, 120 Hz or ~320 Hz = not
+    fixed. The menu core at mode 0 is the reference. ~15 minutes.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
