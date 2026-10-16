@@ -19331,8 +19331,10 @@ Daniel - add to it, move items out when fixed).**
     Finder on every boot, no new /core.
     **COMPILE 76 ON THE BOARD (Daniel, 2026-10-16 ~16:50): boot 1 from a
     fresh image reached the Finder; NO /core** (every boot before the fix
-    left one, the Finder boot of compile 74 included). Further fresh-image
-    boots to confirm.
+    left one, the Finder boot of compile 74 included). **Boot 2 (Restart
+    from the Finder, the same image): the Finder again - the first time
+    this core has booted A/UX twice in succession.** Further fresh-image
+    boots and real work (applications from a second HFS disk) to confirm.
 
 23. **OPEN (2026-10-16, found by JTRACE's bench check): a stray user fetch
     at a junk PC after an instruction-fetch fault on a JMP (xxx).L's address
