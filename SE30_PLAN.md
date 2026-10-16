@@ -19378,6 +19378,30 @@ Daniel - add to it, move items out when fixed).**
     Ships in the next IIcx release (Daniel: after the SE/30 release with
     the A/UX fixes).
 
+25. **OPEN (2026-10-16, A/UX's X11 xeyes; not yet benched): a 68020/030
+    full-format EA with an outer displacement decodes to the wrong length.**
+    Board, compile 76, A/UX 3.1: /usr/bin/X11/xeyes (X11R4, MacX) dies
+    with SIGILL; adb on its core: pc $21368, sp $FFFFF788, a6 $FFFFF7A0,
+    d0/d3 $A8, a0 $4043C6, a1 $FFFFFD90, a2 $402BD7; PFLN: F-line
+    opcode $FFFC at $21368 (the only F-line of the boot). xeyes (stripped,
+    the image's /usr/bin/X11/xeyes; a copy in
+    C:\temp\Mac\AUX disk\extract\core_74\xeyes) there, by capstone and by hand:
+      $21354 2076 0161 FFFC            MOVEA.L ([-4,A6]),A0
+      $2135A 2DA8 005E 0162 FFFC 005E  MOVE.L $5E(A0),([-4,A6],$5E)  (10 bytes)
+      $21364 2436 0162 FFFC 002E       MOVE.L ([-4,A6],$2E),D2       (8 bytes)
+      $2136C 2476 0162 FFFC 002A       MOVEA.L ([-4,A6],$2A),A2
+    $21368 is the base displacement word of the $21364 instruction: the
+    CPU took it as an opcode. Either the $2135A MOVE's DESTINATION
+    memory-indirect EA (word bd, word od, index suppressed: ext $0162)
+    consumed 4 bytes too many, or the $21364 SOURCE form consumed 4 too
+    few. A 68030 runs both (UM 2.2, the full extension word). Compiled C
+    with struct pointers uses these forms: any 68020+ program can hit it.
+    The coprocessor's full-format EA was fixed in 5f59b90; this is the
+    integer path (ld_229_*/st_229_*, the stream-word count). NEXT: a bench
+    (sim/insn_probe) with exactly these four instructions - A6 -> a
+    pointer, results and the PC flow checked - failing first; the fix;
+    the regression list; a compile (Daniel, 2026-10-16: "fix it later").
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users
