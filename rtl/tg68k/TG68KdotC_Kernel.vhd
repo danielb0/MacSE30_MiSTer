@@ -366,7 +366,8 @@ entity TG68KdotC_Kernel is
 		debug_rte_fmt_a_data_out : out std_logic_vector(31 downto 0);
 		debug_rte_fmt_a_replay_needed : out std_logic;
 		debug_rte_fmt_a_replay : out std_logic;  -- the replay write is under way (rte_mmu_replay): the RTRACE probe (KNOWN ISSUES 20)
-		debug_rte_format_b_version_error : out std_logic
+		debug_rte_format_b_version_error : out std_logic;
+		debug_pflush : out std_logic_vector(41 downto 0)  -- {a PFLUSH issued (its request), MODE, MASK, FC, EA}: JTRACE (KNOWN ISSUES 22)
 			);
 end TG68KdotC_Kernel;
 
@@ -12823,6 +12824,7 @@ debug_rte_fmt_a_data_out <= rte_fmt_a_data_out;
 debug_rte_fmt_a_replay_needed <= rte_fmt_a_replay_needed;
 debug_rte_fmt_a_replay <= '1' when micro_state = rte_mmu_replay else '0';
 debug_rte_format_b_version_error <= rte_format_b_version_error;
+debug_pflush <= pmmu_pflush_req & pmmu_brief(12 downto 10) & pmmu_brief(7 downto 5) & pmmu_cmd_fc & pmmu_cmd_addr;
 
 -- synthesis translate_off
 diag_rte_events : PROCESS (clk)

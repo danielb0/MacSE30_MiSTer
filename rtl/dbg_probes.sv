@@ -207,7 +207,8 @@ module dbg_probes #(
 	input  wire [96:0] rpl_frame,         // PRTD: tg68k.v's dbg_rpr (KNOWN ISSUES 20)
 	input  wire [106:0] rpl_kwrite,       // PRTD: tg68k.v's dbg_rpk
 	input  wire [60:0] rpl_sdram,         // PRTD: se30_sdram.v's dbg_wr (clk_mem, steady between pairs)
-	input  wire [160:0] jt_tap            // PJTD: tg68k.v's dbg_jtp (KNOWN ISSUES 22)
+	input  wire [160:0] jt_tap,           // PJTD: tg68k.v's dbg_jtp (KNOWN ISSUES 22)
+	input  wire [160:0] jt_etap           // PJTD: tg68k.v's dbg_jte
 );
 
 	reg        as_q = 1;
@@ -505,19 +506,19 @@ module dbg_probes #(
 
 	// JTRACE (KNOWN ISSUES 22, 2026-10-16): dbg_jtrace.v's ring of every beat
 	// the kernel takes, frozen after a user fetch below a limit.  PJTD's source
-	// {disarm, limit ^ $A0 [31:0], row[8:0]}: at its power-up value 0 the ring
-	// is armed with the limit $A0, so a plain boot is traced; PJTC is the
-	// status.  Read by scripts/read_jtrace.tcl.
+	// {disarm, allbeats, limit ^ $A0 [31:0], row[10:0]}: at its power-up value
+	// 0 the ring is armed, filtered, with the limit $A0, so a plain boot is
+	// traced; PJTC is the status.  Read by scripts/read_jtrace.tcl.
 	generate if (JTRACE) begin : g_jtrace
-		wire  [41:0] jt_src;
+		wire  [44:0] jt_src;
 		wire [191:0] jt_q;
 		wire  [63:0] jt_stat;
 		dbg_jtrace jt (
-			.clk(clk), .beat(jt_tap[160]), .tap(jt_tap[159:0]),
-			.arm(!jt_src[41]), .limit(jt_src[40:9] ^ 32'hA0), .raddr(jt_src[8:0]),
+			.clk(clk), .beat(jt_tap[160]), .tap(jt_tap[159:0]), .ev(jt_etap[160]), .etap(jt_etap[159:0]),
+			.arm(!jt_src[44]), .allbeats(jt_src[43]), .limit(jt_src[42:11] ^ 32'hA0), .raddr(jt_src[10:0]),
 			.rdata(jt_q), .status(jt_stat));
 		altsource_probe #(
-			.instance_id ("PJTD"), .probe_width (192), .source_width (42),
+			.instance_id ("PJTD"), .probe_width (192), .source_width (45),
 			.sld_auto_instance_index ("YES")
 		) cp_pjtd (.probe(jt_q), .source(jt_src), .source_clk(clk), .source_ena(1'b1));
 		altsource_probe #(

@@ -117,7 +117,8 @@ module tg68k (
   output [106:0] dbg_rpk,              // ... and each kernel data write as its cycle starts: {one clk, logical
                                        //   address[31:0], physical[31:0], data[31:0], SIZ[1:0], FC[2:0], posted,
                                        //   the long's byte lanes[3:0]}
-  output [160:0] dbg_jtp               // JTRACE (KNOWN ISSUES 22): {a beat taken now, the record dbg_jtrace.v keeps}
+  output [160:0] dbg_jtp,              // JTRACE (KNOWN ISSUES 22): {a beat taken now, the record dbg_jtrace.v keeps}
+  output [160:0] dbg_jte               // ... and its PMMU events: {an event now, the record} (dbg_jtrace.v's kinds)
 );
 
   // ------------------------------------------------------------- kernel
@@ -138,6 +139,7 @@ module tg68k (
   wire [31:0] k_trap_vector;
   wire [15:0] k_opcode;
   wire [31:0] k_opcode_pc;
+  wire [41:0] k_pflush;                // {PFLUSH request, MODE, MASK, FC, EA} (JTRACE)
   wire        w_req, w_we, w_berr;
   wire [31:0] w_addr, w_wdat;
   reg         w_ack;
@@ -165,7 +167,8 @@ module tg68k (
     .debug_pmmu_fault_addr(k_f_addr), .debug_pmmu_fault_mmusr(k_f_mmusr), .debug_pmmu_fault_fc(k_f_fc),
     .debug_pmmu_fault_rw(k_f_rw), .debug_pmmu_fault_is_insn(k_f_insn), .debug_trap_mmu_berr(k_trap_mmu_berr),
     .debug_rte_fmt_a_replay(dbg_rpr[96]), .debug_rte_fmt_a_state1(dbg_rpr[95:80]), .debug_rte_fmt_a_ssw(dbg_rpr[79:64]),
-    .debug_rte_fmt_a_fault_addr(dbg_rpr[63:32]), .debug_rte_fmt_a_data_out(dbg_rpr[31:0])
+    .debug_rte_fmt_a_fault_addr(dbg_rpr[63:32]), .debug_rte_fmt_a_data_out(dbg_rpr[31:0]),
+    .debug_pflush(k_pflush)
   );
   // the fault as the PMMU raises it: its status register is rewritten by
   // every later translation (the exception's own stack pushes), so it is
@@ -442,6 +445,19 @@ module tg68k (
                     k_busstate, k_fc, k_siz, k_addr_log, k_addr, (k_busstate == 2'b11) ? k_dout : k_din,
                     k_beat_valid, k_force, hit_ack, hit_d, hit_z, post_ack, k_pmmu_fault, ack_berr,
                     k_decode, k_opcode, k_opcode_pc};
+  // its PMMU events, in the beat record's fields with busstate 01: a walker
+  // descriptor cycle as it is acknowledged (FC field 0 read, 1 write; logical:
+  // the descriptor's address; physical: the kernel's parked access being
+  // translated; data: the descriptor; [74:72]: that access's FC), or a
+  // PFLUSH as the kernel issues it (FC field 2; logical: its EA; [74:66]:
+  // MODE, MASK, FC).  A walker cycle on a PFLUSH's own clock is not logged.
+  reg         jt_pf_q = 1'b0;
+  always @(posedge clk) jt_pf_q <= k_pflush[41];
+  wire        jt_pf   = k_pflush[41] && !jt_pf_q;
+  assign dbg_jte = jt_pf ? {1'b1, 2'b01, 3'd2, 2'b00, k_pflush[31:0], k_addr_log, 32'h0,
+                            k_pflush[40:38], k_pflush[37:35], k_pflush[34:32], k_opcode, k_opcode_pc} :
+                           {w_ack, 2'b01, {2'b00, w_we}, 2'b00, w_addr, k_addr_log, w_we ? w_wdat : w_data,
+                            k_fc, 5'b0, 1'b0, k_opcode, k_opcode_pc};
 
   // ------------------------------------------------------------ the pace
   // (plan 1.17.5 item 5) The kernel runs its internal work about twice as
