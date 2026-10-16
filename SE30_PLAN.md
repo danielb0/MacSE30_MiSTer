@@ -19254,6 +19254,40 @@ Daniel - add to it, move items out when fixed).**
     corner (worst clk_sys setup +0.230 slow 100C, holds positive); the flow's
     -0.147 is ascal alone (o_hacc -> o_div, slow -40C) = KNOWN ISSUES 6, as
     on compiles 58 and 71. No loop. qsf and tag reverted. NOT flashed.
+    **COMPILE 74 ON THE BOARD (Daniel, 2026-10-16 afternoon).** Boot 1 hung
+    (grey screen, same 542 bus errors and the one F-line $FFFF at
+    $FFFFFF94 as compile 73); JTRACE's first trigger is LEGITIMATE every
+    boot: the kernel's icode (MOVES of init's bootstrap to user 0, RTE to
+    it) - re-arm after it (scratchpad jt_watch.sh did it automatically on
+    boot 2). Boot 1 after the re-arm: no trigger. Boot 2 REACHED THE FINDER
+    and ran normally, yet the trace caught the event (jtrace_74_3_t2.txt in
+    extract\): a syscall's RTE (TRAP #15 frame, PC $5758) to user code,
+    bcs.w, then RTS at $575C read its return address from $FFFFFEB4 (phys
+    $7AAEB4) = $00000000 by a CLEAN BUS BEAT (bv only: no cache, no DIB,
+    no release) -> PC 0; page 0 held /etc/startmsg's header (COFF stamp
+    $2BB03573) while the code at $5758 was another program's. That boot's
+    /core = fidd (proc /etc/fidd, 19:15:29 A/UX UTC = the trigger): fidd
+    ran its OWN header from 0 to an illegal $020F at $12 (d7 $52, a3
+    $FFFFFFFC = the header's ori/move), d0=d1=-1 (a failed syscall), SP
+    $FFFFF37C with $000012AE intact on its stack. Three deaths, three
+    programs (macgetty in rename(), the startmsg exec, fidd's logger), one
+    shape: the return after a syscall reads 0 where the core (read later
+    through the page tables) holds the right word - the user stack page's
+    TRANSLATION, or a kernel write, at that moment. Cleared from A/UX's own
+    code: cputype 4 (the TT0 probe; our PMOVE TT0 works) -> PFLUSHA for the
+    user/system flushes, never the 68851 PFLUSHR/PFLUSHS (which a 68030
+    must F-line, UM 9.6); resume030 = PFLUSH #5,#7,(u-area), CACR |=
+    $0808, PMOVE (A2),CRP with FD 0 (our PMMU flushes the ATC on it);
+    fl_userpg = PFLUSH #3,#4,(A0) (mode 110, mask 100, imm FC 3): our
+    decode, mask (1 = compare), FC and page-size address match agree, and
+    PFLUSH bumps xlat_cfg_seq (the registered translation). errpt: no
+    errors. Tools: scratchpad find_coff.py (a binary by its COFF header),
+    adb in A/UX reads cores (od -c /core +832. = u_comm). EXTENDED JTRACE
+    (eff79ea): + PMMU events - each walker descriptor cycle with the parked
+    access it translates, each PFLUSH as issued (kernel debug_pflush) - a
+    filter (on at configuration: user-space beats, PMMU-instruction beats,
+    user walks, all PFLUSH), 2048 deep. Compile 75 = eff79ea + LEAN_PROBES
+    + LEAN_CPU + JTRACE.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
