@@ -19249,6 +19249,11 @@ Daniel - add to it, move items out when fixed).**
     SE30_LEAN_PROBES + SE30_LEAN_CPU + SE30_JTRACE. Board: boot A/UX, at the
     grey screen run read_jtrace.tcl dump - the RTS's two reads name the
     source of the 0 (bus, data cache, DIB, or a released beat).
+    **COMPILE 74 DONE:** `output_files/MacSE30_c90c774a_jtrace.rbf` (md5
+    b1231874, 38,954 ALMs, 371 RAM blocks, 38 min). Our clocks met at every
+    corner (worst clk_sys setup +0.230 slow 100C, holds positive); the flow's
+    -0.147 is ascal alone (o_hacc -> o_div, slow -40C) = KNOWN ISSUES 6, as
+    on compiles 58 and 71. No loop. qsf and tag reverted. NOT flashed.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
