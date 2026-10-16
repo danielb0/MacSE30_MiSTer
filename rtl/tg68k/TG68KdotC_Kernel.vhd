@@ -953,6 +953,7 @@ architecture logic of TG68KdotC_Kernel is
 	-- signal pmmu_reg_sel_latch : std_logic_vector(15 downto 0);  -- REMOVED: Old 2-stage pipeline
 	signal pmmu_reg_wdat_d  : std_logic_vector(31 downto 0);
 	signal pmmu_reg_fd_d    : std_logic;
+	signal pmmu_reg_fd_c    : std_logic;  -- the PMMU's FD: this PMOVE's own (KNOWN ISSUES 22)
 
 	-- DIAGNOSTIC: Track brief and pmmu_reg_sel_d timing
 	signal dbg_brief_capture : std_logic_vector(15 downto 0);
@@ -1123,7 +1124,7 @@ BEGIN
       reg_wdat      => pmmu_src_data,
       reg_rdat      => pmmu_reg_rdat,
       reg_part      => pmmu_reg_part_int,
-      reg_fd        => pmmu_reg_fd_d,
+      reg_fd        => pmmu_reg_fd_c,
 
       ptest_req     => pmmu_ptest_req,
       pflush_req    => pmmu_pflush_req,
@@ -1254,6 +1255,16 @@ BEGIN
   -- corrupts the following translated fetches after PFLUSHA/PMOVE TC enable sequences.
   pmmu_ptest_req  <= '1' when set(pmmu_ptest) = '1' else '0';
   pmmu_pflush_req <= '1' when set(pmmu_pflush) = '1' else '0';
+  -- PMOVEFD (UM 9.8): FD is bit 8 of a PMOVE write's extension word (formats
+  -- 000 TTx and 010 SRP/CRP/TC, R/W bit 9 = 0), decoded from the executing
+  -- instruction's latched brief.  The registered pmmu_reg_fd_d lagged a clock
+  -- or more behind the instruction: a PMOVE read (FD forced 1) just before
+  -- A/UX's PMOVE (A2),CRP left it 1 at the CRP's high-word write, so the root
+  -- loaded without the ATC flush and the old process's entries translated the
+  -- new one's stack (KNOWN ISSUES 22, compile 75's trace).  A read never flushes.
+  pmmu_reg_fd_c <= '1' when pmmu_brief(9) = '1' or
+                            ((pmmu_brief(15 downto 13) = "000" or pmmu_brief(15 downto 13) = "010") and pmmu_brief(8) = '1')
+                   else '0';
   pmmu_pload_req  <= '1' when set(pmmu_pload) = '1' else '0';
 
   -- BUG #19 FIX: Make pmmu_reg_we_d and pmmu_reg_re_d combinational (not sequential)

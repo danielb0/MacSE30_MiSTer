@@ -230,6 +230,21 @@ RTS = [
     (SYS_STUB, 0x5CF00, [0x5C000], "a syscall stub's RTS after TRAP #15/RTE, the pop on the invalid page (macgetty's rename)"),
     (SYS_STUB, 0x5EFFE, [0x5F000], "the same, the pop straddling"),
 ]
+# ctx: A/UX's context switch (resume030, the board, compile 75: init's RTS
+# read its return address through startmsg's stack translation - an ATC entry
+# that survived the PMOVE (A2),CRP).  Needs TCMODE=aux.  A second user tree
+# (CTX_U) is the first with page CTX_P mapped to CTX_Q; MOVES.L (A0) loads the
+# ATC entry through tree 1, resume030's sequence switches to tree 2, and the
+# same MOVES must read CTX_Q's long - (extra words before the CRP load, the
+# CRP load's extension word, the long wanted, what):
+CTX_U, CTX_CRP = (0x4C00, 0x4E00, 0x5000), 0x3E18
+CTX_P, CTX_Q, CTX_PV, CTX_QV = 0x2C000, 0x2D000, 0x11111111, 0x22222222
+CTX = [
+    ([], 0x4C00, CTX_QV, "resume030: PFLUSH #5,#7,(u-area), MOVEC CACR, PMOVE (A2),CRP"),
+    ([0xF013, 0x4E00], 0x4C00, CTX_QV, "the same after a PMOVE CRP,(A3) (an MMU register read just before)"),
+    ([0xF013, 0x6200], 0x4C00, CTX_QV, "the same after a PMOVE MMUSR,(A3)"),
+    ([], 0x4D00, CTX_PV, "PMOVEFD (A2),CRP: no flush, the old entry still translates (UM 9.8)"),
+]
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [
     (0x40000, 0x41000, 0x48F00, 0x50000, 0x2000, 1, "dst", "destination pages invalid: the byte and word writes fault, as on the board"),
@@ -378,6 +393,27 @@ def main():
                     (0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
             cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, 1,
                           {"A0": 0x77, "A1": 0x55}, "rts: " + what))
+    if CASESET == "ctx":
+        assert TCMODE == "aux", "ctx needs TCMODE=aux (the user trees)"
+        sel = os.environ.get("CTXONLY")
+        put32(CTX_P, CTX_PV); put32(CTX_Q, CTX_QV)
+        l32w = lambda v: [(v >> 16) & 0xFFFF, v & 0xFFFF]
+        for k, (pre, crpx, want_v, what) in enumerate(CTX):
+            if sel is not None and k != int(sel):
+                continue
+            code = ([0x0E90, 0x2000,                          # MOVES.L (A0),D2: the ATC entry, tree 1
+                     0xF011, 0x38F5,                          # PFLUSH #5,#7,(A1): resume030's u-area flush
+                     0x203C] + l32w(CACR | 0x0808) +          # MOVE.L #cacr|CD|CI,D0
+                    [0x4E7B, 0x0002] + pre +                  # MOVEC D0,CACR (+ the case's extra)
+                    [0x45F9] + l32w(CTX_CRP) +                # LEA ctx_crp,A2
+                    [0xF012, crpx,                            # PMOVE (A2),CRP: tree 2 (PMOVEFD: $4D00)
+                     0x0E90, 0x3000,                          # MOVES.L (A0),D3: must be CTX_Q's
+                     0x45F9] + l32w(CRP_AT) +                 # LEA crp,A2
+                    [0xF012, 0x4C00,                          # PMOVE (A2),CRP: tree 1 back
+                     0x2443, 0x4E40])                         # MOVEA.L D3,A2; TRAP #0
+            regs = [(0x207C, CTX_P), (0x227C, 0x3000), (0x267C, 0x3E30), (0x72FF, None)]   # A0, A1, A3, MOVEQ #-1,D1
+            cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [], want_v,
+                          {"A0": CTX_P, "A1": 0x3000, "super": True}, "ctx: " + what))
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)
@@ -606,6 +642,14 @@ def main():
                 put32(tb + 4 * i, (tp + 0x100 * i) | 2)
             for p in range(128):
                 put32(tp + 4 * p, (p << 12) | 1)     # identity pages, valid, U and M clear
+        if CASESET == "ctx":                        # the second user tree: CTX_P -> CTX_Q
+            ta, tb, tp = CTX_U
+            put32(CTX_CRP, 0x7FFF0002); put32(CTX_CRP + 4, ta)
+            put32(ta, tb | 2)
+            for i in range(2):
+                put32(tb + 4 * i, (tp + 0x100 * i) | 2)
+            for p in range(128):
+                put32(tp + 4 * p, ((CTX_Q if p << 12 == CTX_P else p << 12)) | 1)
     else:
         put32(CRP_AT, 0x7FFF0002); put32(CRP_AT + 4, TBL_A)
         put32(TBL_A, TBL_B | 2)                      # entry 0: table B, short descriptors

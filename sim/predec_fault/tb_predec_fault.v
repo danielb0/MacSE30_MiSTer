@@ -354,6 +354,18 @@ module tb_predec_fault;
   endtask
 `endif
 
+  // +FDWATCH: the PMMU's register-write flush per clock (KNOWN ISSUES 22's ctx cases)
+  reg fw_on = 0, fw_fd = 0, fw_crpfd = 0, fw_fl = 0, fw_we = 0;
+  initial begin
+    fw_on = $test$plusargs("FDWATCH");
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/pmmu_reg_fd_d", "/tb_predec_fault/fw_fd", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/PMMU_030/CRP_FD_stage", "/tb_predec_fault/fw_crpfd", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/PMMU_030/atc_flush_req", "/tb_predec_fault/fw_fl", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/PMMU_030/reg_we", "/tb_predec_fault/fw_we", 1);
+  end
+  always @(posedge clk) if (fw_on && (fw_we || fw_fl))
+    $display("FW %0t reg_we=%b reg_fd=%b CRP_FD_stage=%b atc_flush_req=%b", $time, fw_we, fw_fd, fw_crpfd, fw_fl);
+
   // ------------------------------------------- JTRACE (KNOWN ISSUES 22)
   // the board's jump-to-low-memory trace (rtl/dbg_jtrace.v) on the bench's
   // tap, armed from reset.  +JTLIMIT=<hex> moves its trigger (default $A0,

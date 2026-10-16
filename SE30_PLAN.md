@@ -19297,6 +19297,48 @@ Daniel - add to it, move items out when fixed).**
     the placement. Daniel (2026-10-16): flash it as is - a debug build; its
     readings carry the caveat. The path itself is a candidate for a real
     RTL fix (register reg_rdat before the ALU) before the release.
+    **COMPILE 75 ON THE BOARD: THE CAUSE (2026-10-16, jtrace_75_1_t2.txt).**
+    Process A (startmsg) walks its stack page $FFFFF000 -> phys $7C6000,
+    sleeps (trap #0); resume030 (PFLUSH #5,#7 u-area, PMOVE (A2),CRP ->
+    root $39000 = init) switches to init; init's program fetch IS walked
+    through $39000, but its RTS reads $FFFFFCDC -> phys $7C6CDC with NO
+    walk: A's ATC entry survived the CRP load, read 0 there, init jumped to
+    0. The other deaths are the same: the first process to run after a
+    switch returns through the previous one's stack translation.
+    sim/predec_fault CASESET=ctx (TCMODE=aux; a second user tree mapping
+    $2C000 to $2D000; MOVES (A0) through tree 1, resume030's sequence to
+    tree 2, MOVES again): FAILS with a PMOVE read (CRP,(A3) or MMUSR,(A3))
+    shortly before the CRP write - got tree 1's $11111111. The +FDWATCH
+    spy: the CRP high-word reg_we came with reg_fd = 1. CAUSE: the PMMU's
+    reg_fd was the REGISTERED pmmu_reg_fd_d, which a PMOVE read sets to 1
+    and the write block resets only a clock or more into the next PMOVE -
+    after its first reg_we. FIX: pmmu_reg_fd_c, combinational from the
+    executing PMOVE's latched brief (a read: 1; a write, formats 000/010:
+    bit 8 = FD), UM 9.8. ctx 0-3 PASS (3 = PMOVEFD keeps the entry), CACR 0
+    and $2101. Regression list, all PASS: ctx (CACR 0, $2101), ifetch 0-6
+    (2's functional checks pass; its JTRACE quiet check fails = KNOWN
+    ISSUES 23, pre-existing), rts 0-4, jsr 36, bf 15, aux7 aux/auxirq/
+    auxfull/auxfullirq/auxfull SDRAM 5 each, blockmove 20, straddle 30, wp
+    20, moves 20, mmu16 7 runs + region check, machine 17, system 68,
+    pmmu_rom_contract 67 (our PMMU), busfault 14, busfault_dib 18,
+    kernel_bus 338, rtr_fc 29, cache030 60, cpfpu all 15 programs. (One
+    auxirq run broke because a second run shared its directory - rerun
+    alone: PASS.) Compile with compile 73's deck (no JTRACE: its ALMs
+    tipped compile 75's timing).
+
+23. **OPEN (2026-10-16, found by JTRACE's bench check): a stray user fetch
+    at a junk PC after an instruction-fetch fault on a JMP (xxx).L's address
+    word.** sim/predec_fault CASESET=ifetch IFONLY=2 (the address straddling,
+    its low word on a non-resident page): after the fault at $46000 the
+    kernel walks for FC 2 and FETCHES user $00000004 (a completed beat; the
+    walker sets U on page 0's descriptor) before the bus error dispatches;
+    the instruction then resumes correctly (6 checks pass) - only JTRACE's
+    'no user fetch below $A0' check fails. The same with the kernel before
+    KNOWN ISSUES 22's fixes (03ffb9f): pre-existing. A 68030 takes the
+    stage B/C fault before it computes the target (UM 8.1.2), so no such
+    fetch exists there; with page 0 invalid ours would walk (and could
+    fault) on an address the program never named. Not the A/UX killer
+    (that was 22's PMOVE FD); to fix after the board result.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
