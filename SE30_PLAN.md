@@ -19288,6 +19288,15 @@ Daniel - add to it, move items out when fixed).**
     filter (on at configuration: user-space beats, PMMU-instruction beats,
     user walks, all PFLUSH), 2048 deep. Compile 75 = eff79ea + LEAN_PROBES
     + LEAN_CPU + JTRACE.
+    **COMPILE 75 DONE, TIMING MISSED ON OUR CLOCK:**
+    `output_files/MacSE30_eff79eab_jtrace2_slow100miss.rbf` (md5 258f5b24,
+    39,900 ALMs = 95 %, 397 RAM blocks). clk_sys -0.234 ns at slow 100C only
+    (slow -40C +0.762, holds positive): the PRE-EXISTING path pmmu_reg_sel_int
+    -> PMMU reg_rdat (combinational, BUG #83) -> ALU bit-field shift/OP1in
+    -> Add53, +0.230 in compile 73; the instrument's ~950 extra ALMs tipped
+    the placement. Daniel (2026-10-16): flash it as is - a debug build; its
+    readings carry the caveat. The path itself is a candidate for a real
+    RTL fix (register reg_rdat before the ALU) before the release.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
