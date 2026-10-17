@@ -19638,6 +19638,17 @@ Daniel - add to it, move items out when fixed).**
     SUPERVISOR program fetch (FC 6) below the limit (rtl/dbg_jtrace.v;
     `read_jtrace.tcl arm 80400000 all` after the boot) - compile 79 with
     SE30_LEAN_PROBES + SE30_LEAN_CPU + SE30_JTRACE, then fps on the board.
+    **COMPILE 79 DONE (2026-10-17 19:09-19:49, 40 min; Daniel: "yes"):**
+    `output_files/MacSE30_67463852_jtrace_sfetch_slow100miss.rbf` (md5
+    a6929015), 6746385 with SE30_LEAN_PROBES + SE30_JTRACE + SE30_NO_CDROM
+    (no LEAN_CPU: Daniel asked what could come out; reverted), 37,380 ALMs
+    (89 %). TIMING MISSED ON OUR CLOCK at slow 100C only: -0.315 ns,
+    pmmu_reg_sel_int -> PMMU reg_rdat (combinational, BUG #83) -> OP2out ->
+    ALU bit-field shift -> OP1in -> ALUout -> regin - compile 75's path
+    (-0.234 there); the other corners pass for ours; ascal -0.288 slow -40C
+    (KNOWN ISSUES 6); the capture met at every corner; no 332125 loop (map
+    list = KNOWN ISSUES 27's artefact). A debug build, readings with the
+    caveat, as compile 75. On the board: no CD-ROM in the OSD.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
