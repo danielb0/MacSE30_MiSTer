@@ -233,8 +233,11 @@ module tb_predec_fault;
   // ... and its fault bookkeeping on the same clocks (KX): first-fire latch,
   // dispatch request, restart arm, consumer strobes, retire
   reg kx_lw, kx_mb, kx_disp, kx_fv, kx_fi, kx_rp, kx_cons, kx_sop, kx_sint, kx_bea, kx_tb, kx_obv, kx_bad;
-  reg [31:0] kx_pc, kx_epc, kx_lopc; reg [15:0] kx_op, kx_lor; reg [1:0] kx_st;
+  reg [31:0] kx_pc, kx_epc, kx_lopc, kx_inpc; reg [15:0] kx_op, kx_lor; reg [1:0] kx_st; reg kx_gb, kx_swt;
   initial begin
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/insn_next_pc", "/tb_predec_fault/kx_inpc", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/getbrief", "/tb_predec_fault/kx_gb", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/stream_word_take", "/tb_predec_fault/kx_swt", 1);
     $init_signal_spy("/tb_predec_fault/cpu/kernel/TG68_PC", "/tb_predec_fault/kx_pc", 1);
     $init_signal_spy("/tb_predec_fault/cpu/kernel/exe_pc", "/tb_predec_fault/kx_epc", 1);
     $init_signal_spy("/tb_predec_fault/cpu/kernel/opcode", "/tb_predec_fault/kx_op", 1);
@@ -256,8 +259,8 @@ module tb_predec_fault;
     $init_signal_spy("/tb_predec_fault/cpu/kernel/trap_berr", "/tb_predec_fault/kx_tb", 1);
   end
   always @(posedge clk) if ($time >= kt0 && $time < kt1)
-    $display("KX %0t lw=%b make_berr=%b disp=%b fvalid=%b f_insn=%b rpend=%b cons=%b bad=%b setopc=%b setint=%b bea=%b trap_berr=%b st=%b pc=%08x epc=%08x op=%04x lor=%04x@%08x obv=%b",
-             $time, kx_lw, kx_mb, kx_disp, kx_fv, kx_fi, kx_rp, kx_cons, kx_bad, kx_sop, kx_sint, kx_bea, kx_tb, kx_st, kx_pc, kx_epc, kx_op, kx_lor, kx_lopc, kx_obv);
+    $display("KX %0t lw=%b make_berr=%b disp=%b fvalid=%b f_insn=%b rpend=%b cons=%b bad=%b setopc=%b setint=%b bea=%b trap_berr=%b st=%b pc=%08x epc=%08x op=%04x lor=%04x@%08x obv=%b inpc=%08x gb=%b swt=%b",
+             $time, kx_lw, kx_mb, kx_disp, kx_fv, kx_fi, kx_rp, kx_cons, kx_bad, kx_sop, kx_sint, kx_bea, kx_tb, kx_st, kx_pc, kx_epc, kx_op, kx_lor, kx_lopc, kx_obv, kx_inpc, kx_gb, kx_swt);
 
   // ------------------------------------------------------ the bus trace
   // each cycle printed once, at the first clock of its acknowledge

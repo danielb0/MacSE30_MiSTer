@@ -20,6 +20,10 @@ board's trace caught faulting before the Mac environment's bomb.
   aux7       the board's big move (compile 62, #1275-#1323): the BlockMove
              loop with every destination page top written by the SEVENTH
              MOVE.L ($4080F012) and the next long by the eighth
+  memind     KNOWN ISSUES 25: A/UX's X11 clients' memory-indirect EAs with
+             the pointer's, the operand's or the destination's page invalid
+  memfull    the full extension word's every form (MIBD x IS-I/IS) under a
+             LASTWRITE write fault, through the EA (MIPART=d) or after it (s)
 
 HANDLER (the bus-error handler's flush): pflusha (default); aux = A/UX's
 fl_userpg, PFLUSH #3,#4,(A0) on the fault address; auxirq = aux, run at
@@ -54,7 +58,7 @@ THE PROGRAM (supervisor, from $1000)
       walker sets them, UM 9.5.3 - A/UX's pages start that way too)
     USP $9000
     each case (CASES; CASESET=blockmove|straddle|dcmp|aux7 picks one kind; moves,
-      wp, jsr, bf, bfx and ifetch run only alone): the case's
+      wp, jsr, bf, bfx, ifetch, memind and memfull run only alone): the case's
       pages made invalid (DT 0) and PFLUSHA; the registers; MOVE #0,SR (user
       mode, as the Mac environment runs); the loop; TRAP #0 back to
       supervisor; A0, A1, D1, the count of output longs that differ from the
@@ -245,6 +249,93 @@ CTX = [
     ([0xF013, 0x6200], 0x4C00, CTX_QV, "the same after a PMOVE MMUSR,(A3)"),
     ([], 0x4D00, CTX_PV, "PMOVEFD (A2),CRP: no flush, the old entry still translates (UM 9.8)"),
 ]
+# memind: memory-indirect full-format EAs page-faulting (KNOWN ISSUES 25: A/UX's
+# X11 clients die on an F-line at an extension word of MOVE.L ([8,A6],$B4),D0 -
+# xclock - and MOVE.L ([-4,A6],$2E),D2 - xeyes).  User mode; the pointer's page,
+# the operand's page, the destination's or several invalid; the result to A2 -
+# (code, registers, {address: long}, A2 wanted, invalid pages, what):
+MI_X = [0x2036, 0x0162, 0x0008, 0x00B4, 0x2440]          # MOVE.L ([8,A6],$B4),D0; MOVEA.L D0,A2
+MI_A6 = [(0x2C7C, 0x60100), (0x267C, 0x62000)]           # A6 the frame, A3 the xeyes source
+MI_D = {0x60108: 0x61000, 0x610B4: 0x12345678}           # [8,A6] -> $61000; the operand at $610B4
+MEMIND = [
+    (MI_X, MI_A6, MI_D, 0x12345678, [0x60000], "xclock's MOVE.L ([8,A6],$B4),D0: the pointer's page invalid"),
+    (MI_X, MI_A6, MI_D, 0x12345678, [0x61000], "the same, the operand's page invalid"),
+    (MI_X, MI_A6, MI_D, 0x12345678, [0x60000, 0x61000], "the same, both invalid"),
+    ([0x2476, 0x0162, 0x0008, 0x00B4], MI_A6, MI_D, 0x12345678, [0x60000, 0x61000],
+     "MOVEA.L ([8,A6],$B4),A2: both invalid"),
+    # xeyes: MOVE.L $5E(A3),([-4,A6],$5E) then MOVEA.L ([-4,A6],$5E),A2 reads it back
+    ([0x2DAB, 0x005E, 0x0162, 0xFFFC, 0x005E, 0x2476, 0x0162, 0xFFFC, 0x005E], MI_A6,
+     {0x600FC: 0x63000, 0x6205E: 0xCAFEF00D, 0x6305E: 0xDDDDDDDD}, 0xCAFEF00D, [0x63000],
+     "xeyes' MOVE.L $5E(A3),([-4,A6],$5E): the destination's page invalid (the write faults)"),
+    ([0x2DAB, 0x005E, 0x0162, 0xFFFC, 0x005E, 0x2476, 0x0162, 0xFFFC, 0x005E], MI_A6,
+     {0x600FC: 0x63000, 0x6205E: 0xCAFEF00D, 0x6305E: 0xDDDDDDDD}, 0xCAFEF00D, [0x60000, 0x62000, 0x63000],
+     "the same, the pointer's, the source's and the destination's pages invalid"),
+]
+# straddles: the pointer, then the operand, across a page top; the long od and bd sizes
+MEMIND += [
+    (MI_X, [(0x2C7C, 0x64FF6), (0x267C, 0)], {0x64FFE: 0x66000, 0x660B4: 0x0BADCAFE}, 0x0BADCAFE, [0x65000],
+     "the pointer straddling $64FFE, its low word's page invalid"),
+    (MI_X, [(0x2C7C, 0x66F00), (0x267C, 0)], {0x66F08: 0x67F4A, 0x67FFE: 0x5A5AA5A5}, 0x5A5AA5A5, [0x68000],
+     "the operand straddling $67FFE, its low word's page invalid"),
+    ([0x2036, 0x0163, 0x0008, 0x0001, 0x00B4, 0x2440], [(0x2C7C, 0x69100), (0x267C, 0)],
+     {0x69108: 0x69000, 0x790B4: 0x77665544}, 0x77665544, [0x69000, 0x79000],
+     "MOVE.L ([8,A6],$100B4.L),D0 - long od: both pages invalid"),
+    ([0x2036, 0x0172, 0x0000, 0x0008, 0x00B4, 0x2440], MI_A6, MI_D, 0x12345678, [0x60000, 0x61000],
+     "MOVE.L ([$8.L,A6],$B4),D0 - long bd: both pages invalid"),
+]
+# memfull: the full extension word's every form (UM 2.2: BD SIZE x IS x I/IS)
+# under a LASTWRITE write fault - the format $A frame's continuation PC counts
+# the instruction's stream words.  MIPART=d: MOVE.L D0,<ea> faults on <ea>'s
+# page, then MOVEA.L <ea>,A2 reads it back; MIPART=s: MOVE.L <ea>,(A3) faults
+# on (A3)'s page after reading <ea>, then MOVEA.L (A3),A2.  MIBD = 1 (null bd),
+# 2 (word), 3 (long).  Index D2.L = 8.  Each case's 256-byte slice of the
+# frame page $60000 (A6, the pointers), the target page $62000 and the (A3)
+# page $63000 - (IS, I/IS) pairs:
+MF_IIS = [(1, 0), (1, 1), (1, 2), (1, 3), (0, 0), (0, 1), (0, 2), (0, 3), (0, 5), (0, 6), (0, 7)]
+MF_P0, MF_P2, MF_P3 = 0x60000, 0x62000, 0x63000
+
+
+def memfull_cases(part, bds):
+    out = []
+    for k, (is_, iis) in enumerate(MF_IIS):
+        o = 0x100 * k
+        ext = 0x2800 | 0x0100 | (is_ << 6) | (bds << 4) | iis       # D2.L, full format
+        bd = {1: 0, 2: 0x40, 3: 0x80}[bds]
+        bdw = {1: [], 2: [bd], 3: [bd >> 16, bd & 0xFFFF]}[bds]
+        ods = iis & 3 if iis else 0                                  # 0 none, 1 null, 2 word, 3 long
+        od = {0: 0, 1: 0, 2: 0x30, 3: 0x50}[ods]
+        odw = {0: [], 1: [], 2: [od], 3: [od >> 16, od & 0xFFFF]}[ods]
+        x = 0 if is_ else 8                                          # the index's value, if not suppressed
+        data = {}
+        if iis == 0:                                                 # no memory indirection: the target is the EA
+            a6 = MF_P2 + o + 0x10
+            target = a6 + bd + x
+        else:
+            a6 = MF_P0 + o + 0x10
+            pre = iis < 4
+            pa = a6 + bd + (x if pre else 0)
+            ptr = MF_P2 + o + 0x10
+            data[pa] = ptr
+            target = ptr + od + (0 if pre else x)
+        v = 0xC0DE0000 | (part == "s") << 12 | bds << 8 | k
+        ea = [ext] + bdw + odw
+        a3 = MF_P3 + o + 0x10
+        if part == "d":
+            data[target] = 0xDDDDDDDD
+            code = [0x2D80] + ea + [0x2476] + ea                     # MOVE.L D0,(ea); MOVEA.L (ea),A2
+            bad = [MF_P2]
+        else:
+            data[target] = v
+            data[a3] = 0xDDDDDDDD
+            code = [0x26B6] + ea + [0x2453]                          # MOVE.L (ea),(A3); MOVEA.L (A3),A2
+            bad = [MF_P3]
+        regs = [(0x2C7C, a6), (0x267C, a3), (0x243C, 8), (0x203C, v)]   # A6, A3, D2, D0
+        what = "%s ext $%04X (BD SIZE %d, IS %d, I/IS %d%d%d)" % (
+            "MOVE.L D0,<ea>" if part == "d" else "MOVE.L <ea>,(A3)", ext, bds, is_, iis >> 2, (iis >> 1) & 1, iis & 1)
+        out.append((code, regs, data, v, bad, what))
+    return out
+
+
 # dcmp: (table, source, destination, reference, output words, seed, which pages invalid, what)
 DCMP_CASES = [
     (0x40000, 0x41000, 0x48F00, 0x50000, 0x2000, 1, "dst", "destination pages invalid: the byte and word writes fault, as on the board"),
@@ -414,6 +505,17 @@ def main():
             regs = [(0x207C, CTX_P), (0x227C, 0x3000), (0x267C, 0x3E30), (0x72FF, None)]   # A0, A1, A3, MOVEQ #-1,D1
             cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [], want_v,
                           {"A0": CTX_P, "A1": 0x3000, "super": True}, "ctx: " + what))
+    if CASESET in ("memind", "memfull"):
+        sel = os.environ.get("MIONLY")                # one case alone, as IFONLY
+        mi = MEMIND if CASESET == "memind" else memfull_cases(os.environ.get("MIPART", "d"), int(os.environ.get("MIBD", "2")))
+        for k, (code, mregs, data, a2, bad, what) in enumerate(mi):
+            if sel is not None and k != int(sel):
+                continue
+            for a, v in data.items():
+                put32(a, v)
+            regs = mregs + [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+            cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, a2,
+                          {"A0": 0x77, "A1": 0x55}, CASESET + ": " + what))
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)

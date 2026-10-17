@@ -19378,7 +19378,10 @@ Daniel - add to it, move items out when fixed).**
     Ships in the next IIcx release (Daniel: after the SE/30 release with
     the A/UX fixes).
 
-25. **OPEN (2026-10-16, A/UX's X11 xeyes; not yet benched): a 68020/030
+25. **FIXED IN THE BENCHES (2026-10-16 night; compile and board pending) -
+    NOT a decode length: a page-faulted write after a full-format EA
+    resumed one word late (the format $A continuation PC; CAUSE AND FIX
+    below).** Opened as: **(2026-10-16, A/UX's X11 xeyes): a 68020/030
     full-format EA with an outer displacement decodes to the wrong length.**
     Board, compile 76, A/UX 3.1: /usr/bin/X11/xeyes (X11R4, MacX) dies
     with SIGILL; adb on its core: pc $21368, sp $FFFFF788, a6 $FFFFF7A0,
@@ -19418,6 +19421,54 @@ Daniel - add to it, move items out when fixed).**
     I/IS combinations it accepts. Also seen meanwhile: PEXC illegal=1
     (vector 4, one, source not placed) and regular vector-8 privilege
     violations (likely A/UX emulating Mac code's MOVE from SR - to check).
+    **CAUSE AND FIX (2026-10-16 night, benches; board test pending).** The
+    decode is right: sim/insn_probe's new K25 section runs xeyes'
+    $21354-$21370 and xclock's $16B4-$16C0 byte for byte, plus long od,
+    long bd, null bd, pre- and postindexed and the no-indirection form -
+    32 checks PASS on the bare kernel and the whole CPU path (CACR 0 and
+    $0101) before any change. (First run: 4 "failures" were my expected
+    values - ([-4,A6]) is a pointer TO a pointer in xeyes.) What A/UX adds
+    is demand paging: sim/predec_fault CASESET=memind (new, user mode,
+    PMMU, the pager handler) - xclock's form with the pointer's, the
+    operand's or both pages invalid PASSES; xeyes' MOVE.L $5E(A3),
+    ([-4,A6],$5E) with the DESTINATION page invalid FAILS: the write
+    faults (format $A, LASTWRITE, SSW $0101), the RTE replays it, and
+    execution resumes ONE WORD LATE - on the next instruction's $0162,
+    which is BCHG D0,-(A2) (the bench's read at $FFFFFFFF, A2 = 0). On the
+    board that is $21366: $0162 runs, then $FFFC at $21368 is the F-line
+    PFLN caught. CAUSE: the format $A continuation PC (insn_next_pc,
+    berr_pmmu_fault_next_pc) counted a full-format EA's stream words one
+    per state "00" cycle of ld/st_AnXn1 and ld/st_229_*; when the EA ends
+    on a WORD fetch, the last such cycle is the next opcode's prefetch and
+    was counted too (KNOWN ISSUES 20's fix had left "the full-format path
+    unchanged and unbenched"). New CASESET=memfull, the full extension
+    word's every form - BD SIZE null/word/long (MIBD 1-3) x 11 IS-I/IS
+    pairs, the faulting write through the full-format destination (MIPART
+    d) or through (A3) after a full-format source (MIPART s): before the
+    fix d1 and d2 fail from case 0, s1 and s2 fail 8 of 11 (all but the
+    long-od forms), d3/s3 (long bd) pass. FIX (TG68KdotC_Kernel.vhd,
+    full_ext_step/full_ext_bytes): the full format's bd and od words are
+    added once, from the extension word (UM 2.2: BD SIZE, I/IS low bits),
+    at the AnXn1 step; its own states no longer bump insn_next_pc
+    (stream_consumed_pc, the sim report's, unchanged). After: memind 60,
+    memfull all six parts 66 each - PASS. The source-side miscount was
+    just as live: any MOVE <full-format EA>,<mem> whose write page-faults.
+    **xclock is not fully explained:** its PFLN PC $16BC is the od word's
+    neighbour, not a $0162; the board decides. The cputest corpus
+    (EXTSRC/EXTDST) runs fault-free and cannot see insn_next_pc, so it is
+    not rerun. **Regression list, all PASS (2026-10-17, ~2 h 10 min):**
+    insn_probe 32 (bare, wrapper CACR 0 and $0101); predec memind CACR
+    $2101, memfull d2 and s1 CACR $3111, memfull d1 HANDLER=aux; ctx CACR
+    0 and $2101 (24 each); ifetch 0-6 (2's JTRACE quiet check fails = KNOWN
+    ISSUES 23, pre-existing; its functional checks pass); rts 0-4, jsr 36,
+    bf 15, aux7 aux/auxirq/auxfull/auxfullirq/auxfull SDRAM 5 each,
+    blockmove 20, straddle 30, wp 20, moves 20; mmu16 7 runs + region
+    check; machine 17, system 6 programs, pmmu_rom_contract 67, busfault
+    14, busfault_dib 18, kernel_bus 338, rtr_fc 29, cache030 60, cpfpu all
+    15 programs (fullea, fulleab included). CASESET=all skipped as for
+    compile 73. (mmu16's first run was killed by a `taskkill /IM vsim.exe`
+    of mine; rerun.) run_wrapper.sh had lost dbg_jtrace.v from its list
+    since tb_predec_fault gained JTRACE; restored.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs

@@ -432,6 +432,10 @@ architecture logic of TG68KdotC_Kernel is
 	signal insn_fetch_consumer	: std_logic;  -- decode is consuming the in-flight stream fetch (extension/immediate)
 	signal stream_word_take	: std_logic;  -- a state "00" cycle that consumes its stream word (not readahead)
 	signal stream_take_bad	: std_logic;  -- ... and the word is a fault-released beat's garbage (KNOWN ISSUES 22)
+	signal full_ext_step	: std_logic;  -- the AnXn1 step of a full-format extension word (KNOWN ISSUES 25)
+	signal full_ext_state	: std_logic;  -- a full-format EA's own states: their "00" cycles are not counted one by one
+	signal full_ext_bytes	: std_logic_vector(3 downto 0);  -- its bd and od words, in bytes (UM 2.2)
+	signal full_bd_bytes, full_od_bytes : std_logic_vector(3 downto 0);
 	signal ifetch_late_arm	: std_logic;  -- a pending consumer-less fetch fault's word is now used: restart
 	signal berr_stack_fetch_squash	: std_logic;  -- bus-error frame push/vector states: suppress parasitic stale-PC prefetch
 	signal rte_b_resume_refetch	: std_logic := '0';  -- after a $B-frame RTE: first opcode retire must come from a FRESH fetch
@@ -2172,6 +2176,23 @@ ALU: TG68K_ALU
 	                              micro_state = st_229_1 OR micro_state = st_229_2 OR
 	                              micro_state = st_229_3 OR micro_state = st_229_4)
 	                    ELSE '0';
+	-- KNOWN ISSUES 25: a full-format EA's stream words, from the extension word
+	-- (UM 2.2: BD SIZE 01 null, 10 word, 11 long; I/IS low bits the same for
+	-- the od).  Counting its "00" cycles took the next opcode's prefetch for a
+	-- word whenever the EA ended on a word fetch: a format $A frame resumed one
+	-- word late (A/UX's xeyes, MOVE.L $5E(A0),([-4,A6],$5E): an F-line).
+	full_ext_step <= '1' WHEN (micro_state = ld_AnXn1 OR micro_state = st_AnXn1) AND
+	                          NOT (brief(8)='0' OR extAddr_Mode=0 OR (cpu(1)='0' AND extAddr_Mode=2))
+	                 ELSE '0';
+	full_ext_state <= '1' WHEN full_ext_step = '1' OR
+	                           micro_state = ld_229_1 OR micro_state = ld_229_2 OR
+	                           micro_state = ld_229_3 OR micro_state = ld_229_4 OR
+	                           micro_state = st_229_1 OR micro_state = st_229_2 OR
+	                           micro_state = st_229_3 OR micro_state = st_229_4
+	                  ELSE '0';
+	full_bd_bytes <= "0010" WHEN brief(5 downto 4) = "10" ELSE "0100" WHEN brief(5 downto 4) = "11" ELSE "0000";
+	full_od_bytes <= "0010" WHEN brief(1 downto 0) = "10" ELSE "0100" WHEN brief(1 downto 0) = "11" ELSE "0000";
+	full_ext_bytes <= full_bd_bytes + full_od_bytes;
 	-- KNOWN ISSUES 22: a stream word used while its fetch beat was released
 	-- (UM 8.1.2: a stage B/C fault is taken when the word is used).  The
 	-- prefetcher can fetch an instruction's own extension words while decode
@@ -5929,9 +5950,17 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- and AnXn1 reads no stream word - its "00" cycle is the next
 					-- instruction's prefetch (KNOWN ISSUES 20: MOVE.W (A1,D0.W),(A2)+
 					-- stacked a Format $A PC one word long); stream_word_take has it
+					ELSIF full_ext_step = '1' THEN
+						-- the full format's bd and od words at once (KNOWN ISSUES 25)
+						IF stream_word_take = '1' THEN
+							stream_consumed_pc <= tg68_pc;
+						END IF;
+						insn_next_pc <= insn_next_pc + full_ext_bytes;
 					ELSIF stream_word_take = '1' THEN
 						stream_consumed_pc <= tg68_pc;
-						insn_next_pc <= insn_next_pc + 2;
+						IF full_ext_state = '0' THEN
+							insn_next_pc <= insn_next_pc + 2;
+						END IF;
 					ELSIF state="00" AND
 					      (micro_state = pmmu_ld_nn OR micro_state = pmmu_ld_dAn1 OR
 					       micro_state = pmmu_ld_AnXn1 OR micro_state = pmmu_ld_AnXn2 OR
