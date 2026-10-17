@@ -666,7 +666,7 @@ elif MODE == 'b3r':
     # time under the bench's random IRQs, whose handler does what a context
     # switch does with the FPU (FSAVE, FMOVEM of every register, other FPU
     # work, all restored, FRESTORE); the two sums must agree bit for bit
-    N = int(os.environ.get('B3R_N', '150'))
+    N = int(os.environ.get('B3R_N', '60'))
     a = Asm(0x1000)
     a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (B3_CACR)
     a.emit(0x4BF8, 0x3100)                    # lea $3100.w,a5       the results

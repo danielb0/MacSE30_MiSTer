@@ -19606,7 +19606,7 @@ Daniel - add to it, move items out when fixed).**
       verdict on loops (lesson-combinational-loops-are-defects); this map
       table, with these 8 cells, is expected in every build.
 
-28. **OPEN (2026-10-17, board, compile 78): FPU-heavy user code under A/UX
+28. **FIXED IN SIM (2026-10-17; compile 80 to test) - an exception before a handler's first instruction re-stacked the coprocessor's frame (CAUSE AND FIX below).** Opened as: **(2026-10-17, board, compile 78): FPU-heavy user code under A/UX
     gets wrong FPU results, then runs in SUPERVISOR mode.** Found with
     tools/auxunix/fpstress.c (FPU work through function calls, as xeyes; the
     same result demanded every round; optional SIGALRM handler with FPU work
@@ -19649,6 +19649,43 @@ Daniel - add to it, move items out when fixed).**
     (KNOWN ISSUES 6); the capture met at every corner; no 332125 loop (map
     list = KNOWN ISSUES 27's artefact). A debug build, readings with the
     caveat, as compile 75. On the board: no CD-ROM in the OSD.
+    **CAUSE (compile 79 on the board, JTRACE, 2026-10-17 ~20:00;
+    `C:\temp\Mac\AUX disk\extract\jtrace_79_fps.txt`).** NOSIG=1 ./fps 3
+    ran clean; `./fps 30 3 & ./fps 30 3 & ./fps 30` panicked as compile 78's
+    first (pc $824, SR $2104) and froze the ring (armed `80050000 all` - the
+    kernel's pstart section, $54000-$5BD90, is legitimate supervisor code
+    low, so `80400000` fired at idle). Rows 1784-1823: fps's FPU instruction
+    at $7EC in its dialog ($8900 come-again); LEVEL 1's IACK; frame $9
+    stacked correctly (SR $0004, PC $7F0, vector 25); vector $100121DE
+    fetched and prefetched, no handler instruction decoded; LEVEL 2's IACK
+    at the handler's first boundary - and frame $9 stacked AGAIN with the
+    dialog's fields (instruction $7EC, $F200/$A800, tempEA) and SR $2104;
+    the level-2 handler's exit (pstart $54B80) tests the stacked SR's S,
+    takes the kernel-return path and RTEs the frame $9 - the dialog resumes
+    with S set and fps's code runs in supervisor mode. The level-1 handler
+    (the clock) never ran; its frame is orphaned. UM 8.1: the second
+    interrupt belongs to the handler - format $0, its address, its SR.
+    The kernel's coprocessor exception flags were cleared only at the next
+    setopcode: cp_f9 (frame $9), cp_trap_pc (cpSAVE's frame $0 at the
+    FSAVE), cp_trap2 (cpTRAPcc's frame $2), cp_bfr (a dialog's long frame).
+    **FIX (49bdde2):** all four also clear at trap3 (the vector fetch; every
+    frame - trap0-2, int2-5, berr1-8 - ends there). The sweep: every
+    register cleared only at setopcode was listed; the trap_* flags clear
+    at every dispatch too, the rte_* ones belong to RTE's own sequence, the
+    other four were these. **BENCHES:** sim/cpfpu b3n (level 2 raised at a
+    user dialog's level-1 IACK - tb_cpfpu's new VIA2 IRQ and nested mode
+    $FFFFFFFD): before the fix level 2's frame is $9068 with PC $101C, level
+    1's handler never runs, A7 $7FE4; after, PASS. b3s (the same on cpSAVE's
+    not-ready, mode $FFFFFFFC): with cp_trap_pc unfixed level 2 stacks the
+    FSAVE's address and level 1 never runs; fixed, PASS. b3r gains random
+    level-2 IRQs (its handler FSAVEs/FMOVEMs too); B3R_N default 60 (150 ran
+    out of the bench's 2,000,000 clocks with both levels): 217 level 1, 249
+    level 2, PASS (25 min). Not benched: cp_trap2 and cp_bfr (inspection;
+    cp_bfr matters only if a handler's first fetch faults).
+    **Regression list, all PASS (2026-10-17 20:40-21:45, 8 at a time):** as
+    KNOWN ISSUES 26's list (ifetch 2's JTRACE quiet check = KNOWN ISSUES 23),
+    cpfpu b1 b2 b3a b3b b3c b3u b3n b3s b4 b5a b5b b5c b5d b5u mmu fullea
+    fulleab full, and b3n/b3s/b5u with CACR $2101 and $3111.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
