@@ -19,6 +19,11 @@
 # triggers it: dump that, re-arm, and the next trigger is the event.
 # dump [rows] prints the last rows records up to the freeze (default all
 # 2048).  Reading does not stop or restart the machine.
+# A limit with bit 31 set (KNOWN ISSUES 28) triggers on a SUPERVISOR program
+# fetch (FC 6) below the limit's low 31 bits instead: `arm 80400000 all`
+# freezes on the first instruction of user code (below $400000 under A/UX,
+# whose kernel is at $10000000) run in supervisor mode.  Arm it after the
+# boot: the Mac OS start-up runs supervisor code low.
 #
 # A beat: t = clk_sys time (14 bits, 31.33 MHz: 523 us a turn); F fetch,
 # R read, W write; FC, SIZ, logical and physical address, the data the

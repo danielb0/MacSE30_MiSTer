@@ -19606,6 +19606,39 @@ Daniel - add to it, move items out when fixed).**
       verdict on loops (lesson-combinational-loops-are-defects); this map
       table, with these 8 cells, is expected in every build.
 
+28. **OPEN (2026-10-17, board, compile 78): FPU-heavy user code under A/UX
+    gets wrong FPU results, then runs in SUPERVISOR mode.** Found with
+    tools/auxunix/fpstress.c (FPU work through function calls, as xeyes; the
+    same result demanded every round; optional SIGALRM handler with FPU work
+    - NOSIG=1 turns it off; optional paging buffer). Board:
+    - three copies, signals on: every copy's `ref` agrees (computed before
+      the first signal), then EVERY round mismatches by tens of units; then
+      "trap type 11", pc $824 SR $2104 (S set) in fps's own text, a7
+      $12FFFFD8 (the kernel stack), a0=a1 $402240 (fps's data); PFLN F-line
+      $FEE0 at $00000824; "Double panic: unexpected kernel trap".
+    - one copy, NOSIG=1 (only the clock interrupt): "Kernel bus error",
+      vaddr $FFFFFE34 fcode 5 (SUPERVISOR data at a user-stack address), pc
+      $5D6 SR $2104, a7 $FFFFFD28 (the user stack), a2-a6 0; "kernel memory
+      management error". adb: $5D6 is libm's sin_cos error path (FPSR NaN or
+      OPERR after the fsin wrapper) - the FPU had already given garbage.
+    - compile 77 (before KNOWN ISSUES 26's fix): one copy NOSIG=1 dies at
+      once with "Memory fault" - KNOWN ISSUES 26's symptom, so 77 cannot say
+      whether this is older.
+    Benches, all PASS (none reproduces it): sim/cpfpu b3r (new: a user FPU
+    loop twice, the second under 509 random IRQs whose handler FSAVEs,
+    FMOVEMs every register, does other FPU work and restores; sums equal bit
+    for bit, A7 checked every pass, a monitor fails on user code decoded with
+    S set; 38 min wall), b5u (new: b5d's PMMU in user mode, an IRQ at an
+    FMOVE.D -(A7)'s come-again, then the resumed dialog's write page-faults
+    on the user stack), b3u/b5u with CACR $2101 and $3111 (b3u's FM3 bus
+    error is then absorbed by the data cache - a bench artefact; every other
+    check passes). The register-file rollback (mmu_restart_restore_now) was
+    suspected for an RTE-resumed dialog's page fault; b5d/b5u show dialogs do
+    not roll back. NEXT: JTRACE with a new trigger - limit bit 31 set = a
+    SUPERVISOR program fetch (FC 6) below the limit (rtl/dbg_jtrace.v;
+    `read_jtrace.tcl arm 80400000 all` after the boot) - compile 79 with
+    SE30_LEAN_PROBES + SE30_LEAN_CPU + SE30_JTRACE, then fps on the board.
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users

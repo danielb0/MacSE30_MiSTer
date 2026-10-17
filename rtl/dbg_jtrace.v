@@ -48,7 +48,7 @@ module dbg_jtrace #(
   input     [159:0] etap,              // tg68k.v's dbg_jte: the event's record
   input             arm,
   input             allbeats,          // the filter off
-  input      [31:0] limit,             // the trigger: a user fetch below this logical address
+  input      [31:0] limit,             // the trigger: a user fetch below this logical address (bit 31: a supervisor one)
   input      [10:0] raddr,
   output reg [191:0] rdata,
   output     [63:0] status             // {records[31:0], write pointer[10:0], trigger row[10:0], full, armed, triggered, frozen, 6'b0}
@@ -67,7 +67,11 @@ module dbg_jtrace #(
   wire        b_user  = tap[157:155] == 3'd1 || tap[157:155] == 3'd2;
   wire        b_mmu   = tap[47:40] == 8'hF0;
   wire        b_keep  = beat && (allbeats || b_user || b_mmu);
-  wire        u_fetch = tap[159:158] == 2'b00 && tap[157:155] == 3'd2 && tap[152:121] < limit;
+  // limit[31] set (KNOWN ISSUES 28): a SUPERVISOR program fetch (FC 6) below
+  // limit[30:0] instead - user code run in supervisor mode under A/UX
+  wire        u_fetch = tap[159:158] == 2'b00 &&
+                        (limit[31] ? (tap[157:155] == 3'd6 && tap[152:121] < {1'b0, limit[30:0]})
+                                   : (tap[157:155] == 3'd2 && tap[152:121] < limit));
   // the event's: FC field 0/1 walker, 2 PFLUSH; a walk's parked access FC [56:54]
   wire        e_user  = etap[56:54] == 3'd1 || etap[56:54] == 3'd2;
   wire        e_keep  = ev && (allbeats || etap[157:155] == 3'd2 || e_user);

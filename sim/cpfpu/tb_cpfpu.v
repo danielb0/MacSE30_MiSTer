@@ -202,6 +202,27 @@ module tb_cpfpu;
     end
   end
 
+  // Random interrupts (KNOWN ISSUES 28, inject.txt's second number = $FFFFFFFE):
+  // while the program's $3F04 is set and its $3F08 clear, the IRQ rises again
+  // a pseudo-random 30-1053 clocks after the handler dropped it; and a user-
+  // code instruction ($1800-$1FFF) decoded in supervisor mode is a failure.
+  reg [31:0] lfsr = 32'h1234_5679;
+  integer rdelay = 100, sviol = 0;
+  always @(posedge clk) begin
+    if (irq_mode == 32'hFFFFFFFE && irq1_n && ram[32'h3F04 >> 2] != 0 && ram[32'h3F08 >> 2] == 0) begin
+      if (rdelay == 0) begin
+        irq1_n <= 0; nirq = nirq + 1;
+        lfsr = {lfsr[30:0], lfsr[31] ^ lfsr[21] ^ lfsr[1] ^ lfsr[0]};
+        rdelay = 30 + (lfsr & 1023);
+      end else rdelay = rdelay - 1;
+    end
+    if (irq_mode == 32'hFFFFFFFE && cpu.kernel.clkena_lw && cpu.kernel.decodeOPC &&
+        cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000 && cpu.kernel.FlagsSR[5]) begin
+      if (sviol < 5) $display("FAIL: user code at %08x decoded in supervisor mode (t=%0t, IRQ %0d)", cpu.kernel.opcode_pc, $time, nirq);
+      sviol = sviol + 1;
+    end
+  end
+
   // --------------------------------------------- the coprocessor cycles
   integer cir_cycles = 0, cpu_space_other = 0;
   reg as_q = 1;
@@ -262,6 +283,11 @@ module tb_cpfpu;
     if (cps_want != 32'hFFFFFFFF) begin
       if (cpu_space_other == cps_want) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL: %0d other CPU-space cycles, expected %0d", cpu_space_other, cps_want); end
+    end
+    if (irq_mode == 32'hFFFFFFFE) begin
+      $display("---- random IRQs: %0d", nirq);
+      if (sviol == 0) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: %0d user-code instructions decoded in supervisor mode", sviol); end
     end
     if (cir_cycles > 0) pass = pass + 1;
     else begin fails = fails + 1; $display("FAIL: no coprocessor cycle"); end

@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b4|b5a|b5b|b5c|b5d|mmu|fullea|fulleab|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b3r|b4|b5a|b5b|b5c|b5d|mmu|fullea|fulleab|full]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -125,12 +125,14 @@ the reserved primitive $0B00 (0 for none), and 1 when the bench raises VIA1's
 IRQ inside dialogs (b3c), and the number of CPU-space cycles to anything
 but the 68882 the run must make (b5a; all ones: unchecked).
 """
+import os
 import sys
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else 'b1'
 inject = 0                                    # the instruction whose response read the bench answers $0B00
 irq = 0                                       # 1: the bench raises VIA1's IRQ inside dialogs (b3c)
 cps = 0xFFFFFFFF                              # CPU-space cycles to IDs but 1 (and IACKs) expected; all ones: unchecked
+CACR_K28 = int(os.environ.get('B3_CACR', '0'), 0)   # KNOWN ISSUES 28's programs (b3u, b5u, b3r): the cache control register first
 berrs = []                                    # data addresses whose first access the bench bus-errors (b5c)
 img = [0] * 65536
 
@@ -498,6 +500,7 @@ elif MODE == 'b3u':
     # frames, cp_rsm) - must take A7 as the USP, and (A7)+ write it back
     # there; the TRAP #0 at the end files both stack pointers
     a = Asm(0x1000)
+    a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (B3_CACR)
     a.emit(0x41F8, 0x3800)                    # lea $3800.w,a0
     a.emit(0x4E60)                            # move.l a0,usp
     a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user, interrupts on
@@ -554,6 +557,94 @@ elif MODE == 'b3u':
         (0x3044, 0x8F090CEE, 0xFFFFFFFF),
         (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact ($8000 less frame $0)
         (0x3018, 0x000037F8, 0xFFFFFFFF),     # ... and the USP
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b3r':
+    # KNOWN ISSUES 28 (A/UX fpstress: wrong FPU results, then user code in
+    # supervisor mode): a user process's FPU loop - FSIN, FSQRT, FMOVE.D/.X
+    # through -(A7) and (A7)+, A7 checked every pass - run twice, the second
+    # time under the bench's random IRQs, whose handler does what a context
+    # switch does with the FPU (FSAVE, FMOVEM of every register, other FPU
+    # work, all restored, FRESTORE); the two sums must agree bit for bit
+    N = int(os.environ.get('B3R_N', '150'))
+    a = Asm(0x1000)
+    a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (B3_CACR)
+    a.emit(0x4BF8, 0x3100)                    # lea $3100.w,a5       the results
+    a.emit(0x41F8, 0x3800)                    # lea $3800.w,a0
+    a.emit(0x4E60)                            # move.l a0,usp
+    a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user, interrupts on
+    a.emit(0x4EF8, 0x1800)                    # jmp $1800.w
+    p = a.done()
+    put(0x1000, p)
+    u = Asm(0x1800)
+    u.label('PASS')
+    u.emit(0xF23C, 0x4100, *L(0))             # fmove.l #0,fp2
+    u.emit(0x3E3C, N - 1)                     # move.w #N-1,d7
+    u.label('L')
+    u.emit(0xF207, 0x4000)                    # fmove.l d7,fp0
+    u.emit(0xF23C, 0x5423, 0x3F50, 0x624D, 0xD2F1, 0xA9FC)   # fmul.d #0.001,fp0
+    u.emit(0xF200, 0x000E)                    # fsin.x fp0
+    u.emit(0xF227, 0x7400)                    # fmove.d fp0,-(a7)
+    u.emit(0xF21F, 0x5480)                    # fmove.d (a7)+,fp1
+    u.emit(0xF200, 0x0498)                    # fabs.x fp1
+    u.emit(0xF200, 0x0484)                    # fsqrt.x fp1
+    u.emit(0xF200, 0x0522)                    # fadd.x fp1,fp2
+    u.emit(0xF227, 0x6900)                    # fmove.x fp2,-(a7)
+    u.emit(0xF21F, 0x4980)                    # fmove.x (a7)+,fp3
+    u.emit(0xF200, 0x0D38)                    # fcmp.x fp3,fp2
+    u.br(0xF28E, 'BAD')                       # fbne.w BAD
+    u.emit(0xBFFC, *L(0x3800))                # cmpa.l #$3800,a7
+    u.br(0x6600, 'BAD')                       # bne.w BAD
+    u.br(0x51CF, 'L')                         # dbra d7,L
+    u.emit(0xF21D, 0x7500)                    # fmove.d fp2,(a5)+
+    u.emit(0x4E41)                            # trap #1              the next pass (IRQs on)
+    u.emit(0x0CB8, *L(2), 0x3020)             # cmpi.l #2,$3020.w
+    u.br(0x6600, 'PASS')                      # bne.w PASS
+    u.emit(0x2038, 0x3100, 0xB0B8, 0x3108)    # move.l $3100.w,d0; cmp.l $3108.w,d0
+    u.br(0x6600, 'BAD')
+    u.emit(0x2038, 0x3104, 0xB0B8, 0x310C)    # move.l $3104.w,d0; cmp.l $310C.w,d0
+    u.br(0x6600, 'BAD')
+    u.emit(0x4E40)                            # trap #0
+    u.label('BAD'); u.emit(movel_abs(1, 0x3018))
+    u.emit(0x4E40)                            # trap #0
+    put(0x1800, u.done())
+    put(4 * 25, L(0x2400))                    # the IRQ: a context switch's FPU work
+    put(0x2400, [0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0xF327,                      # fsave -(a7)
+                 0xF227, 0xE0FF,              # fmovem.x fp0-fp7,-(a7)
+                 0xF227, 0xBC00,              # fmovem.l fpcr/fpsr/fpiar,-(a7)
+                 0xF200, 0x5C32,              # fmovecr.x #$32,fp0   (another process's work)
+                 0xF200, 0x5C8F,              # fmovecr.x #$0f,fp1
+                 0xF200, 0x5D0F,              # fmovecr.x #$0f,fp2
+                 0xF200, 0x0D22,              # fadd.x fp3,fp2
+                 0xF21F, 0x9C00,              # fmovem.l (a7)+,fpcr/fpsr/fpiar
+                 0xF21F, 0xD0FF,              # fmovem.x (a7)+,fp0-fp7
+                 0xF35F,                      # frestore (a7)+
+                 0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w: the bench drops the IRQ
+                 0x4E73])                     # rte
+    put(4 * 33, L(0x2480))                    # TRAP #1: count the pass; the first arms the IRQs
+    put(0x2480, [0x52B8, 0x3020,              # addq.l #1,$3020.w
+                 0x0CB8, 0x0000, 0x0001, 0x3020,   # cmpi.l #1,$3020.w
+                 0x6608,                      # bne.s +8
+                 0x21FC, 0x0000, 0x0001, 0x3F04,   # move.l #1,$3F04.w: random IRQs on
+                 0x4E73])                     # rte
+    put(4 * 32, L(0x2500))                    # TRAP #0: IRQs off, both stack pointers, a count check, stop
+    put(0x2500, [0x21FC, 0x0000, 0x0001, 0x3F08,   # move.l #1,$3F08.w
+                 0x21CF, 0x3014,              # move.l a7,$3014.w
+                 0x4E68,                      # move.l usp,a0
+                 0x21C8, 0x301C,              # move.l a0,$301C.w
+                 0x0CB8, 0x0000, 0x0014, 0x3010,   # cmpi.l #20,$3010.w
+                 0x6308,                      # bls.s +8
+                 0x21FC, 0x0000, 0x0001, 0x3024,   # move.l #1,$3024.w: more than 20 IRQs
+                 *movel_abs(0x600D0001, 0x3FF0),
+                 0x4E72, 0x2700])             # stop #$2700
+    irq = 0xFFFFFFFE
+    expect = [
+        (0x3018, 0x00000000, 0xFFFFFFFF),     # no BAD: every pass's A7 and FP3 = FP2, the two sums equal
+        (0x3020, 0x00000002, 0xFFFFFFFF),     # two passes
+        (0x3024, 0x00000001, 0xFFFFFFFF),     # more than 20 IRQs in the second
+        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact
+        (0x301C, 0x00003800, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 elif MODE == 'b5a':
@@ -828,6 +919,80 @@ elif MODE == 'b5d':
         (0x3004, 0x00000007, 0xFFFFFFFF),     # 7.0 read
         (0x8000, 0x40000000, 0xFFFFFFFF),     # 3.0 stored on page 8
         (0x8004, 0xC0000000, 0xFFFFFFFF),
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b5u':
+    # KNOWN ISSUES 28: b5d's PMMU in USER mode, and the two resumes chained,
+    # as A/UX makes them - an FMOVE.D FP0,-(A7) behind an FSIN takes the
+    # bench's IRQ at its come-again (frame $9, RTE -> cp_rte), and the
+    # resumed dialog's write then page-faults on the user stack's page 9
+    # (long frame, b5d's pager handler, RTE -> cp_rsm); A7, the double and
+    # both stack pointers at the TRAP #0 must come out right
+    a = Asm(0x1000)
+    a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (B3_CACR)
+    a.emit(0x41F8, 0x6F00)                    # lea $6F00.w,a0
+    a.emit(0xF010, 0x4C00)                    # pmove.q (a0),crp
+    a.emit(0xF028, 0x4000, 0x0008)            # pmove.l 8(a0),tc     translation on
+    a.emit(0x41F9, *L(0xA000))                # lea $A000,a0
+    a.emit(0x4E60)                            # move.l a0,usp
+    a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user, interrupts on
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0xF200, 0x000E)                    # fsin.x fp0           released, running
+    a.label('FM1'); a.emit(0xF227, 0x7400)    # fmove.d fp0,-(a7)    IRQ at the come-again, then page 9 faults
+    a.emit(0x21CF, 0x3004)                    # move.l a7,$3004.w
+    a.emit(0x21D7, 0x3008)                    # move.l (a7),$3008.w
+    a.emit(0x21EF, 0x0004, 0x300C)            # move.l 4(a7),$300C.w
+    a.emit(0x4E40)                            # trap #0
+    p = a.done()
+    put(0x1000, p)
+    put(0x6F00, L(0x00000002) + L(0x00006000))           # CRP: short table descriptors at $6000
+    put(0x6F08, L(0x80C04880))                           # TC: E, PS 12, IS 0, TIA 4, TIB 8, TIC 8
+    put(0x6000, L(0x00006040 | 2))                       # A[0] -> B
+    put(0x6040, L(0x00006800 | 2))                       # B[0] -> C
+    for n in range(32):
+        if n != 9:
+            put(0x6800 + 4 * n, L((n << 12) | 1))        # C[n]: page n, valid; 9 (the user stack's) not
+    put(4 * 2, L(0x2400))                     # b5d's pager handler
+    put(0x2400, [0x2E38, 0x3010, 0xE98F,      # move.l $3010.w,d7; lsl.l #4,d7
+                 0x4DF8, 0x3020, 0xDDC7,      # lea $3020.w,a6; adda.l d7,a6
+                 0x3CAF, 0x0006,              # move.w 6(a7),(a6)
+                 0x3D6F, 0x000A, 0x0002,      # move.w $A(a7),2(a6)
+                 0x2D6F, 0x0010, 0x0004,      # move.l $10(a7),4(a6)
+                 0x2D6F, 0x0002, 0x0008,      # move.l 2(a7),8(a6)
+                 0x2C2F, 0x0010,              # move.l $10(a7),d6   the fault address
+                 0x2A06,                      # move.l d6,d5
+                 0x0285, 0xFFFF, 0xF000,      # andi.l #$FFFFF000,d5
+                 0x5285,                      # addq.l #1,d5        a valid page descriptor
+                 0xE08E, 0xE48E,              # lsr.l #8,d6; lsr.l #2,d6
+                 0x0206, 0x00FC,              # andi.b #$FC,d6      its entry's offset
+                 0x4BF8, 0x6800,              # lea $6800.w,a5
+                 0x2B85, 0x6000,              # move.l d5,(0,a5,d6.w)
+                 0xF000, 0x2400,              # pflusha
+                 0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x4E73])                     # rte
+    put(4 * 25, L(0x2480))                    # the bench's IRQ: count, format word, then drop it
+    put(0x2480, [0x52B8, 0x3060,              # addq.l #1,$3060.w
+                 0x31EF, 0x0006, 0x3064,      # move.w 6(a7),$3064.w
+                 0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w
+                 0x4E73])                     # rte
+    put(4 * 32, L(0x2500))                    # TRAP #0: both stack pointers, then stop
+    put(0x2500, [0x21CF, 0x3014,              # move.l a7,$3014.w
+                 0x4E68,                      # move.l usp,a0
+                 0x21C8, 0x3018,              # move.l a0,$3018.w
+                 *movel_abs(0x600D0001, 0x3FF0),
+                 0x4E72, 0x2700])             # stop #$2700
+    irq = a.lab['FM1']
+    expect = [
+        (0x3060, 0x00000001, 0xFFFFFFFF),     # the IRQ, once
+        (0x3064, 0x90640000, 0xFFFF0000),     # ... frame $9 (inside FM1's dialog)
+        (0x3010, 0x00000001, 0xFFFFFFFF),     # one page fault
+        (0x3020, 0xB0080000, 0xFFFF0000),     # ... a long frame, vector 2
+        (0x3024, 0x00009FF8, 0xFFFFFFFF),     # ... at the USER stack's -8
+        (0x3004, 0x00009FF8, 0xFFFFFFFF),     # A7 = USP - 8
+        (0x3008, 0x3FEAED54, 0xFFFFFFFF),     # sin(1.0) on the user stack
+        (0x300C, 0x8F090CEE, 0xFFFFFFFF),
+        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact
+        (0x3018, 0x00009FF8, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 elif MODE == 'b7e':
