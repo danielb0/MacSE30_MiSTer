@@ -19686,6 +19686,13 @@ Daniel - add to it, move items out when fixed).**
     KNOWN ISSUES 26's list (ifetch 2's JTRACE quiet check = KNOWN ISSUES 23),
     cpfpu b1 b2 b3a b3b b3c b3u b3n b3s b4 b5a b5b b5c b5d b5u mmu fullea
     fulleab full, and b3n/b3s/b5u with CACR $2101 and $3111.
+    **COMPILE 80 DONE (2026-10-17 20:58-21:33, 35 min):**
+    `output_files/MacSE30_49bdde23_nestirq.rbf` (md5 2cd8f955), 49bdde2 with
+    compile 78's deck (SE30_LEAN_PROBES + SE30_LEAN_CPU, reverted), 38,599
+    ALMs. Ours met at every corner; the capture met everywhere; the only
+    misses are ascal on pll_hdmi, -0.065 slow -40C (KNOWN ISSUES 6); no 332125
+    loop (map list = KNOWN ISSUES 27). NOT flashed. Board: fps with three
+    copies and signals, several times; xeyes/xclock; boots.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
