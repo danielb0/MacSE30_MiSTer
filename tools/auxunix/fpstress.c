@@ -1,17 +1,32 @@
 /* fpstress.c - A/UX self-check for the core: FPU work interrupted by the
- * clock, SIGALRM handlers doing FPU work, and paging (KNOWN ISSUES 25/26).
+ * clock, SIGALRM handlers arriving during it, and paging (KNOWN ISSUES 25/26/28).
  * Every round must give the reference bit for bit; any difference is a
  * CPU/FPU state lost across an interrupt, signal or page fault.
  *   cc -O -o fpstress fpstress.c -lm
  *   ./fpstress [rounds [megabytes]]      e.g. ./fpstress 30 4 &  (several at once)
- * K&R C on purpose (A/UX 3.1's cc). */
+ * K&R C on purpose (A/UX 3.1's cc).  NOSIG=1 in the environment: no signals.
+ * The handler does INTEGER work only: A/UX 3.1's sendsig saves no FPU state
+ * (only fpsave/fprest at a context switch do), so FPU work in a handler
+ * clobbers the interrupted code's fp0/fp1 - on a real SE/30 too. */
 #include <stdio.h>
 #include <math.h>
 #include <signal.h>
 
 extern char *malloc();
-double hsum;
+long hsum;
 int ticks;
+
+long iwork(n)
+int n;
+{
+	long s;
+	int i;
+
+	s = 0;
+	for (i = 1; i <= n; i++)
+		s = s * 31 + i;
+	return s;
+}
 
 double work(n)
 int n;
@@ -27,10 +42,10 @@ int n;
 
 void tick()
 {
-	hsum += work(200);
+	hsum += iwork(200);
 	ticks++;
 	signal(SIGALRM, tick);
-	alarm(1);
+	if (getenv("NOSIG") == 0) alarm(1);
 }
 
 main(argc, argv)
@@ -40,17 +55,18 @@ char **argv;
 	int rounds, mb, r, bad;
 	long i, n;
 	unsigned long *buf, x;
-	double ref, v, h, hs;
+	double ref, v;
+	long h, hs;
 
 	rounds = argc > 1 ? atoi(argv[1]) : 20;
 	mb = argc > 2 ? atoi(argv[2]) : 0;
 	bad = 0;
 	ref = work(20000);
-	h = work(200);
+	h = iwork(200);
 	printf("pid %d ref %.17g\n", getpid(), ref);
 	fflush(stdout);
 	signal(SIGALRM, tick);
-	alarm(1);
+	if (getenv("NOSIG") == 0) alarm(1);
 
 	n = (long)mb * 262144L;		/* longs */
 	buf = 0;
@@ -78,11 +94,11 @@ char **argv;
 			}
 	}
 	alarm(0);
-	hs = 0.0;
+	hs = 0;
 	for (i = 0; i < ticks; i++)
 		hs += h;
 	if (hs != hsum) {
-		printf("pid %d HANDLER sum %.17g, expected %.17g\n", getpid(), hsum, hs);
+		printf("pid %d HANDLER sum %ld, expected %ld\n", getpid(), hsum, hs);
 		bad++;
 	}
 	printf("pid %d %s: %d rounds, %d MB, %d signals\n", getpid(), bad ? "FAIL" : "ok", rounds, mb, ticks);

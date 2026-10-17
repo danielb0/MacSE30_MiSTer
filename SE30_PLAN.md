@@ -19693,6 +19693,18 @@ Daniel - add to it, move items out when fixed).**
     misses are ascal on pll_hdmi, -0.065 slow -40C (KNOWN ISSUES 6); no 332125
     loop (map list = KNOWN ISSUES 27). NOT flashed. Board: fps with three
     copies and signals, several times; xeyes/xclock; boots.
+    **COMPILE 80 ON THE BOARD (Daniel, 2026-10-17 ~23:45): no crash, no
+    panic** (fps 30 3 x2 + fps 30, signals on - the run that panicked on 78
+    and 79). Every round still MISMATCHED; /t.sh: A (one copy, NOSIG) ok, C
+    (two copies, NOSIG: context switches) ok, B (one copy, SIGALRM, 26
+    signals) MISMATCH every round. **B IS AUTHENTIC - fpstress's own fault:**
+    A/UX 3.1's /unix: sendsig ($10000000) saves d0/d1/a0/a1, SR and PC into
+    the 64-byte signal frame and copies out siglude ($1001259C: `move.l
+    #$96,d0; trap #15` = sigreturn) - no FSAVE/FMOVE anywhere on the signal
+    path; fpsave/fprest (pstart $547D6/$54814: FSAVE + FMOVEM fp0-fp7 +
+    FPCR to the u-area) run only at a context switch. A handler doing FPU
+    work clobbers the interrupted code's fp0/fp1 on a real SE/30 too.
+    tools/auxunix/fpstress.c's handler now does integer work (iwork).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
