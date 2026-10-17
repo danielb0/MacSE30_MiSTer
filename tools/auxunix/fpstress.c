@@ -67,11 +67,11 @@ char **argv;
 			printf("pid %d MISMATCH round %d: %.17g\n", getpid(), r, v);
 			bad++;
 		}
-		x = (unsigned long)r * 2654435761UL + 12345UL;
+		x = (unsigned long)r * 0x9E3779B1 + 12345;
 		for (i = 0; i < n; i++)
-			buf[i] = x ^ (unsigned long)i * 2246822519UL;
+			buf[i] = x ^ (unsigned long)i * 0x85EBCA77;
 		for (i = 0; i < n; i++)
-			if (buf[i] != (x ^ (unsigned long)i * 2246822519UL)) {
+			if (buf[i] != (x ^ (unsigned long)i * 0x85EBCA77)) {
 				printf("pid %d MEMORY round %d at %ld\n", getpid(), r, i);
 				bad++;
 				break;
