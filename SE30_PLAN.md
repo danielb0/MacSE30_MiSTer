@@ -19378,7 +19378,7 @@ Daniel - add to it, move items out when fixed).**
     Ships in the next IIcx release (Daniel: after the SE/30 release with
     the A/UX fixes).
 
-25. **FIXED IN THE BENCHES (2026-10-16 night; compile and board pending) -
+25. **FIXED (compile 77 on the board, 2026-10-17: xeyes runs past it, PFLN empty; xclock not yet retried) -
     NOT a decode length: a page-faulted write after a full-format EA
     resumed one word late (the format $A continuation PC; CAUSE AND FIX
     below).** Opened as: **(2026-10-16, A/UX's X11 xeyes): a 68020/030
@@ -19479,6 +19479,20 @@ Daniel - add to it, move items out when fixed).**
     100C, -0.079 slow -40C) = KNOWN ISSUES 6, accepted precedent. NOT
     flashed. Expected on the board under A/UX 3.1: xeyes and xclock run; if
     xclock still dies, PFLN/PEXC are in the deck for its new PC.
+
+26. **OPEN (2026-10-17, board, compile 77): A/UX's xeyes runs for a while,
+    then "Memory fault - core dumped" (SIGSEGV).** Daniel ran it under MacX
+    (an earlier try without the server gave "can't open display" - no
+    fault). Probes after the crash (read_probes, bitstream 4d7fadee): F-line
+    0, illegal 0, address error 0, PFLN empty - not KNOWN ISSUES 25; bus
+    errors 542 (demand paging; the exception counter saturated at 255); last
+    other vectors 32 32 8 8 8 8 47 32 (TRAP #0, TRAP #15, privilege
+    violations). So the kernel judged a user access invalid: a bad pointer
+    from a load, a page-in, or a register value. NEXT: adb
+    /usr/bin/X11/xeyes core -> $r, $c, <pc>?i; find the instruction in the
+    extracted copy (C:\temp\Mac\AUX disk\extract\core_74\xeyes) and trace the pointer's
+    origin; if it goes cold, MAME macse30 with aux31_q.chd runs xeyes as
+    long (authentic vs ours). Also retry xclock on compile 77.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
@@ -22602,6 +22616,21 @@ everything else first). The images: `C:\temp\Mac\AUX disk\used\First
 boot\` (booted to the Finder) and `...\Failed boot\` (macgetty's core).
 dev = 955d5dc + this record + the ifetch bench, unpushed.
 
+
+**END OF SESSION 2026-10-17 (~03:30, Daniel closed it: "We'll deal with
+it later") - READ THIS TO RESUME.** KNOWN ISSUES 25 fixed (4d7fade): a
+page-faulted write after a full-format EA resumed one word late (the
+format $A continuation PC counted the next opcode's prefetch); benches
+insn_probe K25, predec_fault CASESET=memind / memfull; regression list all
+PASS. COMPILE 77 = `output_files/MacSE30_4d7fadee_fullext.rbf` (compile 76's
+deck; ours met everywhere, ascal -0.309 = KNOWN ISSUES 6), on the board:
+xeyes no longer takes the F-line but dies later with "Memory fault" =
+KNOWN ISSUES 26 (OPEN, NEXT: the core in adb - $r, $c, the PC's
+instruction). xclock not retried. How X runs (to be confirmed in writing
+by Daniel): MacX open in the A/UX Finder, then from a shell DISPLAY=:0
+(or localhost:0) and the client. dev = 1e7eed7 + this record, unpushed
+(Daniel pushes). Daniel's order after that: reliability boots -> forum
+test version -> KNOWN ISSUES 24 -> 23, the PMMU reg_rdat path.
 
 **END OF SESSION 2026-10-16 (~18:30, Daniel closed it) - READ THIS TO
 RESUME.** A/UX 3.1 runs on the core: compile 76
