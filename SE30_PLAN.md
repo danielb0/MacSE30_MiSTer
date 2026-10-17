@@ -19543,6 +19543,22 @@ Daniel - add to it, move items out when fixed).**
     check; machine 17, kernel_bus 338 + system's ten programs,
     pmmu_rom_contract 67, busfault 14, busfault_dib 18, rtr_fc 29, cache030
     60, cpfpu all 15 programs. CASESET=all skipped as for compiles 73 and 77.
+    **COMPILE 78 DONE (2026-10-17 14:57-16:09, 72 min; Daniel: "OK. Go
+    ahead"):** `output_files/MacSE30_31735a45_rtefix.rbf` (md5 5f347d75),
+    31735a4 with compile 77's deck (SE30_LEAN_PROBES + SE30_LEAN_CPU in the
+    qsf for the build only, reverted; `QUARTUS_REVISION=MacSE30` needed now
+    that MacIIcx.qsf exists), 38,806 ALMs. sta_corners: the capture met at
+    every corner (A slow, B fast); every negative path at every corner, setup
+    and hold, is the framework's ascal on pll_hdmi = KNOWN ISSUES 6 (setup
+    -0.415 slow 100C, -0.038 slow -40C; HOLD -0.045 slow -40C and -0.025 fast
+    -40C, o_vpixq_pre -> o_vpixq - ascal hold paths are new in this fit);
+    ours met everywhere. TimeQuest finds no combinational loop (332125). The
+    map report's "Logic Cells Representing Combinational Loops" lists 8 cells,
+    se30_flp_decoder Add2~0..7 (the GCR checksum adders, lines 205-212) - in
+    the IIcx build of 2026-10-10 too, so pre-existing; the RTL chain has
+    registered inputs only and the fitted netlist no loop, but it is open
+    until explained. NOT flashed. On the board under A/UX 3.1: xeyes for a
+    good while, xclock, a few boots.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
