@@ -19469,6 +19469,16 @@ Daniel - add to it, move items out when fixed).**
     compile 73. (mmu16's first run was killed by a `taskkill /IM vsim.exe`
     of mine; rerun.) run_wrapper.sh had lost dbg_jtrace.v from its list
     since tb_predec_fault gained JTRACE; restored.
+    **COMPILE 77 DONE (2026-10-17 01:54-02:46, 51 min; Daniel: "when it
+    passes, commit and compile"):** `output_files/MacSE30_4d7fadee_fullext.rbf`
+    (md5 8074f8ac), 4d7fade with compile 76's deck (SE30_LEAN_PROBES +
+    SE30_LEAN_CPU in the qsf for the build only, reverted), 38,727 ALMs, no
+    combinational loop. Ours met at every corner (clk_sys +1.580 slow 100C;
+    the capture by A or B everywhere); the only failing paths are the
+    framework's ascal on the HDMI clock (o_lex0 -> o_vpix_outer, -0.309 slow
+    100C, -0.079 slow -40C) = KNOWN ISSUES 6, accepted precedent. NOT
+    flashed. Expected on the board under A/UX 3.1: xeyes and xclock run; if
+    xclock still dies, PFLN/PEXC are in the deck for its new PC.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
