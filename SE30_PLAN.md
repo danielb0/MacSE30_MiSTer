@@ -19480,7 +19480,9 @@ Daniel - add to it, move items out when fixed).**
     flashed. Expected on the board under A/UX 3.1: xeyes and xclock run; if
     xclock still dies, PFLN/PEXC are in the deck for its new PC.
 
-26. **OPEN (2026-10-17, board, compile 77): A/UX's xeyes runs for a while,
+26. **FIXED IN SIM (2026-10-17; board test pending, needs a compile) - an RTE
+    back into a coprocessor dialog skipped the deferred S->U A7 swap (CAUSE AND
+    FIX below).** Opened as: **(2026-10-17, board, compile 77): A/UX's xeyes runs for a while,
     then "Memory fault - core dumped" (SIGSEGV).** Daniel ran it under MacX
     (an earlier try without the server gave "can't open display" - no
     fault). Probes after the crash (read_probes, bitstream 4d7fadee): F-line
@@ -19493,6 +19495,54 @@ Daniel - add to it, move items out when fixed).**
     extracted copy (C:\temp\Mac\AUX disk\extract\core_74\xeyes) and trace the pointer's
     origin; if it goes cold, MAME macse30 with aux31_q.chd runs xeyes as
     long (authentic vs ours). Also retry xclock on compile 77.
+    **CAUSE AND FIX (2026-10-17 afternoon).** adb on the board: pc $22E98
+    (`jsr $23034`, xeyes' sin() wrapper), sp $FFFFFBC0, a6 $FFFFFC0C, `$c`
+    "text address not found", the stack not mapped by adb. The core off the
+    image (`used\xeyes fault\`, `/core` 14:13, copy in
+    `C:\temp\Mac\AUX disk\extract\core_77\core`; the u-area is the first
+    $1000 bytes, the stack page FFFFF000 the last): the code is
+    `pea -$28(a6)` / `fmove.d fp2,-(a7)` ($22E94) / `jsr`, and sp = a6-$48-4
+    = after the PEA, before the FMOVE. The kernel stack's frame ($12FFFF9A):
+    format $B, vector 2, SR $0004, PC $22E98, SSW $0101 (data fault, write,
+    long, FC 1), DOB $BFF00670 (fp2's high long, right), **fault address
+    $12FFFFF6 - the kernel stack** - and our dialog long frame's own words
+    (7d B5c): cp_ea $12FFFFF6, cp_anew $13000006, so cp_an = regfile(15) =
+    $12FFFFFE = the SSP. The user-mode FMOVE.D -(A7) took A7 from the kernel
+    stack; a user write there faults and A/UX sends SIGSEGV. WHY: the kernel
+    swaps A7 lazily - an RTE to user mode leaves the S->U swap to the next
+    instruction boundary (setexecOPC -> set(changeMode)). An RTE back into a
+    dialog - frame $9 from an interrupt at a come-again (rte5 -> cp_rte), or
+    a dialog's long frame (-> cp_rsm) - reaches no boundary, so the dialog
+    ran on with the SSP in regfile(15): -(A7), (A7)+, d(A7) used the kernel
+    stack, and the late swap then saved the dialog's A7 into the ISP. The
+    trigger is an interrupt in an FPU instruction's come-again window (the
+    68882 still busy, e.g. the FSIN before it) with an A7-relative EA -
+    rare, hence "runs for a while"; compiled C passes doubles with
+    `fmove.d fpn,-(a7)`. FIX (TG68KdotC_Kernel.vhd, rte5's last beat): when
+    the RTE goes back into a dialog with the swap pending (FlagsSR(5)=0,
+    preSVmode=1), set(changeMode) there - the swap lands before the dialog
+    reads cp_an. BENCH: sim/cpfpu PROG=b3u (new), user mode: FM1
+    `fmove.d fp0,-(a7)` behind an FSIN with the bench's IRQ at its first
+    come-again (tb_cpfpu's address mode now matches $8900 as well as
+    $0900); FM2 the same with its write bus-errored; FM3 `fmove.d (a7)+,fp1`
+    with its read bus-errored; TRAP #0 files ISP and USP. Before the fix 9
+    of 16 fail (the double down the ISP, ISP $7FF0 at the TRAP). The cp_rsm
+    arm proven separately: without it FM3's (A7)+ writes $37F0 into the
+    kernel's A7 (ISP $37F0 at the TRAP); -(An) is written at cp_prea,
+    before the transfer, so FM2 alone cannot see it. After: 19 PASS; all 15
+    cpfpu programs PASS (b1 b2 b3a b3b b3c b3u b4 b5a b5b b5c b5d mmu fullea
+    fulleab full).
+    **Regression list, all PASS (2026-10-17, ~1 h 10 min, 8 at a time, each
+    predec_fault set in its own copy of the bench):** insn_probe 32 (bare,
+    wrapper CACR 0 and $0101); predec memind CACR $2101, memfull d2 and s1
+    CACR $3111, memfull d1 HANDLER=aux; ctx CACR 0 and $2101 (24 each);
+    ifetch 0-6 (2's JTRACE quiet check fails = KNOWN ISSUES 23, pre-existing;
+    its functional checks pass); rts 0-4, jsr 36, bf 15, aux7
+    aux/auxirq/auxfull/auxfullirq (IRQIN=1)/auxfull SDRAM 5 each, blockmove
+    20, straddle 30, wp 20, moves 20; mmu16 7 runs (run.sh exit 0) + region
+    check; machine 17, kernel_bus 338 + system's ten programs,
+    pmmu_rom_contract 67, busfault 14, busfault_dib 18, rtr_fc 29, cache030
+    60, cpfpu all 15 programs. CASESET=all skipped as for compiles 73 and 77.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs

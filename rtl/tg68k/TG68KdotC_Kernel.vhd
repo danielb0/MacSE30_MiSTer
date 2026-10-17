@@ -10212,6 +10212,15 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 							IF FlagsSR(5)='0' THEN
 								interrupt_mode_clr_req <= '1';
 							END IF;
+						-- An RTE back into a coprocessor dialog (frame $9, or a dialog's
+						-- long frame) reaches no instruction boundary, so the deferred
+						-- S->U swap must happen here: the dialog's -(A7)/(A7)+/d(A7)
+						-- would otherwise take the kernel stack (KNOWN ISSUES 26)
+						IF cpu(1)='1' AND FlagsSR(5)='0' AND preSVmode='1' AND rte_fmt_a_replay_needed='0' AND
+						   ((rte_format_word(15 downto 12) = "1001" AND cp_rte_iw(15 downto 12) = "1111") OR
+						    (rte_format_word(15 downto 12) = "1011" AND cp_rb(31 downto 28) = "1100")) THEN
+							set(changeMode) <= '1';
+						END IF;
 					ELSE
 						-- More longwords to read
 						setstate <= "10"; -- read

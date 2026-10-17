@@ -123,7 +123,7 @@ module tb_cpfpu;
   // response CIR and when the next not-ready ($01xx) is read from the save
   // CIR, and falls when the handler writes $3F00.  A second number above 1
   // (B5) is an instruction's address: the IRQ rises at the first released-
-  // while-running null ($0900) that instruction reads.
+  // while-running null ($0900) or come-again ($8900) that instruction reads.
   reg [31:0] irq_mode = 0;
   reg [31:0] cps_want = 32'hFFFFFFFF;       // inject.txt's third number: CPU-space cycles to other IDs (B5)
   // inject.txt's fourth to eleventh numbers (B5c): addresses whose first
@@ -151,7 +151,7 @@ module tb_cpfpu;
     if (irq1_n && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
         ((irq_mode == 1 && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h8900) ||
          (irq_mode == 1 && nirq == 1 && cpu_addr[4:0] == 5'd4 && fpu_q[31:24] == 8'h01) ||
-         (irq_mode > 1 && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h0900 &&
+         (irq_mode > 1 && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[30:16] == 15'h0900 &&
           cpu.kernel.opcode_pc == irq_mode))) begin
       irq1_n <= 0; nirq = nirq + 1;
     end

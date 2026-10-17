@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b4|b5a|b5b|b5c|b5d|mmu|fullea|fulleab|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b4|b5a|b5b|b5c|b5d|mmu|fullea|fulleab|full]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -488,6 +488,72 @@ elif MODE == 'b3c':
         (0x3030, 0x00640000, 0xFFFF0000),     # the second: frame $0, offset $64
         (0x3034, a.lab['FSV'], 0xFFFFFFFF),   # ... PC: the FSAVE, to start again
         (0x3040, 0x3F576AA4, 0xFFFFFFFF),     # sin(1.0) through the save and restore
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b3u':
+    # KNOWN ISSUES 26 (A/UX xeyes, "Memory fault"): a dialog resumed in
+    # USER mode by an RTE - frame $9 from the bench's IRQ at the come-again
+    # of an FMOVE.D FP0,-(A7) waiting for an FSIN (cp_rte), then a bus error
+    # on the next FMOVE.D's write and on an FMOVE.D (A7)+'s read (long
+    # frames, cp_rsm) - must take A7 as the USP, and (A7)+ write it back
+    # there; the TRAP #0 at the end files both stack pointers
+    a = Asm(0x1000)
+    a.emit(0x41F8, 0x3800)                    # lea $3800.w,a0
+    a.emit(0x4E60)                            # move.l a0,usp
+    a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user, interrupts on
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0xF200, 0x000E)                    # fsin.x fp0           released, running
+    a.label('FM1'); a.emit(0xF227, 0x7400)    # fmove.d fp0,-(a7)    come-again: IRQ
+    a.emit(0x21CF, 0x3004)                    # move.l a7,$3004.w
+    a.emit(0x21D7, 0x3008)                    # move.l (a7),$3008.w
+    a.emit(0x21EF, 0x0004, 0x300C)            # move.l 4(a7),$300C.w
+    a.label('FM2'); a.emit(0xF227, 0x7400)    # fmove.d fp0,-(a7)    its write bus-errors once
+    a.emit(0x21CF, 0x3030)                    # move.l a7,$3030.w
+    a.emit(0x21EF, 0x0004, 0x3034)            # move.l 4(a7),$3034.w
+    a.label('FM3'); a.emit(0xF21F, 0x5480)    # fmove.d (a7)+,fp1    its first read bus-errors once
+    a.emit(0x21CF, 0x303C)                    # move.l a7,$303C.w
+    a.emit(0xF238, 0x7480, 0x3040)            # fmove.d fp1,$3040.w
+    a.emit(0x4E40)                            # trap #0
+    p = a.done()
+    put(0x1000, p)
+    put(4 * 25, L(0x2400))                    # the bench's IRQ: count, SSP, format word
+    put(0x2400, [0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x21CF, 0x301C,              # move.l a7,$301C.w
+                 0x31EF, 0x0006, 0x3020,      # move.w 6(a7),$3020.w
+                 0x21EF, 0x0008, 0x3038,      # move.l 8(a7),$3038.w  the instruction's address
+                 0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w: the bench drops the IRQ
+                 0x4E73])                     # rte
+    put(4 * 2, L(0x2480))                     # the bus error: count, SSP, format word
+    put(0x2480, [0x52B8, 0x3024,              # addq.l #1,$3024.w
+                 0x21CF, 0x302C,              # move.l a7,$302C.w
+                 0x31EF, 0x0006, 0x3028,      # move.w 6(a7),$3028.w
+                 0x4E73])                     # rte: the faulted beat again
+    put(4 * 32, L(0x2500))                    # TRAP #0: both stack pointers, then stop
+    put(0x2500, [0x21CF, 0x3014,              # move.l a7,$3014.w
+                 0x4E68,                      # move.l usp,a0
+                 0x21C8, 0x3018,              # move.l a0,$3018.w
+                 *movel_abs(0x600D0001, 0x3FF0),
+                 0x4E72, 0x2700])             # stop #$2700
+    irq = a.lab['FM1']                        # at FM1's first come-again ($8900: it waits for the FSIN)
+    berrs = [0x37F0, 0x37F0 | 1]              # FM2's first long; FM3's (bit 0: the read)
+    expect = [
+        (0x3004, 0x000037F8, 0xFFFFFFFF),     # FM1: USP down by 8
+        (0x3008, 0x3FEAED54, 0xFFFFFFFF),     # ... sin(1.0) as a double, on the user stack
+        (0x300C, 0x8F090CEE, 0xFFFFFFFF),
+        (0x3010, 0x00000001, 0xFFFFFFFF),     # the IRQ, once
+        (0x301C, 0x00007FEC, 0xFFFFFFFF),     # ... on the ISP: $8000 less frame $9
+        (0x3020, 0x90640000, 0xFFFF0000),     # ... frame $9, vector 25
+        (0x3038, a.lab['FM1'], 0xFFFFFFFF),   # ... inside FM1's dialog
+        (0x3024, 0x00000002, 0xFFFFFFFF),     # the bus errors, FM2's and FM3's
+        (0x3028, 0xB0080000, 0xFFFF0000),     # ... a long frame, vector 2
+        (0x302C, 0x00007FA4, 0xFFFFFFFF),     # ... on the ISP: $8000 less $5C
+        (0x3030, 0x000037F0, 0xFFFFFFFF),     # FM2: USP down by 8 more
+        (0x3034, 0x8F090CEE, 0xFFFFFFFF),
+        (0x303C, 0x000037F8, 0xFFFFFFFF),     # FM3: USP up by 8
+        (0x3040, 0x3FEAED54, 0xFFFFFFFF),     # ... the double into FP1
+        (0x3044, 0x8F090CEE, 0xFFFFFFFF),
+        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact ($8000 less frame $0)
+        (0x3018, 0x000037F8, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 elif MODE == 'b5a':
