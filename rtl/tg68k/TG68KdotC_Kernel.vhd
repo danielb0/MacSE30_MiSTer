@@ -4070,7 +4070,10 @@ PROCESS (clk)
 				IF trap_cp9 = '1' OR (micro_state = cp_irq AND interrupt = '1' AND trap_interrupt = '1' AND
 				                      fline_opcode_latch(8 downto 6) /= "100") THEN
 					cp_f9 <= '1';
-				ELSIF setopcode = '1' THEN
+				ELSIF setopcode = '1' OR micro_state = trap3 THEN
+					-- trap3 (KNOWN ISSUES 28): the frame is stacked; an exception
+					-- before the handler's first instruction (a higher interrupt
+					-- pending there) is the handler's - format $0 at its address
 					cp_f9 <= '0';
 				END IF;
 				-- the full extension format (UM 2.2, KNOWN ISSUES 20: A/UX's
@@ -4175,12 +4178,12 @@ PROCESS (clk)
 				IF trap_cp = '1' OR (micro_state = cp_irq AND interrupt = '1' AND trap_interrupt = '1' AND
 				                     fline_opcode_latch(8 downto 6) = "100") THEN
 					cp_trap_pc <= '1';                 -- (B3: cpSAVE's interrupt, frame $0 at it)
-				ELSIF setopcode = '1' THEN
+				ELSIF setopcode = '1' OR micro_state = trap3 THEN
 					cp_trap_pc <= '0';
 				END IF;
 				IF trap_cptrap = '1' THEN
 					cp_trap2 <= '1';
-				ELSIF setopcode = '1' THEN
+				ELSIF setopcode = '1' OR micro_state = trap3 THEN
 					cp_trap2 <= '0';
 				END IF;
 				-- B5: a branch taken (cp_bcc, not cpSAVE/cpRESTORE's PC reset)
@@ -4212,7 +4215,7 @@ PROCESS (clk)
 				END IF;
 				IF micro_state = cp_bf THEN
 					cp_bfr <= '1';
-				ELSIF setopcode = '1' THEN
+				ELSIF setopcode = '1' OR micro_state = trap3 THEN   -- (KNOWN ISSUES 28: the frame is stacked)
 					cp_bfr <= '0';
 				END IF;
 				-- B5c: RTE of a long frame - its internal words, for a

@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b3r|b4|b5a|b5b|b5c|b5d|mmu|fullea|fulleab|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b3n|b3s|b3r|b4|b5a|b5b|b5c|b5d|mmu|fullea|fulleab|full]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -559,6 +559,106 @@ elif MODE == 'b3u':
         (0x3018, 0x000037F8, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
+elif MODE == 'b3n':
+    # KNOWN ISSUES 28 (compile 79's JTRACE, A/UX fpstress): a level-1
+    # interrupt inside a user-mode dialog stacks frame $9; level 2 is pending
+    # at the level-1 handler's FIRST instruction - so it is taken there, with
+    # a format $0 frame whose PC is that handler's address and whose SR is the
+    # handler's (S, IPL 1) (UM 8.1.4); its RTE runs the level-1 handler, whose
+    # RTE resumes the dialog in user mode. The kernel used to stack frame $9
+    # again (cp_f9 still set): the level-1 handler never ran and the dialog
+    # resumed in supervisor mode
+    a = Asm(0x1000)
+    a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (B3_CACR)
+    a.emit(0x41F8, 0x3800)                    # lea $3800.w,a0
+    a.emit(0x4E60)                            # move.l a0,usp
+    a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user, interrupts on
+    a.emit(0xF23C, 0x4000, *L(1))             # fmove.l #1,fp0
+    a.emit(0xF200, 0x000E)                    # fsin.x fp0           released, running
+    a.emit(0xF227, 0x7400)                    # fmove.d fp0,-(a7)
+    a.emit(0x21CF, 0x3004)                    # move.l a7,$3004.w
+    a.emit(0x21D7, 0x3008)                    # move.l (a7),$3008.w
+    a.emit(0x21EF, 0x0004, 0x300C)            # move.l 4(a7),$300C.w
+    a.emit(0x4E40)                            # trap #0
+    p = a.done()
+    put(0x1000, p)
+    put(4 * 25, L(0x2400))                    # level 1: count, drop
+    put(0x2400, [0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w
+                 0x4E73])                     # rte
+    put(4 * 26, L(0x2480))                    # level 2: count, its frame, level 1's count so far, drop
+    put(0x2480, [0x52B8, 0x3020,              # addq.l #1,$3020.w
+                 0x31D7, 0x3024,              # move.w (a7),$3024.w     SR
+                 0x21EF, 0x0002, 0x3028,      # move.l 2(a7),$3028.w    PC
+                 0x31EF, 0x0006, 0x302C,      # move.w 6(a7),$302C.w    format, offset
+                 0x21F8, 0x3010, 0x3030,      # move.l $3010.w,$3030.w  level 1's count
+                 0x21FC, 0x0000, 0x0001, 0x3F0C,   # move.l #1,$3F0C.w
+                 0x4E73])                     # rte
+    put(4 * 32, L(0x2500))                    # TRAP #0: both stack pointers, then stop
+    put(0x2500, [0x21CF, 0x3014,              # move.l a7,$3014.w
+                 0x4E68,                      # move.l usp,a0
+                 0x21C8, 0x3018,              # move.l a0,$3018.w
+                 *movel_abs(0x600D0001, 0x3FF0),
+                 0x4E72, 0x2700])             # stop #$2700
+    irq = 0xFFFFFFFD
+    expect = [
+        (0x3020, 0x00000001, 0xFFFFFFFF),     # level 2, once
+        (0x3024, 0x21000000, 0xFF000000),     # ... its SR: level 1's handler's (S, IPL 1)
+        (0x3028, 0x00002400, 0xFFFFFFFF),     # ... its PC: level 1's handler, not yet run
+        (0x302C, 0x00680000, 0xFFFF0000),     # ... format $0, vector 26
+        (0x3030, 0x00000000, 0xFFFFFFFF),     # ... level 1's handler had not run
+        (0x3010, 0x00000001, 0xFFFFFFFF),     # level 1's handler ran, once
+        (0x3004, 0x000037F8, 0xFFFFFFFF),     # the dialog finished in user mode: USP - 8
+        (0x3008, 0x3FEAED54, 0xFFFFFFFF),     # sin(1.0)
+        (0x300C, 0x8F090CEE, 0xFFFFFFFF),
+        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0 from user mode: the ISP intact
+        (0x3018, 0x000037F8, 0xFFFFFFFF),     # ... and the USP
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+elif MODE == 'b3s':
+    # KNOWN ISSUES 28's sibling: b3n for cpSAVE - an FSAVE that finds the
+    # 68882 busy takes level 1 (frame $0 at the FSAVE, to start it again);
+    # level 2 pending at the level-1 handler's first instruction must stack
+    # that handler's address (cp_trap_pc, as cp_f9, was cleared only at the
+    # next instruction); then the FSAVE runs again and the FSIN completes
+    a = Asm(0x1000)
+    a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (B3_CACR)
+    a.emit(0x47F8, 0x3400)                    # lea $3400.w,a3
+    a.emit(0x46FC, 0x2000)                    # move.w #$2000,sr     interrupts on
+    a.emit(0xF200, 0x5C32)                    # fmovecr.x #$32,fp0   1.0
+    a.emit(0xF200, 0x000E)                    # fsin.x fp0           released, running
+    a.label('FSV'); a.emit(0xF323)            # fsave -(a3)          not ready: level 1, then 2
+    a.emit(0xF35B)                            # frestore (a3)+
+    a.emit(0x21CB, 0x300C)                    # move.l a3,$300C.w
+    a.emit(0xF238, 0x6400, 0x3040)            # fmove.s fp0,$3040.w
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                    # stop #$2700
+    p = a.done()
+    put(0x1000, p)
+    put(4 * 25, L(0x2400))                    # level 1: count, its PC, drop
+    put(0x2400, [0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x21EF, 0x0002, 0x3014,      # move.l 2(a7),$3014.w
+                 0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w
+                 0x4E73])                     # rte
+    put(4 * 26, L(0x2480))                    # level 2: count, its frame, level 1's count so far, drop
+    put(0x2480, [0x52B8, 0x3020,              # addq.l #1,$3020.w
+                 0x21EF, 0x0002, 0x3028,      # move.l 2(a7),$3028.w    PC
+                 0x31EF, 0x0006, 0x302C,      # move.w 6(a7),$302C.w    format, offset
+                 0x21F8, 0x3010, 0x3030,      # move.l $3010.w,$3030.w  level 1's count
+                 0x21FC, 0x0000, 0x0001, 0x3F0C,   # move.l #1,$3F0C.w
+                 0x4E73])                     # rte
+    irq = 0xFFFFFFFC
+    expect = [
+        (0x3020, 0x00000001, 0xFFFFFFFF),     # level 2, once
+        (0x3028, 0x00002400, 0xFFFFFFFF),     # ... its PC: level 1's handler, not yet run
+        (0x302C, 0x00680000, 0xFFFF0000),     # ... format $0, vector 26
+        (0x3030, 0x00000000, 0xFFFFFFFF),     # ... level 1's handler had not run
+        (0x3010, 0x00000001, 0xFFFFFFFF),     # level 1's handler ran, once
+        (0x3014, a.lab['FSV'], 0xFFFFFFFF),   # ... its frame: the FSAVE, to start again
+        (0x300C, 0x00003400, 0xFFFFFFFF),     # (A3)+ back to $3400
+        (0x3040, 0x3F576AA4, 0xFFFFFFFF),     # sin(1.0) through the save and restore
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
 elif MODE == 'b3r':
     # KNOWN ISSUES 28 (A/UX fpstress: wrong FPU results, then user code in
     # supervisor mode): a user process's FPU loop - FSIN, FSQRT, FMOVE.D/.X
@@ -621,6 +721,15 @@ elif MODE == 'b3r':
                  0xF21F, 0xD0FF,              # fmovem.x (a7)+,fp0-fp7
                  0xF35F,                      # frestore (a7)+
                  0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w: the bench drops the IRQ
+                 0x4E73])                     # rte
+    put(4 * 26, L(0x2580))                    # level 2 (KNOWN ISSUES 28: nests on level 1): FPU work too
+    put(0x2580, [0x52B8, 0x3028,              # addq.l #1,$3028.w
+                 0xF327,                      # fsave -(a7)
+                 0xF227, 0xE0FF,              # fmovem.x fp0-fp7,-(a7)
+                 0xF200, 0x5D0F,              # fmovecr.x #$0f,fp2   (another process's work)
+                 0xF21F, 0xD0FF,              # fmovem.x (a7)+,fp0-fp7
+                 0xF35F,                      # frestore (a7)+
+                 0x21FC, 0x0000, 0x0001, 0x3F0C,   # move.l #1,$3F0C.w: the bench drops it
                  0x4E73])                     # rte
     put(4 * 33, L(0x2480))                    # TRAP #1: count the pass; the first arms the IRQs
     put(0x2480, [0x52B8, 0x3020,              # addq.l #1,$3020.w

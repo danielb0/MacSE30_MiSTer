@@ -85,6 +85,7 @@ module tb_cpfpu;
   wire  [7:0] dev_wdata;
   reg         hsync_n = 1;
   reg         irq1_n = 1;             // VIA1's IRQ, raised by the bench (B3; below)
+  reg         irq2_n = 1;             // VIA2's IRQ (level 2), raised by the bench's nested mode (KNOWN ISSUES 28)
   wire        fpu_sel;
   wire  [1:0] fpu_dsack_n;
   wire [31:0] fpu_rdata, fpu_q;
@@ -103,7 +104,7 @@ module tb_cpfpu;
     .e_clk(e_clk), .c3m_en(c3m_en),
     .fpu_sel(fpu_sel), .fpu_dsack_n(fpu_dsack_n), .fpu_rdata(fpu_rdata),
     .slot_sel(slot_sel), .slot_dsack0_n(1'b1), .slot_rdata(8'h00),
-    .via1_irq_n(irq1_n), .via2_irq_n(1'b1), .scc_irq_n(1'b1), .nmi_n(1'b1),
+    .via1_irq_n(irq1_n), .via2_irq_n(irq2_n), .scc_irq_n(1'b1), .nmi_n(1'b1),
     .slot_irq_n(6'b111111), .slot_irq_or_n(slot_irq_or_n),
     .overlay(1'b0), .ramsiz(2'b01), .hsync_n(hsync_n));
 
@@ -147,15 +148,27 @@ module tb_cpfpu;
     if (cpu_as_n) berr_inj <= 0;
   end
   integer nirq = 0;
+  reg nest_done = 0;
   always @(posedge clk) begin
     if (irq1_n && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
-        ((irq_mode == 1 && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h8900) ||
+        (((irq_mode == 1 || irq_mode == 32'hFFFFFFFD) && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h8900) ||
+         (irq_mode == 32'hFFFFFFFC && nirq == 0 && cpu_addr[4:0] == 5'd4 && fpu_q[31:24] == 8'h01) ||
          (irq_mode == 1 && nirq == 1 && cpu_addr[4:0] == 5'd4 && fpu_q[31:24] == 8'h01) ||
          (irq_mode > 1 && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[30:16] == 15'h0900 &&
           cpu.kernel.opcode_pc == irq_mode))) begin
       irq1_n <= 0; nirq = nirq + 1;
     end
     if (phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F00 >> 2)) irq1_n <= 1;
+    // nested (KNOWN ISSUES 28, inject.txt's second number = $FFFFFFFD, or $FFFFFFFC
+    // for level 1 at the first FSAVE not-ready instead): level 1 at
+    // the first come-again as mode 1, and level 2 raised at level 1's IACK, so
+    // it is pending at the level-1 handler's first instruction; the program's
+    // write to $3F0C drops it
+    if ((irq_mode == 32'hFFFFFFFD || irq_mode == 32'hFFFFFFFC) && !nest_done && !cpu_as_n && cpu_fc == 3'd7 &&
+        cpu_addr[31:4] == 28'hFFFFFFF && cpu_addr[3:1] == 3'd1) begin
+      irq2_n <= 0; nest_done <= 1;
+    end
+    if (phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F0C >> 2)) irq2_n <= 1;
   end
 
   // A coprocessor that answers what the 68882 never does (B3): the first
@@ -208,6 +221,8 @@ module tb_cpfpu;
   // code instruction ($1800-$1FFF) decoded in supervisor mode is a failure.
   reg [31:0] lfsr = 32'h1234_5679;
   integer rdelay = 100, sviol = 0;
+  reg [31:0] lfsr2 = 32'h0BAD_F00D;
+  integer rdelay2 = 777, nirq2 = 0;
   always @(posedge clk) begin
     if (irq_mode == 32'hFFFFFFFE && irq1_n && ram[32'h3F04 >> 2] != 0 && ram[32'h3F08 >> 2] == 0) begin
       if (rdelay == 0) begin
@@ -215,6 +230,14 @@ module tb_cpfpu;
         lfsr = {lfsr[30:0], lfsr[31] ^ lfsr[21] ^ lfsr[1] ^ lfsr[0]};
         rdelay = 30 + (lfsr & 1023);
       end else rdelay = rdelay - 1;
+    end
+    // and level 2 (VIA2) on its own random delay, 200-4295 clocks, dropped by $3F0C
+    if (irq_mode == 32'hFFFFFFFE && irq2_n && ram[32'h3F04 >> 2] != 0 && ram[32'h3F08 >> 2] == 0) begin
+      if (rdelay2 == 0) begin
+        irq2_n <= 0; nirq2 = nirq2 + 1;
+        lfsr2 = {lfsr2[30:0], lfsr2[31] ^ lfsr2[21] ^ lfsr2[1] ^ lfsr2[0]};
+        rdelay2 = 200 + (lfsr2 & 4095);
+      end else rdelay2 = rdelay2 - 1;
     end
     if (irq_mode == 32'hFFFFFFFE && cpu.kernel.clkena_lw && cpu.kernel.decodeOPC &&
         cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000 && cpu.kernel.FlagsSR[5]) begin
@@ -285,7 +308,7 @@ module tb_cpfpu;
       else begin fails = fails + 1; $display("FAIL: %0d other CPU-space cycles, expected %0d", cpu_space_other, cps_want); end
     end
     if (irq_mode == 32'hFFFFFFFE) begin
-      $display("---- random IRQs: %0d", nirq);
+      $display("---- random IRQs: %0d level 1, %0d level 2", nirq, nirq2);
       if (sviol == 0) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL: %0d user-code instructions decoded in supervisor mode", sviol); end
     end
