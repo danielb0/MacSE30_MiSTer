@@ -19556,9 +19556,49 @@ Daniel - add to it, move items out when fixed).**
     map report's "Logic Cells Representing Combinational Loops" lists 8 cells,
     se30_flp_decoder Add2~0..7 (the GCR checksum adders, lines 205-212) - in
     the IIcx build of 2026-10-10 too, so pre-existing; the RTL chain has
-    registered inputs only and the fitted netlist no loop, but it is open
-    until explained. NOT flashed. On the board under A/UX 3.1: xeyes for a
-    good while, xclock, a few boots.
+    registered inputs only and the fitted netlist no loop - explained as a
+    report artefact, KNOWN ISSUES 27. NOT flashed. On the board under A/UX
+    3.1: xeyes for a good while, xclock, a few boots.
+27. **CLOSED, NOT A LOOP (2026-10-17, a report artefact): the map report's
+    "Logic Cells Representing Combinational Loops", 8 cells,
+    `se30_flp_decoder|Add2~0..7`** (compile 78; the IIcx build of 2026-10-10
+    too). The rule (loops are defects) holds only for real loops, so this
+    needed evidence. It was gathered without a compile: Quartus 17.0
+    quartus_map on `se30_flp_decoder.v` alone (top = the module, virtual
+    pins, 5CSEBA6U23I7) lists the same 8 cells in 16 s, and a post-map VQM
+    (`quartus_cdb --vqm`) shows what Add2 is.
+    - **What Add2 is.** `sb = cb + B + sa[8]` (line 207). Its carry-out
+      `sb[8]` has one load, the carry-in of `sc = rot + C + sb[8]` (line
+      209), so Quartus FUSES the two adders into one 16-cell carry chain
+      under the one name Add2: in the VQM, sb's last cell `Add2~9` drives
+      `cout` -> `cin` of sc's first cell `Add2~13`, and there is no Add3/Add4
+      left. sc's operand `C = Cp ^ sb[7:0]` comes from sb's sums, so sc's
+      cells take Add2's own earlier sums as inputs (`Add2~13.dataf` =
+      `Add2~45` = sb[0], ...). Bit by bit that is a straight chain: each sum
+      feeds a LATER cell only. Seen as ONE operator, though, Add2's output
+      (sb's 8 sums, `Add2~0..7` before the fusion was renamed) feeds Add2's
+      input - and that is what the report lists. Its own note says the
+      cells "may not be present at the end of synthesis".
+    - **The proof it is no loop.** A cycle search over every lcell_comb in
+      the post-map VQM (outputs -> inputs, registers and RAM breaking paths;
+      `loops.py` in the side-session notes folder of 2026-10-17) finds 0
+      cycles in 1,416 combinational nets. TimeQuest's loop check on the full
+      fitted design (332125) finds none either (compile 78).
+    - **The prediction, checked by RTL variants (16 s each; not kept).**
+      The fusion needs an adder whose carry-out has one load (a carry-in)
+      while its sums also feed that load's operands. (a) `sc` without
+      `+ sb[8]`: no loop cells. (b) `C = Cp` (no sb sums into sc): none.
+      (c) `sb` without `+ sa[8]`: sa[8] now has one load (sbl), so sa and sbl
+      fuse - 16 cells, Add0 and Add2. (d) the last group's `cb <= sb`
+      (sbl swept): sa[8]'s one load is sb - 16 cells again. The original
+      sa[8] has two loads (sb, sbl), so sa is never fused - why only Add2 is
+      listed. A carry-in written as a 10-bit add with the carry in the LSB,
+      or an 8-bit sc, changes nothing (8 cells).
+    - **Decision: no RTL change.** The checksum is right as written (sim/
+      flpdec and sim/fdhd hold it), and no real loop means nothing to fix:
+      the variants that drop the table change the checksum. The STA 332125 check stays the
+      verdict on loops (lesson-combinational-loops-are-defects); this map
+      table, with these 8 cells, is expected in every build.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
