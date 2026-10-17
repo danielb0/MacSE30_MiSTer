@@ -19480,7 +19480,7 @@ Daniel - add to it, move items out when fixed).**
     flashed. Expected on the board under A/UX 3.1: xeyes and xclock run; if
     xclock still dies, PFLN/PEXC are in the deck for its new PC.
 
-26. **FIXED (compile 78 on the board, 2026-10-17 ~15:45 A/UX time: xeyes and xclock run together under MacX, no new core; long run pending) - an RTE
+26. **FIXED (compile 78 on the board, 2026-10-17: xeyes and xclock run together under MacX, no core since compile 77's) - an RTE
     back into a coprocessor dialog skipped the deferred S->U A7 swap (CAUSE AND
     FIX below).** Opened as: **(2026-10-17, board, compile 77): A/UX's xeyes runs for a while,
     then "Memory fault - core dumped" (SIGSEGV).** Daniel ran it under MacX
@@ -19561,8 +19561,10 @@ Daniel - add to it, move items out when fixed).**
     3.1: xeyes for a good while, xclock, a few boots.
     **BOARD (Daniel, 2026-10-17, screenshot 20261017_164701): xeyes, xclock
     (its first run since KNOWN ISSUES 25 - the clock right) and xterm started
-    from a CommandShell with DISPLAY=localhost:0; no new /core.** Long run
-    and fresh boots pending.
+    from a CommandShell with DISPLAY=localhost:0; no new /core.** Later
+    (Daniel): the newest /core is still 07:13 PDT (ufsread's 14:13 is UTC) -
+    compile 77's xeyes crash; nothing has dumped on compile 78. Fresh boots
+    pending.
 27. **CLOSED, NOT A LOOP (2026-10-17, a report artefact): the map report's
     "Logic Cells Representing Combinational Loops", 8 cells,
     `se30_flp_decoder|Add2~0..7`** (compile 78; the IIcx build of 2026-10-10
