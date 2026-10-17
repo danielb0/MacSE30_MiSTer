@@ -19480,7 +19480,7 @@ Daniel - add to it, move items out when fixed).**
     flashed. Expected on the board under A/UX 3.1: xeyes and xclock run; if
     xclock still dies, PFLN/PEXC are in the deck for its new PC.
 
-26. **FIXED IN SIM (2026-10-17; board test pending, needs a compile) - an RTE
+26. **FIXED (compile 78 on the board, 2026-10-17 ~15:45 A/UX time: xeyes and xclock run together under MacX, no new core; long run pending) - an RTE
     back into a coprocessor dialog skipped the deferred S->U A7 swap (CAUSE AND
     FIX below).** Opened as: **(2026-10-17, board, compile 77): A/UX's xeyes runs for a while,
     then "Memory fault - core dumped" (SIGSEGV).** Daniel ran it under MacX
@@ -19559,6 +19559,10 @@ Daniel - add to it, move items out when fixed).**
     registered inputs only and the fitted netlist no loop, but it is open
     until explained. NOT flashed. On the board under A/UX 3.1: xeyes for a
     good while, xclock, a few boots.
+    **BOARD (Daniel, 2026-10-17, screenshot 20261017_164701): xeyes, xclock
+    (its first run since KNOWN ISSUES 25 - the clock right) and xterm started
+    from a CommandShell with DISPLAY=localhost:0; no new /core.** Long run
+    and fresh boots pending.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
