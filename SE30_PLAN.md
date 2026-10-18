@@ -19813,6 +19813,29 @@ Daniel - add to it, move items out when fixed).**
     wait (Daniel's test) - the Finder's own window restore on a 16 MHz
     machine under A/UX, not a hang. A CommandShell running at shutdown is
     re-opened at the next boot too (Daniel) - the session is restored.
+30. **FIXED IN SIM (2026-10-18, d8270c4; board test = the IIcx build
+    a7be3f85, MacX's first run in 256 colours) - a page-fault restart rolled
+    the CCR back past the previous instruction.** Found by the data-fault
+    sweep (Daniel: "yes, go ahead with the data-fault sweep"), opened for
+    MacX's colour crash on the IIcx (first run, font directory build, 256
+    colours: a slide through zeroed memory at $7F9FFC-$7FBC40 to an illegal
+    $007F, JTRACE window trigger; B&W fine; MAME's maciicx fine). CAUSE: the
+    restart's CCR snapshot (flags_shadow) was taken on the decode edge while
+    the previous instruction's flag write was still landing, so a restarted
+    instruction came back with the flags from before the previous one - X
+    and every flag it does not set itself (ADDX.L after MOVE #0,CCR added
+    the old X in; any later branch on a stale flag goes the wrong way). FIX: the snapshot is taken one edge later
+    (flags_shadow_take; the restore reads Flags on that edge,
+    flags_shadow_now). A first attempt (restore the ALU last) was wrong by
+    the data and reverted. NEW BENCH: sim/predec_fault CASESET=dsweep
+    (run_dsweep.sh, 219 cases, ~5 min): each instruction runs twice - pages
+    resident, then its operand on a non-resident page - and registers, CCR
+    and memory are compared (`move #$1F,ccr` then `move #0,ccr` before each,
+    so a stale CCR shows); DSW_SANITY=1 plants a difference and must fail.
+    **Unfixed 33/219, fixed 219/219; isweep 197/197.** Joins the regression
+    list. Whether this was MacX's crash: the board test above (the build
+    carries JTRACE with the window trigger, so a remaining crash can be
+    traced at once).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
