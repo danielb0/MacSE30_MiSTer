@@ -19784,7 +19784,8 @@ Daniel - add to it, move items out when fixed).**
     boot shows the watch cursor for a long time while the Finder re-opens
     and draws them; with every window closed before the reboot there is no
     wait (Daniel's test) - the Finder's own window restore on a 16 MHz
-    machine under A/UX, not a hang.
+    machine under A/UX, not a hang. A CommandShell running at shutdown is
+    re-opened at the next boot too (Daniel) - the session is restored.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
