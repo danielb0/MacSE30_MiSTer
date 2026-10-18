@@ -19706,7 +19706,7 @@ Daniel - add to it, move items out when fixed).**
     work clobbers the interrupted code's fp0/fp1 on a real SE/30 too.
     tools/auxunix/fpstress.c's handler now does integer work (iwork).
 
-29. **FIXED IN SIM (2026-10-18 night; compile 81 to test) - instruction-fetch
+29. **FIXED (compile 81 on the board, 2026-10-18: xload runs - SIGILL on every run before) - instruction-fetch
     page faults resumed at the wrong place for eleven instruction shapes.**
     Found on the board (compile 80, Daniel, 2026-10-18 ~00:35): A/UX's
     /usr/bin/X11/xload dies with "Illegal instruction" on every run (no core:
