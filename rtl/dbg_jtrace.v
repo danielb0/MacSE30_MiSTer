@@ -72,7 +72,12 @@ module dbg_jtrace #(
   // limit[31:30] = 01 (MacX on the IIcx, 2026-10-18): a SUPERVISOR data read
   // (FC 5) of the logical address limit[29:0] - an exception's vector fetch,
   // e.g. $10 for vector 4 (illegal) with A/UX's VBR at 0
-  wire        u_fetch = limit[31:30] == 2'b01 ?
+  // limit[31:30] = 11 (MacX on the IIcx, 2026-10-18): a USER program fetch
+  // (FC 2) inside the 64 KB window whose logical address bits 31:16 are
+  // limit[15:0] - the first jump into a region no code should run in
+  wire        u_fetch = limit[31:30] == 2'b11 ?
+                          (tap[159:158] == 2'b00 && tap[157:155] == 3'd2 && tap[152:137] == limit[15:0]) :
+                        limit[31:30] == 2'b01 ?
                           (tap[159:158] == 2'b10 && tap[157:155] == 3'd5 && tap[152:121] == {2'b00, limit[29:0]}) :
                         tap[159:158] == 2'b00 &&
                         (limit[31] ? (tap[157:155] == 3'd6 && tap[152:121] < {1'b0, limit[30:0]})

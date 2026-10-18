@@ -28,6 +28,9 @@
 # the logical address in its low 30 bits - an exception vector fetch:
 # `arm 40000010 all` freezes on vector 4 (illegal instruction) under A/UX
 # (VBR 0); 4000002C the F-line, 40000008 a bus error.
+# A limit with bits 31:30 = 11 triggers on a user program fetch (FC 2) in the
+# 64 KB window whose address bits 31:16 are the limit's low 16 bits:
+# `arm C000007F all` freezes on the first fetch in $007F0000-$007FFFFF.
 #
 # A beat: t = clk_sys time (14 bits, 31.33 MHz: 523 us a turn); F fetch,
 # R read, W write; FC, SIZ, logical and physical address, the data the
