@@ -19770,6 +19770,9 @@ Daniel - add to it, move items out when fixed).**
     slow 100C; the capture met everywhere); no 332125 loop (map list =
     KNOWN ISSUES 27). NOT flashed. Board: xload; fpstress (the integer-
     handler version) 3 copies; xeyes/xclock; more X clients and apps.
+    **THE FORUM TEST BUILD (Daniel, 2026-10-18): compile 81 as it is** - "There
+    is no need to compile a separate version for the forum test. This one
+    will do nicely." (the lean probe deck stays in: JTAG-only, harmless).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
