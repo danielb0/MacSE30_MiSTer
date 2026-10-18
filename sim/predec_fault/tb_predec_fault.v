@@ -435,10 +435,39 @@ module tb_predec_fault;
     end
   endtask
 
+  // ------------------------------------------- user beats where the program named (KNOWN ISSUES 23)
+  // +UOK: uok.hex holds up to 8 {lo, hi} pairs; every user-space beat the
+  // kernel takes (FC 1, 2: fetch, read, write, cache hit or bus) and every
+  // walk for a user access must land in one [lo, hi) - a beat elsewhere is
+  // one the program never named (a junk jump target, a stray operand read).
+  reg  [31:0] uok [0:15];
+  reg         uok_en = 0;
+  integer     uok_bad = 0;
+  function uok_in(input [31:0] a);
+    integer j;
+    begin
+      uok_in = 0;
+      for (j = 0; j < 8; j = j + 1) if (uok[2*j+1] != 0 && a >= uok[2*j] && a < uok[2*j+1]) uok_in = 1;
+    end
+  endfunction
+  always @(posedge clk) if (uok_en && reset_n) begin
+    if (cpu.dbg_jtp[160] && (cpu.dbg_jtp[157:155] == 3'd1 || cpu.dbg_jtp[157:155] == 3'd2) && !uok_in(cpu.dbg_jtp[152:121])) begin
+      uok_bad = uok_bad + 1;
+      if (uok_bad <= 8) $display("FAIL: a user %s at %08x the program never named (FC %0d, op %04x at PC %08x, data %08x)",
+        cpu.dbg_jtp[159:158] == 2'b00 ? "fetch" : cpu.dbg_jtp[159:158] == 2'b10 ? "read" : "write",
+        cpu.dbg_jtp[152:121], cpu.dbg_jtp[157:155], cpu.dbg_jtp[47:32], cpu.dbg_jtp[31:0], cpu.dbg_jtp[88:57]);
+    end
+    if (cpu.dbg_jte[160] && cpu.dbg_jte[157:155] <= 3'd1 && (cpu.dbg_jte[56:54] == 3'd1 || cpu.dbg_jte[56:54] == 3'd2) && !uok_in(cpu.dbg_jte[120:89])) begin
+      uok_bad = uok_bad + 1;
+      if (uok_bad <= 8) $display("FAIL: a walk for user address %08x the program never named (FC %0d)", cpu.dbg_jte[120:89], cpu.dbg_jte[56:54]);
+    end
+  end
+
   initial begin
     if (!$value$plusargs("PROG=%s", prog_dir)) prog_dir = ".";
     if ($value$plusargs("JTLIMIT=%h", jt_limit)) ;
     if ($test$plusargs("JTFILT")) jt_all = 0;
+    if ($test$plusargs("UOK")) begin $readmemh({prog_dir, "/uok.hex"}, uok); uok_en = 1; end
     if (!$value$plusargs("MAXCLK=%d", maxclk)) maxclk = 20000000;
     if ($value$plusargs("BTLO=%h", bt_lo) && $value$plusargs("BTHI=%h", bt_hi)) btrace = 1;
     if ($value$plusargs("BTT0=%d", bt_t0)) ;
@@ -477,6 +506,10 @@ module tb_predec_fault;
     rt_check;
 `endif
     jt_check;
+    if (uok_en) begin
+      $display("---- user beats outside the named ranges: %0d", uok_bad);
+      fails = fails + (uok_bad != 0);
+    end
     v = rd32(32'h3F00);
     if (v[31:16] == 16'hBBBB) begin fails = fails + 1; $display("FAIL: the bus-error handler ran more than 100 times (a fault that never resolves)"); end
     else if (v != 0) begin

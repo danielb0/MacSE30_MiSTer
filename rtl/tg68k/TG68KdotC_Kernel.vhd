@@ -448,6 +448,9 @@ architecture logic of TG68KdotC_Kernel is
 	-- real fetch completes; '0' here stalls that flow and boots with A7=0.
 	signal opc_buf_valid		: std_logic := '1';  -- last_opc_read holds a beat_valid-acked word (invalid after a force-completed fetch)
 	signal mmu_restart_soft	: std_logic;  -- insn-consumer restart: arm rollback/frame WITHOUT the bus squash (the instruction must drain to the boundary so the deferred insn dispatch can fire)
+	signal soft_dead	: std_logic := '0';  -- the fetch-faulted instruction itself is still draining (mmu_restart_soft, ended at the dispatch)
+	signal restart_squash	: std_logic;  -- no bus cycle from the aborted instruction: a data fault's whole restart, a fetch fault's data cycles (KNOWN ISSUES 23)
+	signal soft_pc_dead	: std_logic := '0';  -- a JMP/JSR target taken under a fetch-fault restart: its fetch never goes out (KNOWN ISSUES 23)
 	signal pmmu_fault_restart_dispatch : std_logic;
 	-- LASTWRITE eligibility is latched at fault first-fire because the live
 	-- pmmu_fault_lastwrite_ok exclusion terms move with the pipeline.
@@ -1472,7 +1475,8 @@ BEGIN
   -- are state="11" and the trap3 handler-PC pop is state="10", so gating only
   -- state="00" cycles cannot starve the stacking sequence.
   pmmu_req      <= '1' when (state /= "01" and pmmu_tc_en = '1'
-                             and (mmu_restart_pending = '0' or mmu_restart_soft = '1')
+                             and restart_squash = '0'
+                             and not (state = "00" and soft_pc_dead = '1')
                              and not (state = "00" and TG68_PC(0) = '1')
                              and not (state = "00" and berr_stack_fetch_squash = '1')) else '0';
   pmmu_is_insn  <= '1' when state = "00" else '0';
@@ -1854,7 +1858,17 @@ ALU: TG68K_ALU
    regin_out <= regin;
 
 
-	nWr <= '0' WHEN state="11" AND pmmu_busy='0' AND (mmu_restart_pending='0' OR mmu_restart_soft='1') ELSE '1';
+	-- KNOWN ISSUES 23 (the extension-word sweep, 2026-10-18): a fetch fault's
+	-- restart (soft) let the aborted instruction drain WITH its bus cycles, so
+	-- an EA built from the released extension words went out - reads, WRITES
+	-- and a JMP's fetch at {0, high word}, {0, opcode}, an immediate; a 68030
+	-- takes the fault before it computes the EA (UM 8.1.2).  Its data cycles
+	-- are squashed like a data fault's; its fetches still run (the deferred
+	-- dispatch needs the drain), but not one at a JMP/JSR target taken under it.
+	restart_squash <= '1' WHEN mmu_restart_pending = '1' AND
+	                           (mmu_restart_soft = '0' OR
+	                            (state(1) = '1' AND soft_dead = '1' AND berr_stack_fetch_squash = '0')) ELSE '0';
+	nWr <= '0' WHEN state="11" AND pmmu_busy='0' AND restart_squash='0' ELSE '1';
 	-- Suppress bus cycles only for odd instruction fetch address errors before AS* assertion.
 	-- MMU RESTART squash window: after a restartable data fault, no further bus
 	-- cycles from the aborted instruction may reach memory - the pipeline drains
@@ -1889,7 +1903,8 @@ ALU: TG68K_ALU
 	                                     micro_state = berr8 OR micro_state = trap3 OR
 	                                     (interrupt = '1' AND (trap_berr = '1' OR trap_mmu_berr = '1'))
 	                           ELSE '0';
-	busstate_raw <= "01" WHEN (state="00" AND TG68_PC(0)='1') OR pmmu_busy='1' OR (mmu_restart_pending='1' AND mmu_restart_soft='0')
+	busstate_raw <= "01" WHEN (state="00" AND TG68_PC(0)='1') OR pmmu_busy='1' OR restart_squash='1' OR
+	                          (state="00" AND soft_pc_dead='1')
 	                      OR (state="00" AND berr_stack_fetch_squash='1') ELSE state;
 	busstate <= "01" WHEN fetch_hit='1' ELSE busstate_raw;	-- a held word needs no bus cycle
 	clkena_core <= clkena_in AND fetch_ok;
@@ -2093,8 +2108,8 @@ ALU: TG68K_ALU
 	-- BUG #428 FIX: Gate bus strobes with pmmu_fault to prevent faulting writes from
 	-- reaching the bus. With the busy='0' override during fault (PMMU fix), UDS/LDS
 	-- would otherwise assert for one cycle before the CPU transitions to berr handling.
-	nUDS <= memmaskmux(5) OR pmmu_busy OR pmmu_fault OR (mmu_restart_pending AND NOT mmu_restart_soft);
-	nLDS <= memmaskmux(4) OR pmmu_busy OR pmmu_fault OR (mmu_restart_pending AND NOT mmu_restart_soft);
+	nUDS <= memmaskmux(5) OR pmmu_busy OR pmmu_fault OR restart_squash;
+	nLDS <= memmaskmux(4) OR pmmu_busy OR pmmu_fault OR restart_squash;
 	-- A force-released final directPC beat is not a completed longword. Keep
 	-- every final-datum consumer (PC, A7, rot_cnt, micro-state) stopped until
 	-- the retry receives a real ack.
@@ -2647,6 +2662,7 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				bus_datum_dirty <= '0';
 				ea_to_pc_datum_invalid <= '0';
 				brdisp_bad <= '0';
+				soft_pc_dead <= '0';
 			ELSIF clkena_core='1' THEN
 				-- Clear when the machine ENTERS exception microcode (the
 				-- abandoned datum's instruction is preempted; the vector
@@ -2712,6 +2728,14 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				IF stream_take_bad='1' AND setopcode='0' AND
 				   (make_berr='1' OR mmu_restart_pending='1' OR (pmmu_tc_en='1' AND pmmu_fault='1')) THEN
 					ea_to_pc_datum_invalid <= '1';
+				END IF;
+				-- KNOWN ISSUES 23: a control transfer under a fetch-fault restart
+				IF setopcode='1' OR micro_state = trap0 OR micro_state = trap00 OR
+				   micro_state = berr_fill OR micro_state = berr1 OR micro_state = int1 THEN
+					soft_pc_dead <= '0';
+				ELSIF exec(ea_to_pc)='1' AND (mmu_restart_pending='1' OR stream_take_bad='1' OR
+				                              ea_to_pc_datum_invalid='1') THEN
+					soft_pc_dead <= '1';
 				END IF;
 				-- KNOWN ISSUES 29: the branch's displacement is garbage until the restart
 				IF brdisp_take='1' THEN
@@ -5053,6 +5077,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					pmmu_fault_was_cleared <= '0';
 					mmu_restart_pending <= '0';
 					mmu_restart_soft <= '0';
+					soft_dead <= '0';
 					mmu_restart_restore <= '0';
 					berr_pmmu_fault_lastwrite <= '0';
 					berr_fault_addr <= (others => '0');
@@ -5079,6 +5104,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					berr_restart_pc <= (others => '0');
 					mmu_restart_pending <= '0';
 					mmu_restart_soft <= '0';
+					soft_dead <= '0';
 					mmu_restart_restore <= '0';
 					flags_shadow <= (others => '0');
 					flags_shadow_take <= '0';
@@ -5412,6 +5438,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					IF ifetch_late_arm = '1' THEN
 						mmu_restart_pending <= '1';
 						mmu_restart_soft <= '1';
+						soft_dead <= '1';
 						berr_restart_pc <= exe_pc;
 					END IF;
 				END IF;
@@ -5540,6 +5567,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						-- fault_reg/berr_exception_active into a later double-fault.
 						mmu_restart_pending <= '0';
 						mmu_restart_soft <= '0';
+						soft_dead <= '0';
 					elsif pmmu_tc_en='1' and pmmu_fault='1' and dib_sub_hit='0' and make_berr='0' and trap_berr='0' and trap_mmu_berr='0' then
 						-- Preserve the first fault until its exception frame is built. A
 						-- released replay fault can be followed immediately by a fetch at
@@ -5580,6 +5608,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							   cp_bf_now = '0' THEN   -- (not a coprocessor dialog's: it goes on from the fault, 7d B5c)
 								mmu_restart_pending <= '1';
 								mmu_restart_soft <= pmmu_fault_is_insn_out;
+								soft_dead <= pmmu_fault_is_insn_out;
 								berr_restart_pc <= exe_pc;
 							END IF;
 							v_pmmu_datatype := datatype;
@@ -5612,6 +5641,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					   fc_internal(1 downto 0)="01" AND pmmu_rmw='0' THEN
 						mmu_restart_pending <= '1';
 						mmu_restart_soft <= '0';
+						soft_dead <= '0';
 						berr_restart_pc <= exe_pc;
 					END IF;
 
@@ -5635,6 +5665,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					END IF;
 					stop <= set_stop OR (stop AND NOT setinterrupt);
 					IF setinterrupt='1' THEN
+						soft_dead <= '0';   -- KNOWN ISSUES 23: the frame pushes are not the instruction's
 						trap_interrupt <= '0';
 						trap_trace <= '0';
 --						TG68_PC_word <= '0';
@@ -5647,6 +5678,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						IF pmmu_fault_restart_dispatch = '1' THEN
 							mmu_restart_pending <= '0';
 							mmu_restart_soft <= '0';
+							soft_dead <= '0';
 							mmu_restart_restore <= '1';
 						END IF;
 						-- BUG #393 FIX: MC68030 UM 8.1 exception priority:

@@ -366,6 +366,128 @@ def isw_build(case):
     entry = ISW_P - 2 * len(code)
     page_b = ([0x4AFC] if off else []) + fw + [0x528A, 0x4E75, 0x4AFC]
     return entry, {trap: [0x4AFC], entry: code, ISW_P: page_b}, what
+
+
+# xsweep (KNOWN ISSUES 23's class, 2026-10-18): an instruction whose EXTENSION
+# words straddle from a resident page into a non-resident one - an absolute
+# address, a displacement, a full extension word, an immediate - for JMP/JSR
+# in every addressing mode with an extension and for data instructions whose
+# operand address is in the words that fault.  A 68030 takes the fetch fault
+# before it computes the EA (UM 8.1.2), so the program's only user beats are
+# its code, its operands and its stack: the bench's +UOK check (uok.hex)
+# fails any other - a junk jump target or a stray operand read.  Each case
+# also checks its result and adds 1 to A2.  Operands: XSW_A (high word $0006)
+# or XSW_B (high word $0007, odd: a junk {0, high word} target is odd); the
+# absolute short form uses XSW_W.  One case a run: XSW=k (XSWLIST=1 lists
+# them); XSW_SANITY=1 plants a read of $00000004 (must fail).
+XSW_A, XSW_B, XSW_W, XSW_PTR = 0x67100, 0x71100, 0x7100, 0x67200
+XSW_VAL = {XSW_A: 0x11223344, XSW_B: 0x55667788, XSW_W: 0x99AABBCC}
+XSW_D4 = 0xCAFEF00D                                      # D4 before (a store's value)
+XSW_OD = 0x10                                            # the memory-indirect forms' outer displacement
+
+
+def xsw_cases():
+    """(words, kind, operand, what): kind j = JMP to the operand, s = JSR,
+    l = a long loaded into D4, w = a word loaded into D4, m = the long at
+    the operand checked after, p = PEA (the stack's long), c = CMPI (Z), n =
+    no result check (BTST), a = MOVEA into A3."""
+    out = []
+    for X in (XSW_A, XSW_B):
+        h, l = X >> 16, X & 0xFFFF
+        d6 = (X - ISW_R) & 0xFFFFFFFF                    # from A6
+        v = XSW_VAL[X]
+        nm = "A" if X == XSW_A else "B (odd high word)"
+        out += [([0x4EF9, h, l], "j", X, "JMP (xxx).L, operand " + nm),
+                ([0x4EB9, h, l], "s", X, "JSR (xxx).L, operand " + nm),
+                ([0x4EF6, 0x0130, d6 >> 16, d6 & 0xFFFF], "j", X, "JMP (bd.L,A6,D0.W), operand " + nm),
+                ([0x4EB6, 0x0130, d6 >> 16, d6 & 0xFFFF], "s", X, "JSR (bd.L,A6,D0.W), operand " + nm),
+                ([0x4EF6, 0x0133, 0, XSW_PTR - ISW_R, 0, XSW_OD], "j", X, "JMP ([bd.L,A6,D0.W],od.L), operand " + nm),
+                ([0x2839, h, l], "l", X, "MOVE.L (xxx).L,D4, operand " + nm),
+                ([0x23C4, h, l], "m", X, "MOVE.L D4,(xxx).L, operand " + nm),
+                ([0x23FC, 0x1357, 0x9BDF, h, l], "m", X, "MOVE.L #imm,(xxx).L, operand " + nm),
+                ([0x0CB9, v >> 16, v & 0xFFFF, h, l], "c", X, "CMPI.L #imm,(xxx).L, operand " + nm),
+                ([0x06B9, 0, 1, h, l], "m", X, "ADDI.L #1,(xxx).L, operand " + nm),
+                ([0x42B9, h, l], "m", X, "CLR.L (xxx).L, operand " + nm),
+                ([0x23F9, h, l, h, l + 8], "m", X + 8, "MOVE.L (xxx).L,(xxx).L, operands " + nm),
+                ([0x0839, 0x0003, h, l], "n", X, "BTST #3,(xxx).L, operand " + nm),
+                ([0x4CF9, 0x0030, h, l], "l", X, "MOVEM.L (xxx).L,D4/D5, operand " + nm),
+                ([0xE9F9, 0x4000, h, l], "l", X, "BFEXTU (xxx).L{0:32},D4, operand " + nm),
+                ([0x2679, h, l], "a", X, "MOVEA.L (xxx).L,A3, operand " + nm),
+                ([0x4879, h, l], "p", X, "PEA (xxx).L, operand " + nm),
+                ([0x2836, 0x0130, d6 >> 16, d6 & 0xFFFF], "l", X, "MOVE.L (bd.L,A6,D0.W),D4, operand " + nm),
+                ([0x2836, 0x0133, 0, XSW_PTR - ISW_R, 0, XSW_OD], "l", X, "MOVE.L ([bd.L,A6,D0.W],od.L),D4, operand " + nm)]
+    dA = XSW_A - ISW_R
+    out += [([0x4EF8, XSW_W], "j", XSW_W, "JMP (xxx).W"), ([0x4EB8, XSW_W], "s", XSW_W, "JSR (xxx).W"),
+            ([0x3838, XSW_W], "w", XSW_W, "MOVE.W (xxx).W,D4"),
+            ([0x4EEE, dA], "j", XSW_A, "JMP (d16,A6)"), ([0x4EAE, dA], "s", XSW_A, "JSR (d16,A6)"),
+            ([0x282E, dA], "l", XSW_A, "MOVE.L (d16,A6),D4"),
+            ([0x4EFA, None], "j", XSW_A, "JMP (d16,PC)"), ([0x4EBA, None], "s", XSW_A, "JSR (d16,PC)"),
+            ([0x283A, None], "l", XSW_A, "MOVE.L (d16,PC),D4"),
+            ([0x4EF6, 0x0040], "j", ISW_R + 0x40, "JMP (d8,A6,D0.W)"),
+            ([0x4EFB, 0x0040], "j", None, "JMP (d8,PC,D0.W)")]
+    cases = []
+    for ws, kind, X, what in out:
+        for k in range(1, len(ws)):
+            cases.append((ws, kind, X, k, "%s straddling (%d word%s resident)" % (what, k, "" if k == 1 else "s")))
+    return cases
+
+
+def xsw_build(case):
+    ws, kind, X, k, what = case
+    ws = list(ws)
+    at = ISW_P - 2 * k                                   # the instruction's address
+    pre = list(ISW_PRE) + [0x283C, XSW_D4 >> 16, XSW_D4 & 0xFFFF]   # move.l #$CAFEF00D,d4
+    if os.environ.get("XSW_SANITY") == "1":
+        pre += [0x4AB9, 0x0000, 0x0004]                  # tst.l $4: a beat the check must catch
+    if ws[1] is None:                                    # (d16,PC): from the extension word
+        ws[1] = (X - (at + 2)) & 0xFFFF
+    if X is None:                                        # (d8,PC,D0.W): the target beside the extension word
+        X = at + 2 + 0x40
+    vals = dict(XSW_VAL)
+    ind = X if X in (XSW_A, XSW_B) else XSW_A            # the memory-indirect pointer: operand - od
+    put = {XSW_PTR: [((ind - XSW_OD) >> 16) & 0xFFFF, (ind - XSW_OD) & 0xFFFF]}
+    for a_, v in vals.items():
+        put[a_] = [v >> 16, v & 0xFFFF]
+    ok = [0x528A, 0x4E75]                                # addq.l #1,a2; rts
+
+    def chk_m(a_, v):                                    # cmpi.l #v,(a_).l; bne.s; ok
+        return [0x0CB9, v >> 16, v & 0xFFFF, a_ >> 16, a_ & 0xFFFF, 0x6602] + ok
+    if kind == "j":
+        tail = [0x4AFC]
+        put[X] = ok
+    elif kind == "s":
+        tail = [0x4E75]                                  # the subroutine adds; back here, return
+        put[X] = ok
+    elif kind == "l":
+        tail = [0x0C84, vals[X] >> 16, vals[X] & 0xFFFF, 0x6602] + ok   # cmpi.l #v,d4
+    elif kind == "w":
+        tail = [0x0C44, vals[X] >> 16, 0x6602] + ok      # cmpi.w #v,d4
+    elif kind == "a":
+        tail = [0xB7FC, vals[X] >> 16, vals[X] & 0xFFFF, 0x6602] + ok   # cmpa.l #v,a3
+    elif kind == "p":
+        tail = [0x0C9F, X >> 16, X & 0xFFFF, 0x6602] + ok               # cmpi.l #X,(a7)+
+    elif kind == "c":
+        tail = [0x6602] + ok                             # Z from the CMPI
+    elif kind == "n":
+        tail = ok
+    else:                                                # m: the long at X after
+        want = {0x23C4: XSW_D4, 0x23FC: 0x13579BDF, 0x06B9: vals.get(X, 0) + 1, 0x42B9: 0,
+                0x23F9: vals.get(X - 8, 0)}[ws[0]]
+        tail = chk_m(X, want)
+    code = pre + ws[:k]
+    entry = ISW_P - 2 * len(code)
+    blobs = {ISW_R + 0x10: [0x4AFC], entry: code, ISW_P: ws[k:] + tail}
+    for a_, ws_ in put.items():
+        blobs.setdefault(a_, ws_)
+    return entry, blobs, what
+
+
+def uok_ranges():
+    """The user beats a case may make (the bench's +UOK check): the inline
+    program, the case's code pages and the operand pages, the user stack."""
+    return [(ORG, BERR), (ISW_R, ISW_P + 0x2000), (XSW_B & ~0xFFF, (XSW_B & ~0xFFF) + 0x1000),
+            (XSW_W & ~0xFFF, (XSW_W & ~0xFFF) + 0x1000), (0x8000, 0x9000)]
+
 # dsweep (the data side of KNOWN ISSUES 29's class; MacX's colour start-up on
 # the IIcx, 2026-10-18): an instruction's MEMORY operand on a page that is not
 # resident.  Each case runs one instruction twice in user mode with the same
@@ -753,6 +875,19 @@ def main():
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
         cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [ISW_P], 1,
                       {"A0": 0x77, "A1": 0x55}, "isweep: " + what))
+    if CASESET == "xsweep":
+        allc = xsw_cases()
+        if os.environ.get("XSWLIST"):
+            for k, c in enumerate(allc):
+                print("%3d %s" % (k, c[4]))
+            raise SystemExit(0)
+        entry, blobs, what = xsw_build(allc[int(os.environ["XSW"])])
+        for a_, ws in blobs.items():
+            putbytes(a_, b"".join(x.to_bytes(2, "big") for x in ws))
+        code = [0x4EB9, entry >> 16, entry & 0xFFFF, 0x4E40]   # JSR entry.L; TRAP #0
+        regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [ISW_P], 1,
+                      {"A0": 0x77, "A1": 0x55}, "xsweep: " + what))
     if CASESET == "rts":
         sel = os.environ.get("RTSONLY")               # one case alone, as IFONLY
         putbytes(RTS_RET, bytes.fromhex("528A4E40"))  # ADDQ.L #1,A2; TRAP #0
@@ -1041,6 +1176,9 @@ def main():
     with open(os.path.join(HERE, "program.hex"), "w") as f:
         for x in mem:
             f.write("%04x\n" % x)
+    with open(os.path.join(HERE, "uok.hex"), "w") as f:  # the +UOK ranges, 8 pairs
+        for lo, hi in (uok_ranges() + [(0, 0)] * 8)[:8]:
+            f.write("%08x\n%08x\n" % (lo, hi))
     with open(os.path.join(HERE, "stop_at.txt"), "w") as f:
         f.write("%x %d\n" % (at["fin"], len(expect)))
     with open(os.path.join(HERE, "expect.txt"), "w") as f:
