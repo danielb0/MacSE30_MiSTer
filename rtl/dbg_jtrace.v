@@ -74,9 +74,11 @@ module dbg_jtrace #(
   // e.g. $10 for vector 4 (illegal) with A/UX's VBR at 0
   // limit[31:30] = 11 (MacX on the IIcx, 2026-10-18): a USER program fetch
   // (FC 2) inside the 64 KB window whose logical address bits 31:16 are
-  // limit[15:0] - the first jump into a region no code should run in
+  // limit[15:0] - the first jump into a region no code should run in; with
+  // limit[16] set, only a fetch that reads $00000000 (code is never a zero long)
   wire        u_fetch = limit[31:30] == 2'b11 ?
-                          (tap[159:158] == 2'b00 && tap[157:155] == 3'd2 && tap[152:137] == limit[15:0]) :
+                          (tap[159:158] == 2'b00 && tap[157:155] == 3'd2 && tap[152:137] == limit[15:0] &&
+                           (!limit[16] || tap[88:57] == 32'd0)) :
                         limit[31:30] == 2'b01 ?
                           (tap[159:158] == 2'b10 && tap[157:155] == 3'd5 && tap[152:121] == {2'b00, limit[29:0]}) :
                         tap[159:158] == 2'b00 &&

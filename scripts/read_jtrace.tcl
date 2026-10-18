@@ -31,6 +31,7 @@
 # A limit with bits 31:30 = 11 triggers on a user program fetch (FC 2) in the
 # 64 KB window whose address bits 31:16 are the limit's low 16 bits:
 # `arm C000007F all` freezes on the first fetch in $007F0000-$007FFFFF.
+# Bit 16 set as well (`arm C001007F all`): only a fetch that reads $00000000.
 #
 # A beat: t = clk_sys time (14 bits, 31.33 MHz: 523 us a turn); F fetch,
 # R read, W write; FC, SIZ, logical and physical address, the data the
