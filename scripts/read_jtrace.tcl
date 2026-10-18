@@ -24,6 +24,10 @@
 # freezes on the first instruction of user code (below $400000 under A/UX,
 # whose kernel is at $10000000) run in supervisor mode.  Arm it after the
 # boot: the Mac OS start-up runs supervisor code low.
+# A limit with bits 31:30 = 01 triggers on a supervisor data read (FC 5) of
+# the logical address in its low 30 bits - an exception vector fetch:
+# `arm 40000010 all` freezes on vector 4 (illegal instruction) under A/UX
+# (VBR 0); 4000002C the F-line, 40000008 a bus error.
 #
 # A beat: t = clk_sys time (14 bits, 31.33 MHz: 523 us a turn); F fetch,
 # R read, W write; FC, SIZ, logical and physical address, the data the

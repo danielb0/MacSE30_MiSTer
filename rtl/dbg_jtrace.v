@@ -69,7 +69,12 @@ module dbg_jtrace #(
   wire        b_keep  = beat && (allbeats || b_user || b_mmu);
   // limit[31] set (KNOWN ISSUES 28): a SUPERVISOR program fetch (FC 6) below
   // limit[30:0] instead - user code run in supervisor mode under A/UX
-  wire        u_fetch = tap[159:158] == 2'b00 &&
+  // limit[31:30] = 01 (MacX on the IIcx, 2026-10-18): a SUPERVISOR data read
+  // (FC 5) of the logical address limit[29:0] - an exception's vector fetch,
+  // e.g. $10 for vector 4 (illegal) with A/UX's VBR at 0
+  wire        u_fetch = limit[31:30] == 2'b01 ?
+                          (tap[159:158] == 2'b10 && tap[157:155] == 3'd5 && tap[152:121] == {2'b00, limit[29:0]}) :
+                        tap[159:158] == 2'b00 &&
                         (limit[31] ? (tap[157:155] == 3'd6 && tap[152:121] < {1'b0, limit[30:0]})
                                    : (tap[157:155] == 3'd2 && tap[152:121] < limit));
   // the event's: FC field 0/1 walker, 2 PFLUSH; a walk's parked access FC [56:54]
