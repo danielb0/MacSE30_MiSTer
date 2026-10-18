@@ -19814,7 +19814,8 @@ Daniel - add to it, move items out when fixed).**
     machine under A/UX, not a hang. A CommandShell running at shutdown is
     re-opened at the next boot too (Daniel) - the session is restored.
 30. **FIXED IN SIM (2026-10-18, d8270c4; board test = the IIcx build
-    a7be3f85, MacX's first run in 256 colours) - a page-fault restart rolled
+    `MacIIcx_103c9dbc_ki30ccr.rbf` (md5 209b005d), MacX's first run in 256
+    colours) - a page-fault restart rolled
     the CCR back past the previous instruction.** Found by the data-fault
     sweep (Daniel: "yes, go ahead with the data-fault sweep"), opened for
     MacX's colour crash on the IIcx (first run, font directory build, 256
@@ -19833,9 +19834,16 @@ Daniel - add to it, move items out when fixed).**
     and memory are compared (`move #$1F,ccr` then `move #0,ccr` before each,
     so a stale CCR shows); DSW_SANITY=1 plants a difference and must fail.
     **Unfixed 33/219, fixed 219/219; isweep 197/197.** Joins the regression
-    list. Whether this was MacX's crash: the board test above (the build
-    carries JTRACE with the window trigger, so a remaining crash can be
-    traced at once).
+    list. Whether this was MacX's crash: the board test above. THE IIcx
+    BUILDS (2026-10-18): fix + lean probes + JTRACE window trigger (a7be3f85,
+    77,080 cells) FAILED TO ROUTE (congestion, 29 min); the same without
+    JTRACE (76,045 cells) was stopped after 64 min in the fitter; the
+    release form + fix (103c9dbc, no probes, CD-ROM in, 38,770 ALMs) fitted
+    in 38 min (routing 7.5 min) - so the fix is not what the router
+    struggled with; the IIcx debug decks are at the routing limit. Timing:
+    every path of ours met at every corner; only the framework's ascal
+    (-0.221 slow -40C, o_vcpt_pre3, KNOWN ISSUES 6). A remaining MacX crash
+    needs an IIcx trace deck with room made elsewhere.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
