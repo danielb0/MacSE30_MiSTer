@@ -12,5 +12,5 @@
 //
 // Read back on the PBLD probe (rtl/dbg_probes.sv). See SE30_PLAN.md 3.5.
 module build_tag(output [31:0] tag);
-	assign tag = 32'hb29d86e3;
+	assign tag = 32'h00000000;
 endmodule

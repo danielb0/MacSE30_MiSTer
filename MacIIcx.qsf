@@ -82,10 +82,6 @@ set_global_assignment -name SEED 1
 # MACIICX defined - the card in NuBus slot $9, the IIcx's identity lines,
 # the menu name MACIICX.
 set_global_assignment -name VERILOG_MACRO "MACIICX=1"
-set_global_assignment -name VERILOG_MACRO "USE_DBG_PROBES=1"
-set_global_assignment -name VERILOG_MACRO "SE30_LEAN_PROBES=1"
-set_global_assignment -name VERILOG_MACRO "SE30_JTRACE=1"
-set_global_assignment -name VERILOG_MACRO "SE30_NO_CDROM=1"
 # SE30_PLAN.md 3.8 item 18: the SDRAM read capture is timed at chain zero
 # (the phases were placed with no input delay chain); the fitter would
 # otherwise tune the chains for a capture it cannot see (MacSE30.sdc)
