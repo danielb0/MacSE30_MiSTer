@@ -96,6 +96,14 @@ set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[1]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[2]"
 
+# KNOWN ISSUES 24 (2026-10-16, the forum): the framework's PLLs where every other
+# core has them.  The IIcx's fourth PLL (pll_vid, the colour card's dot clock)
+# moved pll_hdmi to X0_Y32 in compile 9, and Main's HDMI divider write (the
+# physical C counter 0) missed: every video_mode but 1080p ran at the power-on
+# divider with vsync_adjust=0.  pll_vid is left to the fitter.
+set_location_assignment FRACTIONALPLL_X0_Y1_N0 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll"
+set_location_assignment PLLOUTPUTCOUNTER_X0_Y5_N1 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|counter[0].output_counter"
+set_location_assignment FRACTIONALPLL_X0_Y56_N0 -to "pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL"
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip
