@@ -13,7 +13,7 @@ one() {
   k=$1; d=$HERE/../_isw_$k
   rm -rf "$d"; mkdir -p "$d"
   cp "$HERE/gen_program.py" "$HERE/tb_predec_fault.v" "$HERE/run.sh" "$d/"
-  r=$(cd "$d" && env CASESET=isweep ISW=$k TCMODE=aux HANDLER=aux $EXTRA timeout 600 ./run.sh 2>&1 | grep -E "^(==== |FAIL: an exception)" | tr '\n' ' ')
+  r=$(cd "$d" && env CASESET=isweep ISW=$k TCMODE=aux HANDLER=aux $EXTRA timeout 600 ./run.sh +UOK 2>&1 | grep -E "^(==== |FAIL: an exception|FAIL: a user|FAIL: a walk)" | head -4 | tr '\n' ' ')
   echo "$k $r"
   rm -rf "$d"
 }

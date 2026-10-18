@@ -536,11 +536,36 @@ DSW_INSN = [
     ([0x8B8E, 0x1234], 1, 0, 9, "UNPK -(A6),-(A5),#$1234"), ([0xBB8E], 0, 0, 12, "CMPM.L (A6)+,(A5)+"),
 ]
 DSW_OFFS = [0, -1, -2, -3, -4, -6]
+# DSW_WP=1 (scan 2, 2026-10-18: copy-on-write, as A/UX's fork leaves pages):
+# the page at DSW_P VALID but write-protected instead of invalid - the reads
+# succeed, a write faults, and a straddling operand's first part may already
+# have landed on the writable page below when its second part faults; the
+# restart must not apply the operation twice (KNOWN ISSUES 21 is that limit
+# for BFCHG and CAS2).  Only the instructions that write, and these more
+# read-modify-write forms (handler entries are not counted: a write wholly
+# below the page never faults).
+DSW_WPX = [
+    ([0x5696], 0, 0, 4, "ADDQ.L #3,(A6)"), ([0x5796], 0, 0, 4, "SUBQ.L #3,(A6)"),
+    ([0xD956], 0, 0, 2, "ADD.W D4,(A6)"), ([0x8996], 0, 0, 4, "OR.L D4,(A6)"),
+    ([0xC996], 0, 0, 4, "AND.L D4,(A6)"), ([0xB996], 0, 0, 4, "EOR.L D4,(A6)"),
+    ([0x4096], 0, 0, 4, "NEGX.L (A6)"), ([0x4696], 0, 0, 4, "NOT.L (A6)"), ([0x4816], 0, 0, 1, "NBCD (A6)"),
+    ([0x0696, 0x1234, 0x5678], 0, 0, 4, "ADDI.L #imm,(A6)"), ([0x0496, 0x1234, 0x5678], 0, 0, 4, "SUBI.L #imm,(A6)"),
+    ([0x0A96, 0x5A5A, 0xA5A5], 0, 0, 4, "EORI.L #imm,(A6)"), ([0x57D6], 0, 0, 1, "SEQ (A6)"),
+    ([0xE2D6], 0, 0, 2, "LSR.W (A6)"), ([0xE7D6], 0, 0, 2, "ROL.W (A6)"),
+    ([0x2D16], 0, 0, 4, "MOVE.L (A6),-(A6)"), ([0x48E6, 0x0F00], 16, 0, 16, "MOVEM.L D4-D7,-(A6)"),
+    ([0x0CFC, 0xE144, 0xD144], 0, 0, 10, "CAS2.W D4:D4,D5:D5,(A6):(A5) (A5 = A6 + 8)"),
+    ([0x4E56, 0xFFF8], 0, 0, 0, "(no memory: LINK on the stack - a control)"),
+]
+DSW_WP = os.environ.get("DSW_WP") == "1"
 
 
 def dsw_cases():
     out = []
-    for ws, adj, fs, fl, what in DSW_INSN:
+    insns = DSW_INSN
+    if DSW_WP:
+        first = [x[4] for x in DSW_INSN].index("MOVE.B D4,(A6)")
+        insns = [x for x in DSW_INSN[first:] if not x[4].startswith("CMPM")] + DSW_WPX[:-1]
+    for ws, adj, fs, fl, what in insns:
         for off in DSW_OFFS:
             lo = off + fs
             hi = lo + fl
@@ -749,13 +774,19 @@ def main():
     words = lambda b: [int.from_bytes(b[i:i + 2], "big") for i in range(0, len(b), 2)]
 
     mem = [0] * (SIZE // 2)
+    touched = set()                                  # the pages a case's code or data is put in (+UOK)
+    rec = [True]
 
     def put32(a, v):
         mem[a // 2], mem[a // 2 + 1] = (v >> 16) & 0xFFFF, v & 0xFFFF
+        if rec[0]:
+            touched.update((a >> 12, (a + 3) >> 12))
 
     def putbytes(a, b):
         assert a % 2 == 0
         b = b + b"\0" * (len(b) & 1)
+        if rec[0] and b:
+            touched.update(range(a >> 12, ((a + len(b) - 1) >> 12) + 1))
         for i in range(0, len(b), 2):
             mem[(a + i) // 2] = (b[i] << 8) | b[i + 1]
 
@@ -809,6 +840,7 @@ def main():
                           {"A0": dst + n, "A1": 0, "wp": True}, "wp: " + what))
     if CASESET == "jsr":
         for k, (call, usp, bad, what) in enumerate(JSR):
+            touched.update(((usp - 12) >> 12, usp >> 12))   # the user stack around USP (+UOK)
             # call sub; TRAP #0; sub: ADDQ.L #1,A2; RTS - the displacement from the call's extension word
             if call == "link":                       # LINK A6,#-8; MOVEA.L A7,A2; TRAP #0
                 code, a2 = [0x4E56, 0xFFF8, 0x244F, 0x4E40], usp - 4 - 8
@@ -861,7 +893,7 @@ def main():
         code = [0x4EB9, DSW_CODE >> 16, DSW_CODE & 0xFFFF, 0x4E40]   # JSR DSW_CODE.L; TRAP #0
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
         cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [DSW_P], 1,
-                      {"A0": 0x77, "A1": 0x55}, "dsweep: " + what))
+                      {"A0": 0x77, "A1": 0x55, "wp": DSW_WP, "nocount": DSW_WP}, "dsweep: " + what))
     if CASESET == "isweep":
         allc = isw_cases()
         if os.environ.get("ISWLIST"):
@@ -1026,7 +1058,7 @@ def main():
                    (s + 4, want["A1"], "case %d A1 at its end" % k),
                    (s + 8, 0xFFFFFFFF, "case %d D1 = -1 (the loop ran out)" % k),
                    (s + 12, 0, "case %d no output long differs from the reference" % k),
-                   (s + 16, handled, "case %d handler entries so far = the invalid pages" % k)]
+                   (s + 16, handled, "case %d handler entries so far = the invalid pages" % k)][:4 if want.get("nocount") else 5]
         if a2_want is not None:
             expect.append((s + 20, a2_want, "case %d A2 at the output's end" % k))
     at["fin"] = here()
@@ -1148,6 +1180,9 @@ def main():
     for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf)):
         for i, x in enumerate(code):
             mem[base // 2 + i] = x
+    rec[0] = False                                   # the tables and the handler's words are not the cases'
+    for c in cases:
+        touched.update(pg >> 12 for pg in c[6])      # every invalid page is one the case names
     put32(LOGP, LOG)
     put32(CRP_AT + 8, TC); put32(CRP_AT + 12, TT0)
     if TCMODE == "aux":
@@ -1176,8 +1211,18 @@ def main():
     with open(os.path.join(HERE, "program.hex"), "w") as f:
         for x in mem:
             f.write("%04x\n" % x)
-    with open(os.path.join(HERE, "uok.hex"), "w") as f:  # the +UOK ranges, 8 pairs
-        for lo, hi in (uok_ranges() + [(0, 0)] * 8)[:8]:
+    # the +UOK ranges, 64 pairs: the inline program, the user stack, every page
+    # the cases put code or data in or make invalid (xsweep: its own list)
+    rng = uok_ranges() if CASESET == "xsweep" else [(ORG, BERR), (0x8000, 0x9000)]
+    for pg in sorted(touched):
+        lo, hi = pg << 12, (pg + 1) << 12
+        if rng and rng[-1][1] == lo and rng[-1][0] >= 0x9000:
+            rng[-1] = (rng[-1][0], hi)
+        else:
+            rng.append((lo, hi))
+    assert len(rng) <= 64, len(rng)
+    with open(os.path.join(HERE, "uok.hex"), "w") as f:
+        for lo, hi in (rng + [(0, 0)] * 64)[:64]:
             f.write("%08x\n%08x\n" % (lo, hi))
     with open(os.path.join(HERE, "stop_at.txt"), "w") as f:
         f.write("%x %d\n" % (at["fin"], len(expect)))

@@ -436,18 +436,18 @@ module tb_predec_fault;
   endtask
 
   // ------------------------------------------- user beats where the program named (KNOWN ISSUES 23)
-  // +UOK: uok.hex holds up to 8 {lo, hi} pairs; every user-space beat the
+  // +UOK: uok.hex holds up to 64 {lo, hi} pairs; every user-space beat the
   // kernel takes (FC 1, 2: fetch, read, write, cache hit or bus) and every
   // walk for a user access must land in one [lo, hi) - a beat elsewhere is
   // one the program never named (a junk jump target, a stray operand read).
-  reg  [31:0] uok [0:15];
+  reg  [31:0] uok [0:127];
   reg         uok_en = 0;
   integer     uok_bad = 0;
   function uok_in(input [31:0] a);
     integer j;
     begin
       uok_in = 0;
-      for (j = 0; j < 8; j = j + 1) if (uok[2*j+1] != 0 && a >= uok[2*j] && a < uok[2*j+1]) uok_in = 1;
+      for (j = 0; j < 64; j = j + 1) if (uok[2*j+1] != 0 && a >= uok[2*j] && a < uok[2*j+1]) uok_in = 1;
     end
   endfunction
   always @(posedge clk) if (uok_en && reset_n) begin

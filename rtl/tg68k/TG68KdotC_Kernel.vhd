@@ -2733,8 +2733,9 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				IF setopcode='1' OR micro_state = trap0 OR micro_state = trap00 OR
 				   micro_state = berr_fill OR micro_state = berr1 OR micro_state = int1 THEN
 					soft_pc_dead <= '0';
-				ELSIF exec(ea_to_pc)='1' AND (mmu_restart_pending='1' OR stream_take_bad='1' OR
-				                              ea_to_pc_datum_invalid='1') THEN
+				ELSIF (exec(ea_to_pc)='1' AND (mmu_restart_pending='1' OR stream_take_bad='1' OR
+				                               ea_to_pc_datum_invalid='1')) OR
+				      (TG68_PC_brw='1' AND brdisp_bad='1') THEN   -- (a branch on a released displacement: KNOWN ISSUES 29)
 					soft_pc_dead <= '1';
 				END IF;
 				-- KNOWN ISSUES 29: the branch's displacement is garbage until the restart
