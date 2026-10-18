@@ -19773,7 +19773,7 @@ Daniel - add to it, move items out when fixed).**
     **THE FORUM TEST BUILD (Daniel, 2026-10-18): compile 81 as it is** - "There
     is no need to compile a separate version for the forum test. This one
     will do nicely." (the lean probe deck stays in: JTAG-only, harmless).
-    The forum image: `C:	emp\Mac\AUX disk\AUX_3_1_1GB-clean.vhd` (= the
+    The forum image: `C:\temp\Mac\AUX disk\AUX_3_1_1GB-clean.vhd` (= the
     13 Oct "extensions removed" image renamed; macintoshrepository id 17117
     with the CD-ROM driver, A/ROSE and some networking and printing
     extensions removed from the preliminary Mac OS environment; checked on
