@@ -366,6 +366,108 @@ def isw_build(case):
     entry = ISW_P - 2 * len(code)
     page_b = ([0x4AFC] if off else []) + fw + [0x528A, 0x4E75, 0x4AFC]
     return entry, {trap: [0x4AFC], entry: code, ISW_P: page_b}, what
+# dsweep (the data side of KNOWN ISSUES 29's class; MacX's colour start-up on
+# the IIcx, 2026-10-18): an instruction's MEMORY operand on a page that is not
+# resident.  Each case runs one instruction twice in user mode with the same
+# registers (INIT) and the same bytes: first on resident pages at DSW_RB (the
+# reference, no fault), then with its operand at DSW_P + off, the page at DSW_P
+# invalid (a fault, the pager handler, RTE).  The program compares the two -
+# D0-D7/A0-A4, A5 and A6 relative to their bases, the CCR, 64 bytes around the
+# operand - and sets A2 1 (equal) or 2 (different).  One case a run: DSW=k
+# (DSWLIST=1 lists them).  A5 = A6 + 8 for every case (the second operand of
+# the memory-to-memory forms).
+DSW_CODE, DSW_P, DSW_RB = 0x60000, 0x68000, 0x6B000
+DSW_OUT1, DSW_OUT2, DSW_INIT, DSW_RES = 0x6C000, 0x6C100, 0x6C200, 0x6C300
+DSW_INITV = [13, 25, 0x2468ACE1, 0x13579BDF, 0x89ABCDEF, 0x01234567, 0x7FFF0003, 0x80000005,   # D0 (bit offset) D1 (width) D2-D7
+             0x6C400, 0x6C440, 0x6C480, 0x6C4C0, 0x6C500, 0x6C540]                            # A0-A5
+# (words, A6 = operand start + adj, footprint start (from the operand start), footprint length, what)
+DSW_INSN = [
+    ([0x4A16], 0, 0, 1, "TST.B (A6)"), ([0x4A56], 0, 0, 2, "TST.W (A6)"), ([0x4A96], 0, 0, 4, "TST.L (A6)"),
+    ([0x1816], 0, 0, 1, "MOVE.B (A6),D4"), ([0x3816], 0, 0, 2, "MOVE.W (A6),D4"), ([0x2816], 0, 0, 4, "MOVE.L (A6),D4"),
+    ([0xD896], 0, 0, 4, "ADD.L (A6),D4"), ([0xB856], 0, 0, 2, "CMP.W (A6),D4"),
+    ([0xC8D6], 0, 0, 2, "MULU.W (A6),D4"), ([0x88D6], 0, 0, 2, "DIVU.W (A6),D4"), ([0x89D6], 0, 0, 2, "DIVS.W (A6),D4"),
+    ([0x0116], 0, 0, 1, "BTST D0,(A6)"),
+    ([0x4CD6, 0x00F0], 0, 0, 16, "MOVEM.L (A6),D4-D7"), ([0x094E, 0x0000], 0, 0, 7, "MOVEP.L 0(A6),D4"),
+    ([0x281E], 0, 0, 4, "MOVE.L (A6)+,D4"), ([0x2826], 4, 0, 4, "MOVE.L -(A6),D4"),
+    ([0x04D6, 0x4000], 0, 0, 8, "CMP2.L (A6),D4"),
+    ([0x4C16, 0x4000], 0, 0, 4, "MULU.L (A6),D4"), ([0x4C16, 0x4C05], 0, 0, 4, "MULS.L (A6),D5:D4"),
+    ([0x4C56, 0x4004], 0, 0, 4, "DIVU.L (A6),D4"), ([0x4C56, 0x4C05], 0, 0, 4, "DIVS.L (A6),D5:D4"),
+    ([0xE9D6, 0x40D4], 0, 0, 3, "BFEXTU (A6){3:20},D4"), ([0xEBD6, 0x40D4], 0, 0, 3, "BFEXTS (A6){3:20},D4"),
+    ([0xE9D6, 0x4821], 0, 1, 4, "BFEXTU (A6){D0:D1},D4"), ([0xEDD6, 0x4000], 0, 0, 4, "BFFFO (A6){0:32},D4"),
+    ([0xE8D6, 0x01DC], 0, 0, 5, "BFTST (A6){7:28}"),
+    ([0x1C84], 0, 0, 1, "MOVE.B D4,(A6)"), ([0x3C84], 0, 0, 2, "MOVE.W D4,(A6)"), ([0x2C84], 0, 0, 4, "MOVE.L D4,(A6)"),
+    ([0x4216], 0, 0, 1, "CLR.B (A6)"), ([0x4296], 0, 0, 4, "CLR.L (A6)"),
+    ([0x2CC4], 0, 0, 4, "MOVE.L D4,(A6)+"), ([0x2D04], 4, 0, 4, "MOVE.L D4,-(A6)"),
+    ([0x48D6, 0x00F0], 0, 0, 16, "MOVEM.L D4-D7,(A6)"), ([0x09CE, 0x0000], 0, 0, 7, "MOVEP.L D4,0(A6)"),
+    ([0x2D56, 0x0004], 0, 0, 8, "MOVE.L (A6),4(A6)"), ([0x3CAE, 0x0002], 0, 0, 4, "MOVE.W 2(A6),(A6)"),
+    ([0xD996], 0, 0, 4, "ADD.L D4,(A6)"), ([0x5656], 0, 0, 2, "ADDQ.W #3,(A6)"), ([0x4496], 0, 0, 4, "NEG.L (A6)"),
+    ([0x4656], 0, 0, 2, "NOT.W (A6)"), ([0xE1D6], 0, 0, 2, "ASL.W (A6)"), ([0xE4D6], 0, 0, 2, "ROXR.W (A6)"),
+    ([0x01D6], 0, 0, 1, "BSET D0,(A6)"), ([0x0196], 0, 0, 1, "BCLR D0,(A6)"), ([0x0156], 0, 0, 1, "BCHG D0,(A6)"),
+    ([0x08D6, 0x0009], 0, 0, 1, "BSET #9,(A6)"), ([0x4AD6], 0, 0, 1, "TAS (A6)"),
+    ([0xEFD6, 0x4154], 0, 0, 4, "BFINS D4,(A6){5:20}"), ([0xEED6, 0x01DC], 0, 0, 5, "BFSET (A6){7:28}"),
+    ([0xECD6, 0x01DC], 0, 0, 5, "BFCLR (A6){7:28}"), ([0xEAD6, 0x01DC], 0, 0, 5, "BFCHG (A6){7:28}"),
+    ([0xEAD6, 0x0821], 0, 1, 4, "BFCHG (A6){D0:D1}"),
+    ([0x0ED6, 0x0144], 0, 0, 4, "CAS.L D4,D5,(A6)"), ([0x0CD6, 0x0144], 0, 0, 2, "CAS.W D4,D5,(A6)"),
+    ([0x0AD6, 0x0144], 0, 0, 1, "CAS.B D4,D5,(A6)"),
+    ([0xDB8E], 4, 0, 12, "ADDX.L -(A6),-(A5)"), ([0xCB0E], 1, 0, 9, "ABCD -(A6),-(A5)"),
+    ([0x8B0E], 1, 0, 9, "SBCD -(A6),-(A5)"), ([0x8B4E, 0x1234], 2, 0, 9, "PACK -(A6),-(A5),#$1234"),
+    ([0x8B8E, 0x1234], 1, 0, 9, "UNPK -(A6),-(A5),#$1234"), ([0xBB8E], 0, 0, 12, "CMPM.L (A6)+,(A5)+"),
+]
+DSW_OFFS = [0, -1, -2, -3, -4, -6]
+
+
+def dsw_cases():
+    out = []
+    for ws, adj, fs, fl, what in DSW_INSN:
+        for off in DSW_OFFS:
+            lo = off + fs
+            hi = lo + fl
+            if hi <= 0 or lo < -32 or hi > 32:
+                continue                                 # the page not touched, or outside the compared window
+            out.append((ws, adj, off, what + (" at P%+d" % off)))
+    return out
+
+
+def dsw_build(case):
+    """The case's code at DSW_CODE: save everything, the reference run, the
+    faulting run, the comparison, the result to A2 (via DSW_RES)."""
+    ws, adj, off, what = case
+    w, lab, fix = [], {}, []
+    def here(): return DSW_CODE + 2 * len(w)
+    def L(v): return [(v >> 16) & 0xFFFF, v & 0xFFFF]
+    def br(op, t): w.append(op); fix.append((len(w), t)); w.append(0)
+    def run(base, out):
+        w.extend([0x4DF9] + L(base + adj))               # lea base+adj,a6
+        w.extend([0x4CF9, 0x3FFF] + L(DSW_INIT))         # movem.l INIT,d0-d7/a0-a5
+        w.extend([0x4BEE, 0x0008])                       # lea 8(a6),a5
+        w.extend([0x44FC, 0x001F])                       # move #$1F,ccr, then
+        w.extend([0x44FC, 0x0000])                       # move #0,ccr: the same flags (X!) for both runs - a restart's CCR rollback taken too early shows as $1F
+        w.extend(ws)                                     # THE INSTRUCTION
+        w.extend([0x42F9] + L(out + 0x80))              # move.w ccr,out+$80
+        w.extend([0x48F9, 0x7FFF] + L(out))              # movem.l d0-d7/a0-a6,out
+    w.extend([0x48E7, 0xFFFE])                           # movem.l d0-d7/a0-a6,-(a7)
+    run(DSW_RB + off, DSW_OUT1)                          # the reference
+    run(DSW_P + off, DSW_OUT2)                           # the faulting run
+    w.extend([0x41F9] + L(DSW_OUT1) + [0x43F9] + L(DSW_OUT2) + [0x700C])   # lea; lea; moveq #12,d0
+    lab['r'] = here(); w.append(0xB388); br(0x6600, 'Fr'); br(0x51C8, 'r')  # cmpm.l (a0)+,(a1)+; bne Fr; dbra
+    for o in (52, 56):                                   # A5 and A6, each relative to its run's base
+        w.extend([0x2239] + L(DSW_OUT1 + o) + [0x92BC] + L(DSW_RB + off))   # move.l; sub.l #ref,d1
+        w.extend([0x2439] + L(DSW_OUT2 + o) + [0x94BC] + L(DSW_P + off))    # move.l; sub.l #faulting,d2
+        w.append(0xB481); br(0x6600, 'Fa')               # cmp.l d1,d2; bne Fa
+    w.extend([0x3239] + L(DSW_OUT1 + 0x80) + [0xB279] + L(DSW_OUT2 + 0x80))   # the CCRs
+    br(0x6600, 'Fc')
+    w.extend([0x41F9] + L(DSW_RB - 32) + [0x43F9] + L(DSW_P - 32) + [0x700F])   # 64 bytes around each operand
+    lab['m'] = here(); w.append(0xB388); br(0x6600, 'Fm'); br(0x51C8, 'm')
+    w.extend([0x23FC] + L(1) + L(DSW_RES)); br(0x6000, 'E')   # move.l #1,RES; bra E
+    # a failure: RES = (which compare << 16) | the loop's D0 - 2 registers (D0 = 12 - index of D0-D7/A0-A4),
+    # 3 A5/A6, 4 the CCR, 5 memory (D0 = 15 - the long's index from operand - 32)
+    for k, code in (('Fr', 2), ('Fa', 3), ('Fc', 4), ('Fm', 5)):
+        lab[k] = here(); w.extend([0x33C0] + L(DSW_RES + 2) + [0x33FC, code] + L(DSW_RES)); br(0x6000, 'E')
+    lab['E'] = here(); w.extend([0x4CDF, 0x7FFF] + [0x2479] + L(DSW_RES) + [0x4E75])   # restore; movea.l RES,a2; rts
+    for i, t in fix:
+        w[i] = (lab[t] - (DSW_CODE + 2 * i)) & 0xFFFF
+    return w, what
+
 # rts: an RTS whose pop page-faults (the board, compile 73: macgetty's
 # rename() returned to address 0 - its RTS loaded PC 0 with $10DC on the
 # stack and SP advanced by 4).  The return address is already on the user
@@ -621,6 +723,23 @@ def main():
             regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
             cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, a2,
                           {"A0": 0x77, "A1": 0x55}, "ifetch: " + what))
+    if CASESET == "dsweep":
+        allc = dsw_cases()
+        if os.environ.get("DSWLIST"):
+            for k, c in enumerate(allc):
+                print("%3d %s" % (k, c[3]))
+            raise SystemExit(0)
+        code_w, what = dsw_build(allc[int(os.environ["DSW"])])
+        putbytes(DSW_CODE, b"".join(x.to_bytes(2, "big") for x in code_w))
+        rnd = random.Random(29)
+        window = bytes(rnd.randrange(1, 256) for _ in range(128))   # nonzero: the divisors
+        putbytes(DSW_P - 64, window)
+        putbytes(DSW_RB - 64, window if not os.environ.get("DSW_SANITY") else window[:64] + bytes([window[64] ^ 0x5A]) + window[65:])   # DSW_SANITY=1: a planted difference must FAIL
+        putbytes(DSW_INIT, b"".join(v.to_bytes(4, "big") for v in DSW_INITV))
+        code = [0x4EB9, DSW_CODE >> 16, DSW_CODE & 0xFFFF, 0x4E40]   # JSR DSW_CODE.L; TRAP #0
+        regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [DSW_P], 1,
+                      {"A0": 0x77, "A1": 0x55}, "dsweep: " + what))
     if CASESET == "isweep":
         allc = isw_cases()
         if os.environ.get("ISWLIST"):

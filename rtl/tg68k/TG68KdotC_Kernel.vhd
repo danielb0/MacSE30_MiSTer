@@ -423,6 +423,8 @@ architecture logic of TG68KdotC_Kernel is
 	-- instruction with clean state.  LASTWRITE write faults keep the replay path.
 	signal regfile_shadow		: regfile_t := (OTHERS => (OTHERS => '0'));
 	signal flags_shadow		: std_logic_vector(7 downto 0) := (OTHERS => '0');
+	signal flags_shadow_take	: std_logic := '0';  -- the edge after a decode: take flags_shadow (the data-fault sweep)
+	signal flags_shadow_now	: std_logic_vector(7 downto 0);  -- flags_shadow, or Flags on the edge it is taken
 	signal berr_restart_pc		: std_logic_vector(31 downto 0) := (OTHERS => '0');
 	signal mmu_restart_pending	: std_logic;  -- armed at data-fault first-fire, cleared at dispatch
 	signal mmu_restart_restore	: std_logic;  -- re-applies the rollback one edge after dispatch (straggler writeback)
@@ -1530,7 +1532,8 @@ BEGIN
 	-- stack frame is the value in the status register before the RTE instruction
 	-- was executed.
   restore_ccr_sig <= '1' WHEN mmu_restart_restore_now='1' OR trap_format_error='1' OR rte_mmu_fix_ccr_update='1' ELSE '0';
-  restore_ccr_value_mux <= flags_shadow WHEN mmu_restart_restore_now='1' ELSE
+  flags_shadow_now <= Flags WHEN flags_shadow_take = '1' ELSE flags_shadow;
+  restore_ccr_value_mux <= flags_shadow_now WHEN mmu_restart_restore_now='1' ELSE
                            rte_mmu_fix_ccr_value WHEN rte_mmu_fix_ccr_update='1' ELSE
                            rte_saved_ccr;
 
@@ -5078,6 +5081,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					mmu_restart_soft <= '0';
 					mmu_restart_restore <= '0';
 					flags_shadow <= (others => '0');
+					flags_shadow_take <= '0';
 					berr_external_addr <= (others => '0');
 					memmask <= "111111";
 					op5 <= '0';
@@ -5421,7 +5425,18 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					decodeOPC <= setopcode;
 					endOPC <= setendOPC;
 					execOPC <= setexecOPC;
+					-- The data-fault sweep (2026-10-18): the restart's CCR snapshot one
+					-- edge AFTER the decode - on the decode edge itself the previous
+					-- instruction's flag write is still landing, and a page-faulted
+					-- restart rolled the CCR back past it (ADDX.L after MOVE #0,CCR:
+					-- the reference run's X added in).  The current instruction's own
+					-- first flag write lands on this edge at the earliest, so Flags
+					-- read here is the value between the two.
+					flags_shadow_take <= '0';
 					IF decodeOPC='1' THEN
+						flags_shadow_take <= '1';
+					END IF;
+					IF flags_shadow_take='1' THEN
 						flags_shadow <= Flags;
 					END IF;
 					-- BUG #400 FIX: Clear dispatched flag when PMMU fault_reg is cleared
