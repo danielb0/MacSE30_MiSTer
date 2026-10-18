@@ -19706,6 +19706,63 @@ Daniel - add to it, move items out when fixed).**
     work clobbers the interrupted code's fp0/fp1 on a real SE/30 too.
     tools/auxunix/fpstress.c's handler now does integer work (iwork).
 
+29. **FIXED IN SIM (2026-10-18 night; compile 81 to test) - instruction-fetch
+    page faults resumed at the wrong place for eleven instruction shapes.**
+    Found on the board (compile 80, Daniel, 2026-10-18 ~00:35): A/UX's
+    /usr/bin/X11/xload dies with "Illegal instruction" on every run (no core:
+    xload is setgid, mode 102755; PEXC illegal=1 - compile 76's "illegal=1,
+    source not placed" was probably this). Under adb (`:r`): stopped at
+    $2E006, `or.b &0x6F04,%a4` = $000C, the LAST extension word of
+    `cmpi.l #$200,$C(a6)` at $2E000 - the first instruction of a 4 KB page,
+    after `btst #3,$40C15B` / `bne.b` (not taken) ending the page before. A
+    fresh process demand-pages its text, so the fetch of $2E000 faults every
+    time. **Reproduced:** sim/predec_fault CASESET=ifetch IFONLY=7 (the
+    shape at $63FF0/$64000): illegal at $64006; the RTE resumed at $64002 -
+    the frame's PC was TG68_PC, the prefetch pointer, a word past.
+    **THE SWEEP (Daniel: "please also search for related bugs ... we are
+    finding them one at a time"):** sim/predec_fault CASESET=isweep (ISW=k,
+    ISWLIST=1 lists them; one case a run, all on $65000/$66000): an
+    instruction-fetch fault at a non-resident page's start, reached from
+    every kind of last instruction - plain (NOP, TST, MOVE.L #, LEA, SEQ),
+    multi-cycle and memory ones (MULU/DIVU .W/.L, shifts, SWAP, EXG, EXT,
+    CLR, NEG, BTST, ABCD/SBCD/ADDX/NEGX, TAS, NOT, EOR, ROXL, CMP, ADDA,
+    SUBA, MOVEA, CMPA, LEA, MOVEM both ways, MOVEP, BFEXTU, MULS.L, MOVE to
+    CCR, UNLK, writes and read-modify-writes, RTS), Bcc.B/.W taken and not,
+    BRA.B/.W, DBRA taken and expiring, JMP (xxx).L and (d16,PC) to the
+    page's first or second word, into first instructions of 1-4 words; and
+    instructions whose own words straddle (CMPI.L split 1/2/3, MOVE.L #,
+    LEA, MOVE.W d16, MOVEM, BFEXTU, MULS.L, BNE.W/BEQ.W/BRA.W/BSR.W, DBRA,
+    BEQ.L split 1/2). 197 cases; each must add 1 to A2 once, every word not
+    an instruction start is ILLEGAL. Runner: 8 copies at a time, ~4 min.
+    **Unfixed kernel: 175/197** - 22 failures, 11 shapes: (a) the next
+    opcode's fetch fault dispatched in a NON-FETCH cycle (state /= "00", no
+    buffered opcode) after the decode cycle already fetched it - BNE.B not
+    taken (xload), EXG, UNLK, MOVEM to and from memory, BFEXTU, DIVU.L -
+    TG68_PC a word past; (b) a word/long branch's displacement on the
+    non-resident page - BEQ.W, BRA.W, BSR.W, DBRA taken, BEQ.L (1 word
+    resident): the PC adder used last_data_read's garbage (a jump to
+    $6C700); DBRA expiring: its target alignment check (BUG #394) on the
+    garbage took an ADDRESS ERROR instead of the page fault. KNOWN ISSUES
+    22's consumer detection (stream_take_bad) never covered branch
+    displacements.
+    **FIX (TG68KdotC_Kernel.vhd):** (a) the bus-error frame PC, in the
+    unconsumed-prefetch branch: `state /= "00" AND opc_buf_valid = '0'` ->
+    TG68_PC - 2 (found by tabulating the dispatch cycle's state - micro
+    state, bus state, decodeOPC, opc_buf_valid, TG68_PC, insn_next_pc, the
+    fault address - for every case: the discriminator exact over all 197;
+    the fault address and insn_next_pc are each wrong somewhere). (b)
+    brdisp_take (a Bcc.W/BSR.W/DBcc displacement fetched in the decode cycle,
+    Bcc.L's second word in bra1/bsr2, as a released beat) joins
+    stream_take_bad - the KNOWN ISSUES 22 restart arms - and brdisp_bad holds
+    the branch (no TG68_PC load) and DBcc's alignment check until the
+    restart. **Fixed: 197/197 at CACR 0 and $2101.** sim-only BERR_FRAMEPC
+    report gained inpc/ust/st/dec/obv. Board: xload.
+    sim/predec_fault/run_isweep.sh runs the sweep (8 copies, ~4 min; joins
+    the regression list). **Regression list, all PASS (2026-10-18 ~02:00-03:25,
+    8 at a time):** KNOWN ISSUES 28's list (ifetch 2's JTRACE quiet check =
+    KNOWN ISSUES 23) + ifetch 7 (xload's) + isweep 197/197; b3r nested 217/249
+    IRQs, cpfpu 24 runs, mmu16 7 runs, kernel_bus + system 11 PASS lines.
+
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
 several times now"; "Lode Runner ... will be one of the first things users

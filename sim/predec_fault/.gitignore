@@ -6,3 +6,4 @@ stop_at.txt
 expect.txt
 listing.bin
 vsim_stacktrace.vstf
+isweep.log

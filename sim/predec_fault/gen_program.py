@@ -217,7 +217,155 @@ IFETCH = [
      "MOVE.L #imm,D3: the immediate's low word on a non-resident page"),
     (0x4F100, {0x4F100: [0x4EF9, 0x0005, 0x0200], 0x50200: [0x528A, 0x4E75]}, 1, [0x4F000, 0x50000],
      "a shared-library call: JSR to a branch-table JMP $target.l, table and target non-resident"),
+    # KNOWN ISSUES 29 (A/UX xload, compile 80: SIGILL at $2E006 every run - the
+    # last extension word of CMPI.L #$200,$C(A6) at $2E000, a page's first
+    # instruction, after a BTST #3,abs.l / BNE.B (not taken) ending the page
+    # before): lea $63000,a6; btst #3,$63000; bne.b; cmpi.l; ble.b; illegal; addq
+    (0x63FF0, {0x63FF0: [0x4DF9, 0x0006, 0x3000, 0x0839, 0x0003, 0x0006, 0x3000, 0x660A],
+               0x64000: [0x0CAE, 0x0000, 0x0200, 0x000C, 0x6F02, 0x4AFC, 0x528A, 0x4E75]}, 1, [0x64000],
+     "xload: BNE.B not taken in a page's last word, CMPI.L #imm,d16(An) the next (non-resident) page's first"),
 ]
+# isweep (KNOWN ISSUES 29, the class): an instruction-fetch page fault at the
+# START of a non-resident page, reached from every kind of instruction that
+# can end the resident page before it - plain ones of 1-3 words, Bcc.B/.W
+# taken and not, BRA.B/.W, DBRA taken and expired, Scc, JMP (xxx).L and
+# (d16,PC) - into a first instruction of 1-4 words, at the page's first word
+# or (branches) its second.  The code runs in user mode from ISW_E, ends
+# exactly at ISW_P, and must add 1 to A2 once; a word not an instruction
+# start holds ILLEGAL.  One case a run: ISW=k (ISWLIST=1 lists them).
+ISW_R, ISW_P = 0x65000, 0x66000                          # the resident page, the faulting page
+ISW_PRE = [0x4DF9, 0x0006, 0x5000, 0x7601, 0x7000]       # lea $65000,a6; moveq #1,d3; moveq #0,d0 (Z=1 at the branch)
+ISW_FIRST = [                                            # (words, what) - ADDQ.L #1,A2; RTS follow
+    ([], "ADDQ.L #1,A2 (1 word)"),
+    ([0x382E, 0x000C], "MOVE.W $C(A6),D4 (2 words)"),
+    ([0x283C, 0x1234, 0x5678], "MOVE.L #imm,D4 (3 words)"),
+    ([0x0CAE, 0x0000, 0x0200, 0x000C], "CMPI.L #imm,$C(A6) (4 words - xload's)"),
+]
+
+
+def isw_cases():
+    out = []
+    plain = [([0x4E71], "NOP"), ([0x4A40], "TST.W D0"), ([0x283C, 0x0000, 0x0001], "MOVE.L #imm,D4"),
+             ([0x47F9, 0x0006, 0x5000], "LEA (xxx).L,A3"), ([0x57C5], "SEQ D5")]
+    for pw, pn in plain:
+        for fw, fn in ISW_FIRST:
+            out.append((pw, None, 0, fw, pn + " -> " + fn))
+    # multi-cycle and memory-reading last instructions (the Bcc.B lesson: one
+    # that runs on after its decode cycle prefetched the next word)
+    more = [([0xC8C3], "MULU.W D3,D4"), ([0x88FC, 0x0003], "DIVU.W #3,D4"), ([0xE18C], "LSL.L #8,D4"),
+            ([0xE7BC], "ROL.L D3,D4"), ([0xE664], "ASR.W D3,D4"), ([0x4844], "SWAP D4"), ([0xC945], "EXG D4,D5"),
+            ([0x48C4], "EXT.L D4"), ([0x4284], "CLR.L D4"), ([0x4484], "NEG.L D4"), ([0x0104], "BTST D0,D4"),
+            ([0x3816], "MOVE.W (A6),D4"), ([0x281E], "MOVE.L (A6)+,D4"), ([0x528B], "ADDQ.L #1,A3"),
+            ([0x0284, 0x00FF, 0x00FF], "ANDI.L #imm,D4"), ([0xC8FC, 0x0003], "MULU.W #3,D4"),
+            ([0x4A96], "TST.L (A6)"), ([0x0C56, 0x1234], "CMPI.W #imm,(A6)"),
+            ([0xCB04], "ABCD D4,D5"), ([0x8B04], "SBCD D4,D5"), ([0xDB84], "ADDX.L D4,D5"), ([0x4084], "NEGX.L D4"),
+            ([0x4AC4], "TAS D4"), ([0x4684], "NOT.L D4"), ([0xB184], "EOR.L D0,D4"), ([0xE394], "ROXL.L #1,D4"),
+            ([0x4884], "EXT.W D4"), ([0xB880], "CMP.L D0,D4"), ([0xD7C4], "ADDA.L D4,A3"), ([0x97C4], "SUBA.L D4,A3"),
+            ([0x2646], "MOVEA.L A6,A3"), ([0xB7C6], "CMPA.L A6,A3"), ([0x47D6], "LEA (A6),A3"),
+            ([0x4CD6, 0x0030], "MOVEM.L (A6),D4/D5"), ([0x090E, 0x0000], "MOVEP.W 0(A6),D4"),
+            ([0xE9C4, 0x5008], "BFEXTU D4{0:8},D5"), ([0x4C03, 0x4004], "MULS.L D3,D4"),
+            ([0x4C43, 0x4004], "DIVU.L D3,D4"), ([0x44FC, 0x0004], "MOVE #4,CCR"), ([0x4E5D], "UNLK A5 (after LINK)"),
+            ([0x2C84], "MOVE.L D4,(A6)"), ([0x4256], "CLR.W (A6)"), ([0x5256], "ADDQ.W #1,(A6)"),
+            ([0x3D44, 0x0020], "MOVE.W D4,$20(A6)"), ([0x2CC4], "MOVE.L D4,(A6)+"), ([0x4AD6], "TAS (A6)"),
+            ([0x48D6, 0x0030], "MOVEM.L D4/D5,(A6)"), ([0x0956], "BCHG D4,(A6)"),
+            ([0x4E75], "RTS (to the next page)")]
+    for pw, pn in more:
+        for fw, fn in (ISW_FIRST[0], ISW_FIRST[3]):
+            out.append((pw, None, 0, fw, pn + " -> " + fn))
+    # (words with the displacement to fill, kind, what): the branch is the page's last instruction
+    nottaken = [([0x660A], "b8", "BNE.B not taken"), ([0x6600, 0], "w16", "BNE.W not taken"),
+                ([0x51CB, 0], "dbx", "DBRA D3 expiring (D3 0)")]
+    for pw, kind, pn in nottaken:
+        for fw, fn in ISW_FIRST:
+            out.append((pw, kind, 0, fw, pn + " -> " + fn))
+    taken = [([0x6700], "b8", "BEQ.B taken"), ([0x6700, 0], "w16", "BEQ.W taken"),
+             ([0x6000], "b8", "BRA.B"), ([0x6000, 0], "w16", "BRA.W"),
+             ([0x51CB, 0], "dbt", "DBRA D3 taken (D3 1)"),
+             ([0x4EF9, 0, 0], "abs", "JMP (xxx).L"), ([0x4EFA, 0], "w16", "JMP (d16,PC)")]
+    for pw, kind, pn in taken:
+        for off in (0, 2):
+            if kind == "b8" and off == 0:
+                continue                                 # Bcc.B cannot reach the next word (disp 0 = .W)
+            for fw, fn in ISW_FIRST:
+                out.append((pw, kind, off, fw, pn + " to the page's %s word -> %s" % ("first" if off == 0 else "second", fn)))
+    # instructions whose own words cross into the non-resident page (KNOWN
+    # ISSUES 22's side): (words, words on the resident page, what); a branch's
+    # displacement is filled in by isw_build ("S" kind)
+    straddle = [([0x0CAE, 0x0000, 0x0200, 0x000C], 1, "CMPI.L #imm,$C(A6)"),
+                ([0x0CAE, 0x0000, 0x0200, 0x000C], 2, "CMPI.L #imm,$C(A6)"),
+                ([0x0CAE, 0x0000, 0x0200, 0x000C], 3, "CMPI.L #imm,$C(A6)"),
+                ([0x283C, 0x1234, 0x5678], 1, "MOVE.L #imm,D4"), ([0x283C, 0x1234, 0x5678], 2, "MOVE.L #imm,D4"),
+                ([0x47F9, 0x0006, 0x5000], 1, "LEA (xxx).L,A3"), ([0x47F9, 0x0006, 0x5000], 2, "LEA (xxx).L,A3"),
+                ([0x382E, 0x000C], 1, "MOVE.W $C(A6),D4"), ([0x4CD6, 0x0030], 1, "MOVEM.L (A6),D4/D5"),
+                ([0xE9C4, 0x5008], 1, "BFEXTU D4{0:8},D5"), ([0x4C03, 0x4004], 1, "MULS.L D3,D4"),
+                ([0x6600, None], 1, "BNE.W not taken"), ([0x6700, None], 1, "BEQ.W taken"),
+                ([0x51CB, None], 1, "DBRA D3 expiring"),
+                ([0x6000, None], 1, "BRA.W"), ([0x6100, None], 1, "BSR.W"), ([0x51CB, None, "T"], 1, "DBRA D3 taken"),
+                ([0x67FF, None, None], 1, "BEQ.L taken"), ([0x67FF, None, None], 2, "BEQ.L taken")]
+    for ws, k, sn in straddle:
+        out.append((ws, "S%d" % k, 0, [], "%s straddling (%d word%s resident)" % (sn, k, "" if k == 1 else "s")))
+    return out
+
+
+def isw_build_straddle(case):
+    ws, kind, off, fw, what = case
+    ws = list(ws)
+    k = int(kind[1:])
+    at = ISW_P - 2 * k                                   # the instruction's address
+    after = at + 2 * len(ws)                             # where the ADDQ goes (on the next page)
+    trap = ISW_R + 0x10
+    pre = list(ISW_PRE)
+    if ws[0] == 0x51CB:
+        pre[3] = 0x7600                                  # moveq #0,d3: expires
+    tail = [0x528A, 0x4E75, 0x4AFC]
+    if len(ws) > 2 and ws[2] == "T":                     # DBRA taken: D3 1
+        ws = ws[:2]
+        after = at + 4
+        pre[3] = 0x7601
+    if ws[0] == 0x67FF:                                  # BEQ.L taken to the ADDQ
+        d = (after - (at + 2)) & 0xFFFFFFFF
+        ws[1], ws[2] = d >> 16, d & 0xFFFF
+    elif ws[1] is None:
+        if ws[0] == 0x6100:                              # BSR.W to an RTS after the tail; it returns to the ADDQ
+            dest = after + 4
+            tail = [0x528A, 0x4E75, 0x4E75]
+        elif ws[0] in (0x6700, 0x6000) or ws[0] == 0x51CB and pre[3] == 0x7601:
+            dest = after                                 # taken to the ADDQ
+        else:
+            dest = trap                                  # never taken
+        ws[1] = (dest - (at + 2)) & 0xFFFF
+    code = pre + ws[:k]
+    entry = ISW_P - 2 * len(code)
+    return entry, {trap: [0x4AFC], entry: code, ISW_P: ws[k:] + tail}, what
+
+
+def isw_build(case):
+    if case[1] and str(case[1]).startswith("S"):
+        return isw_build_straddle(case)
+    pw, kind, off, fw, what = case
+    pw = list(pw)
+    br_at = ISW_P - 2 * len(pw)                          # the last instruction's address
+    target = ISW_P + off
+    trap = ISW_R + 0x10                                  # an ILLEGAL: where a not-taken branch points
+    pre = list(ISW_PRE)
+    taken = kind in ("abs", "dbt") or (kind in ("b8", "w16") and (pw[0] >> 8) in (0x60, 0x67, 0x4E))
+    dest = target if taken else trap
+    if kind == "dbx":
+        pre[3] = 0x7600                                  # moveq #0,d3: the DBRA expires
+    if kind == "b8":
+        pw[0] = (pw[0] & 0xFF00) | ((dest - (br_at + 2)) & 0xFF)
+    elif kind in ("w16", "dbt", "dbx"):
+        pw[1] = (dest - (br_at + 2)) & 0xFFFF
+    elif kind == "abs":
+        pw[1], pw[2] = target >> 16, target & 0xFFFF
+    if pw == [0x4E75]:
+        pre = pre + [0x2F3C, ISW_P >> 16, ISW_P & 0xFFFF]   # MOVE.L #ISW_P,-(A7): the RTS returns there
+    if pw == [0x4E5D]:
+        pre = pre + [0x4E55, 0x0000]                     # LINK A5,#0 for the UNLK
+    code = pre + pw
+    entry = ISW_P - 2 * len(code)
+    page_b = ([0x4AFC] if off else []) + fw + [0x528A, 0x4E75, 0x4AFC]
+    return entry, {trap: [0x4AFC], entry: code, ISW_P: page_b}, what
 # rts: an RTS whose pop page-faults (the board, compile 73: macgetty's
 # rename() returned to address 0 - its RTS loaded PC 0 with $10DC on the
 # stack and SP advanced by 4).  The return address is already on the user
@@ -473,6 +621,19 @@ def main():
             regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
             cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, a2,
                           {"A0": 0x77, "A1": 0x55}, "ifetch: " + what))
+    if CASESET == "isweep":
+        allc = isw_cases()
+        if os.environ.get("ISWLIST"):
+            for k, c in enumerate(allc):
+                print("%3d %s" % (k, c[4]))
+            raise SystemExit(0)
+        entry, blobs, what = isw_build(allc[int(os.environ["ISW"])])
+        for a_, ws in blobs.items():
+            putbytes(a_, b"".join(x.to_bytes(2, "big") for x in ws))
+        code = [0x4EB9, entry >> 16, entry & 0xFFFF, 0x4E40]   # JSR entry.L; TRAP #0
+        regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [ISW_P], 1,
+                      {"A0": 0x77, "A1": 0x55}, "isweep: " + what))
     if CASESET == "rts":
         sel = os.environ.get("RTSONLY")               # one case alone, as IFONLY
         putbytes(RTS_RET, bytes.fromhex("528A4E40"))  # ADDQ.L #1,A2; TRAP #0

@@ -432,6 +432,8 @@ architecture logic of TG68KdotC_Kernel is
 	signal insn_fetch_consumer	: std_logic;  -- decode is consuming the in-flight stream fetch (extension/immediate)
 	signal stream_word_take	: std_logic;  -- a state "00" cycle that consumes its stream word (not readahead)
 	signal stream_take_bad	: std_logic;  -- ... and the word is a fault-released beat's garbage (KNOWN ISSUES 22)
+	signal brdisp_take	: std_logic;  -- a word branch's displacement fetched as a fault-released beat (KNOWN ISSUES 29)
+	signal brdisp_bad	: std_logic := '0';  -- ... held until the instruction ends or the restart dispatches
 	signal full_ext_step	: std_logic;  -- the AnXn1 step of a full-format extension word (KNOWN ISSUES 25)
 	signal full_ext_state	: std_logic;  -- a full-format EA's own states: their "00" cycles are not counted one by one
 	signal full_ext_bytes	: std_logic_vector(3 downto 0);  -- its bd and od words, in bytes (UM 2.2)
@@ -2198,8 +2200,22 @@ ALU: TG68K_ALU
 	-- prefetcher can fetch an instruction's own extension words while decode
 	-- is idle; their fault then fires with no consumer (make_berr pending, no
 	-- restart armed) and the consumer that follows takes the garbage.
+	-- KNOWN ISSUES 29: a Bcc.W/BSR.W/DBcc fetches its displacement in its decode
+	-- cycle (Bcc.L the second word in bra1/bsr2) and the PC adder uses it later
+	-- (TG68_PC_brw, dbcc1's alignment check) - outside stream_word_take; a
+	-- released displacement made a garbage branch (or an address error)
+	brdisp_take <= '1' WHEN dib_sub_hit = '0' AND state = "00" AND beat_valid = '0' AND
+	                        ((decodeOPC = '1' AND
+	                          ((opcode(15 downto 12) = "0110" AND (opcode(7 downto 0) = "00000000" OR opcode(7 downto 0) = "11111111")) OR
+	                           (opcode(15 downto 12) = "0101" AND opcode(7 downto 3) = "11001"))) OR
+	                         ((micro_state = bra1 OR micro_state = bsr2) AND opcode(15 downto 12) = "0110" AND
+	                          opcode(7 downto 0) = "11111111"))
+	               ELSE '0';
 	stream_take_bad <= '1' WHEN dib_sub_hit = '0' AND
-	                            (((stream_word_take = '1' OR (direct_data = '1' AND state = "00")) AND beat_valid = '0') OR
+	                            (brdisp_take = '1' OR
+	                             (brdisp_bad = '1' AND (micro_state = bra1 OR micro_state = bsr1 OR micro_state = bsr2 OR
+	                                                    micro_state = dbcc1)) OR
+	                             ((stream_word_take = '1' OR (direct_data = '1' AND state = "00")) AND beat_valid = '0') OR
 	                             (getbrief = '1' AND ((state(1) = '1' AND opc_buf_valid = '0') OR
 	                                                  (state = "00" AND beat_valid = '0'))))
 	                   ELSE '0';
@@ -2627,6 +2643,7 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				bus_beat_poisoned <= '0';
 				bus_datum_dirty <= '0';
 				ea_to_pc_datum_invalid <= '0';
+				brdisp_bad <= '0';
 			ELSIF clkena_core='1' THEN
 				-- Clear when the machine ENTERS exception microcode (the
 				-- abandoned datum's instruction is preempted; the vector
@@ -2692,6 +2709,12 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				IF stream_take_bad='1' AND setopcode='0' AND
 				   (make_berr='1' OR mmu_restart_pending='1' OR (pmmu_tc_en='1' AND pmmu_fault='1')) THEN
 					ea_to_pc_datum_invalid <= '1';
+				END IF;
+				-- KNOWN ISSUES 29: the branch's displacement is garbage until the restart
+				IF brdisp_take='1' THEN
+					brdisp_bad <= '1';
+				ELSIF setopcode='1' THEN
+					brdisp_bad <= '0';
 				END IF;
 			END IF;
 		END IF;
@@ -5172,6 +5195,8 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						IF ea_to_pc_datum_invalid='0' THEN
 							TG68_PC <= addr;
 						END IF;
+					ELSIF TG68_PC_brw = '1' AND brdisp_bad = '1' THEN
+						NULL;   -- KNOWN ISSUES 29: no branch on a released displacement; the restart re-runs it
 					ELSIF (((state ="00") AND pmmu_busy='0') OR TG68_PC_brw = '1') AND stop='0'
 					      AND NOT (micro_state = pmmu_ld_nn AND nextpass = '1') THEN
 						TG68_PC <= TG68_PC_add;
@@ -5755,6 +5780,14 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 									ELSE
 										berr_frame_pc <= insn_next_pc;
 									END IF;
+								ELSIF state /= "00" AND opc_buf_valid = '0' THEN
+									-- KNOWN ISSUES 29: the next opcode's prefetch faulted and is
+									-- taken in a non-fetch cycle after the instruction's decode cycle
+									-- already fetched it (a Bcc.B not taken, EXG, UNLK): the prefetch
+									-- pointer is a word past the instruction to resume (A/UX's
+									-- xload: SIGILL at $2E006, a CMPI's extension word, the page at
+									-- $2E000 not yet resident).  sim/predec_fault CASESET=isweep.
+									berr_frame_pc <= TG68_PC - 2;
 								ELSE
 									berr_frame_pc <= TG68_PC;
 								END IF;
@@ -5766,6 +5799,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								       " exe_pc=" & integer'image(conv_integer(exe_pc(15 downto 0))) &
 								       " last_opc_pc=" & integer'image(conv_integer(last_opc_pc(15 downto 0))) &
 								       " tg68_pc=" & integer'image(conv_integer(TG68_PC(15 downto 0))) &
+								       " inpc=" & integer'image(conv_integer(insn_next_pc(15 downto 0))) &
+								       " ust=" & integer'image(micro_states'pos(micro_state)) &
+								       " st=" & integer'image(conv_integer(state)) &
+								       " dec=" & bit'image(decodeOPC) &
+								       " obv=" & std_logic'image(opc_buf_valid) &
 								       " faddr=" & integer'image(conv_integer(pmmu_fault_addr_out(15 downto 0))) &
 								       " faddr_hi=" & integer'image(conv_integer(pmmu_fault_addr_out(31 downto 16))) severity note;
 								-- synthesis translate_on
@@ -9534,7 +9572,7 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 						-- counter expires. The pipeline computes target before the branch
 						-- decision is final. Odd target triggers address error regardless.
 						-- target = even_PC + displacement, so target(0) = displacement(0)
-						ELSIF last_data_read(0)='1' THEN
+						ELSIF last_data_read(0)='1' AND brdisp_bad='0' THEN
 							skipFetch <= '1';
 							next_micro_state_c <= nop;
 							TG68_PC_brw <= '1';
