@@ -19377,6 +19377,25 @@ Daniel - add to it, move items out when fixed).**
     Workaround posted on the forum: `vsync_adjust=1` or `video_mode=8`.
     Ships in the next IIcx release (Daniel: after the SE/30 release with
     the A/UX fixes).
+    **THE PLACEMENT FIX CANNOT FIT (2026-10-18, 4b657d4, reverted 7f6fbfc):**
+    pll_hdmi pinned at FRACTIONALPLL_X0_Y1 (counter X0_Y5_N1), pll_audio at
+    X0_Y56 - the fitter failed in a minute (Error 175020): pll_vid must sit
+    on the same chip edge as pll_hdmi, because the framework's HDMI clock
+    selector (sys/sys_top.v:1264, cyclonev_clkselect hdmi_clk_sw: clk_vid
+    or hdmi_clk_out) combines their outputs, and the bottom edge has only two
+    fractional PLLs - X89_Y1 is our pll's (fed by FPGA_CLK2_50, PIN_Y13) and
+    X0_Y1 pll_hdmi's. That is why compile 9 put both on the left edge
+    (pll_hdmi X0_Y32, pll_vid X0_Y56). In the SE/30 build clk_vid is clk_sys
+    from our pll, already on the bottom edge. So the IIcx's pll_hdmi cannot
+    be where the other cores have it while CLK_VIDEO comes from pll_vid.
+    Options (Daniel's choice): (A) CLK_VIDEO = clk_sys with a fractional
+    CE_PIXEL for the card's 30.24 MHz dot rate (exact on average, 66.67 Hz
+    kept; pll_vid gone; pll_hdmi back to X0_Y1) - the pixel cadence uneven
+    by one clk_sys on the analogue output; (B) keep pll_vid and pin
+    pll_hdmi's output counter on the left edge to the physical counter
+    Main's reconfiguration writes (C0) - needs the Cyclone V counter-index
+    map, then a board test; (C) measure first: Main's "Frame time" console
+    line over SSH at mode 0, vsync_adjust 0, to confirm the mechanism.
 
 25. **FIXED (compile 77 on the board, 2026-10-17: xeyes runs past it, PFLN empty; xclock not yet retried) -
     NOT a decode length: a page-faulted write after a full-format EA
