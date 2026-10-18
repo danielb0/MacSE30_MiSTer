@@ -19762,6 +19762,14 @@ Daniel - add to it, move items out when fixed).**
     8 at a time):** KNOWN ISSUES 28's list (ifetch 2's JTRACE quiet check =
     KNOWN ISSUES 23) + ifetch 7 (xload's) + isweep 197/197; b3r nested 217/249
     IRQs, cpfpu 24 runs, mmu16 7 runs, kernel_bus + system 11 PASS lines.
+    **COMPILE 81 DONE (2026-10-18 02:27-03:05, 37 min; Daniel: "If you find a
+    fix, then please go ahead and make it, and then compile"):**
+    `output_files/MacSE30_7ce99f27_fetchsweep.rbf` (md5 e91c9a8f), 7ce99f2
+    with compile 80's deck (SE30_LEAN_PROBES + SE30_LEAN_CPU, reverted),
+    38,838 ALMs. **TIMING MET AT EVERY CORNER, ascal included** (worst +0.020
+    slow 100C; the capture met everywhere); no 332125 loop (map list =
+    KNOWN ISSUES 27). NOT flashed. Board: xload; fpstress (the integer-
+    handler version) 3 copies; xeyes/xclock; more X clients and apps.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
@@ -22920,6 +22928,34 @@ more A/UX boots -> the SE/30 forum test version (a probe-free build from
 the same commit, on his go; README: Quark's AppleTalk workaround) -> KNOWN
 ISSUES 24 -> latent errors (25, 23, the PMMU reg_rdat timing path).
 dev = this record, unpushed (Daniel pushes).
+
+
+**END OF SESSION 2026-10-18 (~03:30; Daniel stopped ~01:00: "Please continue
+with the survey. If you find a fix, then please go ahead and make it, and
+then compile") - READ THIS TO RESUME.** Since 2026-10-17 ~13:00, four A/UX
+bugs, each found by running a real program and each fixed in RTL with a
+failing-first bench: **26** (31735a4: an RTE back into a coprocessor dialog
+skipped the deferred S->U A7 swap - xeyes "Memory fault"; adb + the core's
+u-area frame); **28** (49bdde2: a higher interrupt pending at a handler's
+first instruction re-stacked the coprocessor's frame $9 - fpstress panics;
+found with compile 79's JTRACE and its new supervisor-fetch trigger); **29**
+(7ce99f2: instruction-fetch page faults resumed wrong for eleven shapes -
+xload SIGILL; found by the 197-case sweep CASESET=isweep, Daniel's "search
+for related bugs"); **27** closed (a Quartus map-report artefact). Also:
+tools/auxunix/fpstress.c (an A/UX FPU/interrupt/signal/paging self-check;
+its FPU-in-handler mismatches were authentic A/UX behaviour - sendsig saves
+no FPU state - and the handler is now integer-only). Builds: 78
+(`31735a45_rtefix`), 79 (`67463852_jtrace_sfetch_slow100miss`, JTRACE + no
+CD-ROM, the PMMU reg_rdat path -0.315 slow 100C), 80 (`49bdde23_nestirq`,
+on the board: no panic, xeyes/xclock/fpstress clean), **81
+(`7ce99f27_fetchsweep`, met at every corner incl. ascal, NOT flashed)**.
+**NEXT: Daniel flashes 81 - xload first (SIGILL every run on 80), then
+fpstress 3 copies, xeyes/xclock/ico, then more programs (Daniel: "too early
+for a soak test. We still have other bugs to catch").** New tools: the
+isweep sweep (run_isweep.sh, joins the regression list), cpfpu b3n/b3s/b3r
+(nested and random IRQs), JTRACE `arm 80050000 all`. Daniel's order after:
+reliability boots -> forum test version -> KNOWN ISSUES 24 -> 23 -> the
+PMMU reg_rdat timing path. dev unpushed (Daniel pushes).
 
 ---
 
