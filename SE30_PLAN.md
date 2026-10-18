@@ -19773,6 +19773,13 @@ Daniel - add to it, move items out when fixed).**
     **THE FORUM TEST BUILD (Daniel, 2026-10-18): compile 81 as it is** - "There
     is no need to compile a separate version for the forum test. This one
     will do nicely." (the lean probe deck stays in: JTAG-only, harmless).
+    The forum image: `C:	emp\Mac\AUX disk\AUX_3_1_1GB-clean.vhd` (= the
+    13 Oct "extensions removed" image renamed; macintoshrepository id 17117
+    with the CD-ROM driver, A/ROSE and some networking and printing
+    extensions removed from the preliminary Mac OS environment; checked on
+    the host: no core, none of our test files, no shell history). A copy
+    BOOTED TO THE FINDER on compile 81 (Daniel, 2026-10-18) - reliability
+    boot 1.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
