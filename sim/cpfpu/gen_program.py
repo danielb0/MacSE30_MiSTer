@@ -1104,6 +1104,139 @@ elif MODE == 'b5u':
         (0x3018, 0x00009FF8, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
+elif MODE == 'fsw':
+    # scan 3 (2026-10-18, the bug-class scans before the next test releases):
+    # an FPU instruction's MEMORY operand page-faulting, in user mode as A/UX
+    # runs FPU code - each case runs one instruction twice through the same
+    # subroutine (so FPIAR is the same): its operand at FSW_R + off (resident)
+    # and at FSW_P + off, the page at FSW_P invalid (FSW_WP=1: valid but
+    # write-protected, copy-on-write) and the page below resident, so an
+    # operand that straddles faults part way through its dialog's transfers.
+    # FP0-FP7, FPCR/FPSR/FPIAR, A6 relative to the operand and the 192 bytes
+    # around each operand are compared; $3100 = 0 when equal.  One case a
+    # run: FSW=k (FSWLIST=1 lists them); FSW_SANITY=1 plants a difference;
+    # B3_CACR the cache control register first (A/UX's $2101).
+    FSW_R, FSW_P, FSW_INIT, FSW_O1, FSW_O2 = 0xC800, 0xE000, 0x4000, 0x4400, 0x4600
+    SZ = {'L': (0, 4), 'S': (1, 4), 'X': (2, 12), 'P': (3, 12), 'W': (4, 2), 'D': (5, 8), 'B': (6, 1)}
+    insns = []                                 # (words, adj, footprint, writes, what)
+    for n, (k, fl) in SZ.items():
+        insns.append(([0xF216, 0x4000 | k << 10 | 0x80], 0, fl, 0, 'FMOVE.%s (A6),FP1' % n))
+        insns.append(([0xF216, 0x6000 | k << 10 | 0x80], 0, fl, 1, 'FMOVE.%s FP1,(A6)' % n))
+    for n in 'SDX':
+        k, fl = SZ[n]
+        insns.append(([0xF216, 0x4000 | k << 10 | 0x80 | 0x22], 0, fl, 0, 'FADD.%s (A6),FP1' % n))
+    insns += [([0xF216, 0x4880 | 0x38], 0, 12, 0, 'FCMP.X (A6),FP1'),
+              ([0xF216, 0x4880 | 0x23], 0, 12, 0, 'FMUL.X (A6),FP1'),
+              ([0xF21E, 0x4880], 0, 12, 0, 'FMOVE.X (A6)+,FP1'),
+              ([0xF226, 0x6880], 12, 12, 1, 'FMOVE.X FP1,-(A6)'),
+              ([0xF216, 0xD03C], 0, 48, 0, 'FMOVEM.X (A6),FP2-FP5'),
+              ([0xF21E, 0xD03C], 0, 48, 0, 'FMOVEM.X (A6)+,FP2-FP5'),
+              ([0xF216, 0xF03C], 0, 48, 1, 'FMOVEM.X FP2-FP5,(A6)'),
+              ([0xF226, 0xE03C], 48, 48, 1, 'FMOVEM.X FP2-FP5,-(A6)'),
+              ([0xF216, 0x8C00], 0, 8, 0, 'FMOVEM.L (A6),FPSR/FPIAR'),
+              ([0xF216, 0xBC00], 0, 12, 1, 'FMOVEM.L FPCR/FPSR/FPIAR,(A6)'),
+              ([0xF256, 0x0001], 0, 1, 1, 'FSEQ (A6)'),
+              ([0xF256, 0x000F], 0, 1, 1, 'FST (A6)')]
+    cases = []
+    for ws, adj, fl, wr, what in insns:
+        offs = []
+        for o in (0, -1, -2, -3, -(fl // 2) & ~1, -(fl - 1), -(fl - 2), -(fl - 4)):
+            if -fl < o <= 0 and o not in offs:
+                offs.append(o)
+        for o in offs:
+            cases.append((ws, adj, fl, wr, o, '%s at P%+d' % (what, o)))
+    if os.environ.get('FSWLIST'):
+        for k, c in enumerate(cases):
+            print('%3d %s' % (k, c[5]))
+        sys.exit(0)
+    ws, adj, fl, wr, off, what = cases[int(os.environ['FSW'])]
+    WPM = os.environ.get('FSW_WP') == '1'
+    a = Asm(0x1000)
+    a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (B3_CACR)
+    a.emit(0x41F8, 0x6F00)                    # lea $6F00.w,a0
+    a.emit(0xF010, 0x4C00)                    # pmove.q (a0),crp
+    a.emit(0xF028, 0x4000, 0x0008)            # pmove.l 8(a0),tc     translation on
+    a.emit(0x41F9, *L(0xA000))                # lea $A000,a0
+    a.emit(0x4E60)                            # move.l a0,usp
+    a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user
+    a.emit(0x7E00)                            # moveq #0,d7          the differences
+    for base, out in ((FSW_R, FSW_O1), (FSW_P, FSW_O2)):
+        a.emit(0x4BF9, *L(base + off))        # lea base+off,a5
+        a.emit(0x4DF9, *L(base + off + adj))  # lea base+off+adj,a6
+        a.br(0x6100, 'RUN')                   # bsr RUN
+        a.emit(0x41F9, *L(out))               # lea out,a0
+        a.emit(0xF210, 0xF0FF)                # fmovem.x fp0-fp7,(a0)
+        a.emit(0xF228, 0xBC00, 0x0060)        # fmovem.l fpcr/fpsr/fpiar,$60(a0)
+        a.emit(0x214E, 0x006C)                # move.l a6,$6C(a0)    (relative: RUN subtracts A5)
+    for lo1, lo2, n in ((FSW_O1, FSW_O2, 28), (FSW_R - 64, FSW_P - 64, 48)):
+        a.emit(0x41F9, *L(lo1), 0x43F9, *L(lo2))   # lea; lea
+        a.emit(0x303C, n - 1)                 # move.w #n-1,d0
+        a.label('C%x' % lo1); a.emit(0xB388)  # cmpm.l (a0)+,(a1)+
+        a.br(0x56C8, 'C%x' % lo1)             # dbne d0,C
+        a.emit(0x56C1, 0x8E01)                # sne d1; or.b d1,d7
+        a.emit(0xE38F)                        # lsl.l #1,d7: which compare
+    a.emit(0x21C7, 0x3100)                    # move.l d7,$3100.w
+    a.emit(0x4E40)                            # trap #0
+    a.label('RUN')
+    a.emit(0x41F8, FSW_INIT)                  # lea INIT.w,a0
+    a.emit(0xF210, 0xD0FF)                    # fmovem.x (a0),fp0-fp7
+    a.emit(0xF23C, 0x8800, 0, 0)              # fmove.l #0,fpsr
+    a.label('INSN'); a.emit(*ws)              # THE INSTRUCTION
+    a.emit(0x9DCD)                            # suba.l a5,a6
+    a.emit(0x4E75)                            # rts
+    p = a.done()
+    put(0x1000, p)
+    vals = [0x3FFF0000, 0xC0000000, 0, 0x40000000, 0xA0000000, 0x00001234, 0xBFFE0000, 0xD5555555, 0x55555555,
+            0x40130000, 0x8BADF00D, 0x00000000, 0x3FFC0000, 0xCCCCCCCC, 0xCCCCCCCD, 0x00000000, 0x00000000, 0,
+            0x7FFF0000, 0, 0, 0x401E0000, 0xFFFFFFFF, 0xFFFFFFFE]
+    for i, v in enumerate(vals):
+        put(FSW_INIT + 4 * i, L(v))           # FP0-FP7: 1.5, 2.5.., -0.83, ..., 0, +inf, 2^31-ish
+    import random
+    rnd = random.Random(31)
+    win = [rnd.randrange(0, 65536) for _ in range(96)]   # 192 bytes
+    put(FSW_R - 64, win)
+    if os.environ.get('FSW_SANITY') == '1':
+        win = win[:40] + [win[40] ^ 0x5A5A] + win[41:]
+    put(FSW_P - 64, win)
+    put(0x6F00, L(0x00000002) + L(0x00006000))           # CRP: short table descriptors at $6000
+    put(0x6F08, L(0x80C04880))                           # TC: E, PS 12, IS 0, TIA 4, TIB 8, TIC 8
+    put(0x6000, L(0x00006040 | 2))                       # A[0] -> B
+    put(0x6040, L(0x00006800 | 2))                       # B[0] -> C
+    for n in range(32):
+        if n == FSW_P >> 12:
+            put(0x6800 + 4 * n, L((n << 12) | 5) if WPM else L(0))   # WP, or invalid
+        else:
+            put(0x6800 + 4 * n, L((n << 12) | 1))        # C[n]: page n, valid
+    put(4 * 2, L(0x2400))                     # b5d's pager handler, saving what it uses (the user's D5-D7/A5-A6)
+    put(0x2400, [0x48E7, 0x0706,              # movem.l d5-d7/a5-a6,-(a7): the frame now at 20(a7)
+                 0x2E38, 0x3010, 0xE98F,      # move.l $3010.w,d7; lsl.l #4,d7
+                 0x4DF8, 0x3020, 0xDDC7,      # lea $3020.w,a6; adda.l d7,a6
+                 0x3CAF, 0x001A,              # move.w 26(a7),(a6)
+                 0x3D6F, 0x001E, 0x0002,      # move.w 30(a7),2(a6)
+                 0x2D6F, 0x0024, 0x0004,      # move.l 36(a7),4(a6)
+                 0x2D6F, 0x0016, 0x0008,      # move.l 22(a7),8(a6)
+                 0x2C2F, 0x0024,              # move.l 36(a7),d6    the fault address
+                 0x2A06,                      # move.l d6,d5
+                 0x0285, 0xFFFF, 0xF000,      # andi.l #$FFFFF000,d5
+                 0x5285,                      # addq.l #1,d5        a valid page descriptor
+                 0xE08E, 0xE48E,              # lsr.l #8,d6; lsr.l #2,d6
+                 0x0206, 0x00FC,              # andi.b #$FC,d6      its entry's offset
+                 0x4BF8, 0x6800,              # lea $6800.w,a5
+                 0x2B85, 0x6000,              # move.l d5,(0,a5,d6.w)
+                 0xF000, 0x2400,              # pflusha
+                 0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x4CDF, 0x60E0,              # movem.l (a7)+,d5-d7/a5-a6
+                 0x4E73])                     # rte
+    put(4 * 32, L(0x2500))                    # TRAP #0: stop
+    put(0x2500, [*movel_abs(0x600D0001, 0x3FF0), 0x4E72, 0x2700])
+    faults = 0 if (WPM and not wr) else 1
+    expect = [
+        (0x3100, 0x00000000, 0xFFFFFFFF),     # the registers, then the memory windows, the same
+        (0x3010, faults, 0xFFFFFFFF),         # one page fault (none: a read of a write-protected page)
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),
+    ]
+    if os.environ.get('FSW_DUMP') == '1':      # every saved long printed (as failures)
+        expect += [(o + 4 * i, 0xDEADBEEF, 0xFFFFFFFF) for o in (FSW_O1, FSW_O2) for i in range(28)]
 elif MODE == 'b7e':
     # item 7e-1 (plan 8.9.6): the CU's overlap through the kernel - with DZ
     # enabled an FDIV by zero is released and runs while the next

@@ -98,6 +98,7 @@ TCMODE = os.environ.get("TCMODE", "bench")
 AUX_U, AUX_S = (0x4000, 0x4200, 0x4400), (0x4600, 0x4800, 0x4A00)
 PG_TBL = AUX_U[2] if TCMODE == "aux" else TBL_B  # the user tree's page descriptors, 4 bytes a page
 TRAPF = 0x1F40                                   # TRAP #15 (vector 47): the rts cases' syscall return
+IRQ1, IRQ1COUNT = 0x1F60, 0x320C                 # the bench's +IRQAT level-1 interrupt (scan 4): count, RTE
 IRQ, VIA2 = 0x1F00, 0x50002000                   # auxirq: the level-2 handler; VIA2 (register n at +n x $200)
 TT0 = 0x50008507                                 # $50xxxxxx transparent (E, CI, RWM, every FC): VIA2 untranslated
 IRQCOUNT = 0x3208
@@ -1174,10 +1175,11 @@ def main():
 
     mem[0:4] = [0x0000, 0x8000, 0x0000, ORG]         # SSP, PC
     for v in range(2, 64):
-        t = BERR if v == 2 else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else EXC
+        t = BERR if v == 2 else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else IRQ1 if v == 25 else EXC
         mem[2 * v], mem[2 * v + 1] = t >> 16, t & 0xFFFF
     trapf = [0x7000, 0x4E73]                         # TRAP #15: MOVEQ #0,D0; RTE - a syscall's return (rts cases)
-    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf)):
+    irq1 = [0x52B9, IRQ1COUNT >> 16, IRQ1COUNT & 0xFFFF, 0x4E73]   # ADDQ.L #1,IRQ1COUNT; RTE
+    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1)):
         for i, x in enumerate(code):
             mem[base // 2 + i] = x
     rec[0] = False                                   # the tables and the handler's words are not the cases'

@@ -62,6 +62,7 @@ module tb_predec_fault;
   wire phi1 = !phi, phi2 = phi;
   reg reset_n = 0;
   reg pace_en = 1, post_en = 1;
+  reg irq1 = 0;                        // +IRQAT's level-1 interrupt (scan 4)
 
   wire [31:0] cpu_addr, cpu_dout, cpu_din;
   wire        cpu_as_n, cpu_ds_n, cpu_rw_n, berr, reset_out_n, halted;
@@ -121,7 +122,7 @@ module tb_predec_fault;
     .mem_early(mem_early), .rom_early(rom_early),
     .e_clk(e_clk), .c3m_en(c3m_en),
     .slot_sel(slot_sel), .slot_dsack0_n(1'b1), .slot_rdata(8'h00),
-    .via1_irq_n(1'b1), .via2_irq_n(via2_irq_n), .scc_irq_n(1'b1), .nmi_n(1'b1),
+    .via1_irq_n(!irq1), .via2_irq_n(via2_irq_n), .scc_irq_n(1'b1), .nmi_n(1'b1),
     .slot_irq_n(6'b111111), .slot_irq_or_n(slot_irq_or_n),
     .overlay(1'b0), .ramsiz(ramsiz), .hsync_n(hsync_n));
 
@@ -435,6 +436,24 @@ module tb_predec_fault;
     end
   endtask
 
+  // ------------------------------------------- an interrupt at a chosen clock (scan 4)
+  // +IRQAT=<clock>: VIA1's line (level 1, GLUE) goes low at that clock after
+  // reset and stays low until the CPU's next interrupt acknowledge (CPU
+  // space, FC 7); the program's level-1 handler counts it ($320C) and RTEs,
+  // and the run must have taken it exactly once.  Every run prints the
+  // clocks of the first bus error's vector fetch and of the first user fetch
+  // after it (the window a sweep of IRQAT walks across).
+  integer     irq_at = -1, clk_n = 0, t_vec2 = -1, t_ures = -1;
+  always @(posedge clk) begin
+    if (reset_n) clk_n <= clk_n + 1;
+    if (irq_at >= 0 && clk_n == irq_at) irq1 <= 1'b1;
+    else if (irq1 && !cpu_as_n && cpu_fc == 3'b111) irq1 <= 1'b0;
+    if (cpu.dbg_jtp[160] && cpu.dbg_jtp[159:158] == 2'b10 && cpu.dbg_jtp[157:155] == 3'd5 &&
+        cpu.dbg_jtp[152:121] == 32'h8 && t_vec2 < 0) t_vec2 <= clk_n;
+    if (cpu.dbg_jtp[160] && cpu.dbg_jtp[159:158] == 2'b00 && cpu.dbg_jtp[157:155] == 3'd2 &&
+        t_vec2 >= 0 && t_ures < 0) t_ures <= clk_n;
+  end
+
   // ------------------------------------------- user beats where the program named (KNOWN ISSUES 23)
   // +UOK: uok.hex holds up to 64 {lo, hi} pairs; every user-space beat the
   // kernel takes (FC 1, 2: fetch, read, write, cache hit or bus) and every
@@ -467,6 +486,7 @@ module tb_predec_fault;
     if (!$value$plusargs("PROG=%s", prog_dir)) prog_dir = ".";
     if ($value$plusargs("JTLIMIT=%h", jt_limit)) ;
     if ($test$plusargs("JTFILT")) jt_all = 0;
+    if ($value$plusargs("IRQAT=%d", irq_at)) ;
     if ($test$plusargs("UOK")) begin $readmemh({prog_dir, "/uok.hex"}, uok); uok_en = 1; end
     if (!$value$plusargs("MAXCLK=%d", maxclk)) maxclk = 20000000;
     if ($value$plusargs("BTLO=%h", bt_lo) && $value$plusargs("BTHI=%h", bt_hi)) btrace = 1;
@@ -506,6 +526,11 @@ module tb_predec_fault;
     rt_check;
 `endif
     jt_check;
+    $display("---- the first bus error's vector fetch at clock %0d, the first user fetch after it at %0d", t_vec2, t_ures);
+    if (irq_at >= 0) begin
+      $display("---- +IRQAT=%0d: %0d level-1 interrupts taken", irq_at, rd32(32'h320C));
+      if (rd32(32'h320C) != 1) begin fails = fails + 1; $display("FAIL: the level-1 interrupt was taken %0d times, not once", rd32(32'h320C)); end
+    end
     if (uok_en) begin
       $display("---- user beats outside the named ranges: %0d", uok_bad);
       fails = fails + (uok_bad != 0);

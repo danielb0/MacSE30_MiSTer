@@ -4,3 +4,4 @@ run.log
 program.hex
 expect.txt
 inject.txt
+fsweep.log
