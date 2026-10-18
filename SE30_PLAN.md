@@ -19396,6 +19396,14 @@ Daniel - add to it, move items out when fixed).**
     Main's reconfiguration writes (C0) - needs the Cyclone V counter-index
     map, then a board test; (C) measure first: Main's "Frame time" console
     line over SSH at mode 0, vsync_adjust 0, to confirm the mechanism.
+    **IIcx BUILD WITH THE A/UX FIXES (2026-10-18 11:59-12:52):**
+    `output_files/MacIIcx_7f6fbfc0_auxfixes.rbf` (md5 e4fef30b), 7f6fbfc =
+    dev with KNOWN ISSUES 25/26/28/29, the standard IIcx qsf (no probes;
+    pll_hdmi X0_Y32 as compile 9 - KNOWN ISSUES 24 unchanged: vsync_adjust=1
+    or video_mode=8), 38,467 ALMs. Ours met at every corner; misses only in
+    the framework's HDMI domain: osd:hdmi_osd cnt -> pixsz -0.184 and ascal
+    -0.041 at slow -40C (KNOWN ISSUES 6's class); no 332125 loop. For the
+    colour A/UX test. NOT flashed.
 
 25. **FIXED (compile 77 on the board, 2026-10-17: xeyes runs past it, PFLN empty; xclock not yet retried) -
     NOT a decode length: a page-faulted write after a full-format EA
