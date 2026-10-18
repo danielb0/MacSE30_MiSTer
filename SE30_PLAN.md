@@ -19135,7 +19135,19 @@ Daniel - add to it, move items out when fixed).**
     `JMP $xxxxxxxx.L` entries, demand-paged). PFLN on the good boot: two
     F-lines, opcode $FFFF at $FFFFFE58 (a process executing on its stack -
     not yet placed). -> KNOWN ISSUES 22.
-21. **OPEN, accepted for now (2026-10-15): the restart design's limit.** Our
+21. **OPEN, accepted for now (2026-10-15): the restart design's limit.**
+    **WIDER THAN RECORDED (scan 2, 2026-10-18, dsweep DSW_WP=1: 182/188):**
+    the six failures are all 5-byte bit fields {7:28} straddling into a
+    write-protected (copy-on-write) page - the long write lands its first
+    byte on the writable page and faults on the rest, the fifth byte still
+    to go: BFCHG at P-1..-3 leaves the wrong memory (as below), and BFSET
+    (P-1) and BFCLR (P-2, P-3) leave memory right but N and Z from the
+    half-written field (RES code 4). Everything else passes: CAS2, ADDX,
+    MOVEM, every read-modify-write long (a straddling long's last beat is
+    replayed as a format $A write, not re-executed). Fix design (after the
+    scans): a write-intent probe pass - the instruction's writes run once
+    with no byte strobes (the PMMU checks every page, nothing lands), so any
+    fault comes before the first real write. Our
     kernel resumes a faulted instruction by rollback and re-execution
     (TG68K cannot save a half-done instruction), with a format $A replay
     for a true last write; a 68030 CONTINUES (UM 8). Re-execution is wrong
@@ -19336,7 +19348,26 @@ Daniel - add to it, move items out when fixed).**
     this core has booted A/UX twice in succession.** Further fresh-image
     boots and real work (applications from a second HFS disk) to confirm.
 
-23. **OPEN (2026-10-16, found by JTRACE's bench check): a stray user fetch
+23. **FIXED IN SIM (2026-10-18, 3b9951b + ef37274; the class, not the case) -
+    a fetch-faulted instruction drained with its bus cycles live.** The
+    extension-word sweep (CASESET=xsweep, 127 cases, the bench's new +UOK
+    stray-access check) found 87/127 cases making user beats the program
+    never named, 18 of them WRITES: after an instruction-fetch fault on an
+    instruction's own extension words the restart (mmu_restart_soft) let it
+    drain with the bus open, so an EA built from the released words went out
+    - {0, opcode} ($23C4 for MOVE.L D4,(xxx).L), {0, high word}, an
+    immediate's value ($13579BDF); JMP/JSR fetched there; two cases hung. A
+    68030 takes the fault before it computes the EA (UM 8.1.2). Fix: the
+    faulting instruction's data cycles are squashed as a data fault's are
+    (restart_squash, scoped to the instruction by soft_dead - the dispatch
+    ends it, so the frame pushes go out; the first version squashed them and
+    broke isweep 189/191), and no fetch goes out at a JMP/JSR target taken
+    under the restart or a branch target built from a released displacement
+    (soft_pc_dead; scan 1 found the branch shape: isweep 190/192/194/195 at
+    PC + the opcode word). xsweep 127/127, isweep 197/197, dsweep 219/219,
+    ifetch 0-7 (2's JTRACE quiet check passes now). Not MacX's crash:
+    `MacIIcx_3b9951b2_strayfix.rbf` (md5 3ef51faf; met at every corner incl.
+    ascal) crashed the same (Daniel, 2026-10-18). Opened as: a stray user fetch
     at a junk PC after an instruction-fetch fault on a JMP (xxx).L's address
     word.** sim/predec_fault CASESET=ifetch IFONLY=2 (the address straddling,
     its low word on a non-resident page): after the fault at $46000 the
@@ -19844,6 +19875,23 @@ Daniel - add to it, move items out when fixed).**
     every path of ours met at every corner; only the framework's ascal
     (-0.221 slow -40C, o_vcpt_pre3, KNOWN ISSUES 6). A remaining MacX crash
     needs an IIcx trace deck with room made elsewhere.
+
+**THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
+some sporadic intermittent bug in six months time"; both cores' next test
+versions wait for them, then the forum, then MiSTer-devel):**
+1. **Stray accesses on every fault bench** (+UOK: every user beat and user
+   walk on a page the case names) - DONE: run_uok_all.sh 29/29 (the jsr
+   cases' stacks named), isweep, dsweep, xsweep; found the branch-target
+   fetch (KNOWN ISSUES 23).
+2. **Copy-on-write straddles** (dsweep DSW_WP=1, 188 cases) - DONE: 182/188,
+   the six = KNOWN ISSUES 21, wider than recorded (BFSET/BFCLR flags).
+3. **FPU memory operands faulting mid-dialog** (sim/cpfpu PROG=fsw, 168
+   cases, user mode) - DONE: 168/168 invalid, 168/168 write-protected.
+4. **An interrupt at every clock around a fault** (+IRQAT, run_irqsweep.sh,
+   26 cases x ~200 clocks) - built; to run.
+5. **The caches across faults** (every sweep with CACR $2101, A/UX's) -
+   running. The caches are UM 6's (logical tags with FC, a faulted write
+   invalidates its entry), so the scan is the fault paths with them on.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
