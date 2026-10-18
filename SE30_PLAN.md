@@ -19779,7 +19779,12 @@ Daniel - add to it, move items out when fixed).**
     extensions removed from the preliminary Mac OS environment; checked on
     the host: no core, none of our test files, no shell history). A copy
     BOOTED TO THE FINDER on compile 81 (Daniel, 2026-10-18) - reliability
-    boot 1.
+    boot 1. **Boots 2-4 also good** (Daniel, 2026-10-18): 4 of 4 to the Finder
+    on compile 81. Seen: with Finder windows left open at shutdown, the next
+    boot shows the watch cursor for a long time while the Finder re-opens
+    and draws them; with every window closed before the reboot there is no
+    wait (Daniel's test) - the Finder's own window restore on a 16 MHz
+    machine under A/UX, not a hang.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
