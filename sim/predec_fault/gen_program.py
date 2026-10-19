@@ -1370,9 +1370,13 @@ def main():
         emit(0x43F9); l32(PAIR_DUMP + PAIR_STRIDE)   # LEA dump1,A1
         emit(0x343C, nl - 1)                         # MOVE.W #n-1,D2
         emit(0x7600)                                 # MOVEQ #0,D3
-        emit(0xB388, 0x6702, 0x5283, 0x51CA, 0xFFF8) # CMPM.L (A0)+,(A1)+; BEQ.S +2; ADDQ.L #1,D3; DBRA D2,*-6
+        emit(0x42B8, PAIR_SLOT + 4)                  # CLR.L PAIR_SLOT+4.W
+        emit(0xB388, 0x6708, 0x5283,                 # CMPM.L (A0)+,(A1)+; BEQ.S +8; ADDQ.L #1,D3
+             0x2208, 0x21C1, PAIR_SLOT + 4,          # MOVE.L A0,D1; MOVE.L D1,PAIR_SLOT+4.W: just past the last difference
+             0x51CA, 0xFFF0)                         # DBRA D2,*-14
         emit(0x23C3); l32(PAIR_SLOT)                 # MOVE.L D3,PAIR_SLOT
         expect.append((PAIR_SLOT, 0, "the reference and faulting runs' registers, CCR and memory the same (differing longs)"))
+        expect.append((PAIR_SLOT + 4, 0, "the address in the reference dump just past the last differing long (0: none)"))
     at["fin"] = here()
     emit(0x4E72, 0x2700)                             # STOP #$2700
     for i, name in fix:

@@ -20228,7 +20228,7 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     and 2, 66.7 in every mode. A monitor error, 120 Hz or ~320 Hz = not
     fixed. The menu core at mode 0 is the reference. ~15 minutes.
 14. **The IIcx's A/UX start-up flash** (Daniel, 2026-10-19, screenshot
-    `C:	emp\Mac\Screenshots61019_112015-screen.png`): between A/UX's
+    `C:\temp\Mac\Screenshots\20261019_112015-screen.png`): between A/UX's
     start and the desktop the grey screen's top line shows five short
     streaks a fifth of the width apart - a row drawn at one depth, scanned
     at another; gone when Mac OS clears the screen (transient). Compare
