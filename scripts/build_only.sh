@@ -99,6 +99,7 @@ LOG="output_files/build_${STAMP}.log"
 
 # ------------------------------------------------------------------ compile
 touch output_files/.compile_in_progress
+touch output_files/.compile_started              # this compile's start: older reports are stale
 if [ "$CHECK_ONLY" = 1 ]; then
     log "Analysis & Synthesis only (quartus_map $REV) — fast syntax/multi-driver check" | tee -a "$LOG"
     SECONDS=0
@@ -130,7 +131,7 @@ fi
 # Print the "* Status :" line from a Quartus stage summary, if present.
 stage_status() {
     local label="$1" file="output_files/$2"
-    if [ -r "$file" ] && [ "$file" -ot "$LOG" ]; then
+    if [ -r "$file" ] && [ "$file" -ot output_files/.compile_started ]; then
         printf '  %-22s %s\n' "$label" "(stale: $file is from an earlier compile - this stage did not finish)"
     elif [ -r "$file" ]; then
         local line; line=$(grep -m1 -E 'Status[[:space:]]*:' "$file" | sed 's/[[:space:]]\{2,\}/ /g')
@@ -143,7 +144,7 @@ stage_status() {
 worst_slack() {
     local file="output_files/$REV.sta.summary"
     [ -r "$file" ] || return 1
-    [ "$file" -ot "$LOG" ] && return 1              # an earlier compile's
+    [ "$file" -ot output_files/.compile_started ] && return 1              # an earlier compile's
     awk '
         /[Ss]lack/ { v=""; for (i=1;i<=NF;i++) if ($i ~ /^-?[0-9]+\.[0-9]+$/) v=$i
                      if (v!="") { if (!seen || v+0 < min+0) { min=v; seen=1 } } }
@@ -173,7 +174,7 @@ echo "$hr"           | tee -a "$LOG"
         fi
         # Assembler writes the .sof/.rbf directly (this flow emits no .asm.summary),
         # so the artifact below IS the proof of a successful assembly.
-        if [ -f "output_files/$RBF_NAME" ] && [ "output_files/$RBF_NAME" -ot "$LOG" ]; then
+        if [ -f "output_files/$RBF_NAME" ] && [ "output_files/$RBF_NAME" -ot output_files/.compile_started ]; then
             printf '  %-22s output_files/%s  *** STALE: from an earlier compile ***\n' "Artifact" "$RBF_NAME"
         elif [ -f "output_files/$RBF_NAME" ]; then
             SZ=$(stat -c %s "output_files/$RBF_NAME" 2>/dev/null || stat -f %z "output_files/$RBF_NAME" 2>/dev/null)
@@ -193,7 +194,7 @@ if [ "$RC" -ne 0 ]; then
     log "RESULT: FAILED (quartus exit=$RC) — see $LOG"
 elif [ "$CHECK_ONLY" = 1 ]; then
     log "RESULT: check passed (Analysis & Synthesis only; no .rbf produced)"
-elif [ -f "output_files/$RBF_NAME" ] && ! [ "output_files/$RBF_NAME" -ot "$LOG" ]; then
+elif [ -f "output_files/$RBF_NAME" ] && ! [ "output_files/$RBF_NAME" -ot output_files/.compile_started ]; then
     log "RESULT: OK — output_files/$RBF_NAME ready. Deploy with: bash scripts/deploy_screenshot.sh"
 else
     log "RESULT: flow returned 0 but output_files/$RBF_NAME is missing — check $LOG"
