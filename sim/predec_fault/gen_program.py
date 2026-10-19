@@ -538,7 +538,7 @@ def uok_ranges():
 # compared.  A memory instruction's pointer is set by a LEA (xxx).L just
 # before it, so a wrong pointer cannot drift.  RSWLIST=n lists n seeds.
 RSW_CODE, RSW_DATA, RSW_DLEN, RSW_STK = 0x64C00, 0x69000, 0x2000, 0x8C00
-PAIR_WIN["rsweep"] = [(RSW_DATA, RSW_DLEN), (RSW_STK, 0x400)]
+PAIR_WIN["rsweep"] = [(RSW_DATA, RSW_DLEN), (RSW_STK, 0x3FC)]   # (not $8FFC: the harness's JSR return address, a different caller per run)
 
 
 def rsw_build(seed):

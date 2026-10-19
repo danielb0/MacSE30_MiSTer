@@ -454,9 +454,10 @@ module tb_predec_fault;
   // clocks of the first bus error's vector fetch and of the first user fetch
   // after it (the window a sweep of IRQAT walks across).
   integer     irq_at = -1, clk_n = 0, t_vec2 = -1, t_ures = -1;
+  integer     irq_every = 0;          // +IRQEVERY=<n> (the random sweep): raised every n clocks, any number taken
   always @(posedge clk) begin
     if (reset_n) clk_n <= clk_n + 1;
-    if (irq_at >= 0 && clk_n == irq_at) irq1 <= 1'b1;
+    if ((irq_at >= 0 && clk_n == irq_at) || (irq_every > 0 && clk_n % irq_every == irq_every - 1)) irq1 <= 1'b1;
     else if (irq1 && !cpu_as_n && cpu_fc == 3'b111) irq1 <= 1'b0;
     if (cpu.dbg_jtp[160] && cpu.dbg_jtp[159:158] == 2'b10 && cpu.dbg_jtp[157:155] == 3'd5 &&
         cpu.dbg_jtp[152:121] == 32'h8 && t_vec2 < 0) t_vec2 <= clk_n;
@@ -497,6 +498,7 @@ module tb_predec_fault;
     if ($value$plusargs("JTLIMIT=%h", jt_limit)) ;
     if ($test$plusargs("JTFILT")) jt_all = 0;
     if ($value$plusargs("IRQAT=%d", irq_at)) ;
+    if ($value$plusargs("IRQEVERY=%d", irq_every)) ;
     if ($test$plusargs("UOK")) begin $readmemh({prog_dir, "/uok.hex"}, uok); uok_en = 1; end
     if (!$value$plusargs("MAXCLK=%d", maxclk)) maxclk = 20000000;
     if ($value$plusargs("BTLO=%h", bt_lo) && $value$plusargs("BTHI=%h", bt_hi)) btrace = 1;
@@ -537,6 +539,7 @@ module tb_predec_fault;
 `endif
     jt_check;
     $display("---- the first bus error's vector fetch at clock %0d, the first user fetch after it at %0d", t_vec2, t_ures);
+    if (irq_every > 0) $display("---- +IRQEVERY=%0d: %0d level-1 interrupts taken", irq_every, rd32(32'h320C));
     if (irq_at >= 0) begin
       $display("---- +IRQAT=%0d: %0d level-1 interrupts taken", irq_at, rd32(32'h320C));
       if (rd32(32'h320C) != 1) begin fails = fails + 1; $display("FAIL: the level-1 interrupt was taken %0d times, not once", rd32(32'h320C)); end
