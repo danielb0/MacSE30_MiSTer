@@ -54,14 +54,58 @@ module dbg_jtrace #(
   output     [63:0] status             // {records[31:0], write pointer[10:0], trigger row[10:0], full, armed, triggered, frozen, 6'b0}
 );
 
-  // SE30_JTRACE_NARROW (the IIcx's routing, 2026-10-19): a 96-bit record -
-  // {time[10:0], kind, FC, logical, opcode, its PC} - widened to the 192-bit
-  // layout on read (the other fields 0), so read_jtrace.tcl reads either
 `ifdef SE30_JTRACE_NARROW
+  // SE30_JTRACE_NARROW (the IIcx's routing, 2026-10-19: every JTRACE deck there
+  // failed on congestion around the CPU): the branch trace alone - whatever
+  // the limit's mode bits, the ring keeps only user program fetches that
+  // break sequence and the trigger beat, a supervisor read of limit[28:0]
+  // (`arm 60000010`: vector 4) - in a 96-bit record {time[10:0], kind, FC,
+  // logical, opcode, its PC}, widened to the 192-bit layout on read (the
+  // other fields 0) so read_jtrace.tcl reads either.  Only those fields
+  // leave the CPU, registered once at its edge; no data bus, no events, no
+  // other trigger comparators.  allbeats and etap are unused.
   reg  [95:0] mem [0:2047];
+  reg  [10:0] wp = 0, tp = 0;
+  reg         full = 0, trig = 0, frozen = 0;
+  reg   [5:0] left = 0;
+  reg  [10:0] t = 0;
+  reg  [31:0] n = 0;
+  reg         nb = 1'b0;
+  reg   [1:0] nk = 2'd0;
+  reg   [2:0] nfc = 3'd0;
+  reg  [31:0] nla = 32'd0, npc = 32'd0;
+  reg  [15:0] nop = 16'd0;
+  always @(posedge clk) begin
+    nb <= beat; nk <= tap[159:158]; nfc <= tap[157:155]; nla <= tap[152:121]; nop <= tap[47:32]; npc <= tap[31:0];
+  end
+  wire        n_uf    = nb && nk == 2'b00 && nfc == 3'd2;
+  reg  [31:0] last_uf = 32'd0;
+  wire [31:0] uf_step = nla - last_uf;
+  wire        uf_seq  = uf_step[31:3] == 29'd0 && uf_step[2:0] <= 3'd4;
+  always @(posedge clk) if (n_uf) last_uf <= nla;
+  wire        u_fetch = nb && nk == 2'b10 && nfc == 3'd5 && nla == {3'b000, limit[28:0]};
+  wire        we      = arm && !frozen && ((n_uf && !uf_seq) || u_fetch);
+
+  always @(posedge clk) begin
+    t <= t + 1'd1;
+    if (we) mem[wp] <= {t, nk, nfc, nla, nop, npc};
+    rdata <= {3'd0, mem[raddr][95:85], mem[raddr][84:83], mem[raddr][82:80], 2'd0, mem[raddr][79:48],
+              64'd0, 9'd0, mem[raddr][47:32], mem[raddr][31:0], 18'd0};
+    if (!arm) begin
+      wp <= 0; tp <= 0; full <= 0; trig <= 0; frozen <= 0; left <= 0; n <= 0;
+    end else if (we) begin
+      wp <= wp + 1'd1;
+      if (&wp) full <= 1'b1;
+      n <= n + 1'd1;
+      if (!trig && u_fetch) begin trig <= 1'b1; tp <= wp; left <= POST; end
+      else if (trig) begin if (left == 0) frozen <= 1'b1; else left <= left - 1'd1; end
+    end
+  end
+
+  assign status = {n, wp, tp, full, arm, trig, frozen, 6'b0};
+
 `else
   reg [191:0] mem [0:2047];
-`endif
   reg  [10:0] wp = 0, tp = 0;
   reg         full = 0, trig = 0, frozen = 0;
   reg   [5:0] left = 0;
@@ -114,14 +158,8 @@ module dbg_jtrace #(
 
   always @(posedge clk) begin
     t <= t + 1'd1;
-`ifdef SE30_JTRACE_NARROW
-    if (we) mem[wp] <= {wrec[170:160], wrec[159:158], wrec[157:155], wrec[152:121], wrec[47:32], wrec[31:0]};
-    rdata <= {3'd0, mem[raddr][95:85], mem[raddr][84:83], mem[raddr][82:80], 2'd0, mem[raddr][79:48],
-              64'd0, 9'd0, mem[raddr][47:32], mem[raddr][31:0], 18'd0};
-`else
     if (we) mem[wp] <= {wrec, 18'd0};
     rdata <= mem[raddr];
-`endif
     if (!arm) begin
       wp <= 0; tp <= 0; full <= 0; trig <= 0; frozen <= 0; left <= 0; n <= 0; held <= 0;
     end else begin
@@ -139,5 +177,7 @@ module dbg_jtrace #(
   end
 
   assign status = {n, wp, tp, full, arm, trig, frozen, 6'b0};
+
+`endif
 
 endmodule
