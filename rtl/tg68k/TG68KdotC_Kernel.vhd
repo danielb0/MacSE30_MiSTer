@@ -2171,7 +2171,12 @@ ALU: TG68K_ALU
 	-- own store translations) armed the double-fault guard.
 	-- KNOWN ISSUES 22: direct_data in a "00" cycle takes an immediate's word
 	-- (ea_data <= last_data_read): MOVE.L #imm whose low word faulted
+	-- (the paired isweep, 2026-10-19: a Bcc.L/BSR.L's second displacement word,
+	-- fetched in bra1/bsr2 - a fault on it armed no restart, so BSR.L's push
+	-- stayed and the re-run pushed again; case 200)
 	insn_fetch_consumer <= '1' WHEN getbrief='1' OR setnextpass='1' OR exec(update_ld)='1' OR
+	                                 ((micro_state = bra1 OR micro_state = bsr2) AND opcode(15 downto 12) = "0110" AND
+	                                  opcode(7 downto 0) = "11111111") OR
 	                                 set(get_2ndOPC)='1' OR (direct_data='1' AND state="00") OR
 	                                 micro_state = ld_nn  OR micro_state = st_nn  OR
 	                                 micro_state = ld_dAn1 OR micro_state = st_dAn1 OR

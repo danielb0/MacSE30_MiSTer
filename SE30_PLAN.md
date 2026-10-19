@@ -19924,6 +19924,27 @@ Daniel - add to it, move items out when fixed).**
     the release forms meet). NEXT: the regression, then the IIcx release
     form for MacX's first run in 256 colours.
 
+32. **FIXED IN SIM (2026-10-19; found by the paired isweep) - a long branch's
+    second displacement word was not a consumer of its fetch.** isweep 196
+    (BEQ.L taken, the displacement's low word on the faulting page, its first
+    two words resident): D0 4 in the faulting run, 0 in the reference. The
+    fault armed no restart (insn_fetch_consumer did not cover bra1/bsr2), so
+    it was taken as a prefetch fault at a boundary - the decoder still
+    counted the branch as two bytes - and the frame stacked the prefetch
+    pointer $65FFE: the resume ran the displacement's high word $0000 as
+    ORI.B #$0004,D0. BSR.L (isweep 200) had pushed its return address too,
+    and the re-run pushed again (the subroutine ran twice). FIX: bra1/bsr2 of
+    a Bcc.L/BSR.L join insn_fetch_consumer, so the fault arms the restart
+    (rollback, writes squashed, frame PC the branch). Pre-existing (d8270c4,
+    3b9951b, ef37274 fail it too); the old checks missed it (the branch
+    target was the next instruction). New isweep cases 197-200 (BRA.L,
+    BNE.L not taken, BSR.L 1 and 2 words resident). isweep 209/209, xsweep
+    127/127, dsweep 235/235 (paired). Also on this date: the PAIRED sweeps
+    (isweep and xsweep run every case twice, resident and faulting, and
+    compare D0-D7/A0-A4/A6, A7, the CCR and the memory windows;
+    PAIR_SANITY=1 fails) and CASESET=rsweep (random fault-transparency
+    programs, not yet run at scale); dsweep 219-234 (A7 destinations).
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**

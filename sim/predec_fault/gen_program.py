@@ -303,6 +303,9 @@ def isw_cases():
                 ([0x51CB, None], 1, "DBRA D3 expiring"),
                 ([0x6000, None], 1, "BRA.W"), ([0x6100, None], 1, "BSR.W"), ([0x51CB, None, "T"], 1, "DBRA D3 taken"),
                 ([0x67FF, None, None], 1, "BEQ.L taken"), ([0x67FF, None, None], 2, "BEQ.L taken"),
+                # the paired isweep's case 196 (2026-10-19): the rest of the long-branch family
+                ([0x60FF, None, None], 2, "BRA.L"), ([0x66FF, None, None], 2, "BNE.L not taken"),
+                ([0x61FF, None, None], 1, "BSR.L"), ([0x61FF, None, None], 2, "BSR.L"),
                 # MacX on the IIcx (2026-10-19, the branch trace): startmac's ADDA.W #$C,A7 at
                 # $5FFE, its immediate on the faulting page, then MOVE.L (A7)+ x3 / RTS popped
                 # garbage - A7 forms (the bench first moves A7 down by the amount) and An's
@@ -332,9 +335,16 @@ def isw_build_straddle(case):
         ws = ws[:2]
         after = at + 4
         pre[3] = 0x7601
-    if ws[0] == 0x67FF:                                  # BEQ.L taken to the ADDQ
+    if ws[0] in (0x67FF, 0x60FF):                        # BEQ.L taken / BRA.L to the ADDQ
         d = (after - (at + 2)) & 0xFFFFFFFF
         ws[1], ws[2] = d >> 16, d & 0xFFFF
+    elif ws[0] == 0x66FF:                                # BNE.L not taken (Z=1): the trap if it were
+        d = (trap - (at + 2)) & 0xFFFFFFFF
+        ws[1], ws[2] = d >> 16, d & 0xFFFF
+    elif ws[0] == 0x61FF:                                # BSR.L to an RTS after the tail; it returns to the ADDQ
+        d = (after + 4 - (at + 2)) & 0xFFFFFFFF
+        ws[1], ws[2] = d >> 16, d & 0xFFFF
+        tail = [0x528A, 0x4E75, 0x4E75]
     elif ws[1] is None:
         if ws[0] == 0x6100:                              # BSR.W to an RTS after the tail; it returns to the ADDQ
             dest = after + 4
@@ -393,6 +403,21 @@ def isw_build(case):
 XSW_A, XSW_B, XSW_W, XSW_PTR = 0x67100, 0x71100, 0x7100, 0x67200
 XSW_VAL = {XSW_A: 0x11223344, XSW_B: 0x55667788, XSW_W: 0x99AABBCC}
 XSW_D4 = 0xCAFEF00D                                      # D4 before (a store's value)
+# PAIR (default on for isweep and xsweep, 2026-10-19 - KNOWN ISSUES 31 hid from
+# the sweeps because they checked A2, A0, A1 and D1 only): each case runs twice,
+# first with every page resident (the reference), then with the faulting page
+# invalid; both start from the same registers (PAIR_INIT, USP $9000) and the
+# same memory (the windows restored from a pristine copy), and each ends by
+# dumping D0-D7/A0-A4/A6, A7 and the CCR (user mode) and the windows to
+# PAIR_DUMP + $400 x run; the program compares the two dumps (slot PAIR_SLOT,
+# the count of differing longs, wanted 0).  PAIR=0: the single faulting run;
+# PAIR_SANITY=1 plants a difference in D7 (must fail).
+PAIR_INIT, PAIR_DUMP, PAIR_PRIST, PAIR_SLOT = 0x6DF00, 0x6C000, 0x6E000, 0x3700
+PAIR_STRIDE = 0x400                                      # one run's dump
+if CASESET == "rsweep":                                  # its windows are bigger (rsweep below)
+    PAIR_INIT, PAIR_DUMP, PAIR_PRIST, PAIR_STRIDE = 0x6FF00, 0x70000, 0x76000, 0x3000
+PAIR_WIN = {"isweep": [(0x65000, 0x100)],
+            "xsweep": [(0x65000, 0x100), (0x67100, 0x120), (0x71100, 0x20), (0x7100, 0x20)]}
 XSW_OD = 0x10                                            # the memory-indirect forms' outer displacement
 
 
@@ -497,6 +522,176 @@ def uok_ranges():
     program, the case's code pages and the operand pages, the user stack."""
     return [(ORG, BERR), (ISW_R, ISW_P + 0x2000), (XSW_B & ~0xFFF, (XSW_B & ~0xFFF) + 0x1000),
             (XSW_W & ~0xFFF, (XSW_W & ~0xFFF) + 0x1000), (0x8000, 0x9000)]
+
+
+# rsweep (scan 2 of the second round, 2026-10-19 - "fault transparency"): a
+# random user-mode program (RSW=seed) of ~700 instructions from a broad mix -
+# register arithmetic, logic, shifts, BCD/X arithmetic, bit operations, Scc,
+# every memory EA ((An), (An)+, -(An), d16(An), d8(An,A4.W) with A4 = 0,
+# (xxx).L) for MOVE, ADD/SUB/AND/OR both ways, ADDQ/SUBQ, NEG/NOT/CLR/TST,
+# memory shifts, bit ops, MOVEM, MOVEP, bit fields, CAS, TAS, CMPM, ADDX
+# -(An); balanced stack traffic incl. A7 arithmetic, LINK/UNLK, PEA; forward
+# Bcc, DBRA loops, a BSR to a local stub - its code across the page
+# boundaries $65000 and $66000, its data across $6A000.  Run twice (PAIR):
+# all resident, then with a random set of code, data and stack pages
+# invalid or write-protected; registers, CCR, the data pages and the stack
+# compared.  A memory instruction's pointer is set by a LEA (xxx).L just
+# before it, so a wrong pointer cannot drift.  RSWLIST=n lists n seeds.
+RSW_CODE, RSW_DATA, RSW_DLEN, RSW_STK = 0x64C00, 0x69000, 0x2000, 0x8C00
+PAIR_WIN["rsweep"] = [(RSW_DATA, RSW_DLEN), (RSW_STK, 0x400)]
+
+
+def rsw_build(seed):
+    rnd = random.Random(seed)
+    w = []
+    sz = lambda: rnd.randrange(3)                        # 0 B, 1 W, 2 L
+    dn = lambda: rnd.randrange(7)                        # D0-D6 (D7 is the loops')
+    def ptr_off(span):                                   # an offset in the data, often near the page boundary
+        if rnd.random() < 0.5:
+            o = 0x1000 + rnd.randrange(-12, 9)
+        else:
+            o = rnd.randrange(64, RSW_DLEN - 64 - span)
+        return o
+    def lea(an, addr):                                   # LEA addr.L,An
+        w.extend([0x41F9 | an << 9, addr >> 16, addr & 0xFFFF])
+    def mem_ea(span=4, modes=(2, 3, 4, 5, 6, 7)):
+        """A memory EA: (ea field, extension words), its pointer set up first."""
+        an = rnd.choice((0, 1, 2, 3, 6))
+        m = rnd.choice(modes)
+        o = ptr_off(span)
+        if m == 7:
+            a_ = RSW_DATA + o
+            return 0x39, [a_ >> 16, a_ & 0xFFFF]
+        lea(an, RSW_DATA + o + (span if m == 4 else 0))
+        if m == 5:
+            return 0x28 | an, [rnd.randrange(-16, 17) & 0xFFFF]
+        if m == 6:
+            return 0x30 | an, [0xC000 | (rnd.randrange(-16, 17) & 0xFF)]   # d8(An,A4.W), A4 = 0
+        return (m << 3) | an, []
+    def ctl_ea(span=5):                                  # control modes only (bit fields, MOVEM to memory)
+        return mem_ea(span, (2, 5, 7))
+    MOVE_SZ = (1, 3, 2)
+    ops = []
+    def op(f, wt=1):
+        ops.append((f, wt))
+    # register forms
+    op(lambda: w.append(0x7000 | dn() << 9 | rnd.randrange(256)), 3)                                      # MOVEQ
+    op(lambda: w.append(rnd.choice((0xD000, 0x9000, 0xC000, 0x8000)) | dn() << 9 | sz() << 6 | dn()), 4) # ADD/SUB/AND/OR Dm,Dn
+    op(lambda: w.append(0xB000 | dn() << 9 | (4 + sz()) << 6 | dn()))                                    # EOR
+    op(lambda: w.append(0xB000 | dn() << 9 | sz() << 6 | dn()))                                          # CMP
+    op(lambda: w.append(rnd.choice((0x5000, 0x5100)) | (rnd.randrange(8)) << 9 | sz() << 6 | dn()), 2)   # ADDQ/SUBQ
+    op(lambda: w.append(rnd.choice((0x4400, 0x4600, 0x4200, 0x4A00, 0x4000)) | sz() << 6 | dn()))        # NEG/NOT/CLR/TST/NEGX
+    op(lambda: w.append(rnd.choice((0x4880, 0x48C0, 0x4840)) | dn()))                                   # EXT.W/L, SWAP
+    op(lambda: w.append(0xE000 | rnd.randrange(8) << 9 | rnd.randrange(2) << 8 | sz() << 6 | rnd.randrange(4) << 3 | dn()), 2)  # shifts #
+    op(lambda: w.append(rnd.choice((0xC0C0, 0xC1C0)) | dn() << 9 | dn()))                                # MULU/MULS.W
+    op(lambda: w.append(rnd.choice((0xD100, 0x9100)) | dn() << 9 | sz() << 6 | dn()))                    # ADDX/SUBX Dn
+    op(lambda: w.append(rnd.choice((0xC100, 0x8100)) | dn() << 9 | dn()))                                # ABCD/SBCD Dn
+    op(lambda: w.append(0x50C0 | rnd.randrange(16) << 8 | dn()))                                         # Scc
+    op(lambda: w.append(0x0100 | dn() << 9 | rnd.randrange(4) << 6 | dn()))                              # BTST/BCHG/BCLR/BSET Dm,Dn
+    op(lambda: w.extend([0x44FC, rnd.randrange(32)]))                                                    # MOVE #,CCR
+    # memory forms
+    def mv_to():
+        s_ = sz(); e, x = mem_ea(4)
+        w.extend([MOVE_SZ[s_] << 12 | (e & 7) << 9 | (e >> 3) << 6 | dn()] + x)
+    def mv_from():
+        s_ = sz(); e, x = mem_ea(4)
+        w.extend([MOVE_SZ[s_] << 12 | dn() << 9 | e] + x)
+    def mv_mm():
+        s_ = sz(); e1, x1 = mem_ea(4, (2, 3, 4, 5)); e2, x2 = mem_ea(4, (2, 3, 4, 5, 7))
+        w.extend([MOVE_SZ[s_] << 12 | (e2 & 7) << 9 | (e2 >> 3) << 6 | e1] + x1 + x2)
+    def alu_mem():
+        e, x = mem_ea(4); w.extend([rnd.choice((0xD000, 0x9000, 0xC000, 0x8000)) | dn() << 9 | (rnd.randrange(2) * 4 + sz()) << 6 | e] + x)
+    def q_mem():
+        e, x = mem_ea(4); w.extend([rnd.choice((0x5000, 0x5100)) | rnd.randrange(8) << 9 | sz() << 6 | e] + x)
+    def u_mem():
+        e, x = mem_ea(4); w.extend([rnd.choice((0x4400, 0x4600, 0x4200, 0x4A00, 0x4000)) | sz() << 6 | e] + x)
+    def sh_mem():
+        e, x = mem_ea(2); w.extend([0xE0C0 | rnd.randrange(4) << 9 | rnd.randrange(2) << 8 | e] + x)
+    def bit_mem():
+        e, x = mem_ea(1); w.extend([0x0800 | rnd.randrange(4) << 6 | e, rnd.randrange(8)] + x)
+    def movem():
+        lst = rnd.randrange(1, 128)                          # D0-D6
+        if rnd.random() < 0.5:                               # registers to memory
+            if rnd.random() < 0.5:
+                an = rnd.choice((0, 1, 2, 3)); lea(an, RSW_DATA + ptr_off(0) + 32)
+                rev = int('{:016b}'.format(lst)[::-1], 2)    # -(An): D0 = bit 15
+                w.extend([0x48E0 | an, rev])
+            else:
+                e, x = ctl_ea(28); w.extend([0x48C0 | e, lst] + x)
+        else:
+            e, x = mem_ea(28, (2, 3, 5, 7)); w.extend([0x4CC0 | e, lst] + x)
+    def movep():
+        an = rnd.choice((0, 1, 2, 3)); lea(an, RSW_DATA + ptr_off(8))
+        w.extend([0x0108 | dn() << 9 | rnd.randrange(4) << 6 | an, rnd.randrange(8)])
+    def bitfield():
+        e, x = ctl_ea(5)
+        t = rnd.randrange(8)                                 # TST EXTU CHG EXTS CLR FFO SET INS
+        ext = dn() << 12 | rnd.randrange(8) << 6 | rnd.randrange(32)
+        w.extend([0xE8C0 | t << 8 | e, ext] + x)
+    def cas():
+        e, x = mem_ea(4, (2, 5, 7)); s_ = sz()
+        w.extend([0x08C0 | (s_ + 1) << 9 | e, dn() << 6 | dn()] + x)
+    def tas():
+        e, x = mem_ea(1); w.extend([0x4AC0 | e] + x)
+    def cmpm():
+        a1, a2 = rnd.sample((0, 1, 2, 3), 2)
+        lea(a1, RSW_DATA + ptr_off(8)); lea(a2, RSW_DATA + ptr_off(8))
+        w.append(0xB108 | a1 << 9 | sz() << 6 | a2)
+    def addx_m():
+        a1, a2 = rnd.sample((0, 1, 2, 3), 2)
+        lea(a1, RSW_DATA + ptr_off(8) + 8); lea(a2, RSW_DATA + ptr_off(8) + 8)
+        o_ = rnd.choice((0xD108, 0x9108, 0xC108, 0x8108))           # ADDX/SUBX -(An) any size; ABCD/SBCD bytes only
+        w.append(o_ | a1 << 9 | ((sz() << 6) if o_ in (0xD108, 0x9108) else 0) | a2)
+    # the stack (balanced)
+    def stack():
+        k = rnd.randrange(5)
+        if k == 0:
+            w.extend([0x2F00 | dn(), 0x201F | dn() << 9])                    # MOVE.L Dn,-(A7); MOVE.L (A7)+,Dm
+        elif k == 1:
+            n = rnd.randrange(1, 9) * 2
+            w.extend([0x9EFC, n, 0xDEFC, n])                                  # SUBA.W #n,A7; ADDA.W #n,A7
+        elif k == 2:
+            w.extend([0x4FEF, 0xFFF0, 0x4FEF, 0x0010])                         # LEA -16(A7),A7; LEA 16(A7),A7
+        elif k == 3:
+            w.extend([0x4E53, 0xFFF8, 0x4E5B])                                 # LINK A3,#-8; UNLK A3
+        else:
+            a_ = RSW_DATA + ptr_off(4)
+            w.extend([0x4879, a_ >> 16, a_ & 0xFFFF, 0x201F | dn() << 9])      # PEA (xxx).L; MOVE.L (A7)+,Dn
+    # control flow
+    def bcc():
+        w.extend([0x6002 | rnd.randrange(2, 16) << 8, 0x7000 | dn() << 9 | rnd.randrange(256)])   # Bcc.S over a MOVEQ
+    def dbra():
+        w.extend([0x7E00 | rnd.randrange(1, 4), 0x5280 | dn(), 0x51CF, 0xFFFC])   # MOVEQ #n,D7; L: ADDQ.L #1,Dm; DBRA D7,L
+    def bsr():
+        w.extend([0x6004, 0x5280 | dn(), 0x4E75, 0x6100, 0xFFFA])               # BRA.S +4; stub: ADDQ; RTS; BSR.W stub
+    for f, wt in ((mv_to, 4), (mv_from, 4), (mv_mm, 2), (alu_mem, 3), (q_mem, 2), (u_mem, 2), (sh_mem, 1),
+                  (bit_mem, 1), (movem, 2), (movep, 1), (bitfield, 2), (cas, 1), (tas, 1), (cmpm, 1), (addx_m, 1),
+                  (stack, 3), (bcc, 2), (dbra, 1), (bsr, 1)):
+        op(f, wt)
+    total = sum(wt for _, wt in ops)
+    w.append(0x99CC)                                         # SUBA.L A4,A4: the index register is 0
+    while 2 * len(w) < 0x2000 - 0x60:                        # ~8 KB: across $65000 and $66000
+        r = rnd.randrange(total)
+        for f, wt in ops:
+            if r < wt:
+                f(); break
+            r -= wt
+    w.append(0x4E75)                                         # RTS (to the harness's JSR)
+    data = bytes(rnd.randrange(256) for _ in range(RSW_DLEN))
+    # the faulting run's pages: code, data, stack - invalid or write-protected
+    pages, wp = [], []
+    for pg in (0x64000, 0x65000, 0x66000):
+        if rnd.random() < 0.6:
+            pages.append(pg)
+    for pg in (0x69000, 0x6A000, 0x8000):
+        r_ = rnd.random()
+        if r_ < 0.45:
+            pages.append(pg)
+        elif r_ < 0.8:
+            pages.append(pg); wp.append(pg)
+    if not pages:
+        pages.append(0x65000)
+    return w, data, pages, wp
 
 # dsweep (the data side of KNOWN ISSUES 29's class; MacX's colour start-up on
 # the IIcx, 2026-10-18): an instruction's MEMORY operand on a page that is not
@@ -923,10 +1118,24 @@ def main():
         entry, blobs, what = isw_build(allc[int(os.environ["ISW"])])
         for a_, ws in blobs.items():
             putbytes(a_, b"".join(x.to_bytes(2, "big") for x in ws))
-        code = [0x4EB9, entry >> 16, entry & 0xFFFF, 0x4E40]   # JSR entry.L; TRAP #0
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
-        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [ISW_P], 1,
-                      {"A0": 0x77, "A1": 0x55}, "isweep: " + what))
+        if os.environ.get("PAIR", "1") == "1":
+            wins = PAIR_WIN["isweep"]
+            for run, badp in ((0, []), (1, [ISW_P])):
+                dump = PAIR_DUMP + PAIR_STRIDE * run
+                code2 = [0x4EB9, entry >> 16, entry & 0xFFFF,          # JSR entry.L
+                         0x48F9, 0x5FFF, dump >> 16, dump & 0xFFFF,    # MOVEM.L D0-D7/A0-A4/A6,dump
+                         0x23CF, (dump + 0x38) >> 16, (dump + 0x38) & 0xFFFF,   # MOVE.L A7,dump+$38
+                         0x42F9, (dump + 0x3C) >> 16, (dump + 0x3C) & 0xFFFF,   # MOVE CCR,dump+$3C
+                         0x4E40]                                       # TRAP #0
+                cases.append((regs, code2, 0, 0x2A000, 0x2A000, 4, badp, 1,
+                              {"A0": 0x77, "A1": 0x55, "pair": (run, wins)},
+                              "isweep%s: " % (" (reference)" if run == 0 else " (faulting)") + what))
+            putbytes(PAIR_DUMP, bytes(2 * PAIR_STRIDE))
+        else:
+            code = [0x4EB9, entry >> 16, entry & 0xFFFF, 0x4E40]   # JSR entry.L; TRAP #0
+            cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [ISW_P], 1,
+                          {"A0": 0x77, "A1": 0x55}, "isweep: " + what))
     if CASESET == "xsweep":
         allc = xsw_cases()
         if os.environ.get("XSWLIST"):
@@ -936,10 +1145,48 @@ def main():
         entry, blobs, what = xsw_build(allc[int(os.environ["XSW"])])
         for a_, ws in blobs.items():
             putbytes(a_, b"".join(x.to_bytes(2, "big") for x in ws))
-        code = [0x4EB9, entry >> 16, entry & 0xFFFF, 0x4E40]   # JSR entry.L; TRAP #0
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
-        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [ISW_P], 1,
-                      {"A0": 0x77, "A1": 0x55}, "xsweep: " + what))
+        if os.environ.get("PAIR", "1") == "1":
+            wins = PAIR_WIN["xsweep"]
+            for run, badp in ((0, []), (1, [ISW_P])):
+                dump = PAIR_DUMP + PAIR_STRIDE * run
+                code2 = [0x4EB9, entry >> 16, entry & 0xFFFF,          # JSR entry.L
+                         0x48F9, 0x5FFF, dump >> 16, dump & 0xFFFF,    # MOVEM.L D0-D7/A0-A4/A6,dump
+                         0x23CF, (dump + 0x38) >> 16, (dump + 0x38) & 0xFFFF,   # MOVE.L A7,dump+$38
+                         0x42F9, (dump + 0x3C) >> 16, (dump + 0x3C) & 0xFFFF,   # MOVE CCR,dump+$3C
+                         0x4E40]                                       # TRAP #0
+                cases.append((regs, code2, 0, 0x2A000, 0x2A000, 4, badp, 1,
+                              {"A0": 0x77, "A1": 0x55, "pair": (run, wins)},
+                              "xsweep%s: " % (" (reference)" if run == 0 else " (faulting)") + what))
+            putbytes(PAIR_DUMP, bytes(2 * PAIR_STRIDE))
+        else:
+            code = [0x4EB9, entry >> 16, entry & 0xFFFF, 0x4E40]   # JSR entry.L; TRAP #0
+            cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [ISW_P], 1,
+                          {"A0": 0x77, "A1": 0x55}, "xsweep: " + what))
+    if CASESET == "rsweep":
+        if os.environ.get("RSWLIST"):
+            for k in range(int(os.environ["RSWLIST"])):
+                w_, d_, pg_, wp_ = rsw_build(k)
+                print("%3d %d words, faulting pages %s (write-protected %s)" % (k, len(w_), " ".join("%X" % x for x in pg_), " ".join("%X" % x for x in wp_) or "-"))
+            raise SystemExit(0)
+        seed = int(os.environ["RSW"])
+        cw, dd, pgs, wps = rsw_build(seed)
+        putbytes(RSW_CODE, b"".join(x.to_bytes(2, "big") for x in cw))
+        putbytes(RSW_DATA, dd)
+        putbytes(RSW_STK, bytes(0x400))
+        regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+        for run, badp in ((0, []), (1, pgs)):
+            dump = PAIR_DUMP + PAIR_STRIDE * run
+            code2 = [0x4EB9, RSW_CODE >> 16, RSW_CODE & 0xFFFF,          # JSR RSW_CODE
+                     0x48F9, 0x5FFF, dump >> 16, dump & 0xFFFF,          # MOVEM.L D0-D7/A0-A4/A6,dump
+                     0x23CF, (dump + 0x38) >> 16, (dump + 0x38) & 0xFFFF,   # MOVE.L A7,dump+$38
+                     0x42F9, (dump + 0x3C) >> 16, (dump + 0x3C) & 0xFFFF,   # MOVE CCR,dump+$3C
+                     0x4E40]                                             # TRAP #0
+            cases.append((regs, code2, 0, 0x2A000, 0x2A000, 4, badp, None,
+                          {"A0": None, "A1": None, "pair": (run, PAIR_WIN["rsweep"]), "wp_pages": wps, "nocount": True,
+                           "noregs": True},
+                          "rsweep %d%s" % (seed, " (reference)" if run == 0 else " (faulting)")))
+        putbytes(PAIR_DUMP, bytes(2 * PAIR_STRIDE))
     if CASESET == "rts":
         sel = os.environ.get("RTSONLY")               # one case alone, as IFONLY
         putbytes(RTS_RET, bytes.fromhex("528A4E40"))  # ADDQ.L #1,A2; TRAP #0
@@ -1035,13 +1282,37 @@ def main():
     emit(0x4E7B, 0x0001)                             # MOVEC D0,DFC
     expect = []
     handled = 0
+    pair_wins = None
+    for c in cases:
+        if c[8].get("pair"):
+            pair_wins = c[8]["pair"][1]
+    if pair_wins:
+        po = 0
+        for a_, n_ in pair_wins:                      # the pristine copies of the windows
+            mem[(PAIR_PRIST + po) // 2:(PAIR_PRIST + po + n_) // 2] = mem[a_ // 2:(a_ + n_) // 2]
+            po += n_
+        for i in range(14):                           # PAIR_INIT: D0-D7/A0-A4/A6, distinct
+            put32(PAIR_INIT + 4 * i, (0x1000 * (i + 1) + 0x01010101 * (i + 3)) & 0xFFFFFFFF)
     for k, (regs, code, entry, ref, dst, n, bad, a2_want, want, what) in enumerate(cases):
         for p in bad:
-            if want.get("wp"):
+            if want.get("wp") or p in want.get("wp_pages", ()):
                 emit(0x00B9); l32(0x00000004); l32(PG_TBL + 4 * (p >> 12))  # ORI.L #4,desc: WP
             else:
                 emit(0x02B9); l32(0xFFFFFFFC); l32(PG_TBL + 4 * (p >> 12))  # ANDI.L #~3,desc: DT 0
         emit(0xF000, 0x2400)                         # PFLUSHA
+        if want.get("pair"):
+            po = 0
+            for a_, n_ in want["pair"][1]:           # the windows from their pristine copies
+                emit(0x41F9); l32(PAIR_PRIST + po)   # LEA prist,A0
+                emit(0x43F9); l32(a_)                # LEA window,A1
+                emit(0x303C, n_ // 4 - 1)            # MOVE.W #n/4-1,D0
+                emit(0x22D8, 0x51C8, 0xFFFC)         # MOVE.L (A0)+,(A1)+; DBRA D0,*-2
+                po += n_
+            emit(0x41F9); l32(0x9000)                # LEA $9000,A0
+            emit(0x4E60)                             # MOVE.L A0,USP
+            emit(0x4CF9, 0x5FFF); l32(PAIR_INIT)     # MOVEM.L INIT,D0-D7/A0-A4/A6
+            if os.environ.get("PAIR_SANITY") == "1" and want["pair"][0] == 1:
+                emit(0x5287)                         # ADDQ.L #1,D7: a planted difference (must FAIL)
         emit(0x4BF9); absref("cont%d" % k)           # LEA cont,A5
         for op, v in regs:
             emit(op)
@@ -1060,6 +1331,15 @@ def main():
         emit(0x23C9); l32(s + 4)                     # MOVE.L A1,s+4
         emit(0x23C1); l32(s + 8)                     # MOVE.L D1,s+8
         emit(0x23CA); l32(s + 20)                    # MOVE.L A2,s+20
+        if want.get("pair"):
+            run, wins = want["pair"]
+            po = 0x40
+            for a_, n_ in wins:                      # the windows to the run's dump
+                emit(0x41F9); l32(a_)                # LEA window,A0
+                emit(0x43F9); l32(PAIR_DUMP + PAIR_STRIDE * run + po)   # LEA dump,A1
+                emit(0x303C, n_ // 4 - 1)            # MOVE.W #n/4-1,D0
+                emit(0x22D8, 0x51C8, 0xFFFC)         # MOVE.L (A0)+,(A1)+; DBRA D0,*-2
+                po += n_
         emit(0x45F9); l32(ref)                       # LEA ref,A2
         emit(0x47F9); l32(dst)                       # LEA dst,A3
         emit(0x243C); l32(n // 4 - 1)                # MOVE.L #n/4-1,D2
@@ -1074,6 +1354,9 @@ def main():
         emit(0x2038, COUNT)                          # MOVE.L COUNT.W,D0
         emit(0x23C0); l32(s + 16)                    # MOVE.L D0,s+16
         handled += len(bad)
+        if want.get("noregs"):
+            expect += [(s + 12, 0, "case %d no output long differs from the reference" % k)]
+            continue
         expect += [(s + 0, want["A0"], "case %d A0 at its end (%s)" % (k, what)),
                    (s + 4, want["A1"], "case %d A1 at its end" % k),
                    (s + 8, 0xFFFFFFFF, "case %d D1 = -1 (the loop ran out)" % k),
@@ -1081,6 +1364,15 @@ def main():
                    (s + 16, handled, "case %d handler entries so far = the invalid pages" % k)][:4 if want.get("nocount") else 5]
         if a2_want is not None:
             expect.append((s + 20, a2_want, "case %d A2 at the output's end" % k))
+    if pair_wins:                                    # the two runs' dumps compared
+        nl = (0x40 + sum(n_ for _, n_ in pair_wins)) // 4
+        emit(0x41F9); l32(PAIR_DUMP)                 # LEA dump0,A0
+        emit(0x43F9); l32(PAIR_DUMP + PAIR_STRIDE)   # LEA dump1,A1
+        emit(0x343C, nl - 1)                         # MOVE.W #n-1,D2
+        emit(0x7600)                                 # MOVEQ #0,D3
+        emit(0xB388, 0x6702, 0x5283, 0x51CA, 0xFFF8) # CMPM.L (A0)+,(A1)+; BEQ.S +2; ADDQ.L #1,D3; DBRA D2,*-6
+        emit(0x23C3); l32(PAIR_SLOT)                 # MOVE.L D3,PAIR_SLOT
+        expect.append((PAIR_SLOT, 0, "the reference and faulting runs' registers, CCR and memory the same (differing longs)"))
     at["fin"] = here()
     emit(0x4E72, 0x2700)                             # STOP #$2700
     for i, name in fix:
