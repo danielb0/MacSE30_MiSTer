@@ -19898,7 +19898,7 @@ Daniel - add to it, move items out when fixed).**
     (-0.221 slow -40C, o_vcpt_pre3, KNOWN ISSUES 6). A remaining MacX crash
     needs an IIcx trace deck with room made elsewhere.
 
-31. **FIXED IN SIM (2026-10-19; found on the board with the branch trace) - MACX'S
+31. **FIXED ON THE BOARD (2026-10-19: `MacIIcx_0b46b378_allfixes.rbf`, md5 6f080864 - MacX's first run in 256 colours on a fresh clean image ran properly, Daniel) - found with the branch trace - MACX'S
     COLOUR CRASH: a restart's second rollback kept a faulted instruction's late
     A7 write.** The IIcx build `MacIIcx_b7bea715_branchtrace.rbf` (JTRACE's
     branch trace, limit 011 / SE30_JTRACE_NARROW, SE30_NO_FLOPPY, no CD-ROM;
