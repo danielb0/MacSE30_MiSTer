@@ -3118,9 +3118,12 @@ PROCESS (clk, regfile, RDindex_A, RDindex_B, exec, rte_mmu_fix_commit, rte_mmu_f
 						-- A7 + the re-read opcode on this edge, the exemption kept it,
 						-- the changeMode swap saved it as USP and the RTS three
 						-- instructions later popped garbage; isweep 197/198/200/203)
+						-- Registered terms only: Wwrena carries the decoder's combinational
+						-- Regwrena_now (DBcc's Dn, never A7) - a deep path into A7's mux
+						-- that the IIcx's router could not close (2026-10-19)
 						IF exec(postadd)='0' AND exec(presub)='0' AND
 						   exec(save_memaddr)='0' AND
-						   NOT (Wwrena='1' AND RDindex_A=15 AND exec(changeMode)='0') THEN
+						   NOT (exec(Regwrena)='1' AND RDindex_A=15 AND exec(changeMode)='0') THEN
 							v_regfile(15) := v_hold_a7;
 						END IF;
 					END IF;

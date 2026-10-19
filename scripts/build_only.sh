@@ -71,6 +71,9 @@ else
     esac
 fi
 RBF_NAME="${RBF_NAME:-$REV.rbf}"
+# a revision named by QUARTUS_REVISION builds its own .rbf (local.env's RBF_NAME is
+# the deploy target, MacSE30.rbf - an IIcx build checked and reported that file)
+if [ -n "${QUARTUS_REVISION:-}" ]; then RBF_NAME="$REV.rbf"; fi
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
 # ------------------------------------------------------------------ don't collide
@@ -103,18 +106,33 @@ if [ "$CHECK_ONLY" = 1 ]; then
     RC=${PIPESTATUS[0]}
 else
     log "Full compile (quartus_sh --flow compile $REV)" | tee -a "$LOG"
+    # the progress log (scripts/fit_progress.py): the stages' message files
+    # decoded every minute - readable while the fitter runs and kept if it is
+    # stopped (its console output is buffered and lost then)
+    PROG="output_files/build_${STAMP}_progress.log"
+    if command -v python >/dev/null 2>&1 && [ -r scripts/fit_progress.py ]; then
+        python scripts/fit_progress.py "$REV" "$PROG" --watch &
+        PROG_PID=$!
+        log "Progress log: $PROG" | tee -a "$LOG"
+    fi
     SECONDS=0
     quartus_sh --flow compile "$REV" 2>&1 | tee -a "$LOG"
     RC=${PIPESTATUS[0]}
 fi
 DUR=$SECONDS
 rm -f output_files/.compile_in_progress
+if [ -n "${PROG_PID:-}" ]; then                  # one last pass, then the watcher ends
+    wait "$PROG_PID" 2>/dev/null
+    python scripts/fit_progress.py "$REV" "$PROG" >/dev/null 2>&1
+fi
 
 # ------------------------------------------------------------------ status
 # Print the "* Status :" line from a Quartus stage summary, if present.
 stage_status() {
     local label="$1" file="output_files/$2"
-    if [ -r "$file" ]; then
+    if [ -r "$file" ] && [ "$file" -ot "$LOG" ]; then
+        printf '  %-22s %s\n' "$label" "(stale: $file is from an earlier compile - this stage did not finish)"
+    elif [ -r "$file" ]; then
         local line; line=$(grep -m1 -E 'Status[[:space:]]*:' "$file" | sed 's/[[:space:]]\{2,\}/ /g')
         printf '  %-22s %s\n' "$label" "${line:-<no status line>}"
     else
@@ -125,6 +143,7 @@ stage_status() {
 worst_slack() {
     local file="output_files/$REV.sta.summary"
     [ -r "$file" ] || return 1
+    [ "$file" -ot "$LOG" ] && return 1              # an earlier compile's
     awk '
         /[Ss]lack/ { v=""; for (i=1;i<=NF;i++) if ($i ~ /^-?[0-9]+\.[0-9]+$/) v=$i
                      if (v!="") { if (!seen || v+0 < min+0) { min=v; seen=1 } } }
@@ -154,7 +173,9 @@ echo "$hr"           | tee -a "$LOG"
         fi
         # Assembler writes the .sof/.rbf directly (this flow emits no .asm.summary),
         # so the artifact below IS the proof of a successful assembly.
-        if [ -f "output_files/$RBF_NAME" ]; then
+        if [ -f "output_files/$RBF_NAME" ] && [ "output_files/$RBF_NAME" -ot "$LOG" ]; then
+            printf '  %-22s output_files/%s  *** STALE: from an earlier compile ***\n' "Artifact" "$RBF_NAME"
+        elif [ -f "output_files/$RBF_NAME" ]; then
             SZ=$(stat -c %s "output_files/$RBF_NAME" 2>/dev/null || stat -f %z "output_files/$RBF_NAME" 2>/dev/null)
             MT=$(date -r "output_files/$RBF_NAME" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)
             printf '  %-22s output_files/%s  (%s bytes, %s)\n' "Artifact" "$RBF_NAME" "${SZ:-?}" "${MT:-?}"
@@ -172,7 +193,7 @@ if [ "$RC" -ne 0 ]; then
     log "RESULT: FAILED (quartus exit=$RC) — see $LOG"
 elif [ "$CHECK_ONLY" = 1 ]; then
     log "RESULT: check passed (Analysis & Synthesis only; no .rbf produced)"
-elif [ -f "output_files/$RBF_NAME" ]; then
+elif [ -f "output_files/$RBF_NAME" ] && ! [ "output_files/$RBF_NAME" -ot "$LOG" ]; then
     log "RESULT: OK — output_files/$RBF_NAME ready. Deploy with: bash scripts/deploy_screenshot.sh"
 else
     log "RESULT: flow returned 0 but output_files/$RBF_NAME is missing — check $LOG"
