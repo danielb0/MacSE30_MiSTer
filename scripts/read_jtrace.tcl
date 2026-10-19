@@ -32,6 +32,13 @@
 # 64 KB window whose address bits 31:16 are the limit's low 16 bits:
 # `arm C000007F all` freezes on the first fetch in $007F0000-$007FFFFF.
 # Bit 16 set as well (`arm C001007F all`): only a fetch that reads $00000000.
+# Bits 31:29 = 011 is the BRANCH TRACE (MacX, 2026-10-19): the ring keeps only
+# user program fetches that break sequence - each a jump, branch, return or
+# RTE target with the instruction that made it (op @PC) - and triggers as 01
+# does, on a supervisor read of the low 29 bits: `arm 60000010` freezes on
+# vector 4 (illegal) with the jumps before it.  A SE30_JTRACE_NARROW build
+# keeps time (11 bits), kind, FC, the logical address, opcode and PC only;
+# the physical address, data and flags read 0.
 #
 # A beat: t = clk_sys time (14 bits, 31.33 MHz: 523 us a turn); F fetch,
 # R read, W write; FC, SIZ, logical and physical address, the data the

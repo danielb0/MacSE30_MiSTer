@@ -54,7 +54,14 @@ module dbg_jtrace #(
   output     [63:0] status             // {records[31:0], write pointer[10:0], trigger row[10:0], full, armed, triggered, frozen, 6'b0}
 );
 
+  // SE30_JTRACE_NARROW (the IIcx's routing, 2026-10-19): a 96-bit record -
+  // {time[10:0], kind, FC, logical, opcode, its PC} - widened to the 192-bit
+  // layout on read (the other fields 0), so read_jtrace.tcl reads either
+`ifdef SE30_JTRACE_NARROW
+  reg  [95:0] mem [0:2047];
+`else
   reg [191:0] mem [0:2047];
+`endif
   reg  [10:0] wp = 0, tp = 0;
   reg         full = 0, trig = 0, frozen = 0;
   reg   [5:0] left = 0;
@@ -66,7 +73,18 @@ module dbg_jtrace #(
   // the beat's fields (the record less 18): FC [157:155], logical [152:121], opcode [47:32]
   wire        b_user  = tap[157:155] == 3'd1 || tap[157:155] == 3'd2;
   wire        b_mmu   = tap[47:40] == 8'hF0;
-  wire        b_keep  = beat && (allbeats || b_user || b_mmu);
+  // limit[31:29] = 011 (MacX on the IIcx, 2026-10-19): the BRANCH TRACE - only
+  // a user program fetch (FC 2) that breaks sequence (not the last one's
+  // long or the next) and the trigger beat are kept, each with the
+  // instruction that made it (its opcode and PC): a jump, a branch, a
+  // return or an RTE to user code, so the ring reaches far back; the
+  // trigger is limit[28:0]'s supervisor read, as with 010
+  wire        bt      = limit[31:29] == 3'b011;
+  wire        b_ufetch = beat && tap[159:158] == 2'b00 && tap[157:155] == 3'd2;
+  reg  [31:0] last_uf = 32'd0;
+  wire [31:0] uf_step = tap[152:121] - last_uf;
+  wire        uf_seq  = uf_step[31:3] == 29'd0 && uf_step[2:0] <= 3'd4;
+  always @(posedge clk) if (b_ufetch) last_uf <= tap[152:121];
   // limit[31] set (KNOWN ISSUES 28): a SUPERVISOR program fetch (FC 6) below
   // limit[30:0] instead - user code run in supervisor mode under A/UX
   // limit[31:30] = 01 (MacX on the IIcx, 2026-10-18): a SUPERVISOR data read
@@ -80,13 +98,14 @@ module dbg_jtrace #(
                           (tap[159:158] == 2'b00 && tap[157:155] == 3'd2 && tap[152:137] == limit[15:0] &&
                            (!limit[16] || tap[88:57] == 32'd0)) :
                         limit[31:30] == 2'b01 ?
-                          (tap[159:158] == 2'b10 && tap[157:155] == 3'd5 && tap[152:121] == {2'b00, limit[29:0]}) :
+                          (tap[159:158] == 2'b10 && tap[157:155] == 3'd5 && tap[152:121] == {3'b000, limit[28:0]}) :
                         tap[159:158] == 2'b00 &&
                         (limit[31] ? (tap[157:155] == 3'd6 && tap[152:121] < {1'b0, limit[30:0]})
                                    : (tap[157:155] == 3'd2 && tap[152:121] < limit));
+  wire        b_keep  = beat && (bt ? ((b_ufetch && !uf_seq) || u_fetch) : (allbeats || b_user || b_mmu));
   // the event's: FC field 0/1 walker, 2 PFLUSH; a walk's parked access FC [56:54]
   wire        e_user  = etap[56:54] == 3'd1 || etap[56:54] == 3'd2;
-  wire        e_keep  = ev && (allbeats || etap[157:155] == 3'd2 || e_user);
+  wire        e_keep  = ev && !bt && (allbeats || etap[157:155] == 3'd2 || e_user);
 
   // one write a clock: the event, else a held beat, else the beat
   wire        we      = arm && !frozen && (e_keep || held || b_keep);
@@ -95,8 +114,14 @@ module dbg_jtrace #(
 
   always @(posedge clk) begin
     t <= t + 1'd1;
+`ifdef SE30_JTRACE_NARROW
+    if (we) mem[wp] <= {wrec[170:160], wrec[159:158], wrec[157:155], wrec[152:121], wrec[47:32], wrec[31:0]};
+    rdata <= {3'd0, mem[raddr][95:85], mem[raddr][84:83], mem[raddr][82:80], 2'd0, mem[raddr][79:48],
+              64'd0, 9'd0, mem[raddr][47:32], mem[raddr][31:0], 18'd0};
+`else
     if (we) mem[wp] <= {wrec, 18'd0};
     rdata <= mem[raddr];
+`endif
     if (!arm) begin
       wp <= 0; tp <= 0; full <= 0; trig <= 0; frozen <= 0; left <= 0; n <= 0; held <= 0;
     end else begin

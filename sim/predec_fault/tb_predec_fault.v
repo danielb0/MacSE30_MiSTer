@@ -385,6 +385,16 @@ module tb_predec_fault;
     .clk(clk), .beat(cpu.dbg_jtp[160]), .tap(cpu.dbg_jtp[159:0]), .ev(cpu.dbg_jte[160]), .etap(cpu.dbg_jte[159:0]),
     .arm(jt_arm), .allbeats(jt_all), .limit(jt_limit), .raddr(jt_ra), .rdata(jt_q), .status(jt_stat));
   always @(posedge clk) jt_arm <= reset_n;
+  // a record as read_jtrace.tcl sees it: SE30_JTRACE_NARROW's 96 bits widened
+`ifdef SE30_JTRACE_NARROW
+  function [191:0] jtq(input [95:0] m);
+    jtq = {3'd0, m[95:85], m[84:83], m[82:80], 2'd0, m[79:48], 64'd0, 9'd0, m[47:32], m[31:0], 18'd0};
+  endfunction
+`else
+  function [191:0] jtq(input [191:0] m);
+    jtq = m;
+  endfunction
+`endif
   task jt_check;
     integer e, k, jfails, nchk, nwalk, nflush, nuser;
     reg [191:0] q;
@@ -397,7 +407,7 @@ module tb_predec_fault;
       // (filtered, a case may end before POST more records come: the freeze is checked unfiltered)
       if (jt_limit != 32'hA0 && !(jt.trig && (jt.frozen || !jt_all))) begin jfails = jfails + 1; $display("FAIL: JTRACE did not trigger and freeze"); end
       for (e = 0; e < 2048; e = e + 1) if (jt.full || e < jt.wp) begin
-        q = jt.mem[e]; la = q[170:139]; pa = q[138:107]; d = q[106:75];
+        q = jtq(jt.mem[e]); la = q[170:139]; pa = q[138:107]; d = q[106:75];
         if (q[177:176] == 2'b01 && q[175:173] == 3'd2) nflush = nflush + 1;
         if (q[177:176] != 2'b01 && (q[175:173] == 3'd1 || q[175:173] == 3'd2)) nuser = nuser + 1;
         if (!jt_all && q[177:176] != 2'b01 && !(q[175:173] == 3'd1 || q[175:173] == 3'd2) && q[65:58] != 8'hF0) begin
@@ -420,12 +430,12 @@ module tb_predec_fault;
 `endif
       end
       if (jt.trig) begin
-        q = jt.mem[jt.tp];
+        q = jtq(jt.mem[jt.tp]);
         if (!(q[177:176] == 2'b00 && q[175:173] == 3'd2 && q[170:139] < jt_limit)) begin
           jfails = jfails + 1; $display("FAIL: JTRACE's trigger record is not a user fetch below the limit");
         end
         for (k = -6; k <= 6; k = k + 1) begin
-          q = jt.mem[(jt.tp + k) & 11'h7FF];
+          q = jtq(jt.mem[(jt.tp + k) & 11'h7FF]);
           $display("  JT %4d t=%5d bs=%b fc=%0d siz=%0d la=%08x pa=%08x d=%08x bv=%b frc=%b hit=%b dhit=%b z=%b post=%b flt=%b berr=%b dec=%b op=%04x@%08x",
                    k, q[191:178], q[177:176], q[175:173], q[172:171], q[170:139], q[138:107], q[106:75],
                    q[74], q[73], q[72], q[71], q[70], q[69], q[68], q[67], q[66], q[65:50], q[49:18]);

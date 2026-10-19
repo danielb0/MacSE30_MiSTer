@@ -531,6 +531,55 @@ wire [15:0] hdr2_data;
 wire [12:0] flp2_blks;
 wire [11:0] cm2_blk;
 
+// SE30_NO_FLOPPY (a debug build's room, Daniel 2026-10-19: "I suggest
+// removing the floppy drive"): the internal drive's image chain is left out -
+// no loader, encoder, decoder or SD writer - so the drive stays, always
+// empty, as a machine with no disk inserted (the SWIM and the ROM's drive
+// probes as built)
+`ifdef SE30_NO_FLOPPY
+assign flp_sd_lba   = 32'd0;
+assign sd_rd[0]     = 1'b0;
+assign disk_in      = 1'b0;
+assign img_ds       = 1'b0;
+assign img_800k     = 1'b0;
+assign img_tags     = 1'b0;
+assign img_mfm      = 1'b0;
+assign img_hd       = 1'b0;
+assign flp_readonly = 1'b0;
+assign flp_loading  = 1'b0;
+assign hdr_data     = 16'd0;
+assign flp_dc42     = 1'b0;
+assign flp_blks     = 13'd0;
+assign ld_req       = 1'b0;
+assign ld_addr      = 24'd0;
+assign ld_wdata     = 16'd0;
+assign ld_dbg       = 16'd0;
+assign trk_cyl      = 7'd0;
+assign trk_valid    = 1'b0;
+assign trk_bit      = 1'b0;
+assign dec_bit      = 1'b0;
+assign enc_idle     = 1'b1;
+assign en_req       = 1'b0;
+assign en_addr      = 24'd0;
+assign en_dbg       = 16'd0;
+assign ds_eff       = 1'b0;
+assign dec_addr     = 19'd0;
+assign enc_hold     = 1'b0;
+assign de_req       = 1'b0;
+assign de_addr      = 24'd0;
+assign de_wdata     = 16'd0;
+assign cm_done      = 1'b0;
+assign cm_blk       = 12'd0;
+assign de_dbg       = 32'd0;
+assign cm_ready     = 1'b0;
+assign hdr_addr     = 6'd0;
+assign wr_req       = 1'b0;
+assign wr_addr      = 24'd0;
+assign flp_wr_lba   = 32'd0;
+assign flp_sd_wr    = 1'b0;
+assign flp_sd_din   = 16'd0;
+assign wr_dbg       = 32'd0;
+`else
 se30_flp_loader flp_loader
 (
 	.clk(clk_sys), .reset_n(flp_reset_n),
@@ -585,6 +634,7 @@ se30_flp_sdwriter flp_sdwriter
 	.sd_buff_addr(sd_buff_addr[7:0]), .sd_buff_din(flp_sd_din),
 	.busy(), .dbg(wr_dbg)
 );
+`endif
 
 generate if (EXT_DRIVE) begin : ext   // the external drive's chain (the option above)
 se30_flp_loader #(.BASE(24'h900000)) flp2_loader
