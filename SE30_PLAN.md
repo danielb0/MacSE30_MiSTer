@@ -19923,6 +19923,11 @@ have been fixed, do one more release form build. Maybe we'll get lucky. If
 not, then we'll proceed with a test build" - the IIcx release form of
 8973e14, then MacX's first run in 256 colours; if it still crashes, the
 branch-trace JTRACE build (CD-ROM and floppy out if it must, Daniel).
+**THE BUILD (2026-10-19 04:34-05:08, 34 min):** `output_files/MacIIcx_8973e14a_scanfixes.rbf`
+(md5 aa091a88), release form (no probes, CD-ROM in), 38,680 ALMs; every
+path of ours met at every corner, only the framework's ascal fails
+(-0.035 slow -40C, o_vpix_inner -> o_poly_lum, KNOWN ISSUES 6); no 332125
+loop. NOT flashed.
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
