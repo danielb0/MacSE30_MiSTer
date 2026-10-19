@@ -2009,7 +2009,10 @@ ALU: TG68K_ALU
 	fault_op_off <= pmmu_fault_addr_out - op_start_addr;
 	-- a five-byte bit field's fifth byte is a byte cycle of its own (UM 11.6.14
 	-- note: two operand cycles), so its frame says SIZE byte (KNOWN ISSUES 20)
+	-- (KNOWN ISSUES 21, scan 2): a field's LAST cycle carries the bytes still to
+	-- go - 4, 3 or 2 at P-1..P-3, not a long - and is replayed with that size
 	fault_beat_rem <= 1 WHEN op5_now='1' AND beat_rem=1 ELSE
+	                  beat_rem WHEN op5_now='1' AND beat_rem <= 4 - conv_integer(addr(1 downto 0)) ELSE
 	                  fault_op_size WHEN op_full='1' OR op5_now='1' ELSE
 	                  fault_op_size - conv_integer(fault_op_off(2 downto 0))
 	                      WHEN fault_op_off(31 downto 3) = "00000000000000000000000000000" AND
@@ -2299,11 +2302,13 @@ ALU: TG68K_ALU
 	pmmu_fault_lastwrite_ok <= '1' WHEN pmmu_fault_effective_rw = '0' AND locked_rmw_active = '0' AND
 	                                    exe_opcode(15 downto 6) /= "0100111010" AND      -- JSR
 	                                    exe_opcode(15 downto 8) /= x"61" AND             -- BSR
-	                                    -- a five-byte bit field's FIRST write cycle (the long):
-	                                    -- its fifth byte is still to go, so the long is not the
-	                                    -- last write (WinUAE: bit fields never take the short
-	                                    -- frame).  The fifth byte is, and keeps it.
-	                                    NOT (op5_now = '1' AND beat_rem > 1) AND
+	                                    -- a five-byte bit field's write cycle that leaves bytes still
+	                                    -- to go is not the last write.  The cycles split at the long
+	                                    -- boundaries (1+4, 2+3, 3+2, 4+1 bytes by A1A0), so the last
+	                                    -- is the one whose bytes reach the boundary: beat_rem <= 4 - A1A0
+	                                    -- (KNOWN ISSUES 21, scan 2: "beat_rem > 1" refused the 4-, 3- and
+	                                    -- 2-byte last cycles of a field at P-1..P-3 and re-ran it)
+	                                    NOT (op5_now = '1' AND beat_rem > 4 - conv_integer(addr(1 downto 0))) AND
 	                                    NOT ((exec(movem_action) = '1' OR movem_actiond = '1') AND movem_run = '1') AND
 	                                    NOT (micro_state = movep1 OR micro_state = movep2 OR micro_state = movep3 OR
 	                                         micro_state = movep4 OR micro_state = movep5)

@@ -555,6 +555,9 @@ DSW_WPX = [
     ([0xE2D6], 0, 0, 2, "LSR.W (A6)"), ([0xE7D6], 0, 0, 2, "ROL.W (A6)"),
     ([0x2D16], 0, 0, 4, "MOVE.L (A6),-(A6)"), ([0x48E6, 0x0F00], 16, 0, 16, "MOVEM.L D4-D7,-(A6)"),
     ([0x0CFC, 0xE144, 0xD144], 0, 0, 10, "CAS2.W D4:D4,D5:D5,(A6):(A5) (A5 = A6 + 8)"),
+    # (KNOWN ISSUES 21's CAS2 case: the compares made to succeed, so both writes happen)
+    ([0x3816, 0x3C15, 0x0CFC, 0xE144, 0xD1C6], 0, 0, 10, "MOVE.W (A6),D4; MOVE.W (A5),D6; CAS2.W D4:D6,D5:D7,(A6):(A5)"),
+    ([0x2816, 0x2C15, 0x0EFC, 0xE144, 0xD1C6], 0, 0, 12, "MOVE.L (A6),D4; MOVE.L (A5),D6; CAS2.L D4:D6,D5:D7,(A6):(A5)"),
     ([0x4E56, 0xFFF8], 0, 0, 0, "(no memory: LINK on the stack - a control)"),
 ]
 DSW_WP = os.environ.get("DSW_WP") == "1"

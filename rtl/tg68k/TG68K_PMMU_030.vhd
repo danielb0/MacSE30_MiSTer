@@ -241,6 +241,15 @@ architecture rtl of TG68K_PMMU_030 is
   signal saved_fc           : std_logic_vector(2 downto 0) := (others => '0');
   signal saved_is_insn      : std_logic := '0';
   signal saved_rw           : std_logic := '0';
+  -- the access is a write for protection: R/W low or RMC asserted (UM 9.5.3.1
+  -- WP: "a write access or a read-modify-write access ... causes a bus error
+  -- exception to be taken immediately") - so CAS2/CAS/TAS fault on their
+  -- READ, before anything is written (KNOWN ISSUES 21, scan 2).  The M bit
+  -- is still set at the write, not at the RMC read as UM 9.5.3.1 says ("R/W
+  -- or RMC"): the extra walk that forced made a non-faulting CAS2.W's read
+  -- wrong (the regression's dsweep DSW_WP=1 188/194) - a CAS that compares
+  -- unequal leaves M clear where the 68030 sets it
+  signal saved_wacc         : std_logic := '0';
   signal req_prev           : std_logic := '0';
   signal translation_pending : std_logic := '0';
   -- ATC (Address Translation Cache), 22 entries per MC68030 hardware
@@ -1928,6 +1937,7 @@ begin
       saved_fc <= (others => '0');
       saved_is_insn <= '0';
       saved_rw <= '0';
+      saved_wacc <= '0';
       req_prev <= '0';
       translation_pending <= '0';
       walk_req <= '0';
@@ -2223,8 +2233,8 @@ begin
               translated_cfg_seq <= xlat_cfg_seq;
               cache_inhibit_reg <= '1';
               write_protect_reg <= '1';
-            elsif rw = '0' and atc_attr(hit_idx)(0) = '1' then
-              -- Write to write-protected page - generate fault (rw='0' is WRITE)
+            elsif (rw = '0' or rmw = '1') and atc_attr(hit_idx)(0) = '1' then
+              -- Write (or a read-modify-write's read) to a write-protected page - generate fault
               status_tmp := encode_mmusr_fault(
                 bus_error => '0',
                 limit_violation => '0',
@@ -2347,6 +2357,7 @@ begin
               saved_fc <= fc;
               saved_is_insn <= is_insn;
               saved_rw <= rw;
+              saved_wacc <= (not rw) or rmw;
               walk_req <= '1';
               translation_pending <= '1';
             else
@@ -2508,6 +2519,7 @@ begin
             saved_fc <= ptest_fc;
             saved_is_insn <= '0';
             saved_rw <= ptest_rw;  -- BUG #17 FIX: PTEST R/W from brief(9): 0=PTESTW(write), 1=PTESTR(read)
+            saved_wacc <= not ptest_rw;
             walk_req <= '1';
             translation_pending <= '1';
             instr_walk_pending <= '1';  -- BUG #396: Mark walk as PTEST-initiated
@@ -2549,6 +2561,7 @@ begin
           saved_fc <= pload_fc;
           saved_is_insn <= '0';
           saved_rw <= pload_rw;
+          saved_wacc <= not pload_rw;
           walk_req <= '1';
           translation_pending <= '1';
           instr_walk_pending <= '1';
@@ -2659,8 +2672,8 @@ begin
               end if;
             -- Walker filled ATC successfully - check access violations for the original request
             -- BUG #17 FIX: saved_rw='0' is WRITE, saved_rw='1' is READ
-            elsif saved_rw = '0' and atc_attr(hit_idx)(0) = '1' then
-              -- Write to write-protected page - generate fault
+            elsif saved_wacc = '1' and atc_attr(hit_idx)(0) = '1' then
+              -- Write (or a read-modify-write's read) to write-protected page - generate fault
               status_tmp := encode_mmusr_fault(
                 bus_error => '0',
                 limit_violation => '0',
