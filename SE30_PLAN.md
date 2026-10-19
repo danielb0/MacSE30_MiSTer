@@ -19961,6 +19961,15 @@ Daniel - add to it, move items out when fixed).**
     interaction; the random fault-transparency sweep (rsweep, with a random
     interrupt per program next) is the instrument; else the branch-trace
     build if it recurs.
+    SECOND INSTANCE (Daniel, 2026-10-19 evening, same build, 256 colours): an
+    address error in the Mac environment quitting Apple Document Viewer during
+    a System shutdown (a Mac-side bomb, no core). The SE/30 under A/UX in B&W
+    never showed this kind of flakiness (compile 81's stress sessions) - but,
+    as Daniel noted, MacX also ran in B&W before KNOWN ISSUES 31 was found:
+    colour changes the memory layout and paging, so it exposes CPU restart
+    bugs the SE/30 sessions never reached; a B&W-vs-colour board experiment
+    would not separate the hardware from the CPU. The IIcx in colour is the
+    better stress test.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
