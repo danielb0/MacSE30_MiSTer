@@ -19135,7 +19135,26 @@ Daniel - add to it, move items out when fixed).**
     `JMP $xxxxxxxx.L` entries, demand-paged). PFLN on the good boot: two
     F-lines, opcode $FFFF at $FFFFFE58 (a process executing on its stack -
     not yet placed). -> KNOWN ISSUES 22.
-21. **OPEN, accepted for now (2026-10-15): the restart design's limit.**
+21. **FIXED IN SIM (2026-10-19, 8973e14; the board build: the next IIcx release
+    form) - BOTH CAUSES FOUND BY SCAN 2.** (1) Bit fields: a five-byte field's
+    write cycles split at the long boundary (1+4, 2+3, 3+2 bytes at P-1..P-3),
+    so at a page boundary the second page is always the LAST cycle - but the
+    last-write test refused any field cycle with beat_rem > 1, and the faulted
+    cycle's size was a long; now the last cycle is the one whose bytes reach
+    the boundary, SSW SIZE the bytes still to go (3-byte $0131, word $0121),
+    replayed alone as a format $A write. bfx (this item's own case) passes.
+    (2) CAS2/CAS/TAS: the PMMU let a locked read of a write-protected page
+    through and faulted the write - CAS2's first operand landed and the
+    re-run compared the changed memory (the new writing CAS2 cases, 6/6
+    failed); now an RMC read faults on WP (UM 9.5.3.1: "a write access or a
+    read-modify-write access ... causes a bus error exception to be taken
+    immediately"; SSW RM=1 RW=read). DEVIATION, documented in the PMMU: the
+    M bit is still set at the write, not at the RMC read (UM: "R/W or RMC"),
+    because forcing the walk at the read made a NON-faulting CAS2.W's read
+    wrong (regression, 188/194) - a CAS that compares unequal leaves M clear
+    where the 68030 sets it. Regression 44/44, interrupt sweep 404/404 on
+    the CAS cases. The rest of this entry is the history.
+    Opened as: **OPEN, accepted for now (2026-10-15): the restart design's limit.**
     **WIDER THAN RECORDED (scan 2, 2026-10-18, dsweep DSW_WP=1: 182/188):**
     the six failures are all 5-byte bit fields {7:28} straddling into a
     write-protected (copy-on-write) page - the long write lands its first
@@ -19888,10 +19907,22 @@ versions wait for them, then the forum, then MiSTer-devel):**
 3. **FPU memory operands faulting mid-dialog** (sim/cpfpu PROG=fsw, 168
    cases, user mode) - DONE: 168/168 invalid, 168/168 write-protected.
 4. **An interrupt at every clock around a fault** (+IRQAT, run_irqsweep.sh,
-   26 cases x ~200 clocks) - built; to run.
+   26 cases x ~200 clocks) - DONE: 5252/5252, no bugs (and 404/404 on the
+   CAS cases after KNOWN ISSUES 21's PMMU change).
 5. **The caches across faults** (every sweep with CACR $2101, A/UX's) -
-   running. The caches are UM 6's (logical tags with FC, a faulted write
-   invalidates its entry), so the scan is the fault paths with them on.
+   DONE in sim/run_regression.sh: every sweep passes with the caches on.
+   The caches are UM 6's (logical tags with FC, a faulted write invalidates
+   its entry), so the scan is the fault paths with them on.
+**ALL FIVE DONE (2026-10-19 04:33).** Bugs found and fixed: KNOWN ISSUES 23's
+class (stray reads/writes/fetches after an instruction-fetch fault, 87/127
+xsweep cases; the branch-target fetch), KNOWN ISSUES 21 (bit fields' last
+write, CAS2's locked read on a write-protected page). sim/run_regression.sh
+is the CPU regression list in one run (~3 h; 44 lines, all PASS on 8973e14);
+run_irqsweep.sh ~2 h. Daniel: "When all the bugs that the sweeps identify
+have been fixed, do one more release form build. Maybe we'll get lucky. If
+not, then we'll proceed with a test build" - the IIcx release form of
+8973e14, then MacX's first run in 256 colours; if it still crashes, the
+branch-trace JTRACE build (CD-ROM and floppy out if it must, Daniel).
 
 **APPLICATION TESTS (opened 2026-10-07).** Daniel: the release waits on
 further application testing ("Random testing of apps has yielded real bugs
