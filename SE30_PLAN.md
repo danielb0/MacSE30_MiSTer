@@ -20227,6 +20227,13 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     measured Hz. Expected: at 0, 720p 60.0, 640x480 59.9, 1080p 60.0; at 1
     and 2, 66.7 in every mode. A monitor error, 120 Hz or ~320 Hz = not
     fixed. The menu core at mode 0 is the reference. ~15 minutes.
+14. **The IIcx's A/UX start-up flash** (Daniel, 2026-10-19, screenshot
+    `C:	emp\Mac\Screenshots61019_112015-screen.png`): between A/UX's
+    start and the desktop the grey screen's top line shows five short
+    streaks a fifth of the width apart - a row drawn at one depth, scanned
+    at another; gone when Mac OS clears the screen (transient). Compare
+    MAME's maciicx at the same moment; authentic if it shows the same.
+    Cosmetic, low priority. ~10 minutes.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
