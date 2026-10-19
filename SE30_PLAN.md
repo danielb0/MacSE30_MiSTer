@@ -19945,6 +19945,23 @@ Daniel - add to it, move items out when fixed).**
     PAIR_SANITY=1 fails) and CASESET=rsweep (random fault-transparency
     programs, not yet run at scale); dsweep 219-234 (A7 destinations).
 
+33. **OPEN (2026-10-19, IIcx `0b46b378_allfixes`, not reproduced) - Commando
+    (cmdo) bus error, intermittent.** CommandShell, `/usr/bin/X11/xeyes` then
+    Cmd-K, Commando's first use in the session (xclock started directly just
+    before): "cmdo" bus error, then `/bin/sh: 164 Memory fault - core dumped`.
+    The core (`C:\temp\Mac\AUX disk\used\IIcx cmdo crash\core`, with `cmdo`, the
+    binary; the image beside them) holds a long frame: PC $0032A002 (the
+    Mac side of the process - not cmdo's text, $100001E8 up - so not in the
+    core), SR $0010, SSW $0101 = a LONG WRITE to user data, fault address
+    $400035AE, data $00B5A5B4; D0 $4000, D1 $35AE0000, D2 $48E700B5, D3
+    $A5B40000 (the address and data look assembled from word halves).
+    After the Mac environment's restart Commando ran fine with xeyes, xclock
+    and xcalc (Daniel). Timing-dependent (the second run's pages came from
+    memory, not the disk). Suspect a remaining restart/interrupt
+    interaction; the random fault-transparency sweep (rsweep, with a random
+    interrupt per program next) is the instrument; else the branch-trace
+    build if it recurs.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
