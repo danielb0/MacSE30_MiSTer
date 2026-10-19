@@ -302,7 +302,14 @@ def isw_cases():
                 ([0x6600, None], 1, "BNE.W not taken"), ([0x6700, None], 1, "BEQ.W taken"),
                 ([0x51CB, None], 1, "DBRA D3 expiring"),
                 ([0x6000, None], 1, "BRA.W"), ([0x6100, None], 1, "BSR.W"), ([0x51CB, None, "T"], 1, "DBRA D3 taken"),
-                ([0x67FF, None, None], 1, "BEQ.L taken"), ([0x67FF, None, None], 2, "BEQ.L taken")]
+                ([0x67FF, None, None], 1, "BEQ.L taken"), ([0x67FF, None, None], 2, "BEQ.L taken"),
+                # MacX on the IIcx (2026-10-19, the branch trace): startmac's ADDA.W #$C,A7 at
+                # $5FFE, its immediate on the faulting page, then MOVE.L (A7)+ x3 / RTS popped
+                # garbage - A7 forms (the bench first moves A7 down by the amount) and An's
+                ([0xDEFC, 0x000C], 1, "ADDA.W #imm,A7"), ([0xDFFC, 0x0000, 0x000C], 1, "ADDA.L #imm,A7"),
+                ([0xDFFC, 0x0000, 0x000C], 2, "ADDA.L #imm,A7"), ([0x4FEF, 0x000C], 1, "LEA $C(A7),A7"),
+                ([0xDDFC, 0x0000, 0x000C], 1, "ADDA.L #imm,A6"), ([0xDCFC, 0x000C], 1, "ADDA.W #imm,A6"),
+                ([0x9EFC, 0xFFF4], 1, "SUBA.W #imm,A7"), ([0xD7FC, 0x0000, 0x000C], 1, "ADDA.L #imm,A3")]
     for ws, k, sn in straddle:
         out.append((ws, "S%d" % k, 0, [], "%s straddling (%d word%s resident)" % (sn, k, "" if k == 1 else "s")))
     return out
@@ -318,6 +325,8 @@ def isw_build_straddle(case):
     pre = list(ISW_PRE)
     if ws[0] == 0x51CB:
         pre[3] = 0x7600                                  # moveq #0,d3: expires
+    if ws[0] in (0xDEFC, 0xDFFC, 0x4FEF, 0x9EFC):
+        pre = pre + [0x9EFC, 0x000C]                     # suba.w #12,a7: the straddling one moves A7 back up
     tail = [0x528A, 0x4E75, 0x4AFC]
     if len(ws) > 2 and ws[2] == "T":                     # DBRA taken: D3 1
         ws = ws[:2]
@@ -535,6 +544,13 @@ DSW_INSN = [
     ([0xDB8E], 4, 0, 12, "ADDX.L -(A6),-(A5)"), ([0xCB0E], 1, 0, 9, "ABCD -(A6),-(A5)"),
     ([0x8B0E], 1, 0, 9, "SBCD -(A6),-(A5)"), ([0x8B4E, 0x1234], 2, 0, 9, "PACK -(A6),-(A5),#$1234"),
     ([0x8B8E, 0x1234], 1, 0, 9, "UNPK -(A6),-(A5),#$1234"), ([0xBB8E], 0, 0, 12, "CMPM.L (A6)+,(A5)+"),
+    # A7 as the destination (MacX, 2026-10-19: the restart's second rollback kept a faulted
+    # instruction's late A7 write): A7 saved in A4, the instruction, A7 to D6, A7 back
+    ([0x284F, 0x2E56, 0x2C0F, 0x2E4C], 0, 0, 4, "MOVEA.L (A6),A7 (A7 via D6)"),
+    ([0x284F, 0x3E56, 0x2C0F, 0x2E4C], 0, 0, 2, "MOVEA.W (A6),A7 (A7 via D6)"),
+    ([0x284F, 0xDFD6, 0x2C0F, 0x2E4C], 0, 0, 4, "ADDA.L (A6),A7 (A7 via D6)"),
+    ([0x284F, 0x9FD6, 0x2C0F, 0x2E4C], 0, 0, 4, "SUBA.L (A6),A7 (A7 via D6)"),
+    ([0x284F, 0xDED6, 0x2C0F, 0x2E4C], 0, 0, 2, "ADDA.W (A6),A7 (A7 via D6)"),
 ]
 DSW_OFFS = [0, -1, -2, -3, -4, -6]
 # DSW_WP=1 (scan 2, 2026-10-18: copy-on-write, as A/UX's fork leaves pages):

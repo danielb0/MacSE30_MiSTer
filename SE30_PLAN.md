@@ -19895,6 +19895,32 @@ Daniel - add to it, move items out when fixed).**
     (-0.221 slow -40C, o_vcpt_pre3, KNOWN ISSUES 6). A remaining MacX crash
     needs an IIcx trace deck with room made elsewhere.
 
+31. **FIXED IN SIM (2026-10-19; found on the board with the branch trace) - MACX'S
+    COLOUR CRASH: a restart's second rollback kept a faulted instruction's late
+    A7 write.** The IIcx build `MacIIcx_b7bea715_branchtrace.rbf` (JTRACE's
+    branch trace, limit 011 / SE30_JTRACE_NARROW, SE30_NO_FLOPPY, no CD-ROM;
+    `read_jtrace.tcl arm 60000010`; trace `C:\temp\Mac\AUX disk\extract\
+    jtrace_iicx_macx_bt.txt`) showed, in startmac: BSR.L $51F74 at $5FF6,
+    its RTS to $5FFC, an RTE to $5FFC (a page fault on $6000), BRA $5FB0 at
+    $600A, then RTS at $5FBE to $760080 - the slide. The code (peeked through
+    startmac's tables, scratchpad peekpc_lean.tcl; `extract\peek_5ff0.txt`):
+    $5FFC TST.L D0; $5FFE ADDA.W #$C,A7 - its immediate on the faulting page;
+    $5FB0 ADDQ.W #4,A7; MOVE.L (A7)+ x3; RTS. CAUSE: the restart rolls the
+    register file back twice - on the dispatch edge and again one edge later,
+    A7 exempt there (the changeMode swap and the first frame push land on it)
+    unless the edge carries a (An)+/-(An)/MOVEM base write. The faulted ADDA's
+    own late writeback - A7 + the released word (its opcode $DEFC re-read:
+    $8FF0 -> $6EEC in the bench) - landed on that edge, the exemption kept
+    it, and the swap saved it as USP. FIX: the exemption no longer covers a
+    Wwrena write of A7 (RDindex_A 15) without changeMode. BENCH: isweep
+    197-204 (ADDA.W/.L #imm,A7, LEA $C(A7),A7, SUBA.W #imm,A7 straddling;
+    A6/A3 forms) - 197/198/200/203 failed, all pass; dsweep 219-234 (MOVEA,
+    ADDA, SUBA to A7 from a faulting operand, A7 compared via D6) pass before
+    and after (the data side never had it). The probe build's timing: our
+    PMMU reg-select path -3.087 ns at the slow corners (that placement only;
+    the release forms meet). NEXT: the regression, then the IIcx release
+    form for MacX's first run in 256 colours.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**

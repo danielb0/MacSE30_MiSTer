@@ -3112,8 +3112,15 @@ PROCESS (clk, regfile, RDindex_A, RDindex_B, exec, rte_mmu_fix_commit, rte_mmu_f
 						-- plain (An)+/-(An) forms via postadd/presub; none of the
 						-- exempt changeMode/frame-push A7 updates carry any of
 						-- these flags.
+						-- (MacX on the IIcx, 2026-10-19, the branch trace: nor for the
+						-- faulted instruction's own late register write of A7 - startmac's
+						-- ADDA.W #$C,A7 with its immediate on the faulting page wrote
+						-- A7 + the re-read opcode on this edge, the exemption kept it,
+						-- the changeMode swap saved it as USP and the RTS three
+						-- instructions later popped garbage; isweep 197/198/200/203)
 						IF exec(postadd)='0' AND exec(presub)='0' AND
-						   exec(save_memaddr)='0' THEN
+						   exec(save_memaddr)='0' AND
+						   NOT (Wwrena='1' AND RDindex_A=15 AND exec(changeMode)='0') THEN
 							v_regfile(15) := v_hold_a7;
 						END IF;
 					END IF;
