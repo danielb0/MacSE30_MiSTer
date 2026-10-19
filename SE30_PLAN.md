@@ -19446,6 +19446,9 @@ Daniel - add to it, move items out when fixed).**
     Main's reconfiguration writes (C0) - needs the Cyclone V counter-index
     map, then a board test; (C) measure first: Main's "Frame time" console
     line over SSH at mode 0, vsync_adjust 0, to confirm the mechanism.
+    **DEFERRED (Daniel, 2026-10-19): "let's leave the HDMI fix for the next
+    release"** - the A/UX forum test builds (SE/30 + IIcx from d17096d) go
+    out without it; the IIcx workaround stays vsync_adjust=1.
     **IIcx BUILD WITH THE A/UX FIXES (2026-10-18 11:59-12:52):**
     `output_files/MacIIcx_7f6fbfc0_auxfixes.rbf` (md5 e4fef30b), 7f6fbfc =
     dev with KNOWN ISSUES 25/26/28/29, the standard IIcx qsf (no probes;
