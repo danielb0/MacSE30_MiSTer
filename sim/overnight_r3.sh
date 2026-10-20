@@ -35,7 +35,7 @@ if [ "$STAGE" = regress ]; then
   bash sim/run_regression.sh > sim/regression_r3.out 2>&1; rc=$?
   log "regression rc=$rc after $(( ($(date +%s) - t0) / 60 )) min: $(tail -1 sim/regression.log 2>/dev/null; tail -1 sim/regression_r3.out)"
   [ $rc = 0 ] || { grep -E '^FAIL|FAIL' sim/regression.log | head -5 >> $LOG; log "regression FAILED - no compile"; exit 1; }
-  STAGE=compile
+  STAGE=compile                                      # (the supervisor random sweep runs before this stage, in sim/night2.sh)
 fi
 
 if [ "$STAGE" = compile ]; then

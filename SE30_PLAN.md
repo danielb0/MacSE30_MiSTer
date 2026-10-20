@@ -20002,6 +20002,36 @@ Daniel - add to it, move items out when fixed).**
     KNOWN ISSUES 33-shaped flake: rare (only when the user page is out) and
     never the same twice.
 
+35. **FIXED IN SIM (2026-10-21 ~00:40; found by the third round's supervisor
+    random sweep - 0/100 seeds, every one) - a (xxx).L or (d16,An) MOVES that
+    followed an (An)/(An)+ MOVES fetched its address word from the base
+    register's VALUE.** The sweep's seed 0: MOVES.L A3,($6A005).L after
+    MOVES.L Dn,(A6): the kernel's bus trace (KB) showed the fetch of the
+    address's low word go out with logical address $F3EFD0C1 = A3 (the kernel
+    address $64D3C, the PC, beside it), the PMMU walked for it, the fault's
+    frame then stacked at a garbage SSP, the handler looped; other seeds
+    walked for $00060000 (the high word $0006 with a zero low word). Reproduced
+    by sim/predec_fault CASESET=sabs cases 6-7 (an (A2)+ or 4(A2) MOVES, then
+    MOVES.L A3,(xxx).L) once the kernel reported its address chain: at the
+    (xxx).L MOVES's ld_nn fetch the logical address was memaddr_reg + 0 with
+    use_base '1'. CAUSE (TG68KdotC_Kernel.vhd, the memaddr_delta_rega/use_base
+    chain): the "MOVES (An)/(An)+" branch fires in moves0 on `moves_ea_areg`,
+    which is latched at moves1 and so still holds the PREVIOUS MOVES's mode
+    through this one's moves0 - and the address set up in moves0 is the NEXT
+    cycle's fetch (ld_nn's low word for (xxx).L; ld_dAn1's displacement for
+    (d16,An)): base + 0 instead of the PC. Alignment, interrupts and the
+    page-table windows were ruled out on the way (sabs 1-5 pass in every
+    alignment; the no-IRQ and no-window seeds fail identically). FIX: in
+    moves0/moves1 that branch looks at the CURRENT opcode's mode (010/011) and
+    trusts moves_ea_areg only while moves_bus_pending; moves_ea_areg and
+    moves_ea_regnum are also latched at moves0 from the current opcode. sabs
+    40/40 after (the eight cases: resident, (xxx).W, invalid, WP, misaligned,
+    the sweep's pair, the two orderings). A/UX: MOVES with absolute addresses
+    is rare in its kernel; the (d16,An) form after a copy loop's (An)+ is the
+    sendsig / struct-copyout shape again, and so another KNOWN ISSUES 33
+    candidate. The ssweep (130 + 65) never saw it: its pair pattern has one
+    MOVES per run.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**

@@ -1750,6 +1750,20 @@ ALU: TG68K_ALU
 					moves_ea_use_base <= '0';  -- absolute, no base register
 				end if;
 				-- Set when moves1 schedules a bus access
+				-- The EA register info is latched from the CURRENT opcode at moves0 as
+				-- well as at moves1: latched only at moves1 it still held the PREVIOUS
+				-- MOVES's value through this one's moves0 / ld_nn / ld_dAn1 cycles, and a
+				-- (xxx).L or (d16,An) form after an (An)-form MOVES went out with the
+				-- register's VALUE as its address (the third round's supervisor random
+				-- sweep, every seed, 2026-10-21; sim/predec_fault CASESET=sabs cases 6-7).
+				if micro_state = moves0 and moves_d16_phase = '0' then
+					if opcode(5 downto 3) = "010" or opcode(5 downto 3) = "011" or opcode(5 downto 3) = "100" then
+						moves_ea_areg <= '1';
+					else
+						moves_ea_areg <= '0';
+					end if;
+					moves_ea_regnum <= opcode(2 downto 0);
+				end if;
 				if micro_state = moves1 then
 					moves_bus_pending <= '1';
 					-- Latch EA register info: (An) modes use address registers
@@ -4576,9 +4590,15 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 					memaddr_delta_rega <= moves_ea_latched;
 					use_base <= moves_ea_use_base;
 				-- MOVES (An)/(An)+: use base register directly (addr = reg_QA + 0)
-				ELSIF (micro_state = moves0 OR micro_state = moves1 OR moves_bus_pending = '1') AND
-				    (moves_ea_areg = '1' OR opcode(5 downto 3)="010" OR opcode(5 downto 3)="011" OR opcode(5 downto 3)="100") AND
-				    opcode(5 downto 3) /= "100" AND
+				-- In moves0 and moves1 the CURRENT opcode's mode decides; moves_ea_areg
+				-- (latched at moves1) is the PREVIOUS MOVES's until then, and it made
+				-- this branch set up base + 0 - the base register's VALUE - as the
+				-- address of the NEXT cycle's fetch for a (xxx).L or (d16,An) MOVES
+				-- that followed an (An)-form one (the third round's supervisor random
+				-- sweep, every seed, 2026-10-21; sim/predec_fault CASESET=sabs 6-7).
+				ELSIF (((micro_state = moves0 OR micro_state = moves1) AND
+				        (opcode(5 downto 3)="010" OR opcode(5 downto 3)="011")) OR
+				       (moves_bus_pending = '1' AND moves_ea_areg = '1' AND opcode(5 downto 3) /= "100")) AND
 				    memmaskmux(3)='1' THEN
 					memaddr_delta_rega <= (others => '0');  -- No delta for simple (An)/(An)+ mode, first word only
 					use_base <= '1';  -- Force memaddr_reg = reg_QA
@@ -13003,6 +13023,15 @@ BEGIN
 				IF rte_mmu_fix_commit = '1' THEN
 				report "FIX_COMMIT: tg68_pc=" & integer'image(conv_integer(TG68_PC(15 downto 0))) &
 				       " fix_opcode=" & integer'image(conv_integer(rte_mmu_fix_opcode)) severity note;
+			END IF;
+			IF exec(ea_to_pc) = '1' AND clkena_lw = '1' AND ea_to_pc_datum_invalid = '0' THEN
+				-- the third round (2026-10-21): which state loads the PC from an EA (a MOVES.L Rn,(xxx).L jumped to Rn's value)
+				report "EA_TO_PC: ms=" & micro_states'image(micro_state) &
+				       " opcode=" & integer'image(conv_integer(opcode)) &
+				       " exe_opcode=" & integer'image(conv_integer(exe_opcode)) &
+				       " addr_lo=" & integer'image(conv_integer(addr(15 downto 0))) &
+				       " addr_hi=" & integer'image(conv_integer(addr(31 downto 16))) &
+				       " pc_lo=" & integer'image(conv_integer(TG68_PC(15 downto 0))) severity note;
 			END IF;
 			IF exec(directPC) = '1' AND clkena_lw = '1' THEN
 				report "RTE_RESUME: target=" & integer'image(conv_integer(data_read(15 downto 0))) &

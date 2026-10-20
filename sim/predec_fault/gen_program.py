@@ -1086,6 +1086,88 @@ def um_cases():
     return out
 
 
+# sabs (the third round, 2026-10-21 00:10): MOVES through an ABSOLUTE address,
+# (xxx).L and (xxx).W, every size, Dn and An, both directions, in supervisor
+# mode with SFC = DFC = 1 - the supervisor random sweep's every seed died on
+# a MOVES.L A3,(xxx).L: the kernel jumped to A3's VALUE instead of writing it
+# (the pair pattern of ssweep cannot hold an absolute address, so these forms
+# were never swept).  Each case writes into and reads from a 64-byte window
+# (the loaded registers stored back into it with plain MOVEs), compared
+# against the expected bytes at ref; resident, invalid (the restart) and
+# write-protected (the writes' restart) - (window, invalid, wp, what).
+SABS_SRC = bytes.fromhex("DEADBEEF CAFE1234 0BADF00D 8001ABCD".replace(" ", ""))   # the window's +$20..+$2F, read by the MOVES loads
+SABS = [(0x6A000, [], False, "(xxx).L, resident"), (0x7F00, [], False, "(xxx).W, resident"),
+        (0x6C000, [0x6C000], False, "(xxx).L, the page invalid (restart)"), (0x6E000, [0x6E000], True, "(xxx).L, the page write-protected (the writes' restart)"),
+        (0x6A100, [], False, "(xxx).L, every operand MISALIGNED (+1/+5/+9, reads +$21/+$25/+$29)"),
+        (0x6A200, [], False, "the sweep's pair: MOVE.L (-$E,A2,A4.W),D6 (misaligned), then MOVES.L A3,(odd xxx).L"),
+        (0x6A300, [], False, "a (An)+ MOVES, then MOVES.L A3,(xxx).L (the register-mode latch's previous value)"),
+        (0x6A400, [], False, "a (d16,An) MOVES, then MOVES.L A3,(xxx).L (the use-base latch's previous value)")]
+
+
+def sabs_case(win):
+    """The code, the window's initial bytes and the bytes expected after it."""
+    L = lambda v: [(v >> 16) & 0xFFFF, v & 0xFFFF]
+    absw = win < 0x8000                                 # (xxx).W (sign-extended word) or (xxx).L
+    mis = (win & 0xF00) == 0x100                        # the misaligned case: every operand one byte up
+    def ea(off):                                        # (ea field, extension words)
+        a = win + off + (1 if mis else 0)
+        return (0x38, [a & 0xFFFF]) if absw else (0x39, L(a))
+    def moves(size, reg_a, reg, dr, off):               # size 0/1/2, reg_a 1 = An, dr 1 = register to memory
+        e, x = ea(off)
+        return [0x0E00 | size << 6 | e, reg_a << 15 | reg << 12 | dr << 11] + x
+    def store(reg_a, reg, off):                         # MOVE.L Rn,(win+off).L - plain, supervisor
+        return [0x23C0 | reg_a << 3 | reg] + L(win + off)
+    if (win & 0xF00) == 0x200:                          # the sweep's pair (seed 0 at $64D34: 2C32 C0F2 / 0EB9 B800 0006 A005)
+        code = ([0x267C] + L(0x89ABCDEF) +              # MOVEA.L #$89ABCDEF,A3
+                [0x9DCE, 0x99CC, 0x7C00] +              # SUBA.L A6,A6; SUBA.L A4,A4; MOVEQ #0,D6
+                [0x247C] + L(win + 0x2F) +              # MOVEA.L #win+$2F,A2
+                [0x2C32, 0xC0F2] +                      # MOVE.L (-$E,A2,A4.W),D6: the long at +$21 (misaligned)
+                [0x0EB9, 0xB800] + L(win + 0x05) +      # MOVES.L A3,(win+5).L: misaligned, through DFC
+                store(0, 6, 0x10))                      # D6 stored at +$10
+        init = bytearray(((win >> 4) + i * 0x11) & 0xFF for i in range(0x40))
+        init[0x20:0x30] = SABS_SRC
+        exp = bytearray(init)
+        exp[0x05:0x09] = bytes.fromhex("89ABCDEF")
+        exp[0x10:0x14] = init[0x21:0x25]
+        return code, bytes(init), bytes(exp)
+    if (win & 0xF00) in (0x300, 0x400):                 # a simple or a (d16,An) MOVES first, then the absolute one
+        first = [0x0E9A, 0x3800] if (win & 0xF00) == 0x300 else [0x0EAA, 0x3800, 0x0004]   # MOVES.L D3,(A2)+ / MOVES.L D3,4(A2)  ($0E80 | mode<<3 | reg)
+        code = ([0x263C] + L(0x11223344) +              # MOVE.L #$11223344,D3
+                [0x267C] + L(0x89ABCDEF) +              # MOVEA.L #$89ABCDEF,A3
+                [0x247C] + L(win + 0x30) +              # MOVEA.L #win+$30,A2
+                first +                                 # the first MOVES, through DFC, to +$30 or +$34
+                [0x0EB9, 0xB800] + L(win + 0x08))       # MOVES.L A3,(win+8).L
+        init = bytearray(((win >> 4) + i * 0x11) & 0xFF for i in range(0x40))
+        exp = bytearray(init)
+        o = 0x30 if (win & 0xF00) == 0x300 else 0x34
+        exp[o:o + 4] = bytes.fromhex("11223344")
+        exp[0x08:0x0C] = bytes.fromhex("89ABCDEF")
+        return code, bytes(init), bytes(exp)
+    code = ([0x263C] + L(0x12345678) +                  # MOVE.L #$12345678,D3
+            [0x267C] + L(0x89ABCDEF) +                  # MOVEA.L #$89ABCDEF,A3
+            [0x7800, 0x7A00, 0x7C00, 0x9DCE] +          # MOVEQ #0,D4/D5/D6; SUBA.L A6,A6
+            moves(2, 0, 3, 1, 0x00) + moves(1, 0, 3, 1, 0x04) + moves(0, 0, 3, 1, 0x06) +     # D3 -> +0 .L, +4 .W, +6 .B
+            moves(2, 1, 3, 1, 0x08) + moves(1, 1, 3, 1, 0x0C) + moves(0, 1, 3, 1, 0x0E) +     # A3 -> +8 .L, +C .W, +E .B
+            moves(2, 0, 4, 0, 0x20) + moves(1, 0, 5, 0, 0x24) + moves(0, 0, 6, 0, 0x26) +     # +20.L -> D4, +24.W -> D5, +26.B -> D6
+            moves(2, 1, 6, 0, 0x28) + store(1, 6, 0x1C) +                                     # +28.L -> A6, stored at +1C
+            moves(1, 1, 6, 0, 0x2C) + store(1, 6, 0x30) +                                     # +2C.W -> A6 (sign-extended), stored at +30
+            store(0, 4, 0x10) + store(0, 5, 0x14) + store(0, 6, 0x18))                        # D4, D5, D6 stored at +10, +14, +18
+    init = bytearray(((win >> 4) + i * 0x11) & 0xFF for i in range(0x40))
+    init[0x20:0x30] = SABS_SRC
+    exp = bytearray(init)
+    o = 1 if mis else 0                                                   # the misaligned case: every MOVES operand one byte up
+    exp[o + 0x00:o + 0x04] = bytes.fromhex("12345678"); exp[o + 0x04:o + 0x06] = bytes.fromhex("5678"); exp[o + 0x06] = 0x78
+    exp[o + 0x08:o + 0x0C] = bytes.fromhex("89ABCDEF"); exp[o + 0x0C:o + 0x0E] = bytes.fromhex("CDEF"); exp[o + 0x0E] = 0xEF
+    src = bytes(init[o + 0x20:o + 0x30])                                 # what the loads read (the stores land aligned at +$10..)
+    exp[0x10:0x14] = src[0:4]                                            # D4
+    exp[0x14:0x18] = bytes([0, 0]) + src[4:6]                            # D5: the word
+    exp[0x18:0x1C] = bytes([0, 0, 0, src[6]])                            # D6: the byte
+    exp[0x1C:0x20] = src[8:12]                                           # A6: the long
+    w = (src[12] << 8) | src[13]                                         # A6: the word, sign-extended
+    exp[0x30:0x34] = (w | (0xFFFF0000 if w & 0x8000 else 0)).to_bytes(4, "big")
+    return code, bytes(init), bytes(exp)
+
+
 def memfull_cases(part, bds):
     out = []
     for k, (is_, iis) in enumerate(MF_IIS):
@@ -1436,6 +1518,16 @@ def main():
             cases.append((regs, code + [0x4E40], 0, 0x2A000, 0x2A000, 4, bad, None,
                           {"A0": 0x77, "A1": 0x55, "super": True, "wp_pages": wps}, "um: " + what))
             um_extra += ex
+    if CASESET == "sabs":
+        assert TCMODE == "aux", "sabs needs TCMODE=aux (the user tree's pages)"
+        for k, (win, bad, wp, what) in enumerate(SABS):
+            code, init, exp = sabs_case(win)
+            putbytes(win, init)
+            ref = 0x2A000 + 0x100 * k
+            putbytes(ref, exp)
+            regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+            cases.append((regs, code, 0, ref, win, 0x40, bad, None,
+                          {"A0": 0x77, "A1": 0x55, "super": True, "wp": wp}, "sabs: " + what))
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)
