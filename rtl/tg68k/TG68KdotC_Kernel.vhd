@@ -6078,6 +6078,17 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						-- PMOVE EA builders consume stream words too; keep the
 						-- continuation PC honest for a PMOVE-to-memory write fault.
 						insn_next_pc <= insn_next_pc + 2;
+					ELSIF state="00" AND micro_state = moves0 AND
+					      (opcode(5 downto 3) = "101" OR opcode(5 downto 3) = "111") THEN
+						-- MOVES (d16,An) and (xxx).W/.L: moves0's "00" cycle fetches the
+						-- displacement or the first address word itself, and the EA state
+						-- it hands to (ld_dAn1, ld_nn) runs with that fetch suppressed, so
+						-- the word was never counted: a MOVES Rn,d16(An) whose write
+						-- page-faulted resumed one word EARLY, on the displacement (the
+						-- third round's supervisor sweep, 2026-10-20).  (d8,An,Xn) is
+						-- counted by getbrief above.
+						stream_consumed_pc <= tg68_pc;
+						insn_next_pc <= insn_next_pc + 2;
 					END IF;
 					-- Arm the forced-refetch window at the completion of every
 					-- Format $B frame RTE: the buffered prefetch word at the

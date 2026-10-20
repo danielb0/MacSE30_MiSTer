@@ -19977,6 +19977,31 @@ Daniel - add to it, move items out when fixed).**
     reproducible on the board, or absent in MAME, is chased (the branch
     trace); rare unrepeatable bombs are accepted as period behaviour.
 
+34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
+    MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
+    resumed one word EARLY, on its displacement word.** Every size (B/W/L),
+    Dn and An sources, every offset into the page: the faulting run's D0 ended
+    $FD = $0D OR $F9, the displacement $0000 executed as ORI.B #imm,D0 with the
+    next instruction's $42F9 as the immediate; the kernel's fault report:
+    exe_pc=76 inpc=80 tg68_pc=82 - the format $A continuation PC counted the
+    opcode and the MOVES extension word, not the displacement. CAUSE
+    (TG68KdotC_Kernel.vhd moves0): moves0's own state "00" cycle fetches the
+    displacement (mode 101) or the first address word (mode 111) and then
+    enters ld_dAn1 / ld_nn with setstate "01" - the fetch already done - so
+    neither stream_word_take nor getbrief ever counted that word (mode 110's
+    brief word goes through getbrief and was right, which is why (d8,An,Xn)
+    passed; (xxx).W/.L lose a word the same way). The read forms never use the
+    continuation PC (format $B rollback) and passed. FIX: the insn_next_pc
+    process counts moves0's "00" cycle for modes 101 and 111 (+2,
+    stream_consumed_pc). The 13 cases pass; the full ssweep, its WP half, the
+    supervisor rsweep (mode 7 included) and the regression follow. What A/UX
+    does with it: any kernel write to user memory at an offset - a signal
+    frame's fields (sendsig), a struct copied out field by field - whose page
+    is not resident: the kernel resumes one word early inside its own code,
+    with a register corrupted by whatever the displacement decodes as. A
+    KNOWN ISSUES 33-shaped flake: rare (only when the user page is out) and
+    never the same twice.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -20063,6 +20088,17 @@ straddles, the stale-ATC rule, PLOADR/PLOADW, user-mode forms; PTEST 7's
 MMUSR read back; TRAP #14 = back to supervisor); `+RAMJIT=n +RAMSEED=s`
 (the bench RAM's latency drawn per access); run_rsweep3.sh sdram|jit|super;
 run_irqsweep3.sh (8 ssweep cases, V-80..V+600 every 2nd clock);
+BENCH ARTEFACTS caught by the smoke runs (14:00-15:00): the um cases read
+the pointer descriptors through the page helper; under $2101 the descriptor
+reads hit stale data-cache lines (the walker writes on the bus - the chip's
+behaviour; the bench now clears the data cache before each read); and the
+pair compare's pristine copies were taken BEFORE the translation tables were
+built, so the new page-table windows restored ZEROS over the descriptors at
+every run's start - that was the whole "random latency" failure (seed 0
+dying from its first resident access; constant +RAMLAT=3 and +RAMJIT=1 the
+same, the KB bus/RAM trace showed the page descriptor at $4420 read back 0).
+Fixed by taking the copies at the end of main. No latency bug in the core;
++RAMLAT 4/10 had passed before and the SDRAM path is the chain's step 5.
 run_round3.sh = the chain (smoke, um, ssweep x2, sdram 50, jit 50, irq, then
 super 100 and the UM rerun 100 together; round3.log). Open spec question:
 whether PTEST's own search sets U (UM 9.8 says only "does not alter the
