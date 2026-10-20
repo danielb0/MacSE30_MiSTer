@@ -19989,6 +19989,15 @@ versions wait for them, then the forum, then MiSTer-devel):**
    DONE in sim/run_regression.sh: every sweep passes with the caches on.
    The caches are UM 6's (logical tags with FC, a faulted write invalidates
    its entry), so the scan is the fault paths with them on.
+**THE SECOND ROUND (2026-10-19/20, Daniel: "go ahead with 1 and then 2"):**
+(1) the PAIRED isweep/xsweep (every case resident and faulting, all
+registers, A7, CCR and memory compared) - found KNOWN ISSUES 32; (2) the
+random fault-transparency sweep, CASESET=rsweep / run_rsweep.sh: ~4,000
+random user-mode instructions a program across page boundaries, random code/
+data/stack pages invalid or write-protected, a level-1 interrupt every
+300-2000 clocks - **200/200 PASS (seeds 0-199, CACR 0, 2026-10-19 17:28 to
+10-20 01:39)**. Then (overnight 10-20): the full regression, the interrupt
+sweep and 100 more seeds with CACR $2101, before the forum builds.
 **ALL FIVE DONE (2026-10-19 04:33).** Bugs found and fixed: KNOWN ISSUES 23's
 class (stray reads/writes/fetches after an instruction-fetch fault, 87/127
 xsweep cases; the branch-target fetch), KNOWN ISSUES 21 (bit fields' last
