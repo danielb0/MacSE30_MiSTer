@@ -19970,6 +19970,12 @@ Daniel - add to it, move items out when fixed).**
     bugs the SE/30 sessions never reached; a B&W-vs-colour board experiment
     would not separate the hardware from the CPU. The IIcx in colour is the
     better stress test.
+    STATUS (Daniel, 2026-10-20): "watch, not chase" - Macs crashed a lot; a
+    video of A/UX (possibly A/UX 2) on a real Quadra (68040 - none of our
+    restart logic) showed an address error mid-demonstration: the Mac
+    environment under A/UX bombs on real hardware too (anecdotal). A crash
+    reproducible on the board, or absent in MAME, is chased (the branch
+    trace); rare unrepeatable bombs are accepted as period behaviour.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
