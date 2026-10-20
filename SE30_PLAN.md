@@ -20099,6 +20099,12 @@ dying from its first resident access; constant +RAMLAT=3 and +RAMJIT=1 the
 same, the KB bus/RAM trace showed the page descriptor at $4420 read back 0).
 Fixed by taking the copies at the end of main. No latency bug in the core;
 +RAMLAT 4/10 had passed before and the SDRAM path is the chain's step 5.
+RESULTS so far (15:15): um 107/107 at CACR 0 and $2101; ssweep 130/130
+(KNOWN ISSUES 34 fixed, 89b9753) and 65/65 WP; the chain is on step 5.
+The corrected generator verified (16:00): PAIR_SANITY=2 fails on exactly
+one long, the planted U bit of page $69000 in the table window (the dump
+address $72454 names it); rsweep seed 0 on the SDRAM path PASSES, 0
+datasheet violations.
 run_round3.sh = the chain (smoke, um, ssweep x2, sdram 50, jit 50, irq, then
 super 100 and the UM rerun 100 together; round3.log). Open spec question:
 whether PTEST's own search sets U (UM 9.8 says only "does not alter the
