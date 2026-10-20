@@ -20117,6 +20117,14 @@ MacIIcx: stamp, build_only, sta_corners, archive as <rev>_<sha>_r3release,
 checkout; log sim/overnight_r3.log. The committed qsfs as they are (MacSE30
 with USE_DBG_PROBES, MacIIcx with MACIICX). Expected: chain ~00:45,
 regression ~03:45, both builds ~05:45.
+STEP 6 (21:18): rsweep +RAMJIT=6 49/50 - seed 0 a TIMEOUT (the runner's 90
+min a seed, eight jittered sims sharing the cores; its orphaned vsimk killed
+by PID), rerun alone 23:24: PASS, 5,329,022 clocks - so 50/50, no failing
+check. STEP 7 (23:20): irqsweep3, an interrupt at every second clock in
+V-80..V+600 around 8 supervisor MOVES faults (invalid pages): 2728/2728 (8/8
+baselines), 79 min. The chain restarted from step 7 at 21:19 (the overnight
+script relaunched); step 8 (super 100 + the UM-window rerun 100, together)
+runs ~21:20-02:00, then the regression and the two builds (~07:00).
 run_round3.sh = the chain (smoke, um, ssweep x2, sdram 50, jit 50, irq, then
 super 100 and the UM rerun 100 together; round3.log). Open spec question:
 whether PTEST's own search sets U (UM 9.8 says only "does not alter the
