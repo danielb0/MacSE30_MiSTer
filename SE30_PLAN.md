@@ -20104,7 +20104,19 @@ RESULTS so far (15:15): um 107/107 at CACR 0 and $2101; ssweep 130/130
 The corrected generator verified (16:00): PAIR_SANITY=2 fails on exactly
 one long, the planted U bit of page $69000 in the table window (the dump
 address $72454 names it); rsweep seed 0 on the SDRAM path PASSES, 0
-datasheet violations.
+datasheet violations; rsweep seed 0 with +RAMJIT=6 PASSES (5.3M clocks, 16:45).
+STEP 5 DONE (17:50): rsweep on the SDRAM path 50/50 (169 min, the diagnostics
+sharing the cores). FOLDED BACK (18:00): the r3 generator, bench and runners
+are in sim/predec_fault (smoke: isweep 0, xsweep 0, dsweep 0, um - PASS);
+sim/run_regression.sh gained ssweep and ssweep SSW_WP=1 (both CACRs) and the
+um set (both CACRs). THE NIGHT (Daniel, 18:00: "chain the regression after
+it, and go ahead with any fixes. When all tests are passed, please compile
+the release-form versions of the IIcx and the SE/30"): sim/overnight_r3.sh
+waits for round3.log's "finished", runs the regression, then for MacSE30 and
+MacIIcx: stamp, build_only, sta_corners, archive as <rev>_<sha>_r3release,
+checkout; log sim/overnight_r3.log. The committed qsfs as they are (MacSE30
+with USE_DBG_PROBES, MacIIcx with MACIICX). Expected: chain ~00:45,
+regression ~03:45, both builds ~05:45.
 run_round3.sh = the chain (smoke, um, ssweep x2, sdram 50, jit 50, irq, then
 super 100 and the UM rerun 100 together; round3.log). Open spec question:
 whether PTEST's own search sets U (UM 9.8 says only "does not alter the

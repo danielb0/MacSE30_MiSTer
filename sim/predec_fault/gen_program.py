@@ -539,6 +539,20 @@ def uok_ranges():
 # before it, so a wrong pointer cannot drift.  RSWLIST=n lists n seeds.
 RSW_CODE, RSW_DATA, RSW_DLEN, RSW_STK = 0x64C00, 0x69000, 0x2000, 0x8C00
 PAIR_WIN["rsweep"] = [(RSW_DATA, RSW_DLEN), (RSW_STK, 0x3FC)]   # (not $8FFC: the harness's JSR return address, a different caller per run)
+RSW_SUPER = os.environ.get("RSW_SUPER") == "1"      # the third round's scan 1: the program in supervisor mode, MOVES the faulting accesses
+if RSW_SUPER:                                        # the supervisor stack carries the fault and interrupt frames below SP, so only the data is compared
+    PAIR_WIN["rsweep"] = [(RSW_DATA, RSW_DLEN)]
+# RSW_UM=1 (the third round's scan 3, default on; TCMODE=aux): the user tree's
+# page descriptors for the program's pages are in the compare too - the
+# walker's U (bit 3) and M (bit 4) write-back (UM 9.5.3) must leave the same
+# bits whether a page was resident from the start or made resident by the
+# handler (which touches DT and WP only): U on every touched page, M on every
+# written one.  The windows are restored from their pristine copies BEFORE the
+# case's pages are made invalid.  PAIR_SANITY=2 clears page $69000's U after
+# the faulting run (must FAIL).
+RSW_UM = os.environ.get("RSW_UM", "1") == "1" and TCMODE == "aux"
+if RSW_UM and CASESET == "rsweep":
+    PAIR_WIN["rsweep"] += [(PG_TBL + 4 * 0x64, 4 * 7), (PG_TBL + 4 * 0x8, 4)]   # pages $64000-$6A000 and $8000
 
 
 def rsw_build(seed):
@@ -664,9 +678,19 @@ def rsw_build(seed):
         w.extend([0x7E00 | rnd.randrange(1, 4), 0x5280 | dn(), 0x51CF, 0xFFFC])   # MOVEQ #n,D7; L: ADDQ.L #1,Dm; DBRA D7,L
     def bsr():
         w.extend([0x6004, 0x5280 | dn(), 0x4E75, 0x6100, 0xFFFA])               # BRA.S +4; stub: ADDQ; RTS; BSR.W stub
+    # RSW_SUPER=1 (the third round's scan 1): the program runs in SUPERVISOR
+    # mode, so its ordinary accesses walk the resident supervisor tree and only
+    # these fault - MOVES through SFC = DFC = 1, every size, both directions,
+    # Dn or An (not A4, the zero index; not bytes into An), the kernel's
+    # copyin/copyout/uclear/sendsig shapes among random kernel work
+    def moves():
+        s_ = sz(); e, x = mem_ea(4)
+        an = s_ and rnd.random() < 0.3
+        r = (0x8000 | rnd.choice((0, 1, 2, 3, 6)) << 12) if an else dn() << 12
+        w.extend([0x0E00 | s_ << 6 | e, r | rnd.randrange(2) << 11] + x)
     for f, wt in ((mv_to, 4), (mv_from, 4), (mv_mm, 2), (alu_mem, 3), (q_mem, 2), (u_mem, 2), (sh_mem, 1),
                   (bit_mem, 1), (movem, 2), (movep, 1), (bitfield, 2), (cas, 1), (tas, 1), (cmpm, 1), (addx_m, 1),
-                  (stack, 3), (bcc, 2), (dbra, 1), (bsr, 1)):
+                  (stack, 3), (bcc, 2), (dbra, 1), (bsr, 1)) + (((moves, 8),) if RSW_SUPER else ()):
         op(f, wt)
     total = sum(wt for _, wt in ops)
     w.append(0x99CC)                                         # SUBA.L A4,A4: the index register is 0
@@ -772,6 +796,48 @@ DSW_WPX = [
     ([0x4E56, 0xFFF8], 0, 0, 0, "(no memory: LINK on the stack - a control)"),
 ]
 DSW_WP = os.environ.get("DSW_WP") == "1"
+
+# ssweep (the third round's scan 1, 2026-10-20: SUPERVISOR-side faults): A/UX's
+# kernel touches user pages with MOVES - copyin $554F0, copyout $556F0, uclear
+# $557D0 (MOVES.L -(An)), sendsig's signal frame, the exec loader - and the
+# bench had four directed MOVES.L cases.  Every MOVES form: byte, word and
+# long, memory to Dn and to An (An: the word sign-extended, uclear's source
+# register) and register to memory, through (A6), (A6)+, -(A6), (d16,A6) and
+# (d8,A6,D0.W) (D0 = 13, d8 = -13: the operand at A6), the operand straddling
+# the page top at DSW_OFFS.  dsweep's pair pattern, run in supervisor mode with
+# SFC = DFC = 1 (set at the program's start), the page invalid or (SSW_WP=1,
+# the writes only: write() into a forked child's copy-on-write page) write-
+# protected in the USER tree.  One case a run: SSW=k (SSWLIST=1 lists them).
+SSW_WP = os.environ.get("SSW_WP") == "1"
+
+
+def ssw_insns():
+    out = []
+    eas = [(0x16, [], 0, "(A6)"), (0x1E, [], 0, "(A6)+"), (0x26, [], None, "-(A6)"),
+           (0x2E, [0x0000], 0, "0(A6)"), (0x36, [0x00F3], 0, "-13(A6,D0.W)")]
+    for sz, sn, sl in ((0, "B", 1), (1, "W", 2), (2, "L", 4)):
+        for ea, ext, adj, en in eas:
+            a = sl if adj is None else adj
+            for rn, rbit, rname in ((4, 0, "D4"), (4, 1, "A4")):
+                if rbit and sz == 0:
+                    continue                                 # MOVES.B An: not a form the kernel uses
+                r = rbit << 15 | rn << 12
+                out.append(([0x0E00 | sz << 6 | ea, r] + ext, a, 0, sl, "MOVES.%s %s,%s" % (sn, en, rname)))
+                out.append(([0x0E00 | sz << 6 | ea, r | 0x0800] + ext, a, 0, sl, "MOVES.%s %s,%s" % (sn, rname, en)))
+    return out
+
+
+def ssw_cases():
+    out = []
+    for ws, adj, fs, fl, what in ssw_insns():
+        if SSW_WP and not (ws[1] & 0x0800):
+            continue                                         # write-protected: the writes only
+        for off in DSW_OFFS:
+            lo, hi = off + fs, off + fs + fl
+            if hi <= 0 or lo < -32 or hi > 32:
+                continue
+            out.append((ws, adj, off, what + (" at P%+d" % off)))
+    return out
 
 
 def dsw_cases():
@@ -905,6 +971,119 @@ MEMIND += [
 # page $63000 - (IS, I/IS) pairs:
 MF_IIS = [(1, 0), (1, 1), (1, 2), (1, 3), (0, 0), (0, 1), (0, 2), (0, 3), (0, 5), (0, 6), (0, 7)]
 MF_P0, MF_P2, MF_P3 = 0x60000, 0x62000, 0x63000
+
+
+# um (the third round's scan 3, 2026-10-20): the walker's U and M write-back
+# against MC68030 UM 9.5.1.1 and 9.5.2 ("the U bit in each descriptor that is
+# encountered is checked and set if it is not already set ... when the table
+# search is for a write access and the M bit of the page descriptor is clear,
+# the processor sets the bit if the table search does not encounter a set WP
+# bit"; "an access is considered to be a write for updating purposes if
+# either the R/W or RMC signal is low"), 9.6 (an ATC hit for a write with the
+# entry's M clear aborts the cycle, a table search sets M in the descriptor
+# and the entry) and 9.8 (PLOADW updates the history as a write, PLOADR as a
+# read; PTEST level 7 reports M).  A/UX's pager is the first user: it judges
+# dirty pages by M (PTEST 7, vtopte_sr) and ages them by U.  Each case
+# touches fresh pages of the user tree (U and M clear) - from supervisor mode
+# through MOVES (FC 1) or in user mode (MOVE #0,SR ... TRAP #14 back) - then
+# copies the descriptors and PTEST's MMUSR to UM_OBS + $40 x case; the
+# expectations are the manual's.  Needs TCMODE=aux.  One run, all cases.
+UM_P, UM_OBS, TRAPS = 0x50000, 0x3800, 0x1F80       # the pages (one a case, more for the straddles), the observations, TRAP #14 (vector 46: back to supervisor)
+UM_U, UM_M, UM_WP = 8, 16, 4
+
+
+def um_cases():
+    """(code words, invalid pages, write-protected pages, [(slot, value, what)], what)."""
+    out = []
+    L = lambda v: [(v >> 16) & 0xFFFF, v & 0xFFFF]
+    desc = lambda p: PG_TBL + 4 * (p >> 12)
+    base = lambda p: p | 1
+    pg = [UM_P + 0x1000 * i for i in range(24)]
+    def lea3(a): return [0x47F9] + L(a)              # LEA a,A3
+    # the walker writes descriptors on the bus, past the data cache (UM 6.1.2: a
+    # stale cached copy is the chip's behaviour, the OS's problem), so every
+    # read of one here clears the data cache first: MOVE.L #CACR|CD,D0; MOVEC D0,CACR
+    CD = [0x203C] + L(CACR | 0x0800) + [0x4E7B, 0x0002]
+    def rd(p, slot):                                 # MOVE.L desc(p).L,slot.L: page p's descriptor
+        return CD + [0x23F9] + L(desc(p)) + L(slot)
+    def rdat(a, slot):                               # MOVE.L a.L,slot.L: a pointer descriptor at a
+        return CD + [0x23F9] + L(a) + L(slot)
+    def ptest(p, slot):                              # LEA p,A3; PTEST #1,(A3),#7; LEA slot,A4; PMOVE MMUSR,(A4)
+        return lea3(p) + [0xF013, 0x9E11, 0x49F9] + L(slot) + [0xF014, 0x6200]
+    MR, MW = [0x0E13, 0x3000], [0x0E93, 0x3800]      # MOVES.B (A3),D3; MOVES.L D3,(A3)
+    USER, SUPER = [0x46FC, 0x0000], [0x4E4E]         # MOVE #0,SR; TRAP #14
+    FLUSH = [0xF000, 0x2400]
+    mmusr = lambda m, wp=0: (0x200 if m else 0) | (0x800 if wp else 0) | 3   # M, W, N = 3 levels
+    k = 0
+    def case(code, bad, wps, obs, what):
+        nonlocal k
+        s = UM_OBS + 0x40 * k
+        ex = [(s + 4 * i, v, "um %d %s: %s" % (k, what, w)) for i, (v, w) in enumerate(obs)]
+        out.append((code, bad, wps, ex, what)); k += 1
+        return s
+    # 0: a read sets U, not M; the pointer descriptors' U too; a flush and a re-read change nothing
+    s = UM_OBS
+    p = pg[0]
+    case(lea3(p) + MR + rd(p, s) + rdat(AUX_U[0], s + 4) + rdat(AUX_U[1] + 4, s + 8) + FLUSH + MR + rd(p, s + 12) + ptest(p, s + 16),
+         [], [], [(base(p) | UM_U, "the page: U"), (AUX_U[1] | 2 | UM_U, "table A entry 0: U"), ((AUX_U[2] + 0x100) | 2 | UM_U, "table B entry 1: U"),
+                  (base(p) | UM_U, "after PFLUSHA and a re-read: unchanged"), (mmusr(0) << 16, "PTEST 7: M clear, N 3")],
+         "a read (MOVES.B)")
+    # 1: a write sets U and M
+    p = pg[1]; s = UM_OBS + 0x40
+    case(lea3(p) + MW + rd(p, s) + ptest(p, s + 4), [], [], [(base(p) | UM_U | UM_M, "U and M"), (mmusr(1) << 16, "PTEST 7: M")], "a write (MOVES.L)")
+    # 2: a read (an ATC entry with M clear), then a write: the hit must re-walk to set M (UM 9.6)
+    p = pg[2]; s = UM_OBS + 0x80
+    case(lea3(p) + MR + rd(p, s) + MW + rd(p, s + 4), [], [], [(base(p) | UM_U, "after the read: U"), (base(p) | UM_U | UM_M, "after the write on the ATC hit: M")],
+         "a read then a write")
+    # 3: a write to a write-protected page: the fault, the handler clears WP, the re-run sets M
+    p = pg[3]; s = UM_OBS + 0xC0
+    case(lea3(p) + MW + rd(p, s) + ptest(p, s + 4), [p], [p], [(base(p) | UM_U | UM_M, "repaired and re-run: U and M"), (mmusr(1) << 16, "PTEST 7: M")],
+         "a write to a WP page (fault)")
+    # 4: a read of a write-protected page: no fault, U set, M clear
+    p = pg[4]; s = UM_OBS + 0x100
+    case([0x00B9] + L(UM_WP) + L(desc(p)) + lea3(p) + MR + rd(p, s) + ptest(p, s + 4), [], [],
+         [(base(p) | UM_WP | UM_U, "U, WP kept, M clear"), (mmusr(0, 1) << 16, "PTEST 7: W, M clear")], "a read of a WP page")
+    # 5: TAS in user mode on a clean page: an RMC access is a write for the history (UM 9.5.1.1)
+    p = pg[5]; s = UM_OBS + 0x140
+    case(lea3(p) + USER + [0x4AD3] + SUPER + rd(p, s) + ptest(p, s + 4), [], [], [(base(p) | UM_U | UM_M, "U and M"), (mmusr(1) << 16, "PTEST 7: M")],
+         "TAS (user mode)")
+    # 6: TAS on a WP page: the fault at the locked read (KNOWN ISSUES 21), repaired, re-run: M
+    p = pg[6]; s = UM_OBS + 0x180
+    case(lea3(p) + USER + [0x4AD3] + SUPER + rd(p, s), [p], [p], [(base(p) | UM_U | UM_M, "repaired and re-run: U and M")], "TAS on a WP page (fault)")
+    # 7: a long write straddling two pages: both U and M
+    p = pg[7]; s = UM_OBS + 0x1C0
+    case(lea3(p + 0xFFE) + MW + rd(p, s) + rd(pg[8], s + 4), [], [], [(base(p) | UM_U | UM_M, "the low page"), (base(pg[8]) | UM_U | UM_M, "the high page")],
+         "a long write straddling (MOVES.L)")
+    # 8: the stale-ATC rule, as the manual has it: M cleared in memory with the ATC entry still M, a write re-walks NOTHING (U/M unchanged); after a flush it does
+    p = pg[9]; s = UM_OBS + 0x200
+    case(lea3(p) + MW + [0x02B9] + L(~UM_M & 0xFFFFFFFF) + L(desc(p)) + MW + rd(p, s) + FLUSH + MW + rd(p, s + 4), [], [],
+         [(base(p) | UM_U, "M cleared in memory, the ATC's M set: no walk, M stays clear"), (base(p) | UM_U | UM_M, "after PFLUSHA: the walk sets M")],
+         "the ATC's M against memory's")
+    # 9: user mode, plain instructions: a read then a write
+    p = pg[10]; s = UM_OBS + 0x240
+    case(lea3(p) + USER + [0x1613] + SUPER + rd(p, s) + USER + [0x2683] + SUPER + rd(p, s + 4), [], [],
+         [(base(p) | UM_U, "after MOVE.B (A3),D3: U"), (base(p) | UM_U | UM_M, "after MOVE.L D3,(A3): M")], "user-mode read then write")
+    # 10: PLOADR sets U; PLOADW sets U and M (UM 9.8)
+    p = pg[11]; s = UM_OBS + 0x280
+    case(lea3(p) + [0xF013, 0x2211] + rd(p, s) + lea3(pg[12]) + [0xF013, 0x2011] + rd(pg[12], s + 4), [], [],
+         [(base(p) | UM_U, "PLOADR: U"), (base(pg[12]) | UM_U | UM_M, "PLOADW: U and M")], "PLOADR and PLOADW")
+    # 11: MOVEM.L across two pages in user mode: both U and M
+    p = pg[13]; s = UM_OBS + 0x2C0
+    case(lea3(p + 0xFFC) + USER + [0x48D3, 0x0018] + SUPER + rd(p, s) + rd(pg[14], s + 4), [], [],
+         [(base(p) | UM_U | UM_M, "the low page"), (base(pg[14]) | UM_U | UM_M, "the high page")], "MOVEM.L D3/D4,(A3) straddling (user mode)")
+    # 12: a write to an invalid page: the fault, the handler makes it valid (U and M as they were: clear), the re-run sets both
+    p = pg[15]; s = UM_OBS + 0x300
+    case(lea3(p) + MW + rd(p, s) + ptest(p, s + 4), [p], [], [(base(p) | UM_U | UM_M, "repaired and re-run: U and M"), (mmusr(1) << 16, "PTEST 7: M")],
+         "a write to an invalid page (fault)")
+    # 13: a byte write at a page's last byte: that page only
+    p = pg[16]; s = UM_OBS + 0x340
+    case(lea3(p + 0xFFF) + [0x0E13, 0x3800] + rd(p, s) + rd(pg[17], s + 4), [], [],
+         [(base(p) | UM_U | UM_M, "the page"), (base(pg[17]), "the next page untouched")], "a byte write at the last byte")
+    # 14: a write hit after a read in user mode with the caches on the way (same as 2, user mode, two writes: the second hits with M set, no walk needed)
+    p = pg[18]; s = UM_OBS + 0x380
+    case(lea3(p) + USER + [0x1613, 0x2683, 0x2683] + SUPER + rd(p, s) + ptest(p, s + 4), [], [],
+         [(base(p) | UM_U | UM_M, "U and M"), (mmusr(1) << 16, "PTEST 7: M")], "user-mode read, write, write")
+    return out
 
 
 def memfull_cases(part, bds):
@@ -1109,6 +1288,23 @@ def main():
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
         cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [DSW_P], 1,
                       {"A0": 0x77, "A1": 0x55, "wp": DSW_WP, "nocount": DSW_WP}, "dsweep: " + what))
+    if CASESET == "ssweep":                          # dsweep's pattern in supervisor mode (MOVES, SFC = DFC = 1)
+        allc = ssw_cases()
+        if os.environ.get("SSWLIST"):
+            for k, c in enumerate(allc):
+                print("%3d %s" % (k, c[3]))
+            raise SystemExit(0)
+        code_w, what = dsw_build(allc[int(os.environ["SSW"])])
+        putbytes(DSW_CODE, b"".join(x.to_bytes(2, "big") for x in code_w))
+        rnd = random.Random(29)
+        window = bytes(rnd.randrange(1, 256) for _ in range(128))
+        putbytes(DSW_P - 64, window)
+        putbytes(DSW_RB - 64, window if not os.environ.get("DSW_SANITY") else window[:64] + bytes([window[64] ^ 0x5A]) + window[65:])
+        putbytes(DSW_INIT, b"".join(v.to_bytes(4, "big") for v in DSW_INITV))
+        code = [0x4EB9, DSW_CODE >> 16, DSW_CODE & 0xFFFF, 0x4E40]   # JSR DSW_CODE.L; TRAP #0 - in supervisor mode
+        regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [DSW_P], 1,
+                      {"A0": 0x77, "A1": 0x55, "wp": SSW_WP, "nocount": SSW_WP, "super": True}, "ssweep: " + what))
     if CASESET == "isweep":
         allc = isw_cases()
         if os.environ.get("ISWLIST"):
@@ -1184,8 +1380,8 @@ def main():
                      0x4E40]                                             # TRAP #0
             cases.append((regs, code2, 0, 0x2A000, 0x2A000, 4, badp, None,
                           {"A0": None, "A1": None, "pair": (run, PAIR_WIN["rsweep"]), "wp_pages": wps, "nocount": True,
-                           "noregs": True},
-                          "rsweep %d%s" % (seed, " (reference)" if run == 0 else " (faulting)")))
+                           "noregs": True, "super": RSW_SUPER},
+                          "rsweep %d%s%s" % (seed, " (supervisor, MOVES)" if RSW_SUPER else "", " (reference)" if run == 0 else " (faulting)")))
         putbytes(PAIR_DUMP, bytes(2 * PAIR_STRIDE))
     if CASESET == "rts":
         sel = os.environ.get("RTSONLY")               # one case alone, as IFONLY
@@ -1230,6 +1426,16 @@ def main():
             regs = mregs + [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
             cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, bad, a2,
                           {"A0": 0x77, "A1": 0x55}, CASESET + ": " + what))
+    um_extra = []
+    if CASESET == "um":
+        assert TCMODE == "aux", "um needs TCMODE=aux (the user tree's descriptors)"
+        for p in range(UM_P, UM_P + 24 * 0x1000, 0x1000):
+            putbytes(p, bytes((0x5A, 0xA5)) * 8)     # every page named (+UOK) and nonzero at its start
+        for code, bad, wps, ex, what in um_cases():
+            regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0), (0x263C, 0x33333333)]   # A0, A1, MOVEQ #-1,D1, A2, D3
+            cases.append((regs, code + [0x4E40], 0, 0x2A000, 0x2A000, 4, bad, None,
+                          {"A0": 0x77, "A1": 0x55, "super": True, "wp_pages": wps}, "um: " + what))
+            um_extra += ex
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)
@@ -1287,13 +1493,22 @@ def main():
         if c[8].get("pair"):
             pair_wins = c[8]["pair"][1]
     if pair_wins:
-        po = 0
-        for a_, n_ in pair_wins:                      # the pristine copies of the windows
-            mem[(PAIR_PRIST + po) // 2:(PAIR_PRIST + po + n_) // 2] = mem[a_ // 2:(a_ + n_) // 2]
-            po += n_
+        rec[0] = True
         for i in range(14):                           # PAIR_INIT: D0-D7/A0-A4/A6, distinct
             put32(PAIR_INIT + 4 * i, (0x1000 * (i + 1) + 0x01010101 * (i + 3)) & 0xFFFFFFFF)
+        # (the windows' pristine copies are taken at the end of main, after the
+        # translation tables are built: a page-table window copied here was
+        # zeros, and every run's start wrote them over the descriptors - the
+        # third round's first "latency" failures, 2026-10-20)
     for k, (regs, code, entry, ref, dst, n, bad, a2_want, want, what) in enumerate(cases):
+        if want.get("pair"):
+            po = 0
+            for a_, n_ in want["pair"][1]:           # the windows from their pristine copies (the page table among them: before the pages are made invalid)
+                emit(0x41F9); l32(PAIR_PRIST + po)   # LEA prist,A0
+                emit(0x43F9); l32(a_)                # LEA window,A1
+                emit(0x303C, n_ // 4 - 1)            # MOVE.W #n/4-1,D0
+                emit(0x22D8, 0x51C8, 0xFFFC)         # MOVE.L (A0)+,(A1)+; DBRA D0,*-2
+                po += n_
         for p in bad:
             if want.get("wp") or p in want.get("wp_pages", ()):
                 emit(0x00B9); l32(0x00000004); l32(PG_TBL + 4 * (p >> 12))  # ORI.L #4,desc: WP
@@ -1301,13 +1516,6 @@ def main():
                 emit(0x02B9); l32(0xFFFFFFFC); l32(PG_TBL + 4 * (p >> 12))  # ANDI.L #~3,desc: DT 0
         emit(0xF000, 0x2400)                         # PFLUSHA
         if want.get("pair"):
-            po = 0
-            for a_, n_ in want["pair"][1]:           # the windows from their pristine copies
-                emit(0x41F9); l32(PAIR_PRIST + po)   # LEA prist,A0
-                emit(0x43F9); l32(a_)                # LEA window,A1
-                emit(0x303C, n_ // 4 - 1)            # MOVE.W #n/4-1,D0
-                emit(0x22D8, 0x51C8, 0xFFFC)         # MOVE.L (A0)+,(A1)+; DBRA D0,*-2
-                po += n_
             emit(0x41F9); l32(0x9000)                # LEA $9000,A0
             emit(0x4E60)                             # MOVE.L A0,USP
             emit(0x4CF9, 0x5FFF); l32(PAIR_INIT)     # MOVEM.L INIT,D0-D7/A0-A4/A6
@@ -1320,6 +1528,8 @@ def main():
                 l32(v)
         if not want.get("super"):
             emit(0x46FC, 0x0000)                     # MOVE.W #0,SR: user mode
+        else:
+            emit(0x46FC, 0x2000)                     # MOVE.W #$2000,SR: supervisor, interrupts unmasked (the third round's +IRQAT / +IRQEVERY)
         if entry:
             emit(0x6000 | entry)                     # BRA.B the loop's entry
         emit(*code)
@@ -1333,6 +1543,10 @@ def main():
         emit(0x23CA); l32(s + 20)                    # MOVE.L A2,s+20
         if want.get("pair"):
             run, wins = want["pair"]
+            if os.environ.get("PAIR_SANITY") == "2" and run == 1 and RSW_UM:
+                emit(0x02B9); l32(0xFFFFFFF7); l32(PG_TBL + 4 * 0x69)   # ANDI.L #~8,desc($69000): U cleared - a planted difference (must FAIL)
+            if RSW_UM and CASESET == "rsweep":
+                emit(0x203C); l32(CACR | 0x0800); emit(0x4E7B, 0x0002)   # MOVEC #CACR|CD,CACR: the page table read past any stale data-cache line (the walker writes on the bus)
             po = 0x40
             for a_, n_ in wins:                      # the windows to the run's dump
                 emit(0x41F9); l32(a_)                # LEA window,A0
@@ -1364,6 +1578,7 @@ def main():
                    (s + 16, handled, "case %d handler entries so far = the invalid pages" % k)][:4 if want.get("nocount") else 5]
         if a2_want is not None:
             expect.append((s + 20, a2_want, "case %d A2 at the output's end" % k))
+    expect += um_extra                               # the um cases' descriptor and MMUSR observations
     if pair_wins:                                    # the two runs' dumps compared
         nl = (0x40 + sum(n_ for _, n_ in pair_wins)) // 4
         emit(0x41F9); l32(PAIR_DUMP)                 # LEA dump0,A0
@@ -1490,11 +1705,12 @@ def main():
 
     mem[0:4] = [0x0000, 0x8000, 0x0000, ORG]         # SSP, PC
     for v in range(2, 64):
-        t = BERR if v == 2 else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else IRQ1 if v == 25 else EXC
+        t = BERR if v == 2 else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else IRQ1 if v == 25 else TRAPS if v == 46 else EXC
         mem[2 * v], mem[2 * v + 1] = t >> 16, t & 0xFFFF
     trapf = [0x7000, 0x4E73]                         # TRAP #15: MOVEQ #0,D0; RTE - a syscall's return (rts cases)
     irq1 = [0x52B9, IRQ1COUNT >> 16, IRQ1COUNT & 0xFFFF, 0x4E73]   # ADDQ.L #1,IRQ1COUNT; RTE
-    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1)):
+    traps = [0x0057, 0x2000, 0x4E73]                 # TRAP #14: ORI.W #$2000,(A7); RTE - back to supervisor mode (the um cases)
+    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1), (TRAPS, traps)):
         for i, x in enumerate(code):
             mem[base // 2 + i] = x
     rec[0] = False                                   # the tables and the handler's words are not the cases'
@@ -1525,6 +1741,11 @@ def main():
         for p in range(256):
             put32(TBL_B + 4 * p, (p << 12) | 1)      # identity pages, valid, U and M clear
 
+    if pair_wins:                                    # the pristine copies of the windows, the tables included
+        po = 0
+        for a_, n_ in pair_wins:
+            mem[(PAIR_PRIST + po) // 2:(PAIR_PRIST + po + n_) // 2] = mem[a_ // 2:(a_ + n_) // 2]
+            po += n_
     with open(os.path.join(HERE, "program.hex"), "w") as f:
         for x in mem:
             f.write("%04x\n" % x)

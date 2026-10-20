@@ -37,7 +37,7 @@ fi
 if [ "$WHAT" != phase1 ]; then
   {
     for c in 0 0x2101; do
-      for s in "predec_fault ./run_isweep.sh" "predec_fault ./run_dsweep.sh" "predec_fault ./run_dsweep.sh DSW_WP=1" "predec_fault ./run_xsweep.sh"; do
+      for s in "predec_fault ./run_isweep.sh" "predec_fault ./run_dsweep.sh" "predec_fault ./run_dsweep.sh DSW_WP=1" "predec_fault ./run_xsweep.sh"                "predec_fault ./run_ssweep.sh" "predec_fault ./run_ssweep.sh SSW_WP=1"; do   # (the third round: supervisor MOVES, KNOWN ISSUES 34)
         set -- $s; d=$1; shift
         r=$(cd "$SIM/$d" && "$@" CACR=$c 2>&1 | tail -1); echo "$r CACR=$c $*"
       done
@@ -46,6 +46,9 @@ if [ "$WHAT" != phase1 ]; then
       done
     done
     r=$(cd "$SIM/predec_fault" && ./run_uok_all.sh 2>&1 | tail -1); echo "$r"
+    for c in 0 0x2101; do   # the third round: the walker's U/M write-back (UM 9.5.3), 15 cases
+      job "um U/M write-back CACR=$c" predec_fault bash -c "d=../_um_$c; rm -rf \$d; mkdir \$d; cp gen_program.py tb_predec_fault.v run.sh \$d/; cd \$d && CASESET=um TCMODE=aux HANDLER=aux CACR=$c ./run.sh +UOK; r=\$?; cd ..; rm -rf \$d; exit \$r"
+    done
     job "bfx (KNOWN ISSUES 21)" predec_fault bash -c 'd=../_bfx; rm -rf $d; mkdir $d; cp gen_program.py tb_predec_fault.v run.sh $d/; cd $d && CASESET=bfx ./run.sh +UOK; r=$?; cd ..; rm -rf _bfx; exit $r'
   } > "$LOG.2"
   cat "$LOG.2"

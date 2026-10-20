@@ -200,11 +200,16 @@ module tb_predec_fault;
     rd32 = ram[a[23:2]];
   endfunction
   integer ramlat = 0, ram_wait = 0;      // +RAMLAT=<n>: a RAM access waits n ticks (the board's SDRAM is slower)
+  integer ramjit = 0, ramseed = 1, ram_lat_now = 0;   // +RAMJIT=<n> +RAMSEED=<s> (the third round, scan 5): each access
+                                                       // waits RAMLAT + 0..n ticks, drawn per access from the seed
   always @(posedge clk) if (phi1) begin
     ram_ack_r <= 0; rom_ack <= 0;
-    if (!ram_req || ram_ack_r) ram_wait <= 0;
-    else if (ram_wait < ramlat) ram_wait <= ram_wait + 1;
-    if (ram_req && !ram_ack_r && ram_wait >= ramlat) begin
+    if (!ram_req || ram_ack_r) begin
+      ram_wait <= 0;
+      ram_lat_now <= ramjit > 0 ? ramlat + ({$random(ramseed)} % (ramjit + 1)) : ramlat;
+    end
+    else if (ram_wait < ram_lat_now) ram_wait <= ram_wait + 1;
+    if (ram_req && !ram_ack_r && ram_wait >= ram_lat_now) begin
       if (ram_we && !ram_empty) begin
         if (ram_be[3]) ram[ram_phys][31:24] <= ram_wdata[31:24];
         if (ram_be[2]) ram[ram_phys][23:16] <= ram_wdata[23:16];
@@ -231,6 +236,15 @@ module tb_predec_fault;
     $display("KT %0t ms=%0d %s ce=%b bv=%b bs=%b a=%08x log=%08x siz=%0d d=%08x busy=%b flt=%b faddr=%08x s=%0d post=%b",
              $time, ms, phi1 ? "p1" : "p2", cpu.k_clkena, cpu.k_beat_valid, cpu.k_busstate, cpu.k_addr, cpu.k_addr_log,
              cpu.k_siz, cpu.k_dout, cpu.k_pmmu_busy, cpu.k_pmmu_fault, cpu.k_f_addr, cpu.s, cpu.post);
+  // ... and the 68030 bus and the RAM port on the same clocks (KB, the third
+  // round's latency runs): AS/DS/RW/FC/address/data in, DSACK, the wrapper's
+  // walker beat bookkeeping, GLUE's RAM request and the bench RAM's reply
+`ifndef SDRAM
+  always @(posedge clk) if ($time >= kt0 && $time < kt1)
+    $display("KB %0t %s as=%b ds=%b rw=%b fc=%0d a=%08x din=%08x dsack=%b dsr=%b wsel=%b wd=%0d | ram req=%b ack=%b we=%b addr=%07x rdata=%08x wait=%0d lat=%0d",
+             $time, phi1 ? "p1" : "p2", cpu_as_n, cpu_ds_n, cpu_rw_n, cpu_fc, cpu_addr, cpu_din, dsack_n, cpu.dsack_r, cpu.wsel, cpu.walk_done,
+             ram_req, ram_ack, ram_we, ram_addr, ram_rdata, ram_wait, ram_lat_now);
+`endif
   // ... and its fault bookkeeping on the same clocks (KX): first-fire latch,
   // dispatch request, restart arm, consumer strobes, retire
   reg kx_lw, kx_mb, kx_disp, kx_fv, kx_fi, kx_rp, kx_cons, kx_sop, kx_sint, kx_bea, kx_tb, kx_obv, kx_bad;
@@ -508,6 +522,9 @@ module tb_predec_fault;
     if ($value$plusargs("KT1=%d", kt1)) ;
 `ifndef SDRAM
     if ($value$plusargs("RAMLAT=%d", ramlat)) ;
+    if ($value$plusargs("RAMJIT=%d", ramjit)) ;
+    if ($value$plusargs("RAMSEED=%d", ramseed)) ;
+    if (ramjit > 0) $display("---- +RAMJIT=%0d +RAMSEED=%0d: each RAM access waits %0d..%0d ticks", ramjit, ramseed, ramlat, ramlat + ramjit);
 `endif
     pace_en = !$test$plusargs("NOPACE");
     post_en = !$test$plusargs("NOPOST");
