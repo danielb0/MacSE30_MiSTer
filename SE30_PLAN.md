@@ -20002,8 +20002,12 @@ random fault-transparency sweep, CASESET=rsweep / run_rsweep.sh: ~4,000
 random user-mode instructions a program across page boundaries, random code/
 data/stack pages invalid or write-protected, a level-1 interrupt every
 300-2000 clocks - **200/200 PASS (seeds 0-199, CACR 0, 2026-10-19 17:28 to
-10-20 01:39)**. Then (overnight 10-20): the full regression, the interrupt
-sweep and 100 more seeds with CACR $2101, before the forum builds.
+10-20 01:39)**. Then (10-20 01:40-13:37, all on 0b46b37's kernel): **the full
+regression 44/44, the interrupt sweep 5252/5252 (26 cases, paired), rsweep
+100/100 with CACR $2101 (seeds 200-299)** - no new bug. The IIcx forum build
+= `MacIIcx_0b46b378_allfixes.rbf` as it is (no hardware source changed
+since; Daniel renames it); the SE/30 forum build from the same sources waits
+for Daniel's further sweeps in another session.
 **ALL FIVE DONE (2026-10-19 04:33).** Bugs found and fixed: KNOWN ISSUES 23's
 class (stray reads/writes/fetches after an instruction-fetch fault, 87/127
 xsweep cases; the branch-target fetch), KNOWN ISSUES 21 (bit fields' last
@@ -20014,6 +20018,55 @@ have been fixed, do one more release form build. Maybe we'll get lucky. If
 not, then we'll proceed with a test build" - the IIcx release form of
 8973e14, then MacX's first run in 256 colours; if it still crashes, the
 branch-trace JTRACE build (CD-ROM and floppy out if it must, Daniel).
+**THE THIRD ROUND (opened 2026-10-20 13:00, Daniel: "start on 1, 3 and 5"
+after the $2101 rsweep; the other session holds compiles until the sweeps
+end).** A review of the sweeps (every one: a USER-mode instruction, a PAGE
+descriptor made invalid or WP, one clean level-1 interrupt held until
+acknowledge, the core as its own reference, the bench's ideal RAM) named
+the classes the construction cannot reach. Built in `sim/predec_fault_r3`
+(a copy, its own `_r3*` scratch prefixes and logs, so the live sweep's
+per-seed copies of the generator are untouched), folded back after.
+(5) **Timing**: the rsweep on the board's memory path (SDRAM=1) and on the
+bench RAM with a random per-access latency (+RAMJIT=n: 0..n extra ticks an
+access, +RAMSEED) - no sweep has ever run off the ideal RAM, and KNOWN
+ISSUES 33 is timing-dependent by Daniel's own observation. ~100 seeds each.
+(1) **Supervisor-side faults**: A/UX's kernel touches user pages by MOVES
+(copyin/copyout/uclear, sendsig's signal frame, the exec loader) and by
+MOVEM (the context save and restore); the bench has four directed MOVES.L
+cases and nothing swept - sizes, WP (write() into a forked child's
+copy-on-write page), the interrupt at the handler's RTE back to
+SUPERVISOR. KNOWN ISSUES 26 and 28 were the user-side twins. The Commando
+frame's own numbers point here: fault address $400035AE = {D0.W, D1.HW},
+data $00B5A5B4 = {D2.W, D3.HW} - the register block one 16-bit beat out of
+step with memory, and the register-block paths are MOVEM and the frame /
+u-area save. A directed sweep on dsweep's pattern, then rsweep run in
+supervisor mode with MOVES copy loops.
+(3) **The walker's U/M write-back**: named twice as "that path has never
+run" and never benched; rsweep's tables start with U and M clear so it runs
+on every faulting run, but nothing compares the descriptors afterwards (the
+pair compare: registers, CCR, data, stack). A lost M bit is silent file
+corruption after paging (PTEST 7 judges dirty pages). The UM 9.5.3 bench,
+then the page table in the pair compare (expected U on every touched page,
+M on every written one).
+Estimates (eight at a time, the machine free): 5 ≈ 4-5 h; 1 ≈ 30 min
+directed + 2.5 h random; 3 ≈ minutes + 2.5 h rerun; ~11 h in a chain.
+BUILT (13:00-13:30, `sim/predec_fault_r3`, no RTL change): `CASESET=ssweep`
+(130 MOVES forms x offsets, `SSW_WP=1` the 65 writes; run_ssweep.sh);
+`RSW_SUPER=1` (rsweep in supervisor mode, ~170 MOVES a program among the
+random work, the data window compared - the supervisor stack carries the
+frames); `RSW_UM=1` (default: the user tree's page descriptors for the
+program's pages in the pair compare, restored from pristine before the pages
+are made invalid; `PAIR_SANITY=2` clears a U bit, must fail); `CASESET=um`
+(15 directed cases from UM 9.5.1.1/9.5.2/9.6/9.8: U on a read, M on a write,
+the ATC hit with M clear re-walking, WP read and write, TAS and TAS on WP,
+straddles, the stale-ATC rule, PLOADR/PLOADW, user-mode forms; PTEST 7's
+MMUSR read back; TRAP #14 = back to supervisor); `+RAMJIT=n +RAMSEED=s`
+(the bench RAM's latency drawn per access); run_rsweep3.sh sdram|jit|super;
+run_irqsweep3.sh (8 ssweep cases, V-80..V+600 every 2nd clock);
+run_round3.sh = the chain (smoke, um, ssweep x2, sdram 50, jit 50, irq, then
+super 100 and the UM rerun 100 together; round3.log). Open spec question:
+whether PTEST's own search sets U (UM 9.8 says only "does not alter the
+ATC"; the PMMU takes the no-update branch) - not asserted.
 **THE BUILD (2026-10-19 04:34-05:08, 34 min):** `output_files/MacIIcx_8973e14a_scanfixes.rbf`
 (md5 aa091a88), release form (no probes, CD-ROM in), 38,680 ALMs; every
 path of ours met at every corner, only the framework's ascal fails
