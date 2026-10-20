@@ -20125,6 +20125,19 @@ V-80..V+600 around 8 supervisor MOVES faults (invalid pages): 2728/2728 (8/8
 baselines), 79 min. The chain restarted from step 7 at 21:19 (the overnight
 script relaunched); step 8 (super 100 + the UM-window rerun 100, together)
 runs ~21:20-02:00, then the regression and the two builds (~07:00).
+STEP 8 CHANGED (23:30): running the two random sweeps TOGETHER - 16 sims on
+the 8 cores - ran every seed at ~500 clocks/s, about seven times slower
+than 8-wide (memory-bound sims; the hyperthread pairs): the user-mode
+rerun had done 8 seeds in 100 min (21 h for 100). LESSON: one 8-wide sweep
+at a time, always. The rerun's process tree was killed by MSYS pid (ps
+-ef's groups; its xargs 67032) and its native kernels with it; the
+supervisor sweep (60/100 done) runs on alone. sim/after_super.sh waits for
+its log, runs the user-mode rerun 8-wide alone with 50 seeds (the sdram,
+jit and supervisor runs - RSW_UM default on - already compared the
+page-table window on 200 seeds), then hands over to overnight_r3.sh's
+regression stage and the two builds. Step 8's chain line will read FAIL
+(the killed half); the supervisor sweep's own log is the record.
+Expected: super ~00:10, the rerun ~01:40, regression ~04:40, builds ~06:40.
 run_round3.sh = the chain (smoke, um, ssweep x2, sdram 50, jit 50, irq, then
 super 100 and the UM rerun 100 together; round3.log). Open spec question:
 whether PTEST's own search sets U (UM 9.8 says only "does not alter the
