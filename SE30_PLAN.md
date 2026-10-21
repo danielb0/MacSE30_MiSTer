@@ -20018,7 +20018,10 @@ Daniel - add to it, move items out when fixed).**
     HDMI; options C/A/B in its entry - proposed: C, measure, first, then A
     unless the analogue cadence matters), then release BOTH cores to
     MiSTer-devel ("a pretty solid release of two cores that run A/UX pretty
-    well"); then feedback, and the remaining sweep classes (4 interrupt
+    well"). The r4release builds are NOT for the forum (Daniel: "there is no
+    point" - two or three downloads a test build): they are his own A/UX
+    sessions' builds, the KNOWN ISSUES 33 verdict; then feedback, and the
+    remaining sweep classes (4 interrupt
     shapes, 8 the OS-shaped program, 7 trace, 9 devices, 2's directed MOVEM)
     at leisure - 8 first if a quit bomb survives r4release. Basis: more seeds
     in an opened class find nothing (rsweep 300 + ptr 50); a new axis found a
