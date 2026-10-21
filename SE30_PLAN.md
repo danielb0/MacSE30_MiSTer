@@ -20168,6 +20168,27 @@ page-table window on 200 seeds), then hands over to overnight_r3.sh's
 regression stage and the two builds. Step 8's chain line will read FAIL
 (the killed half); the supervisor sweep's own log is the record.
 Expected: super ~00:10, the rerun ~01:40, regression ~04:40, builds ~06:40.
+**THE NIGHT'S RESULT (2026-10-21 09:05) - ROUND 3 COMPLETE, BOTH BUILDS
+DONE.** The supervisor random sweep's first run (16-wide) died on EVERY seed
+-> KNOWN ISSUES 35 (above; fixed 12ab905, the RSW_SUPER generator making
+only the data pages fault, 03877e8). Then, in sim/night2.sh (the quick
+stage's log lines went to a relative path after a cd - lost; the sweeps'
+own logs are the record): the user-mode page-table rerun 50/50 (01:48; the
+kernel fix landed mid-run - user mode, no MOVES, so harmless); ssweep
+130/130 (01:52) and 65/65 WP (01:54); um and sabs at CACR 0 and $2101 PASS
+(the chain continues only on a pass); **the supervisor random sweep 100/100
+alone (01:56-05:04, 188 min)**; **the regression 50/50 (05:04-07:47, 163
+min)**, with ssweep, ssweep WP and um x2 in it. The two release-form builds
+on 03877e8 (the committed qsfs; `rtl/build_tag.v` stamped 03877e8d):
+`output_files/MacSE30_03877e8d_r3release.rbf` md5 8525a320 (37 min; ours
+met at every corner, worst +0.003 ns, the capture by A or B everywhere) and
+`output_files/MacIIcx_03877e8d_r3release.rbf` md5 b866106e (38 min, 38,909
+ALMs 93 %; ours met at every corner - the one negative setup path is the
+framework's ascal `o_vcpt_pre3[4] -> [7]` on the HDMI clock, -0.126 ns at
+slow -40C = KNOWN ISSUES 6's precedent; the -0.055 ns hold at fast -40C is
+the SDRAM capture under A at a corner where B is met). Both unflashed; for
+the forum. Round 3's tally: two kernel bugs (34, 35), both in the MOVES path
+A/UX writes user memory with; no latency, U/M or SDRAM-path finding.
 run_round3.sh = the chain (smoke, um, ssweep x2, sdram 50, jit 50, irq, then
 super 100 and the UM rerun 100 together; round3.log). Open spec question:
 whether PTEST's own search sets U (UM 9.8 says only "does not alter the

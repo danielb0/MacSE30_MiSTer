@@ -9,7 +9,7 @@
 #   bash sim/night2.sh [FROM]     FROM: wait (default) | quick | super | regress
 set -u
 cd "$(dirname "$0")/.."
-LOG=sim/overnight_r3.log
+LOG=$(pwd)/sim/overnight_r3.log                    # absolute: the quick stage cds into sim/predec_fault (its lines were lost the first night)
 log() { echo "[$(date '+%m-%d %H:%M')] $*" >> $LOG; }
 STAGE=${1:-wait}
 log "night2 started at stage $STAGE"
