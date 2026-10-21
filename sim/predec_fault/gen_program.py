@@ -105,6 +105,27 @@ IRQCOUNT = 0x3208
 TC = 0x82C07760 if TCMODE == "aux" else 0x80C84800
 SLOTS, COUNT, LOGP, LOG = 0x3000, 0x3200, 0x3204, 0x3300
 SIZE = 0x80000                                   # the image: 512 KB
+# MODECHK (KNOWN ISSUES 36, 2026-10-21: a DIVU whose operand faulted returned
+# to the case in SUPERVISOR mode - invisible, the supervisor tree maps the same
+# pages): TRAP #0's stub keeps the stacked SR's S bit at MODEW, each case's
+# slot +24 gets it, wanted = the mode the case started in
+MODEW = 0x3F20
+MODECHK = CASESET in ("dsweep", "ssweep", "isweep", "xsweep", "rsweep", "zdiv")
+# zdiv (KNOWN ISSUES 36's other side): a REAL zero divisor still traps (vector
+# 5 -> ZDIV, which counts at ZCOUNT and RTEs) - resident, and after its
+# operand's page fault and rerun; a non-zero divisor behind the fault does not.
+# (words, operand address, invalid page or None, quotient register D4 wanted, traps)
+ZDIV, ZCOUNT = 0x1FA0, 0x3F24
+ZDIV_CASES = [
+    ([0x88D6], 0x2B000, None, 0x00010000, 1, "DIVU.W (A6),D4 by a resident zero"),
+    ([0x89D6], 0x2B000, None, 0x00010000, 1, "DIVS.W (A6),D4 by a resident zero"),
+    ([0x4C56, 0x4004], 0x2B000, None, 0x00010000, 1, "DIVU.L (A6),D4 by a resident zero"),
+    ([0x88D6], 0x2C000, 0x2C000, 0x00010000, 1, "DIVU.W (A6),D4 by a zero on an invalid page"),
+    ([0x89D6], 0x2C000, 0x2C000, 0x00010000, 1, "DIVS.W (A6),D4 by a zero on an invalid page"),
+    ([0x4C56, 0x4004], 0x2C000, 0x2C000, 0x00010000, 1, "DIVU.L (A6),D4 by a zero on an invalid page"),
+    ([0x88D6], 0x2D000, 0x2D000, 0x00004000, 0, "DIVU.W (A6),D4 by 4 on an invalid page (no trap)"),
+    ([0x4C56, 0x4004], 0x2D010, 0x2D000, 0x00004000, 0, "DIVU.L (A6),D4 by 4 on an invalid page (no trap)"),
+]
 
 # the decompressor's expansion loop, $296E40-$296E8F (MAME, identical in all 20 hits)
 DCMP = bytes.fromhex("4A05674C149060482401028200000007E6896012780716186712D603651814D814D851CCFFF6"
@@ -1595,6 +1616,16 @@ def main():
             cases.append((regs, code + [0x4E40], 0, 0x2A000, 0x2A000, 4, bad, None,
                           {"A0": 0x77, "A1": 0x55, "super": True, "wp_pages": wps}, "um: " + what))
             um_extra += ex
+    if CASESET == "zdiv":
+        put32(0x2D000, 0x00040000); put32(0x2D010, 4)    # the non-zero divisors (word 4, long 4)
+        put32(0x2B000, 0); put32(0x2C000, 0)             # the zero divisors (written, so their pages are named for +UOK)
+        for ws, opa, bad, d4, traps, what in ZDIV_CASES:
+            code = [0x4DF9, opa >> 16, opa & 0xFFFF,       # LEA operand,A6
+                    0x283C, 0x0001, 0x0000] + ws + [       # MOVE.L #$10000,D4; the division
+                    0x2444, 0x4E40]                        # MOVEA.L D4,A2; TRAP #0
+            regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+            cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [bad] if bad else [], d4,
+                          {"A0": 0x77, "A1": 0x55, "traps": traps}, "zdiv: " + what))
     if CASESET == "sabs":
         assert TCMODE == "aux", "sabs needs TCMODE=aux (the user tree's pages)"
         for k, (win, bad, wp, what) in enumerate(SABS):
@@ -1719,6 +1750,13 @@ def main():
         emit(0x23C9); l32(s + 4)                     # MOVE.L A1,s+4
         emit(0x23C1); l32(s + 8)                     # MOVE.L D1,s+8
         emit(0x23CA); l32(s + 20)                    # MOVE.L A2,s+20
+        if CASESET == "zdiv":
+            ztraps = sum(c_[8]["traps"] for c_ in cases[:k + 1])
+            emit(0x23F8, ZCOUNT); l32(s + 28)        # MOVE.L ZCOUNT.W,s+28: the zero-divide traps so far
+            expect.append((s + 28, ztraps, "case %d zero-divide traps so far" % k))
+        if MODECHK:
+            emit(0x23F8, MODEW); l32(s + 24)         # MOVE.L MODEW.W,s+24: TRAP #0's stacked S
+            expect.append((s + 24, 0x2000 if want.get("super") else 0, "case %d reached TRAP #0 in the mode it started in (S of the stacked SR)" % k))
         if want.get("pair"):
             run, wins = want["pair"]
             if os.environ.get("PAIR_SANITY") == "2" and run == 1 and RSW_UM:
@@ -1935,7 +1973,10 @@ def main():
     b(0x4E73)                                        # RTE
     berr[bhi] = (LOOPSTOP - (BERR + 2 * bhi)) & 0xFFFF   # BHI.W: displacement from its extension word
     assert BERR + 2 * len(berr) <= TRAP0, "the bus-error handler overruns TRAP0's stub"
-    trap0 = [0x4FEF, 0x0008,                         # LEA 8(A7),A7
+    trap0 = ([0x42B8, MODEW,                         # CLR.L MODEW.W
+              0x31D7, MODEW + 2,                     # MOVE.W (A7),MODEW+2.W: the stacked SR
+              0x0278, 0x2000, MODEW + 2] if MODECHK else []) + [   # ANDI.W #$2000,MODEW+2.W: its S
+             0x4FEF, 0x0008,                         # LEA 8(A7),A7
              0x4ED5]                                 # JMP (A5)
     ifr = VIA2 + 13 * 0x200
     irq = [0x13FC, 0x0040, ifr >> 16, ifr & 0xFFFF,  # MOVE.B #$40,IFR: T1's flag cleared
@@ -1950,12 +1991,15 @@ def main():
 
     mem[0:4] = [0x0000, 0x8000, 0x0000, ORG]         # SSP, PC
     for v in range(2, 64):
-        t = BERR if v == 2 else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else IRQ1 if v == 25 else TRAPS if v == 46 else EXC
+        t = BERR if v == 2 else ZDIV if v == 5 and CASESET == "zdiv" else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else IRQ1 if v == 25 else TRAPS if v == 46 else EXC
         mem[2 * v], mem[2 * v + 1] = t >> 16, t & 0xFFFF
     trapf = [0x7000, 0x4E73]                         # TRAP #15: MOVEQ #0,D0; RTE - a syscall's return (rts cases)
     irq1 = [0x52B9, IRQ1COUNT >> 16, IRQ1COUNT & 0xFFFF, 0x4E73]   # ADDQ.L #1,IRQ1COUNT; RTE
     traps = [0x0057, 0x2000, 0x4E73]                 # TRAP #14: ORI.W #$2000,(A7); RTE - back to supervisor mode (the um cases)
-    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1), (TRAPS, traps)):
+    assert TRAP0 + 2 * len(trap0) <= LOOPSTOP
+    zdiv = [0x52B8, ZCOUNT,                          # ADDQ.L #1,ZCOUNT.W
+            0x4E73] if CASESET == "zdiv" else []     # RTE (format 2: the next instruction)
+    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1), (TRAPS, traps), (ZDIV, zdiv)):
         for i, x in enumerate(code):
             mem[base // 2 + i] = x
     rec[0] = False                                   # the tables and the handler's words are not the cases'

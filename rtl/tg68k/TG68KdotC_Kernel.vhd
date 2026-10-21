@@ -12299,13 +12299,18 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 					setstate <="01";
 					next_micro_state_c <= div2;
 				WHEN div2	=>		-- divu
-					IF (OP2out(31 downto 16)=x"0000" OR opcode(15)='1' OR DIV_Mode=0) AND OP2out(15 downto 0)=x"0000" THEN		--div zero
-						set_Z_error <= '1';
+					IF mmu_restart_active='1' THEN
+						-- KNOWN ISSUES 36: the operand's read faulted - the instruction ends here (setstate "00", idle) and the bus
+						-- error dispatches; a zero divisor from its garbage would trap first (set_Z_error is set after the squash above)
 					ELSE
-						next_micro_state_c <= div3;
+						IF (OP2out(31 downto 16)=x"0000" OR opcode(15)='1' OR DIV_Mode=0) AND OP2out(15 downto 0)=x"0000" THEN		--div zero
+							set_Z_error <= '1';
+						ELSE
+							next_micro_state_c <= div3;
+						END IF;
+						set(ld_rot_cnt) <= '1';
+						setstate <="01";
 					END IF;
-					set(ld_rot_cnt) <= '1'; 
-					setstate <="01";
 				WHEN div3	=>		-- divu
 					IF opcode(15)='1' OR DIV_Mode=0 THEN
 						set_rot_cnt <= "001101";
