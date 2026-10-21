@@ -13,12 +13,13 @@ EXTRA="$*"
 c=$(echo " $EXTRA " | sed -n 's/.* CACR=\([^ ]*\) .*/\1/p')
 LOG=ptrsweep${c:+_c$c}.log
 : > $LOG
+full() { echo "$1" | grep -oE '[0-9]+ / [0-9]+ PASS' | awk '{exit !($1 == $3 && $3 > 0)}'; }   # every case of the sweep passed
 ok=1
 for args in "DSW_PTR=b" "DSW_PTR=bc" "DSW_PTR=abc" "DSW_WP=1 DSW_PTR=bw" "DSW_WP=1 DSW_PTR=aw"; do
-  ./run_dsweep.sh $EXTRA $args | tail -1 | tee -a $LOG | grep -q PASS || ok=0
+  r=$(./run_dsweep.sh $EXTRA $args | tail -1); echo "$r" | tee -a $LOG; full "$r" || ok=0
 done
 for args in "DSW_PTR=b" "DSW_PTR=bc" "DSW_PTR=abc" "SSW_WP=1 DSW_PTR=bw" "SSW_WP=1 DSW_PTR=aw"; do
-  ./run_ssweep.sh $EXTRA $args | tail -1 | tee -a $LOG | grep -q PASS || ok=0
+  r=$(./run_ssweep.sh $EXTRA $args | tail -1); echo "$r" | tee -a $LOG; full "$r" || ok=0
 done
 [ $ok = 1 ] && echo "==== ptrsweep: every sweep PASS" | tee -a $LOG || echo "==== ptrsweep: FAILURES (the per-sweep logs)" | tee -a $LOG
 [ $ok = 1 ]
