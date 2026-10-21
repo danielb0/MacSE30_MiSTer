@@ -20012,7 +20012,18 @@ Daniel - add to it, move items out when fixed).**
     (2026-10-21 evening): MacX, his script with 4 X clients, cc, the binary
     double-clicked into a terminal, an assembly file opened in the editor -
     all clean; the bombs come only on QUITTING the editor or the terminal
-    (CommandShell), so the quits are the test. r3release tally (2026-10-21):
+    (CommandShell), so the quits are the test.
+    **THE RELEASE DECISION (Daniel, 2026-10-21 evening):** finish the fourth
+    round (the chain and the r4release builds), fix KNOWN ISSUES 24 (the IIcx
+    HDMI; options C/A/B in its entry - proposed: C, measure, first, then A
+    unless the analogue cadence matters), then release BOTH cores to
+    MiSTer-devel ("a pretty solid release of two cores that run A/UX pretty
+    well"); then feedback, and the remaining sweep classes (4 interrupt
+    shapes, 8 the OS-shaped program, 7 trace, 9 devices, 2's directed MOVEM)
+    at leisure - 8 first if a quit bomb survives r4release. Basis: more seeds
+    in an opened class find nothing (rsweep 300 + ptr 50); a new axis found a
+    bug 5 times in 11; every CPU bug since 29 needs paging (A/UX or VM).
+    r3release tally (2026-10-21):
     1 bomb (TextEditor quit after X clients + a compile), 1 clean pair (the
     editor and the terminal quit after the heavy session). Daniel: r3release
     "does seem to be more robust" than compile 81 (SE/30) and the IIcx dev
