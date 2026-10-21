@@ -20223,6 +20223,43 @@ Daniel - add to it, move items out when fixed).**
     FRESTORE, RTE) - sweep the dialog points and the EA forms with extension
     words; and add the (d16,An) cases to the fsw sweep proper (after the
     regression's run, not during it).
+    THE EVENING'S BENCHES (2026-10-21 21:10-22:40, scratch sim/_k38 = a
+    copy of sim/cpfpu, to be folded in once the regression is done): (a)
+    PROG=b3x - b3r's two passes with xeyes's shapes (FADD.D #0.5, FINTRZ,
+    FMOVE.W FP0,-$5A(A6), a long through (d8,A6,D6.W), a double through
+    (xxx).L, each read back into the sum) and the level-1 handler A/UX's
+    switch exactly (fpsave/fprest from unix.dis $547D6: FSAVE, FPCR + FMOVEM
+    FP0-FP7 only after a non-null frame, the other process's FRESTORE, its
+    FPU work with an integer store through (d16,A1) and an FSIN left running,
+    its FSAVE, then this one's FPCR/FP0-FP7/FRESTORE); +IRQSEED=<hex> (tb):
+    4 random seeds PASS (30-38 switches, 79-97 nested level 2);
+    B3X_DLG=1 + +IRQSKIP=n (tb mode $FFFFFFFB: a switch at the n-th
+    come-again of every user instruction): n = 0-3 PASS (46-74 switches) -
+    the switch at a suspended dialog is clean. (b) PROG=fif (164 cases) -
+    the FETCH of an FPU instruction's extension words or immediate data
+    page-faulting DURING its dialog (the copy placed so its first k words
+    end at $D000, page $D000 invalid; FPU idle or busy with an FSIN; every
+    split point; (d16,A6), (d8,A6,D6.W), (xxx).W/.L stores and loads,
+    (d16,PC), #imm FADD; FIF_IRQ=1 adds the switch at the suspended dialog
+    before the faulting fetch; FIF_SANITY=1 plants a difference - FAILS as
+    it must). A bench bug of mine first (beq.s +8 for +10 into the FPIAR
+    adjustment: every fif run executed an operand word) - caught when the
+    dialog IRQ never armed; the earlier fif passes discarded. Corrected:
+    the xeyes shape (FMOVE.W FP1,-$20(A6) split after the command word,
+    busy) PASSES plain and with the switch (1 IRQ). **FAILS: FADD.D
+    #imm,FP1 split after word 3 (idle and busy, no IRQ) - FP1 = 4000
+    C07FC000 00001234 against 4000 C0000000 00001234: the immediate double
+    read WRONG after the fetch fault mid-immediate - KNOWN ISSUES 39.** The
+    full fif sweep (164) is running to map the class.
+39. **OPEN (2026-10-21 ~22:35; found by PROG=fif) - an FPU instruction whose
+    IMMEDIATE operand's fetch page-faults part way (the instruction across
+    a page boundary, the next page not resident) computes with a wrong
+    immediate.** FADD.D #0.5,FP1 split after word 3 (F23C 5422 3FE0 |
+    0000 0000 0000): the sum off by ~0.0078. Silent data corruption under
+    paging - xeyes's own loop is FADD.D #0.5s. Map: the full fif sweep;
+    then the kernel's dialog fetch-restart path (B2's immediate words,
+    cp_half/cp_w, the restart's scanPC). KNOWN ISSUES 38's resume-at-the-d16
+    -word may be another face of the same bookkeeping.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
