@@ -20168,6 +20168,35 @@ Daniel - add to it, move items out when fixed).**
     not; 64/64 at CACR 0 and $2101. A/UX: any user DIVU/DIVS whose operand
     page faults, if the garbage is zero - a process escalated to supervisor
     mode; a KNOWN ISSUES 33 candidate. Both r3release forum builds predate it.
+37. **OPEN (2026-10-21 ~20:30; found by the fourth round's supervisor random
+    sweep, ptrsuper seed 31, both CACRs) - MOVES.L An,(An)+ whose first beat
+    faults stacks the OLD An in the frame's DOB, so the format $A replay
+    stores the pre-increment value.** M68000PRM MOVES (6-26, copy in
+    C:\temp\Mac\Docs): "The value stored is undefined" for MOVES.x
+    An,(An)+ / An,-(An), but "the current implementations of the MC68010,
+    MC68020, MC68030, and MC68040 store the incremented or decremented
+    value of An." Seed 31: LEA $6933A,A3; MOVES.L A3,(A3)+ - the region's
+    first write, faulting on the WP B entry: the reference wrote $0006933E,
+    the replay $0006933A (A3 ended $6933E in both; one long differs). The
+    long at $6933A goes out as two beats; the fault fires on the FIRST
+    (long_start), where data_write_muxin's BUG #328 forwarding (addsub_q =
+    the post-modified An) is off by design - addsub_q is An+2 in that cycle
+    - so the mux shows reg_QB, the old An, and the first-fire shadow
+    berr_pmmu_write_data takes it. PREDICTED (from the code, unverified):
+    with no fault at all, an An whose +4/-4 crosses a 64 KB boundary stores
+    the old HIGH word in that first beat. FIX (planned, before the release):
+    in the long_start cycle the mux presents reg_QB +/- 4 (the documented
+    value), fixing the frame and the no-fault case; check the timing of the
+    regfile -> mux path. THE CLASS: an address register stored through its
+    own auto-modified EA, never in any sweep (rsweep's MOVE/MOVEM sources are
+    D0-D6) - a directed bench, values from the manual, not just paired:
+    MOVES An,(An)+/-(An) (incremented/decremented), MOVEM list,-(An) with An
+    in the list (68020/030: "the initial register value decremented by the
+    size of the operation", PRM MOVEM), MOVE An,(An)+/-(An) (no note: the
+    operation's order, source first = the initial value); resident, invalid
+    page (format $B rerun), WP (format $A replay), the 64 KB crossing. Not an
+    A/UX shape (compilers never emit it; A/UX's copy loops use separate
+    registers) - so the r4release builds go ahead without it (Daniel).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
