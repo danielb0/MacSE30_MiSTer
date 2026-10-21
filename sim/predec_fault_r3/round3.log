@@ -1,0 +1,23 @@
+==== round 3 started 2026-10-20 13:38 from step 1
+FAIL step 1 smoke (um, ssweep, ssweep WP, jit, super, sanity, sdram - one run each) (0 min, exit 1): FAIL: got 00004001, want 0000420a -  um 0 a read (MOVES.B): table A entry 0: U FAIL: got 00004001, want 0000450a -  um 0 a read (MOVES.B): table B entry 1: U ==== FAIL: 2 failures, 105 passes 
+---- the chain stops at step 1; ./run_round3.sh 2 resumes
+==== round 3 started 2026-10-20 13:39 from step 1
+FAIL step 1 smoke (um, ssweep, ssweep WP, jit, super, sanity, sdram - one run each) (29 min, exit 1): ==== PASS: 107 checks - every faulted instruction resumed correctly ==== PASS: 6 checks - every faulted instruction resumed correctly ==== PASS: 5 checks - every faulted instruction resumed correctly FAIL: a walk for user address 00067000 the program never named (FC 2) 
+---- the chain stops at step 1; ./run_round3.sh 2 resumes
+==== round 3 started 2026-10-20 14:10 from step 2
+FAIL step 2 scan 3: um - the walker's U/M write-back, 15 cases (CACR 0 and $2101) (0 min, exit 1): ==== PASS: 107 checks - every faulted instruction resumed correctly FAIL: got 00052009, want 00052019 -  um 2 a read then a write: after the write on the ATC hit: M FAIL: got 00053001, want 00053019 -  um 3 a write to a WP page (fault): repaired and re-run: U and M FAIL: got 00054005, want 0005400d -  um 4 a read of a WP page: U, WP kept, M clear 
+---- the chain stops at step 2; ./run_round3.sh 3 resumes
+==== round 3 started 2026-10-20 14:40 from step 2
+PASS step 2 scan 3: um - the walker's U/M write-back, 15 cases (CACR 0 and $2101) (0 min): ==== PASS: 107 checks - every faulted instruction resumed correctly
+FAIL step 3 scan 1: ssweep - supervisor MOVES, invalid pages, 130 cases (4 min, exit 1):   7 MOVES.B D4,0(A6) at P+0 : ==== FAIL: 1 failures, 5 passes   36 MOVES.W D4,0(A6) at P+0 : ==== FAIL: 1 failures, 5 passes   37 MOVES.W D4,0(A6) at P-1 : ==== FAIL: 1 failures, 5 passes   40 MOVES.W A4,0(A6) at P+0 : ==== FAIL: 1 failures, 5 passes  
+---- the chain stops at step 3; ./run_round3.sh 4 resumes
+==== round 3 started 2026-10-20 14:52 from step 3
+PASS step 3 scan 1: ssweep - supervisor MOVES, invalid pages, 130 cases (4 min): ==== ssweep: 130 / 130 PASS
+PASS step 4 scan 1: ssweep - supervisor MOVES, write-protected pages, 65 cases (2 min): ==== ssweep (SSW_WP=1): 65 / 65 PASS
+PASS step 5 scan 5: rsweep on the SDRAM path, seeds 0-49 (169 min): ==== rsweep sdram: 50 / 50 PASS (seeds 0-49)
+FAIL step 6 scan 5: rsweep with random RAM latency, seeds 0-49 (211 min, exit 1): ==== rsweep jit: 49 / 50 PASS (seeds 0-49) 
+---- the chain stops at step 6; ./run_round3.sh 7 resumes
+==== round 3 started 2026-10-20 21:19 from step 7
+PASS step 7 scan 1: an interrupt at every second clock around 8 supervisor MOVES faults (79 min): ==== irqsweep3: 2728 / 2728 PASS (8 / 8 baselines)
+FAIL step 8 scan 1 + 3 together: rsweep in supervisor mode seeds 0-99, and rsweep with the page table compared seeds 0-99 (70 min, exit 1): super.out:==== rsweep super: 0 / 100 PASS (seeds 0-99) 
+---- the chain stops at step 8; ./run_round3.sh 9 resumes

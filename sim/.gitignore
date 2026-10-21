@@ -1,3 +1,5 @@
 regression.log
 regression.log.1
 regression.log.2
+# the overnight chains' captured stdout (the .log files are kept)
+*.out

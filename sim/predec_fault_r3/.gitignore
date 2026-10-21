@@ -1,0 +1,22 @@
+work/
+transcript
+run.log
+program.hex
+stop_at.txt
+expect.txt
+listing.bin
+vsim_stacktrace.vstf
+isweep.log
+dsweep.log
+xsweep.log
+uok.hex
+uok_all.log
+irqsweep.log
+irqsweep_base.log
+rsweep.log
+# the third round's sweeps (2026-10-20/21)
+rsweep_*.log
+ssweep*.log
+irqsweep3*.log
+*.out
+# the round-3 copy: round3.log is kept (the plan cites it)

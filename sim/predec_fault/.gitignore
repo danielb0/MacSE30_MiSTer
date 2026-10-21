@@ -14,3 +14,8 @@ uok_all.log
 irqsweep.log
 irqsweep_base.log
 rsweep.log
+# the third round's sweeps (2026-10-20/21)
+rsweep_*.log
+ssweep*.log
+irqsweep3*.log
+*.out
