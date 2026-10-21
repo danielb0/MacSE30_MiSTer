@@ -19985,6 +19985,16 @@ Daniel - add to it, move items out when fixed).**
     in supervisor mode) - a live candidate under A/UX's paging, as are 34 and
     35 for the earlier instances' builds. Next: the release-form builds with
     36's fix after the fourth round's chain; the same steps again on them.
+    THE PATTERN (Daniel, 2026-10-21): Mac environment apps crashing on EXIT
+    is the only issue in several days of A/UX - Document Viewer and
+    TextEditor here (Commando's was a Unix process's core at first use,
+    perhaps separate). Exit is the densest burst of faults on cold pages (the
+    heap walked and freed, resource files closed, segments unloaded), and
+    29-36 all live on the page-fault restart path. Board test proposed: open
+    the app, apply memory pressure (big CommandShell work, more apps, X
+    clients) so A/UX pages it out, then quit - against quits with no
+    pressure; a higher rate under pressure = paging-driven (the core); less
+    RAM raises it. On r3release first, then on r4release (36's fix).
 
 34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
