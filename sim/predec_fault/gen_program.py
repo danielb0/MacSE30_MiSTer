@@ -1449,6 +1449,11 @@ def main():
             raise SystemExit(0)
         seed = int(os.environ["RSW"])
         cw, dd, pgs, wps = rsw_build(seed)
+        if RSW_SUPER:                                     # supervisor mode: only the DATA pages can fault (the code and the stack go through the
+            pgs = [p for p in pgs if p in (0x69000, 0x6A000)]   # supervisor tree), so only they are made invalid or WP - an invalid code page would
+            wps = [p for p in wps if p in pgs]                  # never be repaired and its descriptor would differ in the page-table window
+            if not pgs:
+                pgs = [0x69000]
         putbytes(RSW_CODE, b"".join(x.to_bytes(2, "big") for x in cw))
         putbytes(RSW_DATA, dd)
         putbytes(RSW_STK, bytes(0x400))
