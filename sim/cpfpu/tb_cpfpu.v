@@ -148,6 +148,8 @@ module tb_cpfpu;
     if (cpu_as_n) berr_inj <= 0;
   end
   integer nirq = 0;
+  reg dlg_seen = 0; reg [31:0] dlg_pc = 0; integer dlg_n = 0, ndlg = 0, irq_skip = 0;   // (mode $FFFFFFFB)
+  initial if ($value$plusargs("IRQSKIP=%d", irq_skip)) ;
   reg nest_done = 0;
   always @(posedge clk) begin
     if (irq1_n && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
@@ -220,6 +222,7 @@ module tb_cpfpu;
   // a pseudo-random 30-1053 clocks after the handler dropped it; and a user-
   // code instruction ($1800-$1FFF) decoded in supervisor mode is a failure.
   reg [31:0] lfsr = 32'h1234_5679;
+  initial if ($value$plusargs("IRQSEED=%h", lfsr)) $display("---- +IRQSEED=%08x", lfsr);   // (KNOWN ISSUES 38: b3x's seeds)
   integer rdelay = 100, sviol = 0;
   reg [31:0] lfsr2 = 32'h0BAD_F00D;
   integer rdelay2 = 777, nirq2 = 0;
@@ -231,6 +234,21 @@ module tb_cpfpu;
         rdelay = 30 + (lfsr & 1023);
       end else rdelay = rdelay - 1;
     end
+    // KNOWN ISSUES 38 (inject.txt's second number = $FFFFFFFB, b3x's B3X_DLG=1):
+    // while the program's $3F04 is set and its $3F08 clear, level 1 at the
+    // +IRQSKIP-th come-again ($8900, $C900) a user instruction ($1800-$1FFF, fif $C000-$DFFF)
+    // reads - counted per instruction instance, so the RTE's re-read is not
+    // taken again: every suspended dialog gets one context switch
+    if (irq_mode == 32'hFFFFFFFB && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 && !dlg_seen &&
+        cpu_addr[4:0] == 5'd0 && (fpu_q[31:16] == 16'h8900 || fpu_q[31:16] == 16'hC900) &&
+        ((cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000) || (cpu.kernel.opcode_pc >= 32'hC000 && cpu.kernel.opcode_pc < 32'hE000)) &&
+        ram[32'h3F04 >> 2] != 0 && ram[32'h3F08 >> 2] == 0) begin
+      dlg_seen <= 1;
+      if (cpu.kernel.opcode_pc != dlg_pc) begin dlg_pc <= cpu.kernel.opcode_pc; dlg_n = 0; end
+      if ((cpu.kernel.opcode_pc != dlg_pc ? 0 : dlg_n) == irq_skip && irq1_n) begin irq1_n <= 0; nirq = nirq + 1; ndlg = ndlg + 1; end
+      dlg_n = (cpu.kernel.opcode_pc != dlg_pc ? 0 : dlg_n) + 1;
+    end
+    if (!fpu_sel) dlg_seen <= 0;
     // and level 2 (VIA2) on its own random delay, 200-4295 clocks, dropped by $3F0C
     if (irq_mode == 32'hFFFFFFFE && irq2_n && ram[32'h3F04 >> 2] != 0 && ram[32'h3F08 >> 2] == 0) begin
       if (rdelay2 == 0) begin
@@ -239,8 +257,8 @@ module tb_cpfpu;
         rdelay2 = 200 + (lfsr2 & 4095);
       end else rdelay2 = rdelay2 - 1;
     end
-    if (irq_mode == 32'hFFFFFFFE && cpu.kernel.clkena_lw && cpu.kernel.decodeOPC &&
-        cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000 && cpu.kernel.FlagsSR[5]) begin
+    if ((irq_mode == 32'hFFFFFFFE || irq_mode == 32'hFFFFFFFB) && cpu.kernel.clkena_lw && cpu.kernel.decodeOPC &&
+        ((cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000) || (cpu.kernel.opcode_pc >= 32'hC000 && cpu.kernel.opcode_pc < 32'hE000)) && cpu.kernel.FlagsSR[5]) begin
       if (sviol < 5) $display("FAIL: user code at %08x decoded in supervisor mode (t=%0t, IRQ %0d)", cpu.kernel.opcode_pc, $time, nirq);
       sviol = sviol + 1;
     end
@@ -307,8 +325,9 @@ module tb_cpfpu;
       if (cpu_space_other == cps_want) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL: %0d other CPU-space cycles, expected %0d", cpu_space_other, cps_want); end
     end
-    if (irq_mode == 32'hFFFFFFFE) begin
-      $display("---- random IRQs: %0d level 1, %0d level 2", nirq, nirq2);
+    if (irq_mode == 32'hFFFFFFFE || irq_mode == 32'hFFFFFFFB) begin
+      if (irq_mode == 32'hFFFFFFFE) $display("---- random IRQs: %0d level 1, %0d level 2", nirq, nirq2);
+      else $display("---- dialog IRQs (come-again %0d): %0d", irq_skip, ndlg);
       if (sviol == 0) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL: %0d user-code instructions decoded in supervisor mode", sviol); end
     end

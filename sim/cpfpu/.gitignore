@@ -5,3 +5,4 @@ program.hex
 expect.txt
 inject.txt
 fsweep.log
+fifsweep.log

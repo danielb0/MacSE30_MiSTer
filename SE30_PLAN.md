@@ -20260,6 +20260,34 @@ Daniel - add to it, move items out when fixed).**
     then the kernel's dialog fetch-restart path (B2's immediate words,
     cp_half/cp_w, the restart's scanPC). KNOWN ISSUES 38's resume-at-the-d16
     -word may be another face of the same bookkeeping.
+    **DIAGNOSED (22:50) - 38 AND 39 ARE ONE BUG.** The fif sweep 150/164:
+    the 14 failures are EXACTLY the immediates split between the two words
+    of a long (after word 3 of S/L/D/X, 5 of D/X, 7 of X; idle and busy);
+    every EA form and every split at a long boundary passes. The +trace of
+    FIF=146: the fetch of $D000 (the immediate's 2nd word, state cp_imw)
+    faults; the long frame holds cp_data $3FE00000; after the pager's RTE
+    cp_rsm -> cp_imw re-fetches at PC $CFFE (R $CFFC = 54A2 3FE0) - the
+    word already taken. CAUSE (TG68KdotC_Kernel.vhd cp_imw): a long's
+    second word was scheduled straight from cp_imw (setstate "00") while
+    the first was in flight, so cp_bk_pc (TG68_PC when the beat is
+    scheduled, the resume record's PC) was AT the first word - against the
+    file's own rule ("Every word fetch returns through an internal step,
+    so the next fetch is scheduled with TG68_PC past this word", cp_fbd).
+    The resumed dialog takes one word twice and leaves the instruction one
+    word early. XEYES, EXACTLY: FADD.D #0.5,FP0 at $FFA STRADDLES the page
+    $1000 (F23C 5422 3FE0 | 0000 0000 0000); the fetch of $1000 faults,
+    the resume re-takes $FFE, the FADD ends at $1002 and execution goes on
+    at $1004: 0000 F200 = ORI.B #0,D0; $1008 0003 F22E = ORI.B #$2E,D3 -
+    D3 = $2E; $100C 7000 = MOVEQ #0,D0 - D0 = 0; $100E FFA6 = the F-line -
+    the core's PC $100E, vector 11, D0 = 0 and D3 = $2E to the letter. FIX:
+    cp_imw's first word goes on through the internal step cp_xfr (setstate
+    "01"), whose immediate branch schedules the second word's fetch with
+    TG68_PC past the first (one clock more an immediate long). Every build
+    with the FPU dialogs (since 2026-09-30) has it; FMOVE.D/FADD.D/FMUL.D
+    #imm straddling a page boundary that is not resident = a wrong value or
+    a derailed program under paging (A/UX, System 7 VM). Note: the edit
+    landed while the round-4 regression's last jobs (uok_all, um, zdiv,
+    bfx - integer only) were compiling - the full regression reruns after.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test

@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b3n|b3s|b3r|b4|b5a|b5b|b5c|b5d|mmu|fullea|fulleab|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b3n|b3s|b3r|b3x|b4|b5a|b5b|b5c|b5d|mmu|fsw|fif|fullea|fulleab|full]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -756,6 +756,116 @@ elif MODE == 'b3r':
         (0x301C, 0x00003800, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
+elif MODE == 'b3x':
+    # KNOWN ISSUES 38 (xeyes, 2026-10-21: resumed at an FPU store's d16 word
+    # under constant program switching): b3r's two passes with xeyes's shapes
+    # - FADD/FINTRZ then FMOVE.W FP0,-$5A(A6), a long store through
+    # (d8,A6,D6.W), a double through (xxx).L after an FSIN, each read back
+    # into the sum (no FPSR dependence: A/UX's switch saves FPCR only) - the
+    # level-1 handler A/UX's switch exactly (unix.dis fpsave/fprest $547D6):
+    # FSAVE, FPCR and FP0-FP7 only after a non-null frame; the other
+    # process's FRESTORE, its FPU work (an integer store through (d16,A1),
+    # an FSIN left running), its FSAVE; then this process's FPCR, FP0-FP7
+    # and FRESTORE; RTE.  +IRQSEED=<hex> varies the interrupts' timing.
+    N = int(os.environ.get('B3R_N', '60'))
+    a = Asm(0x1000)
+    a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (B3_CACR)
+    a.emit(0x4BF8, 0x3100)                    # lea $3100.w,a5       the results
+    a.emit(0x41F8, 0x3800)                    # lea $3800.w,a0
+    a.emit(0x4E60)                            # move.l a0,usp
+    a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user, interrupts on
+    a.emit(0x4EF8, 0x1800)                    # jmp $1800.w
+    p = a.done()
+    put(0x1000, p)
+    u = Asm(0x1800)
+    u.label('PASS')
+    u.emit(0xF23C, 0x4100, *L(0))             # fmove.l #0,fp2
+    u.emit(0x3E3C, N - 1)                     # move.w #N-1,d7
+    u.emit(0x4DF8, 0x3A00)                    # lea $3A00.w,a6
+    u.emit(0x7C00)                            # moveq #0,d6
+    u.label('L')
+    u.emit(0xF207, 0x4000)                    # fmove.l d7,fp0
+    u.emit(0xF23C, 0x5423, 0x3FF5, 0xEB85, 0x1EB8, 0x51EC)   # fmul.d #1.37,fp0
+    u.emit(0xF23C, 0x5422, 0x3FE0, 0, 0, 0)   # fadd.d #0.5,fp0     (xeyes $FFA)
+    u.emit(0xF200, 0x0003)                    # fintrz fp0          (xeyes $1006)
+    u.emit(0xF22E, 0x7000, 0xFFA6)            # fmove.w fp0,-$5a(a6) (xeyes $100A)
+    u.emit(0xF236, 0x6000, 0x60C0)            # fmove.l fp0,(-$40,a6,d6.w)
+    u.emit(0xF200, 0x000E)                    # fsin.x fp0          (running)
+    u.emit(0xF239, 0x7400, 0x0000, 0x3B00)    # fmove.d fp0,$3b00.l
+    u.emit(0xF22E, 0x5080, 0xFFA6)            # fmove.w -$5a(a6),fp1
+    u.emit(0xF200, 0x0522)                    # fadd.x fp1,fp2
+    u.emit(0xF236, 0x4180, 0x60C0)            # fmove.l (-$40,a6,d6.w),fp3
+    u.emit(0xF200, 0x0D22)                    # fadd.x fp3,fp2
+    u.emit(0xF239, 0x5600, 0x0000, 0x3B00)    # fmove.d $3b00.l,fp4
+    u.emit(0xF200, 0x1122)                    # fadd.x fp4,fp2
+    u.br(0x51CF, 'L')                         # dbra d7,L
+    u.emit(0xF21D, 0x7500)                    # fmove.d fp2,(a5)+
+    u.emit(0x4E41)                            # trap #1              the next pass (IRQs on)
+    u.emit(0x0CB8, *L(2), 0x3020)             # cmpi.l #2,$3020.w
+    u.br(0x6600, 'PASS')                      # bne.w PASS
+    u.emit(0x2038, 0x3100, 0xB0B8, 0x3108)    # move.l $3100.w,d0; cmp.l $3108.w,d0
+    u.br(0x6600, 'BAD')
+    u.emit(0x2038, 0x3104, 0xB0B8, 0x310C)    # move.l $3104.w,d0; cmp.l $310C.w,d0
+    u.br(0x6600, 'BAD')
+    u.emit(0x4E40)                            # trap #0
+    u.label('BAD'); u.emit(movel_abs(1, 0x3018))
+    u.emit(0x4E40)                            # trap #0
+    put(0x1800, u.done())
+    put(4 * 25, L(0x2600))                    # the IRQ: A/UX's context switch with the FPU
+    put(0x2600, [0x52B8, 0x3010,              # addq.l #1,$3010.w
+                 0x48E7, 0x80C0,              # movem.l d0/a0-a1,-(a7)
+                 0x41F8, 0x5000,              # lea $5000.w,a0      fpsave: this process's frame
+                 0xF310,                      # fsave (a0)
+                 0x4A10,                      # tst.b (a0)
+                 0x6710,                      # beq.s +16           (null: nothing more)
+                 0x41F8, 0x4F00,              # lea $4F00.w,a0
+                 0xF210, 0xB000,              # fmove.l fpcr,(a0)
+                 0x41F8, 0x4F10,              # lea $4F10.w,a0
+                 0xF210, 0xF0FF,              # fmovem.x fp0-fp7,(a0)
+                 0x43F8, 0x5200,              # lea $5200.w,a1      the other process: fprest
+                 0xF351,                      # frestore (a1)
+                 0x43F8, 0x3C80,              # lea $3C80.w,a1      its FPU work
+                 0xF200, 0x5C32,              # fmovecr.x #$32,fp0
+                 0xF200, 0x0022,              # fadd.x fp0,fp0
+                 0xF200, 0x0003,              # fintrz fp0
+                 0xF229, 0x7000, 0xFFF0,      # fmove.w fp0,-$10(a1)
+                 0xF200, 0x000E,              # fsin.x fp0          (left running)
+                 0x43F8, 0x5200,              # lea $5200.w,a1      its fpsave
+                 0xF311,                      # fsave (a1)
+                 0x43F8, 0x5000,              # lea $5000.w,a1      fprest: this process
+                 0x4A11,                      # tst.b (a1)
+                 0x6710,                      # beq.s +16
+                 0x41F8, 0x4F00,              # lea $4F00.w,a0
+                 0xF210, 0x9000,              # fmove.l (a0),fpcr
+                 0x41F8, 0x4F10,              # lea $4F10.w,a0
+                 0xF210, 0xD0FF,              # fmovem.x (a0),fp0-fp7
+                 0xF351,                      # frestore (a1)
+                 0x4CDF, 0x0301,              # movem.l (a7)+,d0/a0-a1
+                 0x21FC, 0x0000, 0x0001, 0x3F00,   # move.l #1,$3F00.w: the bench drops the IRQ
+                 0x4E73])                     # rte
+    put(4 * 26, L(0x2580))                    # level 2 (b3r's): nests on level 1, FPU work too
+    put(0x2580, [0x52B8, 0x3028,
+                 0xF327, 0xF227, 0xE0FF, 0xF200, 0x5D0F, 0xF21F, 0xD0FF, 0xF35F,
+                 0x21FC, 0x0000, 0x0001, 0x3F0C,
+                 0x4E73])
+    put(4 * 33, L(0x2480))                    # TRAP #1: count the pass; the first arms the IRQs
+    put(0x2480, [0x52B8, 0x3020, 0x0CB8, 0x0000, 0x0001, 0x3020, 0x6608,
+                 0x21FC, 0x0000, 0x0001, 0x3F04, 0x4E73])
+    put(4 * 32, L(0x2500))                    # TRAP #0: as b3r's
+    put(0x2500, [0x21FC, 0x0000, 0x0001, 0x3F08, 0x21CF, 0x3014, 0x4E68, 0x21C8, 0x301C,
+                 0x0CB8, 0x0000, 0x0014, 0x3010, 0x6308,
+                 0x21FC, 0x0000, 0x0001, 0x3024,
+                 *movel_abs(0x600D0001, 0x3FF0),
+                 0x4E72, 0x2700])
+    irq = 0xFFFFFFFB if os.environ.get('B3X_DLG') == '1' else 0xFFFFFFFE   # B3X_DLG=1: a switch at every suspended dialog
+    expect = [
+        (0x3018, 0x00000000, 0xFFFFFFFF),     # no BAD: the two passes' sums equal
+        (0x3020, 0x00000002, 0xFFFFFFFF),     # two passes
+        (0x3024, 0x00000001, 0xFFFFFFFF),     # more than 20 IRQs in the second
+        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact
+        (0x301C, 0x00003800, 0xFFFFFFFF),     # ... and the USP
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),     # no stray exception (a d16 word run: the F-line stub)
+    ]
 elif MODE == 'b5a':
     # stage B5a: no coprocessor (UM 10.5.2.8) - every category with CpID 2,
     # which nothing answers: the initiating access (the command or
@@ -1137,6 +1247,9 @@ elif MODE == 'fsw':
               ([0xF216, 0xBC00], 0, 12, 1, 'FMOVEM.L FPCR/FPSR/FPIAR,(A6)'),
               ([0xF256, 0x0001], 0, 1, 1, 'FSEQ (A6)'),
               ([0xF256, 0x000F], 0, 1, 1, 'FST (A6)')]
+    for n, (k, fl) in SZ.items():              # (d16,An): an extension word after the command word (xeyes, 2026-10-21)
+        insns.append(([0xF22E, 0x4000 | k << 10 | 0x80, 0xFFE0], 0x20, fl, 0, 'FMOVE.%s -$20(A6),FP1' % n))
+        insns.append(([0xF22E, 0x6000 | k << 10 | 0x80, 0xFFE0], 0x20, fl, 1, 'FMOVE.%s FP1,-$20(A6)' % n))
     cases = []
     for ws, adj, fl, wr, what in insns:
         offs = []
@@ -1237,6 +1350,164 @@ elif MODE == 'fsw':
     ]
     if os.environ.get('FSW_DUMP') == '1':      # every saved long printed (as failures)
         expect += [(o + 4 * i, 0xDEADBEEF, 0xFFFFFFFF) for o in (FSW_O1, FSW_O2) for i in range(28)]
+elif MODE == 'fif':
+    # KNOWN ISSUES 38's second candidate (xeyes resumed at an FPU store's d16
+    # word): the FETCH of an FPU instruction's extension words or immediate
+    # data page-faulting DURING its dialog - the twin of isweep (KNOWN ISSUES
+    # 29) for F-line instructions.  Each case runs the instruction twice, in
+    # user mode: from RUN_R at $1800 (resident) on the operand at FIF_R, and
+    # from a copy placed so its first k words end at $D000 and the rest are
+    # on page $D000, invalid (the pager handler makes it valid), on the
+    # operand at FIF_Q; FIF busy: an FSIN FP7 runs first, so the dialog
+    # suspends (come-again) before its late fetches.  FP0-FP7, FPCR, FPSR,
+    # FPIAR (relative to its instruction), A6 relative and the operand windows
+    # compared ($3100 = 0), one page fault, no stray exception.
+    FIF_R, FIF_Q, FIF_INIT, FIF_O1, FIF_O2, FIF_PG = 0x5800, 0x7800, 0x4000, 0x4400, 0x4600, 0xD000
+    SZ = {'L': (0, 4), 'S': (1, 4), 'X': (2, 12), 'W': (4, 2), 'D': (5, 8), 'B': (6, 1)}
+    def eas(base, ext_at):
+        """(name, EA field, extension words, A6) for an operand at base; ext_at = the first extension word's address"""
+        return [('-$20(A6)', 0x2E, [0xFFE0], base + 0x20),
+                ('(-$20,A6,D6.W)', 0x36, [0x60E0], base + 0x20),
+                ('($%X).W' % base, 0x38, [base], 0),
+                ('($%X).L' % base, 0x39, [base >> 16, base & 0xFFFF], 0)]
+    forms = []                                 # (what, builder(base, ext_at) -> (words, A6))
+    for n, (k, fl) in SZ.items():
+        for ei in range(4):
+            def st(base, ext_at, k=k, ei=ei):
+                nm, ea, ext, a6 = eas(base, ext_at)[ei]
+                return [0xF200 | ea, 0x6000 | k << 10 | 0x80] + ext, a6
+            def ld(base, ext_at, k=k, ei=ei):
+                nm, ea, ext, a6 = eas(base, ext_at)[ei]
+                return [0xF200 | ea, 0x4000 | k << 10 | 0x80] + ext, a6
+            en = ['-$20(A6)', '(-$20,A6,D6.W)', '(xxx).W', '(xxx).L'][ei]
+            forms.append(('FMOVE.%s FP1,%s' % (n, en), st))
+            forms.append(('FMOVE.%s %s,FP1' % (n, en), ld))
+        def pcrel(base, ext_at, k=k):
+            return [0xF23A, 0x4000 | k << 10 | 0x80, (base - ext_at) & 0xFFFF], 0
+        forms.append(('FMOVE.%s (d16,PC),FP1' % n, pcrel))
+    IMM = {'L': [0x0001, 0x2345], 'S': [0x3FC0, 0x0000], 'W': [0x1234], 'B': [0x0042],
+           'D': [0x3FE0, 0, 0, 0], 'X': [0x3FFF, 0, 0xC000, 0, 0, 0]}
+    for n, iw in IMM.items():
+        k = SZ[n][0]
+        def imm(base, ext_at, k=k, iw=iw):
+            return [0xF23C, 0x4000 | k << 10 | 0x80 | 0x22] + iw, 0      # FADD.<n> #imm,FP1
+        forms.append(('FADD.%s #imm,FP1' % n, imm))
+    cases = []
+    for what, b in forms:
+        nw = len(b(FIF_R, 0x1802)[0])
+        for kk in range(2, nw):                # the words before the page boundary (the operation and command words at least)
+            for busy in (0, 1):
+                cases.append((what, b, kk, busy, '%s split after word %d%s' % (what, kk, ', the FPU busy' if busy else '')))
+    if os.environ.get('FIFLIST'):
+        for i, c in enumerate(cases):
+            print('%3d %s' % (i, c[4]))
+        sys.exit(0)
+    what, b, kk, busy, desc = cases[int(os.environ['FIF'])]
+    def run_code(org, base):
+        r = Asm(org)
+        r.emit(0x41F8, FIF_INIT)              # lea INIT.w,a0
+        r.emit(0xF210, 0xD0FF)                # fmovem.x (a0),fp0-fp7
+        r.emit(0xF23C, 0x8800, 0, 0)          # fmove.l #0,fpsr
+        r.emit(0x7C00)                        # moveq #0,d6
+        if busy:
+            r.emit(0xF200, 0x1F8E)            # fsin.x fp7: the FPU busy
+        insn_at = org + 2 * len(r.w)
+        ws, a6 = b(base, insn_at + 4)
+        return r, insn_at, ws, a6
+    pre_words = 2 + 2 + 4 + 1 + (2 if busy else 0)
+    org_q = FIF_PG - 2 * kk - 2 * pre_words
+    a = Asm(0x1000)
+    a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr
+    a.emit(0x41F8, 0x6F00)                    # lea $6F00.w,a0
+    a.emit(0xF010, 0x4C00)                    # pmove.q (a0),crp
+    a.emit(0xF028, 0x4000, 0x0008)            # pmove.l 8(a0),tc     translation on
+    a.emit(0x41F9, *L(0xA000))                # lea $A000,a0
+    a.emit(0x4E60)                            # move.l a0,usp
+    a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user
+    a.emit(0x7E00)                            # moveq #0,d7          the differences
+    runs = []
+    FIF_IRQ = os.environ.get('FIF_IRQ') == '1'   # A/UX's switch at the suspended dialog, then the fetch fault
+    for org, base, out in ((0x1800, FIF_R, FIF_O1), (org_q, FIF_Q, FIF_O2)):
+        if FIF_IRQ and base == FIF_Q:
+            a.emit(*movel_abs(1, 0x3F04))     # the dialog interrupt armed: the faulting run only
+        r, insn_at, ws, a6 = run_code(org, base)
+        r.emit(*ws)                           # THE INSTRUCTION
+        r.emit(0x9DCD)                        # suba.l a5,a6
+        r.emit(0x4E75)                        # rts
+        runs.append((org, r, insn_at))
+        a.emit(0x4BF9, *L(base))              # lea base,a5
+        a.emit(0x4DF9, *L(a6 if a6 else base))   # lea A6,a6
+        a.emit(0x4EB9, *L(org))               # jsr RUN
+        a.emit(0x41F9, *L(out))               # lea out,a0
+        a.emit(0xF210, 0xF0FF)                # fmovem.x fp0-fp7,(a0)
+        a.emit(0xF228, 0xBC00, 0x0060)        # fmovem.l fpcr/fpsr/fpiar,$60(a0)
+        a.emit(0x214E, 0x006C)                # move.l a6,$6C(a0)
+        if FIF_IRQ and base == FIF_Q:
+            a.emit(*movel_abs(1, 0x3F08))     # disarmed
+        a.emit(0x2028, 0x0068)                # move.l $68(a0),d0    FPIAR
+        a.emit(0x670A)                        # beq.s +10: past the subi and the move
+        a.emit(0x0480, *L(insn_at))           # subi.l #insn,d0
+        a.emit(0x2140, 0x0068)                # move.l d0,$68(a0)
+    for lo1, lo2, n in ((FIF_O1, FIF_O2, 28), (FIF_R - 64, FIF_Q - 64, 48)):
+        a.emit(0x41F9, *L(lo1), 0x43F9, *L(lo2))   # lea; lea
+        a.emit(0x303C, n - 1)                 # move.w #n-1,d0
+        a.label('C%x' % lo1); a.emit(0xB388)  # cmpm.l (a0)+,(a1)+
+        a.br(0x56C8, 'C%x' % lo1)             # dbne d0,C
+        a.emit(0x56C1, 0x8E01)                # sne d1; or.b d1,d7
+        a.emit(0xE38F)                        # lsl.l #1,d7
+    a.emit(0x21C7, 0x3100)                    # move.l d7,$3100.w
+    a.emit(0x4E40)                            # trap #0
+    p = a.done()
+    put(0x1000, p)
+    for org, r, insn_at in runs:
+        put(org, r.done())
+    assert runs[1][2] + 2 * kk == FIF_PG, (hex(runs[1][2]), kk)
+    vals = [0x3FFF0000, 0xC0000000, 0, 0x40000000, 0xA0000000, 0x00001234, 0xBFFE0000, 0xD5555555, 0x55555555,
+            0x40130000, 0x8BADF00D, 0x00000000, 0x3FFC0000, 0xCCCCCCCC, 0xCCCCCCCD, 0x00000000, 0x00000000, 0,
+            0x7FFF0000, 0, 0, 0x401E0000, 0xFFFFFFFF, 0xFFFFFFFE]
+    for i, v in enumerate(vals):
+        put(FIF_INIT + 4 * i, L(v))
+    import random
+    rnd = random.Random(38)
+    win = [rnd.randrange(0, 65536) for _ in range(96)]
+    put(FIF_R - 64, win)
+    if os.environ.get('FIF_SANITY') == '1':
+        win = win[:40] + [win[40] ^ 0x5A5A] + win[41:]   # a planted difference (must FAIL)
+    put(FIF_Q - 64, win)
+    put(0x6F00, L(0x00000002) + L(0x00006000))           # CRP: short table descriptors at $6000
+    put(0x6F08, L(0x80C04880))                           # TC: E, PS 12, IS 0, TIA 4, TIB 8, TIC 8
+    put(0x6000, L(0x00006040 | 2))                       # A[0] -> B
+    put(0x6040, L(0x00006800 | 2))                       # B[0] -> C
+    for n in range(32):
+        put(0x6800 + 4 * n, L(0) if n == FIF_PG >> 12 else L((n << 12) | 1))   # page $D000 invalid
+    put(4 * 2, L(0x2400))                     # fsw's pager handler
+    put(0x2400, [0x48E7, 0x0706, 0x2E38, 0x3010, 0xE98F, 0x4DF8, 0x3020, 0xDDC7,
+                 0x3CAF, 0x001A, 0x3D6F, 0x001E, 0x0002, 0x2D6F, 0x0024, 0x0004, 0x2D6F, 0x0016, 0x0008,
+                 0x2C2F, 0x0024, 0x2A06, 0x0285, 0xFFFF, 0xF000, 0x5285, 0xE08E, 0xE48E, 0x0206, 0x00FC,
+                 0x4BF8, 0x6800, 0x2B85, 0x6000, 0xF000, 0x2400, 0x52B8, 0x3010, 0x4CDF, 0x60E0, 0x4E73])
+    put(4 * 32, L(0x2500))                    # TRAP #0: stop
+    put(0x2500, [*movel_abs(0x600D0001, 0x3FF0), 0x4E72, 0x2700])
+    if FIF_IRQ:                               # b3x's handler: A/UX's switch (its count at $3030)
+        put(4 * 25, L(0x2600))
+        put(0x2600, [0x52B8, 0x3030, 0x48E7, 0x80C0,
+                     0x41F8, 0x5000, 0xF310, 0x4A10, 0x6710,
+                     0x41F8, 0x4F00, 0xF210, 0xB000, 0x41F8, 0x4F10, 0xF210, 0xF0FF,
+                     0x43F8, 0x5200, 0xF351,
+                     0x43F8, 0x3C80, 0xF200, 0x5C32, 0xF200, 0x0022, 0xF200, 0x0003,
+                     0xF229, 0x7000, 0xFFF0, 0xF200, 0x000E,
+                     0x43F8, 0x5200, 0xF311,
+                     0x43F8, 0x5000, 0x4A11, 0x6710,
+                     0x41F8, 0x4F00, 0xF210, 0x9000, 0x41F8, 0x4F10, 0xF210, 0xD0FF,
+                     0xF351, 0x4CDF, 0x0301,
+                     0x21FC, 0x0000, 0x0001, 0x3F00, 0x4E73])
+        irq = 0xFFFFFFFB
+    expect = [
+        (0x3100, 0x00000000, 0xFFFFFFFF),     # the registers, then the memory windows, the same
+        (0x3010, 0x00000001, 0xFFFFFFFF),     # one page fault: the instruction's own fetch
+        (0x3FF0, 0x600D0001, 0xFFFFFFFF),     # no stray exception (a run of an extension word: the F-line stub)
+    ]
+    if os.environ.get('FIF_DUMP') == '1':     # both runs' saved FP0-FP7, FPCR/FPSR/FPIAR, A6 printed (as failures)
+        expect += [(o + 4 * i, 0xDEADBEEF, 0xFFFFFFFF) for o in (FIF_O1, FIF_O2) for i in range(28)]
 elif MODE == 'b7e':
     # item 7e-1 (plan 8.9.6): the CU's overlap through the kernel - with DZ
     # enabled an FDIV by zero is released and runs while the next

@@ -11065,11 +11065,14 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     next_micro_state_c <= cp_fin;
 
                 WHEN cp_imw =>
-                    -- an immediate word in flight: a long wants two
+                    -- an immediate word in flight: a long wants two; the second
+                    -- through the internal step cp_xfr, so its fetch is scheduled
+                    -- with TG68_PC past the first - the resume record's PC
+                    -- (KNOWN ISSUES 38/39: scheduled from here, a fault on the
+                    -- second word resumed by fetching the first one again)
                     setstate <= "01";
                     IF cp_part = "100" AND cp_half = '0' THEN
-                        setstate <= "00";
-                        next_micro_state_c <= cp_imw;
+                        next_micro_state_c <= cp_xfr;
                     ELSE
                         next_micro_state_c <= cp_ow;
                     END IF;

@@ -7,7 +7,11 @@
 #   MODELSIM  the win32aloem bin directory
 #   PROG      the program: b1 (stage B1, the default), b2, b3a, b3b, b3c, b3u, b4,
 #             b5a, b5b, b5c, b5d (page faults inside dialogs: plan 8.9.4 B5c),
-#             mmu (the PMMU through the wrapper, no dialog faulting) or full
+#             mmu (the PMMU through the wrapper, no dialog faulting) or full;
+#             b3x (KNOWN ISSUES 38: xeyes's shapes under A/UX's context switch;
+#             B3X_DLG=1 a switch at every suspended dialog) and fif (an FPU
+#             instruction's own fetch faulting mid-dialog: FIF=k, FIFLIST=1)
+#   extra arguments go to vsim as plusargs (+IRQSEED=<hex>, +IRQSKIP=n, +trace)
 #
 # Exit status is the bench's verdict: 0 on "==== PASS".
 set -u
@@ -25,6 +29,6 @@ done
 "$MODELSIM/vlog.exe" -quiet +define+SIMULATION -work work +incdir+$RTL/fpu +incdir+$RTL/fpu/ucode \
   "$RTL/fpu/se30_fpu.v" "$RTL/fpu/se30_fpu_apu.v" "$RTL/fpu/se30_fpu_unpack.v" "$RTL/fpu/se30_fpu_cond.v" \
   "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" tb_cpfpu.v || exit 1
-"$MODELSIM/vsim.exe" -c -quiet -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_cpfpu > run.log 2>&1
+"$MODELSIM/vsim.exe" -c -quiet "$@" -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_cpfpu > run.log 2>&1
 grep -E '^# (---- |==== |FAIL|** Error|** Fatal)' run.log | sed 's/^# //'
 grep -q '^# ==== PASS' run.log
