@@ -19457,6 +19457,28 @@ Daniel - add to it, move items out when fixed).**
     ratio is 544/525: a ~16 GHz VCO). So: C (measure) first, then B (the
     output counter pinned to the one Main's reconfiguration writes, from the
     Cyclone V documentation's counter numbering).
+    **B's RESEARCH (2026-10-21 evening):** Main (video.cpp setPLL) writes
+    the reconfig's register 5 = getPLLdiv(c) with bits 22:18 (the counter
+    select) zero - LOGICAL counter 0 (Quartus 13.1+: cnt_sel is the logical
+    outclk index, Intel KB 000083561; AN 661 cntsel). The translation to the
+    physical counter is in sys/pll_cfg/altera_pll_reconfig_core.v: five
+    dont_touch LUTs lcell_cnt_sel_0..4 ("cnt select luts") and
+    lcell_fpll_0_1 (fpll_1: "address luts, to be reconfigged by the
+    Fitter"), and the C counter's DPRIO address = cnt_sel, or for an FPLL_1
+    $11 - cnt_sel. The post-fit netlists (quartus_eda on the r3release
+    databases; scratch cntsel.py decodes the LUTs): SE/30 (pll_hdmi
+    X0_Y1, outclk0's counter X0_Y5) logical C0 -> physical 5; IIcx (X0_Y32,
+    counter X0_Y31) C0 -> 8 - both consistent with the counter sites, so
+    the select translation works in both; fpll_1 is constant-folded in both
+    (a VCC cell), its effect absorbed into the address logic - whether the
+    X0_Y32 site's pair half (FPLL_0/1) and its $11 - n address are right is
+    the open question. Both qsfs have ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP
+    ON - the assignment Intel KB 000079316 says to DISABLE when the logical
+    -> physical translation maps wrong (13.1 and earlier; 17.0 not stated).
+    The handbook's "PLL Physical Counters in Cyclone V Devices" (683375,
+    4.2.1) - the pair/numbering table - is unreachable (intel.com docs now
+    404 to Altera); needed before B's assignment, or the experiment: one
+    IIcx compile with WYSIWYG_REMAP OFF + FUTURE BOARD TESTS 13.
     **DEFERRED (Daniel, 2026-10-19): "let's leave the HDMI fix for the next
     release"** - the A/UX forum test builds (SE/30 + IIcx from d17096d) go
     out without it; the IIcx workaround stays vsync_adjust=1.
