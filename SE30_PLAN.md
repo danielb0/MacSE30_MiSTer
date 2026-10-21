@@ -19475,10 +19475,24 @@ Daniel - add to it, move items out when fixed).**
     the open question. Both qsfs have ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP
     ON - the assignment Intel KB 000079316 says to DISABLE when the logical
     -> physical translation maps wrong (13.1 and earlier; 17.0 not stated).
-    The handbook's "PLL Physical Counters in Cyclone V Devices" (683375,
-    4.2.1) - the pair/numbering table - is unreachable (intel.com docs now
-    404 to Altera); needed before B's assignment, or the experiment: one
-    IIcx compile with WYSIWYG_REMAP OFF + FUTURE BOARD TESTS 13.
+    THE HANDBOOK (Daniel's copy, C:\temp\Mac\Docs\cv_5v2.pdf, Cyclone V
+    Device Handbook vol. 1, 2020.07.24; text cv_5v2.txt beside it): 4.2.1 -
+    a PLL's physical counters run C0->C8 "up-to-down" or C8->C0
+    "down-to-up" (fits the decoded maps: Y5 = C5 at X0_Y1, Y31 = C8 at
+    X0_Y32); Figure 4-22 (SE A5/A6 = our 5CSEBA6): the left edge is X0_Y74,
+    then a "PLL Strip" of X0_Y56, X0_Y32, X0_Y15, then X0_Y1 - and "For the
+    PLL in the strip, only PLL counter C[4..8] ... are used in a clock
+    network. PLL counter C[0..3] are used for ... HSSI". Every working core's
+    pll_hdmi is at X0_Y1, outside the strip; the IIcx's alone is in it. The
+    symptoms say only the C write misses (M, N, K are not counter-indexed:
+    1080p wants C = 3 = the power-on value, right; 720p wants 6, gets 3 =
+    148.5 MHz = 120 Hz; 640x480 wants 16, gets 3 = 134 MHz) - the likeliest
+    place the reconfig core's per-PLL address ($11 - n for an FPLL_1, the
+    orientation?). EXPERIMENTS (each one IIcx compile ~40 min + FUTURE
+    BOARD TESTS 13): (1) ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP OFF (Intel's
+    workaround, KB 000079316); (2) pll_hdmi pinned at X0_Y74 (the left
+    edge's non-strip PLL) with pll_audio into the strip - if the HDMI clock
+    switch accepts it there, the fit says so in about a minute.
     **DEFERRED (Daniel, 2026-10-19): "let's leave the HDMI fix for the next
     release"** - the A/UX forum test builds (SE/30 + IIcx from d17096d) go
     out without it; the IIcx workaround stays vsync_adjust=1.
