@@ -20004,6 +20004,15 @@ Daniel - add to it, move items out when fixed).**
     not colour, NuBus or the card: the shared CPU/PMMU, or the software. (The
     note above that the SE/30 in B&W never showed this flakiness is
     superseded.)
+    THE TEST TOOL: tools/auxunix/pressure.sh (load: xeyes/xclock/xcalc, a cc
+    compile, a program touching N MB of pages twice, then quit TextEditor and
+    log y/n to ~/pressure.log; control: quit at once) - on the HFS floppies
+    C:\temp\Mac\pressure.img / pressure_1440.img (strip the AppleSingle
+    header: sed -n '/^#!\/bin\/sh/,$p'). Daniel's r3release IIcx session
+    (2026-10-21 evening): MacX, his script with 4 X clients, cc, the binary
+    double-clicked into a terminal, an assembly file opened in the editor -
+    all clean; the bombs come only on QUITTING the editor or the terminal
+    (CommandShell), so the quits are the test.
 
 34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
