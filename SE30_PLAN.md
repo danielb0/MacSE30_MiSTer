@@ -20325,6 +20325,9 @@ Daniel - add to it, move items out when fixed).**
     loaded xeyes - KNOWN ISSUES 33's verdict); KNOWN ISSUES 23's board check;
     FUTURE BOARD TESTS 13 on the RC; the reg_rdat path confirmed on the RC's
     timing report. Not in it: the remaining sweep classes and FPU class 4b.
+    Daniel (~00:05): beyond the FPU sweep's items 1 and 2, NO MORE SWEEPS
+    until the next MiSTer-devel release is published - unless testing turns
+    up a bug that calls for one.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
