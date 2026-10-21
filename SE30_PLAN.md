@@ -23369,6 +23369,44 @@ ISSUES 24 -> latent errors (25, 23, the PMMU reg_rdat timing path).
 dev = this record, unpushed (Daniel pushes).
 
 
+**END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
+KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
+The session began as a review of the bug-class sweeps ("is there potential for
+other classes?"): every sweep shared six properties (user mode, page-descriptor
+faults, one clean held level-1 IRQ, the core as its own reference, ideal RAM, a
+clean state) and nine unreached classes were named. Daniel: "start on 1, 3 and
+5" (supervisor-side MOVES faults; the walker's U/M write-back; timing), a forum
+test version of both cores after, then more sweeps. Built (sim/predec_fault,
+folded from the _r3 copy): CASESET=ssweep, RSW_SUPER, RSW_UM, CASESET=um,
+CASESET=sabs, +RAMJIT; run_ssweep.sh, run_rsweep3.sh sdram|jit|super,
+run_irqsweep3.sh; ssweep/ssweep WP/um x2 are in run_regression.sh (50 lines).
+FOUND AND FIXED: **KNOWN ISSUES 34** (89b9753: MOVES Rn,(d16,An)/(xxx) write
+fault resumed one word early - the continuation PC never counted moves0's own
+fetch) and **35** (12ab905: a (xxx).L/(d16,An) MOVES after an (An)-form one
+fetched its address word from the base register's value - the address chain's
+(An) branch fired in moves0 on the previous MOVES's latched mode). Both are the
+kernel-mode path A/UX writes user memory with (sendsig, copyout): KNOWN ISSUES
+33 candidates. Three bench artefacts cost hours and are recorded (the zero
+snapshot = the 'latency bug'; stale cached descriptor reads; a mis-encoded
+reproducer). ALL PASS on the fixed kernel: um 107/107 x2, ssweep 130 + 65 WP,
+sabs 40/40, sdram 50/50, jit 50/50, irqsweep3 2728/2728, page-table rerun
+50/50, supervisor random sweep 100/100, regression 50/50. BUILT on 03877e8
+(release form, the committed qsfs): MacSE30_03877e8d_r3release.rbf md5
+8525a320 and MacIIcx_03877e8d_r3release.rbf md5 b866106e, ours met at every
+corner (IIcx: ascal -0.126 slow -40C = KNOWN ISSUES 6), UNFLASHED - Daniel
+flashes, zips, posts (no setup details in the post). Lessons in memory: one
+8-wide sweep at a time (16-wide ran 7x slower a seed); sanity-plant every new
+compare window first; a per-seed timeout under load orphans vsimk - kill by
+PID. The other session (AU/X) held compiles all night as asked; its four
+debug dirs under sim/_* are untracked and not ours. dev = 5995a5e, unpushed.
+NEXT after the forum round, in Daniel's order: KNOWN ISSUES 24, 23's board
+check, the PMMU reg_rdat path; then the remaining sweep classes (interrupt
+shapes, trace T1/T0 x faults, pointer-level faults, the OS-shaped random
+program, VIA/SCSI/SCC random benches); FUTURE BOARD TESTS 10-14; the release
+path (comments restored, README, main, MiSTer-devel, the wiki row); MIDI, the
+NMI, the 128 MB clean-ROM option. Open spec question: whether PTEST's search
+sets U (not asserted in um).
+
 **END OF SESSION 2026-10-18 (~03:30; Daniel stopped ~01:00: "Please continue
 with the survey. If you find a fix, then please go ahead and make it, and
 then compile") - READ THIS TO RESUME.** Since 2026-10-17 ~13:00, four A/UX
