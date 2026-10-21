@@ -20031,6 +20031,40 @@ Daniel - add to it, move items out when fixed).**
     sendsig / struct-copyout shape again, and so another KNOWN ISSUES 33
     candidate. The ssweep (130 + 65) never saw it: its pair pattern has one
     MOVES per run.
+36. **FIXED IN SIM (2026-10-21 ~12:00; found by the fourth round's directed
+    pointer-level sweep, DSW_PTR=bc and abc) - a DIVU.W/DIVS.W whose operand
+    read faulted took a ZERO-DIVIDE trap from the faulted read's garbage before
+    the bus error, so the bus error was stacked inside that trap (SR $2000, on
+    the user stack the trap had not swapped away from) and its RTE returned the
+    USER program in SUPERVISOR mode.** dsweep cases 22 and 24 (DIVU.W/DIVS.W
+    (A6),D4 at P+0) took 1 handler entry where the shape needs 2/3: the KT
+    trace showed div1 -> div2 run after the fault (make_berr and
+    mmu_restart_pending already 1), div2 set set_Z_error (the garbage divisor
+    is 0 behind a level-A/B fault), trap00-trap3 stacked a vector-5 frame and
+    only then berr_fill; the rerun re-fetched in supervisor mode and its operand
+    translated through the SUPERVISOR tree, where the page is resident - so no
+    second fault. CAUSE (TG68KdotC_Kernel.vhd): the restart squash (`IF
+    mmu_restart_active='1'`, "results computed from the aborted access's
+    garbage data must not raise competing Group-2 traps") clears set_Z_error
+    at ~9043, but div2's `set_Z_error <= '1'` is at ~12303 in the same
+    combinational process, so it wins; the CHK, TRAPV and TRAP causes are all
+    assigned before the squash. FIX: div2 with a restart pending assigns
+    nothing - setstate "00", idle - so the instruction ends and the pending bus
+    error dispatches at setendOPC as for any instruction (only gating
+    set_Z_error left div2 at setstate "01" and the DIVU livelocked in
+    div1/div2: the trap's trapmake had been the only way out). Why no sweep saw
+    it: the benches' supervisor tree maps the same pages, so a wrong return to
+    supervisor mode gives the right data, and +UOK watches user beats only -
+    the b variant (one fault) PASSED with the escalation inside it. NEW CHECK
+    (gen_program.py MODECHK, dsweep/ssweep/isweep/xsweep/rsweep/zdiv): TRAP
+    #0's stub keeps the stacked SR's S bit, each case's slot +24 must equal the
+    mode it started in - failed first on the unfixed kernel (b, bc, abc), the
+    controls pass. NEW BENCH CASESET=zdiv (8 cases, in run_regression.sh at
+    both CACRs): a real zero divisor still traps - resident, and after its
+    operand's page fault and rerun - and a non-zero one behind a fault does
+    not; 64/64 at CACR 0 and $2101. A/UX: any user DIVU/DIVS whose operand
+    page faults, if the garbage is zero - a process escalated to supervisor
+    mode; a KNOWN ISSUES 33 candidate. Both r3release forum builds predate it.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -20232,6 +20266,16 @@ handler keeps the junk; dsweep b, abc and rsweep 3 - the junk code runs at
 $67000), PAIR_SANITY=3 (B entry 1's U cleared after the faulting run: one
 long, the window's last). Times: a dsweep case ~15 s alone; an rsweep seed
 ~25 min with 7 sharing the cores (1.2M clocks).
+THE CHAIN (Daniel: "Run the whole chain, 50 seeds each"): run_round4.sh ->
+round4.log - (1) the directed set at CACR 0, (2) at $2101, (3) run_rsweep3.sh
+ptr 50 (CACR 0), (4) ptrsuper 50 (CACR $2101), (5, Daniel, after KNOWN
+ISSUES 36) run_regression.sh; a directed stage that does not pass stops it.
+The first launch (10:15) listed 0 cases (the dsweep/ssweep list calls lacked
+TCMODE=aux, which DSW_PTR asserts) and fell into stage 3: killed by PID,
+fixed (6535b25; an empty list now fails). STAGE 1 (10:18-11:34): 1653/1657 -
+dsweep bc and abc cases 22 and 24, DIVU.W/DIVS.W (A6),D4 at P+0 = **KNOWN
+ISSUES 36** (fixed; the new MODECHK return-mode check and CASESET=zdiv);
+everything else PASS (b 235, bw/aw 216 each, every ssweep set).
 **THE BUILD (2026-10-19 04:34-05:08, 34 min):** `output_files/MacIIcx_8973e14a_scanfixes.rbf`
 (md5 aa091a88), release form (no probes, CD-ROM in), 38,680 ALMs; every
 path of ours met at every corner, only the framework's ascal fails

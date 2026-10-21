@@ -5,8 +5,11 @@
 # 50 seeds in user mode (CACR 0) and 50 in supervisor mode (CACR $2101, A/UX's
 # m20cache) - one 8-wide sweep at a time.  A directed stage that does not pass
 # stops the chain (a bug is fixed before the random seeds); the random stages
-# run whatever the one before found.  The summary is round4.log.
-#   ./run_round4.sh [FROM]     FROM: 1 (default) .. 4, the stage to start at
+# run whatever the one before found.  Then (Daniel, after KNOWN ISSUES 36's
+# kernel fix) the whole regression, sim/run_regression.sh, ~2.7 h - with the
+# new return-mode check it sweeps every older set for the same escalation.
+# The summary is round4.log.
+#   ./run_round4.sh [FROM]     FROM: 1 (default) .. 5, the stage to start at
 set -u
 cd "$(dirname "$0")"
 LOG=$(pwd)/round4.log
@@ -27,4 +30,5 @@ stage 1 "directed, CACR 0"           ./run_ptrsweep.sh
 stage 2 "directed, CACR \$2101"      ./run_ptrsweep.sh CACR=0x2101
 stage 3 "random user, 50 seeds"      ./run_rsweep3.sh ptr 0 50
 stage 4 "random super, 50 seeds"     ./run_rsweep3.sh ptrsuper 0 50 CACR=0x2101
+stage 5 "the regression"             ../run_regression.sh
 log "round 4 chain finished"
