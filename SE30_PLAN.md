@@ -19976,6 +19976,15 @@ Daniel - add to it, move items out when fixed).**
     environment under A/UX bombs on real hardware too (anecdotal). A crash
     reproducible on the board, or absent in MAME, is chased (the branch
     trace); rare unrepeatable bombs are accepted as period behaviour.
+    THIRD INSTANCE (Daniel, 2026-10-21 ~17:00, IIcx `03877e8d_r3release`, the
+    forum build): quitting the A/UX TextEditor in the Mac environment -
+    "Sorry, a system error occurred. TextEditor bus error"; the Mac
+    environment restarted cleanly; the first such error that day,
+    intermittent. The build predates KNOWN ISSUES 36 (a DIVU/DIVS whose
+    operand page-faulted, its garbage divisor zero, returned the user program
+    in supervisor mode) - a live candidate under A/UX's paging, as are 34 and
+    35 for the earlier instances' builds. Next: the release-form builds with
+    36's fix after the fourth round's chain; the same steps again on them.
 
 34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
