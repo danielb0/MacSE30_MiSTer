@@ -19446,6 +19446,17 @@ Daniel - add to it, move items out when fixed).**
     Main's reconfiguration writes (C0) - needs the Cyclone V counter-index
     map, then a board test; (C) measure first: Main's "Frame time" console
     line over SSH at mode 0, vsync_adjust 0, to confirm the mechanism.
+    **OPTION A IS OUT (Daniel, 2026-10-21: "The core MUST work on a CRT"):**
+    a fractional CE_PIXEL makes the analogue pixel widths uneven - from
+    clk_sys (31.3344 MHz, ratio 1.036) one pixel in ~28 doubled (63.8 ns
+    against 31.9), from clk_mem (94.0032, ratio 3.109) one in ~9 a third
+    wider; the Mac's one-pixel patterns beat into vertical stripes, and a
+    864-pixel line is 895.3 clk_sys (lines alternate 895/896: ~1 pixel of
+    edge jitter line to line). The scaler hides it on HDMI; a CRT shows it.
+    No exact 30.24 MHz is possible from our pll either (with 31.3344 the
+    ratio is 544/525: a ~16 GHz VCO). So: C (measure) first, then B (the
+    output counter pinned to the one Main's reconfiguration writes, from the
+    Cyclone V documentation's counter numbering).
     **DEFERRED (Daniel, 2026-10-19): "let's leave the HDMI fix for the next
     release"** - the A/UX forum test builds (SE/30 + IIcx from d17096d) go
     out without it; the IIcx workaround stays vsync_adjust=1.
