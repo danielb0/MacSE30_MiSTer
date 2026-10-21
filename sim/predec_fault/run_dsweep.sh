@@ -10,7 +10,8 @@ set -u
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
-N=$(env $EXTRA CASESET=dsweep DSWLIST=1 python gen_program.py | wc -l)
+N=$(env $EXTRA TCMODE=aux CASESET=dsweep DSWLIST=1 python gen_program.py | wc -l)
+[ "$N" -gt 0 ] || { echo "==== dsweep${EXTRA:+ ($EXTRA)}: the case list is empty - the generator failed"; exit 1; }
 LOG=dsweep.log
 case " $EXTRA " in *" DSW_PTR="*) v=${EXTRA##*DSW_PTR=}; LOG=dsweep_ptr_${v%% *}; c=$(echo " $EXTRA " | sed -n 's/.* CACR=\([^ ]*\) .*/\1/p'); LOG=$LOG${c:+_c$c}.log ;; esac
 one() {
@@ -24,6 +25,6 @@ one() {
 export -f one; export HERE EXTRA
 seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > $LOG
 P=$(grep -c '==== PASS' $LOG)
-env $EXTRA CASESET=dsweep DSWLIST=1 python gen_program.py | paste -d'|' - <(cut -d' ' -f2- $LOG) | grep -v "==== PASS" | sed 's/|/ : /'
+env $EXTRA TCMODE=aux CASESET=dsweep DSWLIST=1 python gen_program.py | paste -d'|' - <(cut -d' ' -f2- $LOG) | grep -v "==== PASS" | sed 's/|/ : /'
 echo "==== dsweep${EXTRA:+ ($EXTRA)}: $P / $N PASS"
 [ "$P" = "$N" ]

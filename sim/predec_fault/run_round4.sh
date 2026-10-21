@@ -3,8 +3,9 @@
 # pointer-level faults; Daniel: "Run the whole chain, 50 seeds each"): the
 # directed set at CACR 0 and $2101 (run_ptrsweep.sh), then the random sweep
 # 50 seeds in user mode (CACR 0) and 50 in supervisor mode (CACR $2101, A/UX's
-# m20cache) - one 8-wide sweep at a time.  Every stage runs whatever the one
-# before found (each is its own record); the summary is round4.log.
+# m20cache) - one 8-wide sweep at a time.  A directed stage that does not pass
+# stops the chain (a bug is fixed before the random seeds); the random stages
+# run whatever the one before found.  The summary is round4.log.
 #   ./run_round4.sh [FROM]     FROM: 1 (default) .. 4, the stage to start at
 set -u
 cd "$(dirname "$0")"
@@ -18,6 +19,9 @@ stage() {                                            # stage n, what, command...
   log "stage $n ($what) started"
   local r; r=$("$@" 2>&1 | tail -1)
   log "stage $n ($what): $r"
+  if [ "$n" -le 2 ] && ! echo "$r" | grep -q "every sweep PASS"; then
+    log "round 4 chain STOPPED: a directed stage did not pass (its per-sweep logs)"; exit 1
+  fi
 }
 stage 1 "directed, CACR 0"           ./run_ptrsweep.sh
 stage 2 "directed, CACR \$2101"      ./run_ptrsweep.sh CACR=0x2101
