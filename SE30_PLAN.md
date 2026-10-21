@@ -19997,8 +19997,10 @@ Daniel - add to it, move items out when fixed).**
     RAM raises it. On r3release first, then on r4release (36's fix).
     The IIcx TextEditor crash came UNDER PRESSURE already (Daniel): three X
     clients running and a C compile just done - the recipe for the test.
-    The SE/30 too (Daniel, the morning of 2026-10-21, "the original SE/30
-    version" - build to be named): a couple of bombs of the same type - so
+    The SE/30 too (Daniel, the morning of 2026-10-21, the first A/UX forum
+    build - by output_files the only SE/30 build between 10-18 and r3release
+    is compile 81, MacSE30_7ce99f27_fetchsweep, lacking 30, 23's class, 21,
+    31, 32, 34, 35 and 36): a couple of bombs of the same type - so
     not colour, NuBus or the card: the shared CPU/PMMU, or the software. (The
     note above that the SE/30 in B&W never showed this flakiness is
     superseded.)
