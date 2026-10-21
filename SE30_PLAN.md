@@ -20307,6 +20307,24 @@ Daniel - add to it, move items out when fixed).**
     after 2; the other review classes (trace, interrupt shapes, devices)
     after the release. Built in scratch copies until tonight's regression,
     which reads sim/cpfpu, has finished.
+    **THE RELEASE CANDIDATE (Daniel, 2026-10-21 ~23:55: the build after
+    r4release = the RC for the MiSTer-devel merge).** In it: the FPU sweep
+    (items 1 and 2) and its fixes; KNOWN ISSUES 24 (the IIcx HDMI: C, then
+    B); and (agreed 1-4) KNOWN ISSUES 37's fix with its class bench (MOVES /
+    MOVEM / MOVE storing An through its own auto-modified EA, values from
+    the manual; the predicted no-fault 64 KB-crossing variant); the sys/
+    framework brought to the current Template (3 commits behind, same build
+    as 24's fix - it touches the HDMI PLL area); the README items (A/UX:
+    the image, 16 MB, mount the .nvr, a Mac-environment crash restarts that
+    environment, QuarkXPress needs AppleTalk off; Apple CD-ROM 5.1.7+ or a
+    disc mounted - KNOWN ISSUES 15; a bootable image needs an Apple partition
+    map and driver, the CD slot is data only - 16; never one image in two
+    slots; the IIcx README's vsync_adjust workaround out once 24 is fixed);
+    the release form (probes out, comments restored, token-identical to
+    dev). GATES: Daniel's A/UX sessions on r4release (the quit tests and the
+    loaded xeyes - KNOWN ISSUES 33's verdict); KNOWN ISSUES 23's board check;
+    FUTURE BOARD TESTS 13 on the RC; the reg_rdat path confirmed on the RC's
+    timing report. Not in it: the remaining sweep classes and FPU class 4b.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
