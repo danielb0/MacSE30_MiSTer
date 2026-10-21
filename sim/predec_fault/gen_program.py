@@ -553,6 +553,34 @@ if RSW_SUPER:                                        # the supervisor stack carr
 RSW_UM = os.environ.get("RSW_UM", "1") == "1" and TCMODE == "aux"
 if RSW_UM and CASESET == "rsweep":
     PAIR_WIN["rsweep"] += [(PG_TBL + 4 * 0x64, 4 * 7), (PG_TBL + 4 * 0x8, 4)]   # pages $64000-$6A000 and $8000
+if os.environ.get("RSW_PTR") == "1" and CASESET == "rsweep":       # (RSW_PTR, below): A entry 0 and B entries 0-1
+    assert TCMODE == "aux" and RSW_UM, "RSW_PTR needs TCMODE=aux and RSW_UM"
+    PAIR_WIN["rsweep"] += [(AUX_U[0], 4), (AUX_U[1], 8)]
+
+
+def rsw_ptr(seed, sup):
+    """RSW_PTR=1: the pointer descriptors the faulting run invalidates or
+    write-protects, as ("junk", table) / ("and" | "or", address, value) - from
+    their own random stream, so the programs and pages stay rsw_build's."""
+    rnd = random.Random(seed * 7919 + 6)
+    ops = []
+    def pick(desc, table, p_inv, p_wp):
+        r = rnd.random()
+        if r < p_inv:
+            ops.extend([("junk", table), ("and", desc, 0xFFFFFFFC)])     # the table lazily built: junk until the fault
+        elif r < p_inv + p_wp:
+            ops.append(("or", desc, 4))
+    pick(AUX_U[1] + 4, AUX_U[2] + 0x100, 0.6, 0.2)                   # $40000-$7FFFF
+    if not sup:
+        pick(AUX_U[1], AUX_U[2], 0.35, 0.15)                         # $0-$3FFFF: the harness and the user stack (supervisor mode never walks it)
+    r = rnd.random()
+    if r < 0.15:
+        ops.append(("and", AUX_U[0], 0xFFFFFFFC))
+    elif r < 0.25:
+        ops.append(("or", AUX_U[0], 4))
+    if not ops:
+        ops = [("junk", AUX_U[2] + 0x100), ("and", AUX_U[1] + 4, 0xFFFFFFFC)]
+    return ops
 
 
 def rsw_build(seed):
@@ -729,6 +757,43 @@ def rsw_build(seed):
 # the memory-to-memory forms).
 DSW_CODE, DSW_P, DSW_RB = 0x60000, 0x68000, 0x6B000
 DSW_OUT1, DSW_OUT2, DSW_INIT, DSW_RES = 0x6C000, 0x6C100, 0x6C200, 0x6C300
+# Pointer-level faults (the bug-class review's class 6, 2026-10-21): A/UX
+# builds page tables lazily, so a first touch faults at level B (or A) and the
+# handler then writes a whole table; every other sweep invalidates level C
+# only.  TCMODE=aux.  A lazily built table starts as junk (valid descriptors
+# to the sacrificial page PTR_JUNK - a walk through an invalid pointer reads
+# wrong data, which the compare sees; PTR_SANITY=1 keeps the junk: must FAIL)
+# with its real contents in a shadow PTR_SHOFF above it; the handler walks the user tree in software (A/UX's
+# vtopreg): an invalid A entry is repaired, an invalid B entry gets its table
+# copied from the shadow and then the pointer; all valid = a WP fault or the
+# page: WP cleared at every level, the page made valid.
+#   DSW_PTR (dsweep/ssweep: the operand page DSW_P behind a pointer, the
+#   straddle's low page resident; physical page $68000 behind it):
+#     b    DSW_P = $80000, B entry 2 invalid, the page valid      (1 fault)
+#     bc   the same, the page invalid too                          (2 faults)
+#     abc  DSW_P = $2000000, A entry 1, its B entry and the page
+#          invalid (the straddle's low page $1FFF000 is A 0, B 127)  (3 faults)
+#     bw   (DSW_WP/SSW_WP) $80000, B entry 2 valid and WP
+#     aw   (DSW_WP/SSW_WP) $2000000, A entry 1 valid and WP
+#   RSW_PTR=1 (rsweep): per seed, A entry 0 and the B entries for $0-$3FFFF
+#   (user mode only: the harness, the stack) and $40000-$7FFFF (the program,
+#   its data, the dumps) invalid (the table junk) or WP, on top of the pages
+#   rsw_build picks; the A and B descriptors join the compare (their U bits)
+PTR_SHOFF, PTR_JUNK = 0x1000, 0x7E000 | 1
+PTR_C2, PTR_SC2 = 0x5800, 0x5900                 # $80000-$BFFFF's page tables: user (lazy), supervisor
+PTR_UB1, PTR_SB1 = 0x5A00, 0x5C00                # $2000000-$3FFFFFF's B tables: user, supervisor (entry 0 -> the C tables above)
+PTR_UC127, PTR_SC127 = 0x5E00, 0x5F00            # $1FC0000-$1FFFFFF's page tables (entry 63 = $1FFF000 -> $7F000)
+PTR_PHYS = 0x68000                               # the physical page behind DSW_P
+DSW_PTR = os.environ.get("DSW_PTR", "")
+assert DSW_PTR in ("", "b", "bc", "abc", "bw", "aw"), DSW_PTR
+RSW_PTR = os.environ.get("RSW_PTR") == "1"
+PTRMODE = bool(DSW_PTR) or RSW_PTR
+assert not (PTRMODE and H_FULL), "the pointer-level handler is the plain one (HANDLER pflusha, aux or auxirq)"
+PTR_NFAULT = {"b": 1, "bc": 2, "abc": 3}             # the handler's entries a case takes
+if DSW_PTR:
+    DSW_P = 0x2000000 if DSW_PTR in ("abc", "aw") else 0x80000
+    assert TCMODE == "aux", "DSW_PTR needs TCMODE=aux"
+    assert (DSW_PTR in ("bw", "aw")) == (os.environ.get("DSW_WP") == "1" or os.environ.get("SSW_WP") == "1"), "bw/aw go with DSW_WP/SSW_WP, b/bc/abc without"
 DSW_INITV = [13, 25, 0x2468ACE1, 0x13579BDF, 0x89ABCDEF, 0x01234567, 0x7FFF0003, 0x80000005,   # D0 (bit offset) D1 (width) D2-D7
              0x6C400, 0x6C440, 0x6C480, 0x6C4C0, 0x6C500, 0x6C540]                            # A0-A5
 # (words, A6 = operand start + adj, footprint start (from the operand start), footprint length, what)
@@ -1363,13 +1428,16 @@ def main():
         putbytes(DSW_CODE, b"".join(x.to_bytes(2, "big") for x in code_w))
         rnd = random.Random(29)
         window = bytes(rnd.randrange(1, 256) for _ in range(128))   # nonzero: the divisors
-        putbytes(DSW_P - 64, window)
+        if DSW_PTR:                                  # the straddle's low page at physical $7F000, DSW_P's at PTR_PHYS
+            putbytes(0x7FFC0, window[:64]); putbytes(PTR_PHYS, window[64:])
+        else:
+            putbytes(DSW_P - 64, window)
         putbytes(DSW_RB - 64, window if not os.environ.get("DSW_SANITY") else window[:64] + bytes([window[64] ^ 0x5A]) + window[65:])   # DSW_SANITY=1: a planted difference must FAIL
         putbytes(DSW_INIT, b"".join(v.to_bytes(4, "big") for v in DSW_INITV))
         code = [0x4EB9, DSW_CODE >> 16, DSW_CODE & 0xFFFF, 0x4E40]   # JSR DSW_CODE.L; TRAP #0
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
-        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [DSW_P], 1,
-                      {"A0": 0x77, "A1": 0x55, "wp": DSW_WP, "nocount": DSW_WP}, "dsweep: " + what))
+        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [] if DSW_PTR else [DSW_P], 1,
+                      {"A0": 0x77, "A1": 0x55, "wp": DSW_WP, "nocount": DSW_WP, "nfault": PTR_NFAULT.get(DSW_PTR)}, "dsweep: " + what))
     if CASESET == "ssweep":                          # dsweep's pattern in supervisor mode (MOVES, SFC = DFC = 1)
         allc = ssw_cases()
         if os.environ.get("SSWLIST"):
@@ -1380,13 +1448,16 @@ def main():
         putbytes(DSW_CODE, b"".join(x.to_bytes(2, "big") for x in code_w))
         rnd = random.Random(29)
         window = bytes(rnd.randrange(1, 256) for _ in range(128))
-        putbytes(DSW_P - 64, window)
+        if DSW_PTR:                                  # the straddle's low page at physical $7F000, DSW_P's at PTR_PHYS
+            putbytes(0x7FFC0, window[:64]); putbytes(PTR_PHYS, window[64:])
+        else:
+            putbytes(DSW_P - 64, window)
         putbytes(DSW_RB - 64, window if not os.environ.get("DSW_SANITY") else window[:64] + bytes([window[64] ^ 0x5A]) + window[65:])
         putbytes(DSW_INIT, b"".join(v.to_bytes(4, "big") for v in DSW_INITV))
         code = [0x4EB9, DSW_CODE >> 16, DSW_CODE & 0xFFFF, 0x4E40]   # JSR DSW_CODE.L; TRAP #0 - in supervisor mode
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
-        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [DSW_P], 1,
-                      {"A0": 0x77, "A1": 0x55, "wp": SSW_WP, "nocount": SSW_WP, "super": True}, "ssweep: " + what))
+        cases.append((regs, code, 0, 0x2A000, 0x2A000, 4, [] if DSW_PTR else [DSW_P], 1,
+                      {"A0": 0x77, "A1": 0x55, "wp": SSW_WP, "nocount": SSW_WP, "nfault": PTR_NFAULT.get(DSW_PTR), "super": True}, "ssweep: " + what))
     if CASESET == "isweep":
         allc = isw_cases()
         if os.environ.get("ISWLIST"):
@@ -1445,7 +1516,8 @@ def main():
         if os.environ.get("RSWLIST"):
             for k in range(int(os.environ["RSWLIST"])):
                 w_, d_, pg_, wp_ = rsw_build(k)
-                print("%3d %d words, faulting pages %s (write-protected %s)" % (k, len(w_), " ".join("%X" % x for x in pg_), " ".join("%X" % x for x in wp_) or "-"))
+                print("%3d %d words, faulting pages %s (write-protected %s)%s" % (k, len(w_), " ".join("%X" % x for x in pg_), " ".join("%X" % x for x in wp_) or "-",
+                      (", pointers " + " ".join(o[0] + ("" if o[0] == "junk" else " $%X" % o[1]) for o in rsw_ptr(k, RSW_SUPER) if o[0] != "junk")) if RSW_PTR else ""))
             raise SystemExit(0)
         seed = int(os.environ["RSW"])
         cw, dd, pgs, wps = rsw_build(seed)
@@ -1467,7 +1539,7 @@ def main():
                      0x4E40]                                             # TRAP #0
             cases.append((regs, code2, 0, 0x2A000, 0x2A000, 4, badp, None,
                           {"A0": None, "A1": None, "pair": (run, PAIR_WIN["rsweep"]), "wp_pages": wps, "nocount": True,
-                           "noregs": True, "super": RSW_SUPER},
+                           "noregs": True, "super": RSW_SUPER, "ptr_ops": rsw_ptr(seed, RSW_SUPER) if RSW_PTR and run else []},
                           "rsweep %d%s%s" % (seed, " (supervisor, MOVES)" if RSW_SUPER else "", " (reference)" if run == 0 else " (faulting)")))
         putbytes(PAIR_DUMP, bytes(2 * PAIR_STRIDE))
     if CASESET == "rts":
@@ -1611,6 +1683,15 @@ def main():
                 emit(0x00B9); l32(0x00000004); l32(PG_TBL + 4 * (p >> 12))  # ORI.L #4,desc: WP
             else:
                 emit(0x02B9); l32(0xFFFFFFFC); l32(PG_TBL + 4 * (p >> 12))  # ANDI.L #~3,desc: DT 0
+        for o in want.get("ptr_ops", ()):            # RSW_PTR: a table lazily built (its contents to the shadow, junk in place), then its pointer
+            if o[0] == "junk":
+                emit(0x41F9); l32(o[1])              # LEA table,A0
+                emit(0x303C, 63)                     # MOVE.W #63,D0
+                emit(0x2150, PTR_SHOFF)              # MOVE.L (A0),PTR_SHOFF(A0): the shadow
+                emit(0x20FC); l32(PTR_JUNK)          # MOVE.L #junk,(A0)+
+                emit(0x51C8, 0xFFF4)                 # DBRA D0,*-10
+            else:
+                emit(0x02B9 if o[0] == "and" else 0x00B9); l32(o[2]); l32(o[1])   # ANDI.L #~3 / ORI.L #4,desc: DT 0 / WP
         emit(0xF000, 0x2400)                         # PFLUSHA
         if want.get("pair"):
             emit(0x41F9); l32(0x9000)                # LEA $9000,A0
@@ -1642,6 +1723,8 @@ def main():
             run, wins = want["pair"]
             if os.environ.get("PAIR_SANITY") == "2" and run == 1 and RSW_UM:
                 emit(0x02B9); l32(0xFFFFFFF7); l32(PG_TBL + 4 * 0x69)   # ANDI.L #~8,desc($69000): U cleared - a planted difference (must FAIL)
+            if os.environ.get("PAIR_SANITY") == "3" and run == 1 and RSW_PTR:
+                emit(0x02B9); l32(0xFFFFFFF7); l32(AUX_U[1] + 4)        # ANDI.L #~8,B entry 1: U cleared - a planted difference (must FAIL)
             if RSW_UM and CASESET == "rsweep":
                 emit(0x203C); l32(CACR | 0x0800); emit(0x4E7B, 0x0002)   # MOVEC #CACR|CD,CACR: the page table read past any stale data-cache line (the walker writes on the bus)
             po = 0x40
@@ -1664,7 +1747,7 @@ def main():
         emit(0x23C3); l32(s + 12)                    # MOVE.L D3,s+12
         emit(0x2038, COUNT)                          # MOVE.L COUNT.W,D0
         emit(0x23C0); l32(s + 16)                    # MOVE.L D0,s+16
-        handled += len(bad)
+        handled += want.get("nfault") or len(bad)
         if want.get("noregs"):
             expect += [(s + 12, 0, "case %d no output long differs from the reference" % k)]
             continue
@@ -1706,6 +1789,10 @@ def main():
         b(0x203C, M20CACHE >> 16, M20CACHE & 0xFFFF) # MOVE.L #m20cache,D0
         b(0x4E7B, 0x0002)                            # MOVEC D0,CACR: user_buserr's
         b(0x4E56, 0xFFD8)                            # LINK A6,#-40: hardflt's frame
+    elif PTRMODE:
+        assert TCMODE == "aux", "the pointer-level handler walks A/UX's three-level user tree (TCMODE=aux)"
+        SAVE = 16
+        b(0x48E7, 0xC0C0)                            # MOVEM.L D0-D1/A0-A1,-(A7)
     else:
         SAVE = 8
         b(0x48E7, 0x8080)                            # MOVEM.L D0/A0,-(A7)
@@ -1750,17 +1837,76 @@ def main():
         b(0x51C8, (BERR + 2 * clr - (BERR + 2 * len(berr) + 2)) & 0xFFFF)   # DBRA D0,clr
         b(0x2C5F)                                    # MOVEA.L (A7)+,A6
         b(0x202F, FA)                                # MOVE.L FA(A7),D0: the fault address again
-    b(0xE088)                                        # LSR.L #8,D0
-    b(0xE888)                                        # LSR.L #4,D0: the page
-    b(0xE588)                                        # LSL.L #2,D0
-    b(0x0680, PG_TBL >> 16, PG_TBL & 0xFFFF)         # ADDI.L #PG_TBL,D0
-    b(0x2040)                                        # MOVEA.L D0,A0
+    if PTRMODE:
+        # the user tree walked in software (A/UX's vtopreg), D0 = the fault
+        # address; our pointers are DT 2 or (invalidated) 0, so bit 1 is DT
+        lab, fix = {}, []
+        def to(op, name):                            # a branch to a label: BNE.S (op $66) or BRA.W (op $60, a word displacement)
+            if op == 0x6000:
+                b(0x6000, 0); fix.append((len(berr) - 2, len(berr) - 1, name))
+            else:
+                b(op); fix.append((len(berr) - 1, None, name))
+        b(0x2200)                                    # MOVE.L D0,D1
+        b(0xE089, 0xE089, 0xE089, 0xE289)            # LSR.L #8,D1 x3; LSR.L #1,D1: the A index (TIA 7)
+        b(0xE589)                                    # LSL.L #2,D1
+        b(0x0681, AUX_U[0] >> 16, AUX_U[0] & 0xFFFF) # ADDI.L #table A,D1
+        b(0x2041)                                    # MOVEA.L D1,A0: the A descriptor
+        b(0x2210)                                    # MOVE.L (A0),D1
+        b(0x0801, 0x0001)                            # BTST #1,D1
+        to(0x6600, "a_ok")                           # BNE.S a_ok
+        b(0x0090, 0x0000, 0x0002)                    # ORI.L #2,(A0): the A entry valid (DT 2)
+        to(0x6000, "flush")                          # BRA.W flush
+        lab["a_ok"] = len(berr)
+        b(0x0281, 0xFFFF, 0xFFF0)                    # ANDI.L #$FFFFFFF0,D1: table B
+        b(0x2241)                                    # MOVEA.L D1,A1
+        b(0x2200)                                    # MOVE.L D0,D1
+        b(0x4841)                                    # SWAP D1
+        b(0xE449)                                    # LSR.W #2,D1
+        b(0x0241, 0x007F)                            # ANDI.W #$7F,D1: the B index (TIB 7)
+        b(0xE549)                                    # LSL.W #2,D1
+        b(0xD2C1)                                    # ADDA.W D1,A1: the B descriptor
+        b(0x2211)                                    # MOVE.L (A1),D1
+        b(0x0801, 0x0001)                            # BTST #1,D1
+        to(0x6600, "b_ok")                           # BNE.S b_ok
+        b(0x0281, 0xFFFF, 0xFFF0)                    # ANDI.L #$FFFFFFF0,D1: the page table, lazily built:
+        b(0x2041)                                    # MOVEA.L D1,A0
+        b(0x323C, 63)                                # MOVE.W #63,D1
+        b(0x20E8, 0 if os.environ.get("PTR_SANITY") == "1" else PTR_SHOFF)   # MOVE.L PTR_SHOFF(A0),(A0)+: its 64 descriptors from the shadow (PTR_SANITY=1: the junk kept - must FAIL)
+        b(0x51C9, 0xFFFA)                            # DBRA D1,*-4
+        b(0x0091, 0x0000, 0x0002)                    # ORI.L #2,(A1): then the B entry valid (DT 2)
+        to(0x6000, "flush")                          # BRA.W flush
+        lab["b_ok"] = len(berr)
+        b(0x0290, 0xFFFF, 0xFFFB)                    # ANDI.L #~4,(A0): every level valid - WP cleared at A,
+        b(0x0291, 0xFFFF, 0xFFFB)                    # ANDI.L #~4,(A1): at B,
+        b(0x0281, 0xFFFF, 0xFFF0)                    # ANDI.L #$FFFFFFF0,D1: the page table
+        b(0x2041)                                    # MOVEA.L D1,A0
+        b(0x2200)                                    # MOVE.L D0,D1
+        b(0xE089, 0xE889)                            # LSR.L #8,D1; LSR.L #4,D1
+        b(0x0241, 0x003F)                            # ANDI.W #$3F,D1: the C index (TIC 6)
+        b(0xE549)                                    # LSL.W #2,D1
+        b(0xD0C1)                                    # ADDA.W D1,A0: the page descriptor
+        b(0x0290, 0xFFFF, 0xFFFB)                    # ANDI.L #~4,(A0): and at the page,
+        b(0x0090, 0x0000, 0x0001)                    # ORI.L #1,(A0): the page valid (DT 1)
+        lab["flush"] = len(berr)
+        for at_, ext, name in fix:
+            d = 2 * (lab[name] - (at_ + 1))          # from the branch's PC + 2
+            if ext is None:
+                assert -128 <= d < 128 and d != 0
+                berr[at_] |= d & 0xFF
+            else:
+                berr[ext] = d & 0xFFFF
+    else:
+        b(0xE088)                                    # LSR.L #8,D0
+        b(0xE888)                                    # LSR.L #4,D0: the page
+        b(0xE588)                                    # LSL.L #2,D0
+        b(0x0680, PG_TBL >> 16, PG_TBL & 0xFFFF)     # ADDI.L #PG_TBL,D0
+        b(0x2040)                                    # MOVEA.L D0,A0
     if H_FULL:
         b(0x202F, FA)                                # MOVE.L FA(A7),D0
         b(0x0280, 0xFFFF, 0xF000)                    # ANDI.L #$FFFFF000,D0
         b(0x0080, 0x0000, 0x0001)                    # ORI.L #1,D0: DT 1, a page
         b(0x2080)                                    # MOVE.L D0,(A0): the descriptor, a long store
-    else:
+    elif not PTRMODE:
         b(0x0290, 0xFFFF, 0xFFFB)                    # ANDI.L #~4,(A0): WP clear (CASESET=wp's copy-on-write)
         b(0x0090, 0x0000, 0x0001)                    # ORI.L #1,(A0): DT 1, a page
     if H_ADDR:
@@ -1782,6 +1928,8 @@ def main():
         b(0x4E68)                                    # MOVE USP,A0
         b(0x4E60)                                    # MOVE A0,USP
         b(0x4CDF, 0x7FFF)                            # MOVEM.L (A7)+,D0-D7/A0-A6
+    elif PTRMODE:
+        b(0x4CDF, 0x0303)                            # MOVEM.L (A7)+,D0-D1/A0-A1
     else:
         b(0x4CDF, 0x0101)                            # MOVEM.L (A7)+,D0/A0
     b(0x4E73)                                        # RTE
@@ -1824,6 +1972,29 @@ def main():
                 put32(tb + 4 * i, (tp + 0x100 * i) | 2)
             for p in range(128):
                 put32(tp + 4 * p, (p << 12) | 1)     # identity pages, valid, U and M clear
+        if DSW_PTR:                                  # the pointer cases' regions (DSW_PTR, above)
+            low, page = 0x7F000 | 1, PTR_PHYS | (0 if DSW_PTR in ("bc", "abc") else 1)
+            # the supervisor tree: both regions resident, the same physical pages (ssweep's compare reads them)
+            put32(AUX_S[1] + 4 * 2, PTR_SC2 | 2); put32(PTR_SC2, PTR_PHYS | 1)
+            put32(AUX_S[0] + 4, PTR_SB1 | 2); put32(PTR_SB1, PTR_SC2 | 2)
+            put32(AUX_S[1] + 4 * 127, PTR_SC127 | 2); put32(PTR_SC127 + 4 * 63, low)
+            # the user tree: the straddle's low page resident ($7F000 is already; $1FFF000 = A 0, B 127, C 63)
+            put32(AUX_U[1] + 4 * 127, PTR_UC127 | 2); put32(PTR_UC127 + 4 * 63, low)
+            if DSW_PTR in ("b", "bc"):
+                put32(AUX_U[1] + 4 * 2, PTR_C2)      # B entry 2 invalid (DT 0)
+            elif DSW_PTR == "abc":
+                put32(AUX_U[0] + 4, PTR_UB1)         # A entry 1 invalid,
+                put32(PTR_UB1, PTR_C2)               # and its B entry 0
+            elif DSW_PTR == "bw":
+                put32(AUX_U[1] + 4 * 2, PTR_C2 | 4 | 2)   # B entry 2 valid, WP
+            else:
+                put32(AUX_U[0] + 4, PTR_UB1 | 4 | 2); put32(PTR_UB1, PTR_C2 | 2)   # aw: A entry 1 valid, WP
+            if DSW_PTR in ("bw", "aw"):
+                put32(PTR_C2, page)
+            else:                                    # lazily built: junk in place, the real table in the shadow
+                for i in range(64):
+                    put32(PTR_C2 + 4 * i, PTR_JUNK)
+                put32(PTR_C2 + PTR_SHOFF, page)
         if CASESET == "ctx":                        # the second user tree: CTX_P -> CTX_Q
             ta, tb, tp = CTX_U
             put32(CTX_CRP, 0x7FFF0002); put32(CTX_CRP + 4, ta)
@@ -1855,6 +2026,8 @@ def main():
             rng[-1] = (rng[-1][0], hi)
         else:
             rng.append((lo, hi))
+    if DSW_PTR:
+        rng.append((DSW_P - 0x1000, DSW_P + 0x1000))    # the operand's logical pages
     assert len(rng) <= 64, len(rng)
     with open(os.path.join(HERE, "uok.hex"), "w") as f:
         for lo, hi in (rng + [(0, 0)] * 64)[:64]:

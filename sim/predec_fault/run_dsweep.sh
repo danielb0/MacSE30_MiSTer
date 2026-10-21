@@ -3,12 +3,16 @@
 # on a non-resident page, faulting run against a resident reference) - each in its own copy of
 # this directory, 8 at a time, about 4 minutes.  Extra arguments are passed as
 # environment, e.g. CACR=0x2101.  Exit status 0 when every case passes.
-#   ./run_dsweep.sh [CACR=0x2101]
+# DSW_PTR=b|bc|abc (or bw|aw with DSW_WP=1): the operand page behind a pointer-level
+# fault (gen_program.py's DSW_PTR); the log is then dsweep_ptr_<v>[_c<CACR>].log.
+#   ./run_dsweep.sh [CACR=0x2101] [DSW_WP=1] [DSW_PTR=b]
 set -u
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
 N=$(env $EXTRA CASESET=dsweep DSWLIST=1 python gen_program.py | wc -l)
+LOG=dsweep.log
+case " $EXTRA " in *" DSW_PTR="*) v=${EXTRA##*DSW_PTR=}; LOG=dsweep_ptr_${v%% *}; c=$(echo " $EXTRA " | sed -n 's/.* CACR=\([^ ]*\) .*/\1/p'); LOG=$LOG${c:+_c$c}.log ;; esac
 one() {
   k=$1; d=$HERE/../_dsw_$k
   rm -rf "$d"; mkdir -p "$d"
@@ -18,8 +22,8 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > dsweep.log
-P=$(grep -c '==== PASS' dsweep.log)
-env $EXTRA CASESET=dsweep DSWLIST=1 python gen_program.py | paste -d'|' - <(cut -d' ' -f2- dsweep.log) | grep -v "==== PASS" | sed 's/|/ : /'
-echo "==== dsweep: $P / $N PASS"
+seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > $LOG
+P=$(grep -c '==== PASS' $LOG)
+env $EXTRA CASESET=dsweep DSWLIST=1 python gen_program.py | paste -d'|' - <(cut -d' ' -f2- $LOG) | grep -v "==== PASS" | sed 's/|/ : /'
+echo "==== dsweep${EXTRA:+ ($EXTRA)}: $P / $N PASS"
 [ "$P" = "$N" ]

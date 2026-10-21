@@ -20193,6 +20193,45 @@ run_round3.sh = the chain (smoke, um, ssweep x2, sdram 50, jit 50, irq, then
 super 100 and the UM rerun 100 together; round3.log). Open spec question:
 whether PTEST's own search sets U (UM 9.8 says only "does not alter the
 ATC"; the PMMU takes the no-update branch) - not asserted.
+**THE FOURTH ROUND (opened 2026-10-21, Daniel: carry on with the sweep plan
+while the r3release builds are on the forum; "start on 6").** The review's
+nine classes (2026-10-20): 1 supervisor-side faults, 3 the U/M write-back
+and 5 timing are round 3; 2 (the Commando frame's register-block hint) is
+mostly covered by it (RSW_SUPER's mix has MOVEM on faulting data pages) -
+left: a directed supervisor MOVEM set and an interrupt at a MOVEM restart.
+Remaining: 4 interrupt shapes (+ 4b FPU fault x interrupt), 6 pointer-level
+faults, 7 trace (T0 never run; T1 x faults), 8 an OS-shaped random program,
+9 the devices outside the CPU (VIA, SCC, SCSI, SWIM, ASC, SDRAM: random
+benches). Order: 6 (+ 2's directed part), 7, 4 with 4b, 8, 9 in between.
+(6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
+touch faults at level B (or A) and the handler writes a whole table; every
+sweep so far invalidated level C only. BUILT in `sim/predec_fault`
+(gen_program.py's "Pointer-level faults" block; no RTL change): a lazily
+built table starts as junk - valid descriptors to the sacrificial page
+$7E000, so a walk through an invalid pointer reads wrong data - with its
+real contents in a shadow $1000 above; the handler (PTRMODE) walks the user
+tree in software as A/UX's vtopreg does: an invalid A entry repaired, an
+invalid B entry gets its table copied from the shadow and then the pointer,
+all valid = WP cleared at every level and the page made valid; PFLUSH by
+address (HANDLER=aux). Directed: `DSW_PTR=b|bc|abc` on dsweep and ssweep (the
+operand at logical $80000 behind B entry 2, or $2000000 behind A entry 1
+and its B entry 0 - the straddle's low page $7FFxx / $1FFFFxx resident, so
+DSW_OFFS cross a region and an A-table boundary; 1, 2 and 3 handler entries
+asserted), `bw|aw` with DSW_WP/SSW_WP (B or A entry write-protected);
+run_ptrsweep.sh = all ten sweeps (1,657 cases). Random: `RSW_PTR=1`
+(rsweep; per seed from its own stream, so the programs and pages stay
+rsw_build's: B entry 1 ($40000-$7FFFF, the program, data and dumps), B
+entry 0 ($0-$3FFFF, the harness and the user stack; user mode only) and A
+entry 0 each invalid or WP, on top of the seed's pages; A and B
+descriptors in the compare, their U bits); run_rsweep3.sh ptr | ptrsuper.
+With the options off the generator's output is byte-identical to before
+(11 case sets). SMOKE (2026-10-21): dsweep case 0 b/bc/abc PASS with 1/2/3
+entries; rsweep seeds 0, 8 ($2101), 10 (A + both B entries invalid) and
+supervisor 0 and 2 PASS. Sanity plants FAIL as they must: PTR_SANITY=1 (the
+handler keeps the junk; dsweep b, abc and rsweep 3 - the junk code runs at
+$67000), PAIR_SANITY=3 (B entry 1's U cleared after the faulting run: one
+long, the window's last). Times: a dsweep case ~15 s alone; an rsweep seed
+~25 min with 7 sharing the cores (1.2M clocks).
 **THE BUILD (2026-10-19 04:34-05:08, 34 min):** `output_files/MacIIcx_8973e14a_scanfixes.rbf`
 (md5 aa091a88), release form (no probes, CD-ROM in), 38,680 ALMs; every
 path of ours met at every corner, only the framework's ascal fails

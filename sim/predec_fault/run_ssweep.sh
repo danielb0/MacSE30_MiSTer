@@ -7,13 +7,16 @@
 # arguments are passed as environment: SSW_WP=1 makes the page write-protected
 # (copy-on-write) instead of invalid, CACR=0x2101 the caches.  Exit status 0
 # when every case passes.
-#   ./run_ssweep.sh [SSW_WP=1] [CACR=0x2101]      the log is ssweep[_wp].log
+# DSW_PTR=b|bc|abc (or bw|aw with SSW_WP=1): the user page behind a pointer-level
+# fault (gen_program.py's DSW_PTR); the log is then ssweep_ptr_<v>[_c<CACR>].log.
+#   ./run_ssweep.sh [SSW_WP=1] [CACR=0x2101] [DSW_PTR=b]      the log is ssweep[_wp].log
 set -u
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
 N=$(env $EXTRA CASESET=ssweep SSWLIST=1 python gen_program.py | wc -l)
 LOG=ssweep.log; case " $EXTRA " in *" SSW_WP=1 "*) LOG=ssweep_wp.log ;; esac
+case " $EXTRA " in *" DSW_PTR="*) v=${EXTRA##*DSW_PTR=}; LOG=ssweep_ptr_${v%% *}; c=$(echo " $EXTRA " | sed -n 's/.* CACR=\([^ ]*\) .*/\1/p'); LOG=$LOG${c:+_c$c}.log ;; esac
 one() {
   k=$1; d=$HERE/../_r3w_$k
   rm -rf "$d"; mkdir -p "$d"

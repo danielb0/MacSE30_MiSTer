@@ -14,17 +14,23 @@
 #           accesses the kernel's MOVES through SFC = DFC = 1 among random
 #           kernel work, the interrupt landing at the handler's RTE back to
 #           supervisor
-#   ./run_rsweep3.sh sdram|jit|super FIRST COUNT [CACR=0x2101]
+#   ptr     class 6 of the bug-class review (2026-10-21): pointer-level
+#           faults (RSW_PTR=1) - per seed, A entry 0 and the B entries
+#           invalid (the table lazily built from junk) or WP, on top of the
+#           seed's pages; ptrsuper the same in supervisor mode (RSW_SUPER=1)
+#   ./run_rsweep3.sh sdram|jit|super|ptr|ptrsuper FIRST COUNT [CACR=0x2101]
 set -u
 cd "$(dirname "$0")"
 HERE=$(pwd)
-MODE=${1:?sdram, jit or super}; FIRST=${2:-0}; COUNT=${3:-16}; shift 3 2>/dev/null
+MODE=${1:?sdram, jit, super, ptr or ptrsuper}; FIRST=${2:-0}; COUNT=${3:-16}; shift 3 2>/dev/null
 EXTRA="$*"
 case $MODE in
   sdram) PFX=_r3s_; RUNENV="SDRAM=1";     PLUS="" ;;
   jit)   PFX=_r3j_; RUNENV="";            PLUS="+RAMJIT=6" ;;
   super) PFX=_r3u_; RUNENV="RSW_SUPER=1"; PLUS="" ;;
-  *) echo "mode: sdram, jit or super" >&2; exit 2 ;;
+  ptr)   PFX=_r6p_; RUNENV="RSW_PTR=1";   PLUS="" ;;
+  ptrsuper) PFX=_r6q_; RUNENV="RSW_PTR=1 RSW_SUPER=1"; PLUS="" ;;
+  *) echo "mode: sdram, jit, super, ptr or ptrsuper" >&2; exit 2 ;;
 esac
 one() {
   k=$1; d=$HERE/../${PFX}$k
