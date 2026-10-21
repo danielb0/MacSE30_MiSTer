@@ -20288,6 +20288,25 @@ Daniel - add to it, move items out when fixed).**
     a derailed program under paging (A/UX, System 7 VM). Note: the edit
     landed while the round-4 regression's last jobs (uok_all, um, zdiv,
     bfx - integer only) were compiling - the full regression reruns after.
+    **THE FPU SWEEP GAP (Daniel, 2026-10-21 ~23:20: "do 1 and 2 before the
+    next build"; tonight's r4release builds still run, for his A/UX
+    testing).** Against the integer side the FPU had: data faults (fsw) on
+    (An), (An)+, -(An) only; no interrupt-at-every-clock around a fault
+    (class 4b); no random program with faults (b3r/b3x: fixed loops, random
+    IRQ timing, no page faults); no supervisor-side or pointer-level FPU
+    faults; the wrong-mode and stray-access checks only in the random-IRQ
+    modes. ITEM 1 (directed, before the next build): the mode and +UOK-style
+    checks in fsw/fif; fsw (data faults) and fif (fetch faults) over every
+    remaining EA form - (d8,An,Xn), (xxx).W/.L, (d16,PC), the full formats
+    and memory indirection (KNOWN ISSUES 25's X11 shapes), FMOVEM with
+    extension words, FBcc.L / FDBcc / FTRAPcc / FScc operands, FSAVE /
+    FRESTORE through d16, the control registers, packed with a dynamic
+    k-factor. ITEM 2: the FPU's rsweep - random FPU + integer mixes,
+    random code/data pages invalid or WP, random interrupts running A/UX's
+    switch, the pair compare (the cumulative-state instrument). Class 4b
+    after 2; the other review classes (trace, interrupt shapes, devices)
+    after the release. Built in scratch copies until tonight's regression,
+    which reads sim/cpfpu, has finished.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
