@@ -20197,6 +20197,32 @@ Daniel - add to it, move items out when fixed).**
     page (format $B rerun), WP (format $A replay), the 64 KB crossing. Not an
     A/UX shape (compilers never emit it; A/UX's copy loops use separate
     registers) - so the r4release builds go ahead without it (Daniel).
+38. **OPEN (2026-10-21 ~21:00, IIcx r3release on the board, Daniel: a
+    loaded system, constantly switching between programs) - xeyes died
+    executing the DISPLACEMENT WORD of an FPU store.** The core
+    (C:\temp\Mac\AUX disk\used\xeyes crash\AUX_3_1_1GB-clean2.vhd,
+    /core.xeyes1; extracted with ufsread.py): the kernel-stack frame at
+    u+$FF6 = SR $0004, PC $0000100E, format/vector $002C (format 0, vector
+    11, Line-F); registers as adb's $r (A6 $FFFFFD34, USP $FFFFFCD0). xeyes's
+    .text is $1C0-$2CF5C (coff.py), and $1006 FINTRZ FP0; $100A F22E 7000
+    FFA6 = FMOVE.W FP0,-$5A(A6) - so the CPU resumed at $100E, the store's
+    d16 word ($FFA6 = an F-line opcode). The stack's -$5C/-$5A words equal
+    the old pair at -$60/-$5E (the store's completion undecidable).
+    REFUTED: a plain page fault - the cpfpu fsw sweep (which had only (A6),
+    (A6)+, -(A6) EAs) extended in a scratch copy with (d16,A6) loads and
+    stores of every size: FMOVE.W FP1,-$20(A6) WP and invalid, FMOVE.L
+    store WP, FMOVE.W load - all PASS. LEAD: an interrupt taken MID-DIALOG
+    (the 68882 busy after FINTRZ: "come again" with IA), frame $9 with the
+    scan PC at the unfetched d16 word ($100E), then A/UX's context switch
+    (fpsave FSAVE, other processes' FPU work - xclock, xcalc, MacX -
+    fprest FRESTORE) and the RTE into the dialog: if the mid-dialog state
+    is lost on the way, the core resumes at the scan PC as an instruction
+    boundary = this core. KNOWN ISSUES 26 and 28 were on the same path. NEXT:
+    a cpfpu bench of A/UX's switch shape (from unix.dis: the interrupt
+    mid-dialog on an FMOVE store with (d16,An), FSAVE, other FPU work,
+    FRESTORE, RTE) - sweep the dialog points and the EA forms with extension
+    words; and add the (d16,An) cases to the fsw sweep proper (after the
+    regression's run, not during it).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
