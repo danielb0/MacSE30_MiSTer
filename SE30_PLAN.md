@@ -20012,7 +20012,12 @@ Daniel - add to it, move items out when fixed).**
     (2026-10-21 evening): MacX, his script with 4 X clients, cc, the binary
     double-clicked into a terminal, an assembly file opened in the editor -
     all clean; the bombs come only on QUITTING the editor or the terminal
-    (CommandShell), so the quits are the test.
+    (CommandShell), so the quits are the test. r3release tally (2026-10-21):
+    1 bomb (TextEditor quit after X clients + a compile), 1 clean pair (the
+    editor and the terminal quit after the heavy session). Daniel: r3release
+    "does seem to be more robust" than compile 81 (SE/30) and the IIcx dev
+    builds - fewer Mac environment issues; consistent with 21, 23's class,
+    30-32, 34 and 35 being in it (an impression, not a measured rate).
 
 34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
