@@ -31,6 +31,8 @@ if [ "$WHAT" != phase2 ]; then
     # (b3u under the caches: its FM3 bus error is absorbed by the data cache, a bench
     # artefact - SE30_PLAN.md KNOWN ISSUES 28's notes - so only b3r and b5u run with them)
     for p in b3r b5u; do echo "cpjob ${p}_2101 $p B3_CACR=0x2101"; done
+    # (KNOWN ISSUES 38: xeyes's shapes under A/UX's context switch - random, and at every suspended dialog)
+    echo "cpjob b3x b3x B3R_N=8"; echo "cpjob b3x_dlg b3x B3R_N=8 B3X_DLG=1"
   } | xargs -d '\n' -P 8 -I{} bash -c '{}' | sort > "$LOG.1"
   cat "$LOG.1"
 fi
@@ -44,8 +46,10 @@ if [ "$WHAT" != phase1 ]; then
       for w in 0 1; do
         r=$(cd "$SIM/cpfpu" && ./run_fsweep.sh B3_CACR=$c FSW_WP=$w 2>&1 | tail -1); echo "$r B3_CACR=$c FSW_WP=$w"
       done
+      r=$(cd "$SIM/cpfpu" && ./run_fifsweep.sh B3_CACR=$c 2>&1 | tail -1); echo "$r"   # (KNOWN ISSUES 38/39: an FPU fetch faulting mid-dialog)
     done
     r=$(cd "$SIM/predec_fault" && ./run_uok_all.sh 2>&1 | tail -1); echo "$r"
+    r=$(cd "$SIM/cpfpu" && ./run_fifsweep.sh FIF_IRQ=1 2>&1 | tail -1); echo "$r"   # (... with A/UX's switch at the suspended dialog)
     for c in 0 0x2101; do   # the third round: the walker's U/M write-back (UM 9.5.3), 15 cases
       job "um U/M write-back CACR=$c" predec_fault bash -c "d=../_um_$c; rm -rf \$d; mkdir \$d; cp gen_program.py tb_predec_fault.v run.sh \$d/; cd \$d && CASESET=um TCMODE=aux HANDLER=aux CACR=$c ./run.sh +UOK; r=\$?; cd ..; rm -rf \$d; exit \$r"
     done
