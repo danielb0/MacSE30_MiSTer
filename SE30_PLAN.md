@@ -20519,6 +20519,27 @@ Daniel - add to it, move items out when fixed).**
     <ea>,MMUSR at all; the ROM's one candidate is PMOVE -(A6),MMUSR (not
     this form). Look at pmmu_ld_nn's second pass (BUG #387's address
     latch) with a word datatype.
+44. **OPEN, TRIAGE (2026-10-22, the forum tester, IIcx r3release, a fresh
+    System 6.0.8): four games.** AUDIO - (a) The Secret of Monkey Island:
+    the music sometimes does not start until the Scumm Bar, then has a
+    background hiss and wrong-sounding instruments; (b) Ishar 1: no sound
+    at all. CRASHES - (c) Theldrow: a system error on exit; (d) Might and
+    Magic II (Color): never reaches the New World Computing logo, and after
+    the crash the game is damaged (it writes its own file). Leads: the ASC
+    is ours (Section 11; FIFO + wavetable modes, Doug Brown's real-SE/30
+    interrupt behaviour) - (a) points at the wavetable mode (increments,
+    table format, mixing/scaling) or the driver's pacing, (b) at a direct
+    ASC use we do not handle. **THE RC BUILD WAITS until these are
+    identified (Daniel: "don't proceed to the build until we have
+    identified the issues")**; the regression and the non-build RC work go
+    on. Triage: Daniel reproduces on the board, r3release AND r4release
+    (did 36/38/39 fix any?), his Mac Plus 6.0.8 disk - CAUTION: System 6
+    installs are machine-specific; a Plus-targeted install may lack the
+    IIcx's resources (Color QuickDraw patches, the ASC's Sound Manager
+    pieces) - use one installed for the IIcx or "any Macintosh" if
+    possible; MacsBug in 6.0.8's System Folder for (c) and (d); MAME
+    maciicx with the same disk and games as the software ground truth;
+    then MAME's ASC write tap against our model for (a)/(b).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
