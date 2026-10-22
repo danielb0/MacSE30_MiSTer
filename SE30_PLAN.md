@@ -20547,6 +20547,14 @@ Daniel - add to it, move items out when fixed).**
     Installer's Easy Install from C:\temp\Mac\System 6.0.8 System Tools
     (DC42).img, booted on the IIcx core - it has Monitors, Installer and
     Script) if something does not reproduce on 7.1.
+    (a), first try (Daniel, 10-22 evening, 7.1, Games_20MB.vhd): the title
+    music plays and sounds as a recording of the game does, perhaps a
+    minor timing difference (to be described: steady tempo, or uneven).
+    Our sample tick is C16M/704 = 22,254.5 Hz exactly, as the real machine,
+    so a steady tempo difference is not the ASC's rate. The MacLC core
+    plays three notes and hangs (its own V8/ASC, not this core). Still to
+    try: into the Scumm Bar, several cold starts (the tester's
+    "sometimes"), r3release as the tester has it.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
