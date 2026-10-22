@@ -20613,7 +20613,7 @@ Daniel - add to it, move items out when fixed).**
     the address decides.
     On r3release + 7.1 (MacPack, MacsBug in) Theldrow QUITS CLEANLY - so
     the bus error is System 6's (the earlier reproduction). Next: MacsBug
-    in the 6.0.8 disk's System Folder (C:	emp\Mac\macsbug.img), the
+    in the 6.0.8 disk's System Folder (C:\temp\Mac\macsbug.img), the
     capture there; then r4release.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
