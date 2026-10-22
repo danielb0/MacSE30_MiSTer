@@ -2200,7 +2200,14 @@ ALU: TG68K_ALU
 	                                 micro_state = ld_229_1 OR micro_state = ld_229_2 OR
 	                                 micro_state = ld_229_3 OR micro_state = ld_229_4 OR
 	                                 micro_state = st_229_1 OR micro_state = st_229_2 OR
-	                                 micro_state = st_229_3 OR micro_state = st_229_4
+	                                 micro_state = st_229_3 OR micro_state = st_229_4 OR
+	                                 -- KNOWN ISSUES 41: the PMMU EA path's own fetches (pmove_decode's "00" cycle for
+	                                 -- modes 5-7, BUG #366) - unlisted, a faulted d16 armed no restart: TC stored at A6+brief
+	                                 (micro_state = pmove_decode AND state = "00") OR
+	                                 micro_state = pmmu_ld_nn OR micro_state = pmmu_ld_dAn1 OR
+	                                 micro_state = pmmu_ld_AnXn1 OR micro_state = pmmu_ld_AnXn2 OR
+	                                 micro_state = pmmu_ld_229_1 OR micro_state = pmmu_ld_229_2 OR
+	                                 micro_state = pmmu_ld_229_3 OR micro_state = pmmu_ld_229_4
 	                        ELSE '0';
 	-- The state "00" cycles that consume the stream word they fetch (the
 	-- stream_consumed_pc count); brief-format d8(An,Xn)'s AnXn1 "00" cycle is
@@ -10615,7 +10622,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                 -- beat's completion.
                 WHEN cp_decode =>
                     setstate <= "01";
-                    IF fline_context_valid = '0' THEN
+                    IF fline_context_valid = '0' AND mmu_restart_active = '1' THEN
+                        -- KNOWN ISSUES 40: the second word's fetch faulted - the context never latches; the instruction
+                        -- ends here (setstate "00", idle) and the bus error dispatches (the wait below hung the CPU)
+                        setstate <= "00";
+                    ELSIF fline_context_valid = '0' THEN
                         next_micro_state_c <= cp_decode;
                     ELSIF fline_opcode_latch(8 downto 6) = "100" THEN
                         -- cpSAVE (B4; UM 10.2.3.3): the initiating access is a
@@ -11482,7 +11493,11 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
                     -- A force-completed extension fetch deliberately leaves the
                     -- context invalid. Do not decode the previous brief while the
                     -- PMMU fault is moving into exception dispatch.
-                    IF fline_context_valid = '0' THEN
+                    IF fline_context_valid = '0' AND mmu_restart_active = '1' THEN
+                        -- KNOWN ISSUES 40 (cp_decode's twin): the extension word's fetch faulted - end through nop
+                        -- (setendOPC excludes pmove_decode) so the bus error dispatches
+                        next_micro_state_c <= nop;
+                    ELSIF fline_context_valid = '0' THEN
                         next_micro_state_c <= pmove_decode;
                     ELSIF (pmmu_brief(15 downto 13) = "000" AND (pmmu_brief(14 downto 10) = "00010" OR pmmu_brief(14 downto 10) = "00011")) OR  -- TT0/TT1
                         (pmmu_brief(15 downto 13) = "010" AND (pmmu_brief(14 downto 10) = "10000" OR pmmu_brief(14 downto 10) = "10010" OR pmmu_brief(14 downto 10) = "10011")) OR  -- TC/SRP/CRP

@@ -20349,6 +20349,74 @@ Daniel - add to it, move items out when fixed).**
     EVERY "split after word 1" case (36: the F-line instruction's SECOND
     word - command/condition word or branch displacement - on the invalid
     page) TIMED OUT at 1200 s: a hang to investigate first.
+40. **FIXED in RTL, not yet built (2026-10-22; found by item 1's fif) - an
+    F-line instruction whose SECOND word's fetch page-faults HANGS the
+    CPU.** cp_decode waits for fline_context_valid, which latches only from
+    a valid beat; the faulted fetch armed the restart (mrp=1, make_berr=1)
+    but the instruction never ended, so the bus error never dispatched -
+    FBT.W (FIF=228) sat in cp_decode for ever. Any FPU instruction
+    straddling a non-resident page after its opcode word, under A/UX or
+    System 7 VM: a frozen machine. In r3release and r4release. FIX:
+    cp_decode with the context invalid and mmu_restart_active ends the
+    instruction (setstate "00", idle - KNOWN ISSUES 36's pattern). The PMMU
+    twin, pmove_decode (supervisor only - user PMMU opcodes take the
+    privilege trap first; fif FIF_SUPER=1 cases 268/272/274/276 hung),
+    ends through nop, since setendOPC excludes pmove_decode. Verified:
+    228 and 164 user and supervisor, the four PMMU cases.
+41. **FIXED in RTL, not yet built (2026-10-22; FIF_SUPER=1) - a PMMU
+    instruction's EA extension word page-faulting armed no restart: the
+    garbage word went into the EA and the instruction ran on.** PMOVE.L
+    TC,-$20(A6) with the d16 on the invalid page (FIF=270): the d16 is
+    fetched in pmove_decode's own "00" cycle (BUG #366) and consumed by
+    pmmu_ld_dAn1 - neither in insn_fetch_consumer (the integer path's
+    KNOWN ISSUES 22/29 terms never reached the PMMU copy) - so TC was
+    STORED AT A6+$4200 (the stale brief as d16: a stray write) and the
+    late bus error resumed past the real store. Supervisor only (A/UX's
+    kernel text is resident: no known software path). FIX: pmove_decode in
+    a "00" cycle and every pmmu_ld_* state are consumers; the armed restart
+    squashes the stray write (restart_squash). Verified: 270 and the PMMU
+    EA forms (d16, d8(An,Xn), (xxx).W/.L, PFLUSH, PTEST, the MMUSR loads).
+42. **OPEN, DEFERRED until after the MiSTer-devel release (Daniel,
+    2026-10-22: "If 42 is genuinely low priority, then record it and leave
+    it until after the release" - no known software path: a scan of A/UX's
+    kernel binary and ROM 97221136 for cpid-0 mode-6 words with a PMMU
+    command word finds none full-format (the kernel's two hits are data,
+    the ROM's one brief format); its FIF_SUPER
+    cases are expected failures until then) (2026-10-22; FIF_SUPER=1) -
+    the PMMU full-format EA (mode 6,
+    brief(8)=1) is wrong with NO fault at all.** PMOVE.L TC,(-$20.L,A6)
+    walked $5820-1 (bd = its high word); PMOVE.W ([$10.W,A6],$20.L),MMUSR
+    read its pointer at A6+$63 (the extension word's low byte as bd).
+    pmmu_ld_229_1 adds last_data_read, but on the PMMU path the bd arrives
+    in 229_1's OWN "00" cycle (pmove_decode -> pmmu_ld_AnXn1 runs in "01";
+    integer ld_AnXn1 runs in "00" and has loaded the bd already) - MOVES's
+    BUG #332 fix handles exactly this, for MOVES only. A two-pass
+    pmmu_ld_AnXn1 (an extra "00" cycle for a long bd) made the bd right
+    and the PC one word late - reverted; the fix must match the integer
+    path's stream count. No known software uses a full-format EA on a
+    PMMU instruction. BENCH LESSON: the pair compare passed the
+    memory-indirect TC stores - both runs wrote TC at the same wrong
+    address, leaving both windows alike; FIF_SUPER now has absolute
+    checks (TC at the operand, the MMUSR word the EA names, PTEST's N).
+    Bench notes (sim/_k40): FIF_SUPER=1 - the runs in supervisor mode
+    (A7 at $A000: the stack on FIF_Q's page set its M bit, PTEST's MMUSR
+    differed), the PMMU forms appended after the user list (268 on); the
+    integer twin MOVE.L D6,(-$20.L,A6) passes. fif's memory-indirect A5 =
+    the pointer's address; FPSR not compared under FIF_IRQ.
+    The absolute-check run (53 cases, 19 pass): every simple-mode TC store
+    lands at its operand ((d16), (An), d8(An,Xn), (xxx).W/.L), PFLUSH,
+    PTESTR and the integer twin pass; the full-format and memory-indirect
+    forms fail (42); the MMUSR loads stored $EA00 for the word $EA18 = the
+    bench's error (MMUSR's reserved bits 12, 8, 7, 5-3 read 0: compare
+    through $EE47) - except 43.
+43. **OPEN, DEFERRED with 42 (the same class: no software path) (2026-10-22;
+    FIF_SUPER=1 cases 316-320) - PMOVE.W (xxx).L,MMUSR loads the WRONG
+    WORD: the one at the operand + 2 (the long's other half), in both runs
+    alike.** The TC stores through (xxx).L land right; the (d16) and
+    d8(An,Xn) MMUSR loads read the right word. A/UX's kernel has no PMOVE
+    <ea>,MMUSR at all; the ROM's one candidate is PMOVE -(A6),MMUSR (not
+    this form). Look at pmmu_ld_nn's second pass (BUG #387's address
+    latch) with a word datatype.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
