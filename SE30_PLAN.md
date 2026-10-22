@@ -20555,7 +20555,8 @@ Daniel - add to it, move items out when fixed).**
     plays three notes and hangs (its own V8/ASC, not this core). Still to
     try: into the Scumm Bar, several cold starts (the tester's
     "sometimes"), r3release as the tester has it. In the game too, the
-    music plays (Daniel, same evening).
+    music plays (Daniel, same evening) - on BOTH r3release and r4release.
+    What is left of the tester's setup is System 6.0.8.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
