@@ -20634,6 +20634,12 @@ Daniel - add to it, move items out when fixed).**
     LIKELY AUTHENTIC: the game leaves something the Finder trips over.
     To close: r4release (Daniel); MAME maciicx with the same disk if
     wanted.
+    r4release crashes the same way (Daniel). (c) CLOSED AS AUTHENTIC:
+    under System 6 without MultiFinder the game and the Finder share one
+    application heap and the low-memory globals, and the Finder relaunches
+    into what the game left; System 7's Finder stays resident (the
+    Process Manager), each application in its own partition, so 7.1 never
+    meets it. Left: (d) Might and Magic II.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
