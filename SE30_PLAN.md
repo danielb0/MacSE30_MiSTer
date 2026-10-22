@@ -19493,6 +19493,17 @@ Daniel - add to it, move items out when fixed).**
     workaround, KB 000079316); (2) pll_hdmi pinned at X0_Y74 (the left
     edge's non-strip PLL) with pll_audio into the strip - if the HDMI clock
     switch accepts it there, the fit says so in about a minute.
+    **OPTION C TRIED, NO READING (Daniel, 2026-10-22, IIcx r4release,
+    vsync_adjust=0, video_mode=0): the monitor goes blank (no sync - fits
+    the hypothesis) and cannot report the input rate; Main (Version 261010,
+    run in the foreground over SSH) printed NO "INFO: Frame time" lines -
+    not for the IIcx at vsync_adjust=0 or 1, NOR for the SE/30** - so this
+    Main/console never prints show_video_info (the video_calc counter and
+    Main's 500 ms poll should; not chased - the Main build's affair). The
+    menu's system page shows the same two lines (video_core_description,
+    video_scaler_description with the MEASURED HDMI Hz) but was unreadable
+    blank. Decision: skip C; B's experiments ARE the measurement (720p at
+    vsync_adjust=0 shows a picture or not), after the night's regression.
     **DEFERRED (Daniel, 2026-10-19): "let's leave the HDMI fix for the next
     release"** - the A/UX forum test builds (SE/30 + IIcx from d17096d) go
     out without it; the IIcx workaround stays vsync_adjust=1.
