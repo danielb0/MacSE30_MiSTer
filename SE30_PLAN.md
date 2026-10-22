@@ -20663,6 +20663,15 @@ Daniel - add to it, move items out when fixed).**
     (no MM2 Data copied), no errors. Still to try: plain 6.0.8 without
     MultiFinder - the tester's fresh 6.0.8 very likely has none (Easy
     Install from System Tools alone left it out here too).
+    (d) NOT REPRODUCED: the colour release runs on 6.0.8 with MultiFinder
+    AND without (Daniel). ALL FOUR IDENTIFIED (2026-10-22 ~23:45): (a) and
+    (b) not reproduced (the tester's setup: 32-Bit QuickDraw needed by
+    Monkey Island on System 6, Ishar's own sound switch), (c) authentic
+    (System 6's Finder relaunching into Theldrow's leftovers; clean under
+    MultiFinder or 7), (d) not reproduced. The RC build's hold on 44 is
+    lifted. For the tester: his System install (made for the IIcx?),
+    32-Bit QuickDraw, MultiFinder, his game versions; Daniel's disk image
+    to try.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
