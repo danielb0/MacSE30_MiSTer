@@ -20607,6 +20607,10 @@ Daniel - add to it, move items out when fixed).**
     Fortress) plays its sound - lots of it - on our core; it draws in
     Mac Plus-style B&W only, and has its own option to turn the sound off,
     which may be the tester's "no sound". Left: (c) and (d).
+    (c) REPRODUCED (Daniel, 10-22 evening): a bus error on quitting
+    Theldrow. Next: MacsBug's screen (the bus error line, wh pc, sc6,
+    il pc-20) - authentic quit crashes were common in games of the time;
+    the address decides.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
