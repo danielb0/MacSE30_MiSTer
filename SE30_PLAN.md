@@ -20611,6 +20611,10 @@ Daniel - add to it, move items out when fixed).**
     Theldrow. Next: MacsBug's screen (the bus error line, wh pc, sc6,
     il pc-20) - authentic quit crashes were common in games of the time;
     the address decides.
+    On r3release + 7.1 (MacPack, MacsBug in) Theldrow QUITS CLEANLY - so
+    the bus error is System 6's (the earlier reproduction). Next: MacsBug
+    in the 6.0.8 disk's System Folder (C:	emp\Mac\macsbug.img), the
+    capture there; then r4release.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
