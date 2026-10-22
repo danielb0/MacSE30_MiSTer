@@ -20603,6 +20603,10 @@ Daniel - add to it, move items out when fixed).**
     the tester's setup (ask: which System install, 32-Bit QuickDraw,
     other INITs, the game's version - ours is 1.0, 1991). Left: (b) Ishar
     1, (c) Theldrow, (d) Might and Magic II - Daniel finds the games.
+    (b) NOT REPRODUCED (Daniel, 10-22 evening): Ishar 1 (Legend of the
+    Fortress) plays its sound - lots of it - on our core; it draws in
+    Mac Plus-style B&W only, and has its own option to turn the sound off,
+    which may be the tester's "no sound". Left: (c) and (d).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
