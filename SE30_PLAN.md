@@ -20642,6 +20642,12 @@ Daniel - add to it, move items out when fixed).**
     meets it. Left: (d) Might and Magic II.
     Confirmed: under 6.0.8 WITH MultiFinder (from the Utilities 1 disk;
     Easy Install had not put it in) Theldrow quits cleanly (Daniel).
+    (d): MacPack's copy (Games:1992:Might & Magic II (1.04)) is the
+    BLACK-AND-WHITE release - vers 1.0.4, April 22 1992; its requirements
+    dialog asks only for "A Macintosh Computer, 1 Megabyte, System 4.1";
+    no colour code in it. The tester's is "(Color)", a different release:
+    ask him for his copy (or its version). Daniel tries the B&W one
+    meanwhile (same engine, the start-up path).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
