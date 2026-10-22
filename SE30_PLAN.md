@@ -20615,6 +20615,10 @@ Daniel - add to it, move items out when fixed).**
     the bus error is System 6's (the earlier reproduction). Next: MacsBug
     in the 6.0.8 disk's System Folder (C:\temp\Mac\macsbug.img), the
     capture there; then r4release.
+    Correction: MacPack's "debugger" was BOMB SHELTER (a third-party
+    crash-recovery INIT), not MacsBug; with it in, one random illegal
+    instruction while playing (r3release, 7.1). Bomb Shelter out, MacsBug
+    in: Theldrow plays and quits with no crash on 7.1 (Daniel, confirmed).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
