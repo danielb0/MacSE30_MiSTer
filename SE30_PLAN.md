@@ -20659,6 +20659,10 @@ Daniel - add to it, move items out when fixed).**
     to it). Test: the colour folder as it is; if it dies before the logo,
     again with MM2 Data copied in - a missing data file would explain the
     tester's report.
+    RUNS (Daniel, 10-22 ~23:40): the colour release, its folder as it is
+    (no MM2 Data copied), no errors. Still to try: plain 6.0.8 without
+    MultiFinder - the tester's fresh 6.0.8 very likely has none (Easy
+    Install from System Tools alone left it out here too).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
