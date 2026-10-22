@@ -20103,6 +20103,14 @@ Daniel - add to it, move items out when fixed).**
     Every step a real 68030's; MemErr 0. MacX's own unchecked NULL - not
     the core. Method for the next ones: il pc-40 24, dm on the pointer
     chain, dw 220 (MemErr).
+    Then (13:20, 14:30) two deliberate heavy-load sessions on r4release -
+    QuarkXPress, MacX, TattleTech, CommandShell, TextEditor, TeachText and
+    APPLE DOCVIEWER (this issue's original address error, in colour) open
+    together with X clients, ~1.3-2.5 MB the largest free block: no crash;
+    DocViewer ran and QUIT CLEANLY; the QuarkXPress quit bomb would not
+    repeat. Status: watch through the RC's A/UX testing with MacsBug
+    installed; close as authentic app behaviour if nothing points at the
+    core.
 
 34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
