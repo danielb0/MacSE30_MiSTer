@@ -20554,7 +20554,8 @@ Daniel - add to it, move items out when fixed).**
     so a steady tempo difference is not the ASC's rate. The MacLC core
     plays three notes and hangs (its own V8/ASC, not this core). Still to
     try: into the Scumm Bar, several cold starts (the tester's
-    "sometimes"), r3release as the tester has it.
+    "sometimes"), r3release as the tester has it. In the game too, the
+    music plays (Daniel, same evening).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
