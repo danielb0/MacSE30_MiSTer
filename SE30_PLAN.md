@@ -20544,7 +20544,7 @@ Daniel - add to it, move items out when fixed).**
     Persia ran in B&W, its sound fine - the FIFO path works under System 6;
     also lacks the IIcx ROM's PTCH patches) - so the triage runs on his 7.1
     disk (Daniel), falling back to a 6.0.8 installed FOR THE IIcx (the
-    Installer's Easy Install from C:	emp\Mac\System 6.0.8 System Tools
+    Installer's Easy Install from C:\temp\Mac\System 6.0.8 System Tools
     (DC42).img, booted on the IIcx core - it has Monitors, Installer and
     Script) if something does not reproduce on 7.1.
 
