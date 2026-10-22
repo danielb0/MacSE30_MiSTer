@@ -20200,7 +20200,23 @@ Daniel - add to it, move items out when fixed).**
     not; 64/64 at CACR 0 and $2101. A/UX: any user DIVU/DIVS whose operand
     page faults, if the garbage is zero - a process escalated to supervisor
     mode; a KNOWN ISSUES 33 candidate. Both r3release forum builds predate it.
-37. **OPEN (2026-10-21 ~20:30; found by the fourth round's supervisor random
+37. **FIXED (2026-10-22, not yet built) - WIDER than recorded: every
+    MOVES.L An,(An)+ / An,-(An) stored the OLD An whenever the long's first
+    beat went out (an aligned long whole - with NO fault; a misaligned one
+    its high word), and a fault's frame took the same value.** The directed
+    bench (CASESET=selfst, run_selfst.sh: 132 cases - MOVES all sizes, MOVEM
+    -(An) with An in the list .L/.W alone and after D0, MOVE .L/.W; aligned,
+    misaligned, odd; resident, invalid, WP; across $70000; the PRM's values,
+    absolute): before, only MOVES.L failed (aligned resident and every
+    faulting case); MOVEM, MOVE and MOVES.W/.B were right. FIX
+    (data_write_muxin): in the long_start beat, -(An) writes addr (An-4 is
+    the EA) and (An)+ memaddr_reg + 4 (the EA's base An); the second beat
+    keeps BUG #328's addsub_q. After: 132/132 both CACRs, the plant fails,
+    sabs 40/40 x2, ssweep 130/130 + WP 65/65. Bench lessons: windows shared
+    between cases need a runtime restore (selfst's want["restore"]); a final
+    memory dump shows the LAST case at a shared window - the bus trace
+    (+BTLO/+BTHI) is per case. The history:
+    OPEN (2026-10-21 ~20:30; found by the fourth round's supervisor random
     sweep, ptrsuper seed 31, both CACRs) - MOVES.L An,(An)+ whose first beat
     faults stacks the OLD An in the frame's DOB, so the format $A replay
     stores the pre-increment value.** M68000PRM MOVES (6-26, copy in

@@ -60,6 +60,9 @@ if [ "$WHAT" != phase1 ]; then
     for c in 0 0x2101; do   # the fourth round: KNOWN ISSUES 36's other side - a real zero divisor still traps, 8 cases
       job "zdiv zero-divide traps CACR=$c" predec_fault bash -c "d=../_zd_$c; rm -rf \$d; mkdir \$d; cp gen_program.py tb_predec_fault.v run.sh \$d/; cd \$d && CASESET=zdiv TCMODE=aux HANDLER=aux CACR=$c ./run.sh +UOK; r=\$?; cd ..; rm -rf \$d; exit \$r"
     done
+    for c in 0 0x2101; do   # KNOWN ISSUES 37's class: an address register stored through its own (An)+/-(An), 132 cases
+      r=$(cd "$SIM/predec_fault" && ./run_selfst.sh CACR=$c 2>&1 | tail -1); echo "$r"
+    done
     job "bfx (KNOWN ISSUES 21)" predec_fault bash -c 'd=../_bfx; rm -rf $d; mkdir $d; cp gen_program.py tb_predec_fault.v run.sh $d/; cd $d && CASESET=bfx ./run.sh +UOK; r=$?; cd ..; rm -rf _bfx; exit $r'
   } > "$LOG.2"
   cat "$LOG.2"

@@ -110,7 +110,7 @@ SIZE = 0x80000                                   # the image: 512 KB
 # pages): TRAP #0's stub keeps the stacked SR's S bit at MODEW, each case's
 # slot +24 gets it, wanted = the mode the case started in
 MODEW = 0x3F20
-MODECHK = CASESET in ("dsweep", "ssweep", "isweep", "xsweep", "rsweep", "zdiv")
+MODECHK = CASESET in ("dsweep", "ssweep", "isweep", "xsweep", "rsweep", "zdiv", "selfst")
 # zdiv (KNOWN ISSUES 36's other side): a REAL zero divisor still traps (vector
 # 5 -> ZDIV, which counts at ZCOUNT and RTEs) - resident, and after its
 # operand's page fault and rerun; a non-zero divisor behind the fault does not.
@@ -1254,6 +1254,79 @@ def sabs_case(win):
     return code, bytes(init), bytes(exp)
 
 
+# selfst (KNOWN ISSUES 37's class, 2026-10-22): an ADDRESS register stored
+# through its own auto-modified EA - MOVES An,(An)+/-(An) every size
+# (supervisor, DFC = 1), MOVEM <list>,-(An) with An in the list (.L, .W;
+# alone and after D0), MOVE An,(An)+/-(An) (.L, .W; user) - aligned,
+# misaligned and odd; resident, the page invalid (the rerun) and
+# write-protected (the format $A replay); and across the 64 KB boundary
+# $70000 (the predicted no-fault case: the long's first beat carrying the
+# old high word).  The values are the manual's, checked absolutely (A2 is
+# the register: its end value is checked too): MOVES stores the
+# incremented / decremented An ("the current implementations of the
+# MC68010, MC68020, MC68030, and MC68040 store the incremented or
+# decremented value", PRM MOVES); MOVEM -(An) "the initial register value
+# decremented by the size of the operation" (PRM MOVEM, 68020/030); MOVE -
+# the PRM silent - the initial value (the source is read before the
+# destination's EA is calculated).
+SELFST_REF = {}
+
+
+def selfst_cases():
+    out = []
+    SZ = {"L": 4, "W": 2, "B": 1}
+    def moves(sz, mode):                               # MOVES.sz A2,(A2)+ / -(A2): A/D 1, reg 2, dr 1
+        return [0x0E00 | {"B": 0, "W": 1, "L": 2}[sz] << 6 | mode << 3 | 2, 0xA800]
+    def move(sz, mode):                                # MOVE.sz A2,(A2)+ / -(A2)
+        return [{"L": 0x2000, "W": 0x3000}[sz] | 2 << 9 | mode << 6 | 0x0A]
+    forms = []                                         # (name, code, size, post, value rule, super, extra regs, d0 slot)
+    for sz in ("L", "W", "B"):
+        forms.append(("MOVES.%s A2,(A2)+" % sz, moves(sz, 3), sz, True, "inc", True, [], False))
+        forms.append(("MOVES.%s A2,-(A2)" % sz, moves(sz, 4), sz, False, "dec", True, [], False))
+    for sz in ("L", "W"):
+        forms.append(("MOVEM.%s A2,-(A2)" % sz, [0x48A2 | (sz == "L") << 6, 0x0020], sz, False, "dec", False, [], False))
+        forms.append(("MOVEM.%s D0/A2,-(A2)" % sz, [0x48A2 | (sz == "L") << 6, 0x8020], sz, False, "dec", False, [(0x203C, 0x5A5AA5A5)], True))
+        forms.append(("MOVE.%s A2,(A2)+" % sz, move(sz, 3), sz, True, "init", False, [], False))
+        forms.append(("MOVE.%s A2,-(A2)" % sz, move(sz, 4), sz, False, "init", False, [], False))
+    conds = [("resident", 0x6A000, False, False), ("the page invalid", 0x6C000, True, False), ("the page write-protected", 0x6E000, True, True)]
+    slot = {}
+    def win_for(base):
+        k = slot.get(base, 0); slot[base] = k + 1
+        assert k < 64
+        return base + 0x40 * k
+    def build(name, code, sz, post, rule, sup, xregs, d0, store_at, base_win, bad, wp, what):
+        n = SZ[sz]
+        a2 = store_at if post else store_at + n           # -(An): A2's slot is a2 - n (first), D0's below it
+        val = {"inc": a2 + n, "dec": a2 - n, "init": a2}[rule] & 0xFFFFFFFF
+        init = bytearray(((base_win >> 4) + i * 0x11) & 0xFF for i in range(0x40))
+        exp = bytearray(init)
+        o = store_at - base_win
+        exp[o:o + n] = val.to_bytes(4, "big")[4 - n:]
+        if d0:                                         # D0 below A2's slot (MOVEM -(An): A2 first, then D0)
+            exp[o - n:o] = (0x5A5AA5A5).to_bytes(4, "big")[4 - n:]
+        a2_end = a2 + n if post else a2 - n * (2 if d0 else 1)
+        regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, a2)] + xregs
+        return (regs, code, base_win, init, exp, bad, a2_end, {"A0": 0x77, "A1": 0x55, "super": sup, "wp": wp}, "selfst: %s, %s" % (name, what))
+    for name, code, sz, post, rule, sup, xregs, d0 in forms:
+        n = SZ[sz]
+        offs = [0x10, 0x12, 0x11] if n == 4 else ([0x10, 0x11] if n == 2 else [0x10, 0x11])
+        for cname, base, isbad, wp in conds:
+            for off in offs:
+                w = win_for(base)
+                st = w + off + (n if d0 else 0)
+                out.append(build(name, code, sz, post, rule, sup, xregs, d0, st, w, [base] if isbad else [], wp,
+                                 "%s, at +%X" % (cname, off)))
+    # across the 64 KB boundary $70000 (resident, then the second page invalid): the long's value's high word changes
+    for name, code, sz, post, rule, sup, xregs, d0 in forms:
+        if sz != "L":
+            continue
+        for st, what, pages in ((0x6FFFC, "stored at $6FFFC", (0x6F000,)), (0x6FFFE, "stored at $6FFFE (straddling)", (0x6F000, 0x70000))):
+            for bad in [None] + list(pages):                # resident, then each page the store touches invalid
+                out.append(build(name, code, sz, post, rule, sup, xregs, d0, st, 0x6FFE0, [bad] if bad else [], False,
+                                 "across $70000, %s%s" % (what, ", the page $%X invalid" % bad if bad else "")))
+    return out
+
+
 def memfull_cases(part, bds):
     out = []
     for k, (is_, iis) in enumerate(MF_IIS):
@@ -1636,6 +1709,25 @@ def main():
             regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
             cases.append((regs, code, 0, ref, win, 0x40, bad, None,
                           {"A0": 0x77, "A1": 0x55, "super": True, "wp": wp}, "sabs: " + what))
+    if CASESET == "selfst":
+        assert TCMODE == "aux", "selfst needs TCMODE=aux (the user tree's pages)"
+        sc = selfst_cases()
+        if os.environ.get("SELFSTLIST"):
+            for i, c in enumerate(sc):
+                print("%3d %s" % (i, c[8]))
+            raise SystemExit(0)
+        part, per = int(os.environ.get("SELFST_PART", "0")), int(os.environ.get("SELFST_N", "16"))   # cases a run (the harness's code space)
+        sc = sc[per * part:per * part + per]
+        for k, (regs, code, win, init, exp, bad, a2_end, want, what) in enumerate(sc):
+            ref = 0x2A000 + 0x100 * (k % 0x40) + 0x4000 * (k // 0x40)
+            putbytes(win, init)
+            putbytes(ref, exp)
+            if os.environ.get("SELFST_SANITY") == "1" and k == 0:
+                putbytes(ref + 0x30, bytes([exp[0x30] ^ 0xFF]))   # a planted difference (must FAIL)
+            SELFST_REF[k] = exp
+            putbytes(ref + 0x80, init)                   # the pristine window: restored before the case (the crossing cases share $6FFE0)
+            want = dict(want, restore=(ref + 0x80, win, 0x40))
+            cases.append((regs, code, 0, ref, win, 0x40, bad, a2_end, want, what))
     if CASESET in ("all", "dcmp"):
         for tbl, src, dst, ref, n, seed, which, what in DCMP_CASES:
             s, table, out = dcmp_stream(n, seed)
@@ -1709,6 +1801,12 @@ def main():
                 emit(0x303C, n_ // 4 - 1)            # MOVE.W #n/4-1,D0
                 emit(0x22D8, 0x51C8, 0xFFFC)         # MOVE.L (A0)+,(A1)+; DBRA D0,*-2
                 po += n_
+        if want.get("restore"):                       # the window from its pristine copy, before its pages are made invalid
+            src_, dst_, n_ = want["restore"]
+            emit(0x41F9); l32(src_)                  # LEA prist,A0
+            emit(0x43F9); l32(dst_)                  # LEA window,A1
+            emit(0x303C, n_ // 4 - 1)                # MOVE.W #n/4-1,D0
+            emit(0x22D8, 0x51C8, 0xFFFC)             # MOVE.L (A0)+,(A1)+; DBRA D0,*-2
         for p in bad:
             if want.get("wp") or p in want.get("wp_pages", ()):
                 emit(0x00B9); l32(0x00000004); l32(PG_TBL + 4 * (p >> 12))  # ORI.L #4,desc: WP
@@ -1796,6 +1894,9 @@ def main():
                    (s + 16, handled, "case %d handler entries so far = the invalid pages" % k)][:4 if want.get("nocount") else 5]
         if a2_want is not None:
             expect.append((s + 20, a2_want, "case %d A2 at the output's end" % k))
+        if CASESET == "selfst" and os.environ.get("SELFST_DUMP") == "1":   # the window printed (as failures), the expected long beside it
+            for i in range(0, n, 4):
+                expect.append((dst + i, 0xDEADBEEF, "case %d +%02X want %s" % (k, i, SELFST_REF[k][i:i + 4].hex())))
     expect += um_extra                               # the um cases' descriptor and MMUSR observations
     if pair_wins:                                    # the two runs' dumps compared
         nl = (0x40 + sum(n_ for _, n_ in pair_wins)) // 4

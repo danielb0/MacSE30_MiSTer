@@ -2922,7 +2922,7 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 
 	PROCESS (long_start, reg_QB, data_write_tmp, exec, data_read, beat_rem, bf_ext_out, addr,
 			 data_write_muxin, memmask,
-			 moves_bus_pending, moves_direction, moves_reg, addsub_q, opcode)
+			 moves_bus_pending, moves_direction, moves_reg, addsub_q, opcode, memaddr_reg)
 		VARIABLE op_bytes : std_logic_vector(39 downto 0);
 		VARIABLE r0, r1, r2, r3 : std_logic_vector(7 downto 0);
 	BEGIN
@@ -2941,9 +2941,16 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 			-- longaktion first cycle (where addsub_b=2 instead of 4).
 			IF moves_bus_pending = '1' AND moves_direction = '1' AND
 			   (exec(postadd) = '1' OR exec(presub) = '1') AND
-			   moves_reg = ('1' & opcode(2 downto 0)) AND
-			   long_start = '0' THEN
-				data_write_muxin <= addsub_q;
+			   moves_reg = ('1' & opcode(2 downto 0)) THEN
+				-- KNOWN ISSUES 37: the long's first beat carried reg_QB, the OLD An (an aligned long whole, a
+				-- misaligned one its high word; the fault frame's DOB too) - PRM MOVES: the incremented/decremented An
+				IF long_start = '0' THEN
+					data_write_muxin <= addsub_q;
+				ELSIF exec(presub) = '1' THEN
+					data_write_muxin <= addr;                -- -(An): An-4 is the EA itself
+				ELSE
+					data_write_muxin <= memaddr_reg + 4;     -- (An)+: the EA's base An, +4
+				END IF;
 			ELSE
 				data_write_muxin <= reg_QB;
 			END IF;
