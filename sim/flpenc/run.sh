@@ -4,7 +4,8 @@
 # directory; MACPLUS: the MacPlus core's checkout, for the GCR second
 # opinion (rtl/floppy_track_encoder.v); MACLC: the MacLC core's, for the
 # MFM one (rtl/mfm_track_encoder.v).  Extra arguments go to vvp
-# (+MFM_ONLY).  Exit status is the bench's verdict.
+# (+MFM_ONLY; +IMG=<file> a real 800K image's data, one hex byte a line, in
+# place of the pattern).  Exit status is the bench's verdict.
 set -u
 cd "$(dirname "$0")"
 IVERILOG=${IVERILOG:-/c/iverilog/bin}
