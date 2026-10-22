@@ -20589,6 +20589,12 @@ Daniel - add to it, move items out when fixed).**
     copy of mac_80mb.vhd, Apple HD SC Setup 7.3.5's driver) ERASED in
     System 6's Finder, so the Mac sizes the B-trees, then Monkey Island and
     32-Bit QuickDraw copied onto it.
+    (a) NOT REPRODUCED (Daniel, 10-22 ~22:30): on 6.0.8 installed for the
+    IIcx on an Apple-driver disk, with 32-Bit QuickDraw, the music works
+    too - as on 7.1, r3release and r4release alike. So (a) is most likely
+    the tester's setup (ask: which System install, 32-Bit QuickDraw,
+    other INITs, the game's version - ours is 1.0, 1991). Left: (b) Ishar
+    1, (c) Theldrow, (d) Might and Magic II - Daniel finds the games.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
