@@ -20362,6 +20362,15 @@ Daniel - add to it, move items out when fixed).**
     (direct video gives video_freak zero HDMI sizes); same build and board
     test as the sys/ update and 24 (each scale mode at 1080p + one other,
     both cores, CRT unchanged); ascal's slack checked on the RC report;
+    ADDED (Daniel, 2026-10-22, the forum tester: "the mouse may be too
+    fast"): an OSD "Mouse speed" - Normal / /2 / /4 / /8 - in
+    se30_adb_mouse (rtl/se30_adb_dev.v): the core reports the Apple
+    Standard Mouse's 100 counts per inch (handler 1) but passes the USB
+    mouse's counts 1:1 (800-1600+ DPI = 8-16x a real mouse's, before Mac
+    OS's acceleration); the divider on the accumulated deltas, the
+    remainder kept (slow movement not lost); handler 2's doubling after it.
+    Benched (the ADB mouse bench), then on the board with the Mouse control
+    panel at each tracking speed;
     the release form (probes out, comments restored, token-identical to
     dev). GATES: Daniel's A/UX sessions ON THE RC (Daniel, 2026-10-22: the
     KNOWN ISSUES 33 memory-pressure test - tools/auxunix/pressure.sh - "best
