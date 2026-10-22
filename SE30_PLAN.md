@@ -20135,6 +20135,14 @@ Daniel - add to it, move items out when fixed).**
     called inside PostHighLevelEvent. MemErr 0. The frame chain, return
     address and parameters coherent - none of the restart bugs'
     fingerprints. Consistent with a real IIcx at 0K free (Daniel agrees).
+    MEMORY SIZE (checked 22:40 at Daniel's request - he found the core set
+    to 8 MB that evening): About This Macintosh in A/UX at 13:10, 13:21 and
+    14:29 (screenshots 20261022_131021/132119/142939) reads BUILT-IN
+    8,192K, Total 16,384K - 8 MB physical, A/UX's virtual space making up
+    the total (at 16 MB both read 16,384K: 20261015_231316). So that day's
+    A/UX stress (the QuarkXPress/DocViewer session, very likely the 17:47
+    Word catch too - its screenshots show no memory size) ran on 8 MB.
+    Valid tests at 8 MB; the RC's memory-pressure test runs at 16 MB.
 
 34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
