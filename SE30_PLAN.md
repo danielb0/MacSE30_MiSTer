@@ -20122,6 +20122,19 @@ Daniel - add to it, move items out when fixed).**
     repeat. Status: watch through the RC's A/UX testing with MacsBug
     installed; close as authentic app behaviour if nothing points at the
     core.
+    SECOND MACSBUG CATCH (17:47), LIKELY AUTHENTIC: Microsoft Word and
+    WordPerfect filling the Mac environment to 0K free, then Word quit:
+    bus error at PC $00000008 (vector bytes run as code - the program
+    JUMPED TO 0) reading $FFFFECA0. sc6 "bad stack": SP $3FFFFE46 on A/UX's
+    user stack (the Mac environment's glue), holding an Apple event
+    ('aevt', 'errn' 'long'); the return address $003626B8 = SendDeathNotice
+    +$C4 in C_EXITTOSHELL (System heap, locked 'scod' $BFB0 - the Process
+    Manager), just after _OSDispatch selector $34 (PostHighLevelEvent:
+    receiver ID at -$40(A6), refCon, posting options $8000). So: ExitToShell
+    posting the "I have died" event with the System heap exhausted, a NULL
+    called inside PostHighLevelEvent. MemErr 0. The frame chain, return
+    address and parameters coherent - none of the restart bugs'
+    fingerprints. Consistent with a real IIcx at 0K free (Daniel agrees).
 
 34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
