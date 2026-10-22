@@ -20557,6 +20557,15 @@ Daniel - add to it, move items out when fixed).**
     "sometimes"), r3release as the tester has it. In the game too, the
     music plays (Daniel, same evening) - on BOTH r3release and r4release.
     What is left of the tester's setup is System 6.0.8.
+    6.0.8 (Daniel's own install, and from a floppy): "Unimplemented trap"
+    at launch. The game (Mky1 1.0, 1991) calls 32-Bit QuickDraw's traps:
+    CODE 4 has _PaletteDispatch ($AAA2, D0 $0A14 HasDepth / $0A13
+    SetDepth - its "switch to 256 colors" dialog) and _QDExtensions ($AB1D,
+    GWorlds, three calls). Not in the IIcx ROM's 8-bit Color QuickDraw nor
+    on the 6.0.8 System Tools disk; System 7 has it built in. So very
+    likely authentic: on 6.0.8 the game needs the separate 32-Bit
+    QuickDraw INIT, which the tester's install must have. To confirm:
+    MacsBug's trap word, or MAME maciicx on the same disk.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
