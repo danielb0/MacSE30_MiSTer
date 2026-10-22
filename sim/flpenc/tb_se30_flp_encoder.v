@@ -161,6 +161,12 @@ module tb_se30_flp_encoder;
   reg [15:0] mem [0:2880*256 - 1];               // the larger of 1600 x 262 (GCR) and 2880 x 256 (1.44 MB)
   reg  [7:0] exp_sec [0:1599*524 + 523];         // the 524 bytes each block should decode to
   reg  [7:0] mem8 [0:1474559];                   // MacPlus's and MacLC's view: the data, bytes
+  // +IMG=<file>: a real 800K image's data (one hex byte a line) in place of
+  // the pattern - a disk the board read wrongly, sector for sector
+  reg  [7:0] realimg [0:819199];
+  reg        use_real = 0;
+  reg [1023:0] img_file;
+  initial if ($value$plusargs("IMG=%s", img_file)) begin $readmemh(img_file, realimg); use_real = 1; end
   task build_image;
     integer n, i, j;
     reg [7:0] d [0:511];
@@ -168,7 +174,8 @@ module tb_se30_flp_encoder;
       blocks = img_ds ? 1600 : 800;
       for (n = 0; n < blocks; n = n + 1) begin
         for (i = 0; i < 512; i = i + 1) begin
-          d[i] = (i < 3) ? dbyte(n, i) : ((n * 7 + i * 13 + (i >> 5)) & 8'hFF);
+          d[i] = use_real ? realimg[n * 512 + i] :
+                 (i < 3) ? dbyte(n, i) : ((n * 7 + i * 13 + (i >> 5)) & 8'hFF);
           mem8[n * 512 + i] = d[i];
           exp_sec[n * 524 + 12 + i] = d[i];
         end

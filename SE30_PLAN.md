@@ -20573,6 +20573,15 @@ Daniel - add to it, move items out when fixed).**
     image, "Mister MacPlus backup\games\MACPLUS\System 6.0.8 printing
     tools.dsk", is sound: machfs reads it, every resource fork's map is in
     range) - retry as a Finder drag-copy (the Read Me's own method).
+    The Finder copy hung too, just before writing - but only to the games
+    disk; to Daniel's MacPack disk it copied at once. The games disk's
+    template, C:\temp\Mac\20MB.vhd, carries a THIRD-PARTY driver,
+    ".CMS_SCSI0" (CMS, with a driver cache), not Apple's; the 6.0.8
+    install had hung on it too, before Daniel erased the volume (Erase
+    keeps the driver). So the lead is that driver under System 6, not
+    the core. Next: Games608_80MB.vhd (a copy of mac_80mb.vhd, Apple HD SC
+    Setup 7.3.5's driver), erased in System 6's Finder. Never build test
+    disks on 20MB.vhd.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
