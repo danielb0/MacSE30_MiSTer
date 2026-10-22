@@ -20640,6 +20640,8 @@ Daniel - add to it, move items out when fixed).**
     into what the game left; System 7's Finder stays resident (the
     Process Manager), each application in its own partition, so 7.1 never
     meets it. Left: (d) Might and Magic II.
+    Confirmed: under 6.0.8 WITH MultiFinder (from the Utilities 1 disk;
+    Easy Install had not put it in) Theldrow quits cleanly (Daniel).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
