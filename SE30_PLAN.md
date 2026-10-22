@@ -20224,7 +20224,8 @@ Daniel - add to it, move items out when fixed).**
     words; and add the (d16,An) cases to the fsw sweep proper (after the
     regression's run, not during it).
     THE EVENING'S BENCHES (2026-10-21 21:10-22:40, scratch sim/_k38 = a
-    copy of sim/cpfpu, to be folded in once the regression is done): (a)
+    copy of sim/cpfpu, to be folded in once the regression is done - folded
+    in 1b393b3; the scratch deleted 2026-10-22, sim/_* now ignored): (a)
     PROG=b3x - b3r's two passes with xeyes's shapes (FADD.D #0.5, FINTRZ,
     FMOVE.W FP0,-$5A(A6), a long through (d8,A6,D6.W), a double through
     (xxx).L, each read back into the sum) and the level-1 handler A/UX's

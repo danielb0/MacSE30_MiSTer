@@ -51,3 +51,5 @@ scripts/local.env
 *.rom
 *.ROM
 sim/cpfpu_cpt*/
+# simulation scratch: per-run bench copies, traces and ModelSim work libraries
+sim/_*

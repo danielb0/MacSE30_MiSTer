@@ -22,3 +22,5 @@ irqsweep3*.log
 # the fourth round (2026-10-21): class 6, pointer-level faults
 dsweep_ptr_*.log
 ptrsweep*.log
+round4.log
+round4_attempt1.log
