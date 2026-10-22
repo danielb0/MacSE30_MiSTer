@@ -20321,8 +20321,11 @@ Daniel - add to it, move items out when fixed).**
     map and driver, the CD slot is data only - 16; never one image in two
     slots; the IIcx README's vsync_adjust workaround out once 24 is fixed);
     the release form (probes out, comments restored, token-identical to
-    dev). GATES: Daniel's A/UX sessions on r4release (the quit tests and the
-    loaded xeyes - KNOWN ISSUES 33's verdict); KNOWN ISSUES 23's board check;
+    dev). GATES: Daniel's A/UX sessions ON THE RC (Daniel, 2026-10-22: the
+    KNOWN ISSUES 33 memory-pressure test - tools/auxunix/pressure.sh - "best
+    to leave this test to the release candidate"; r4release carries KNOWN
+    ISSUES 40: the quit tests and the loaded xeyes there too - 33's
+    verdict); KNOWN ISSUES 23's board check;
     FUTURE BOARD TESTS 13 on the RC; the reg_rdat path confirmed on the RC's
     timing report. Not in it: the remaining sweep classes and FPU class 4b.
     Daniel (~00:05): beyond the FPU sweep's items 1 and 2, NO MORE SWEEPS
