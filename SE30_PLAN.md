@@ -20565,7 +20565,14 @@ Daniel - add to it, move items out when fixed).**
     on the 6.0.8 System Tools disk; System 7 has it built in. So very
     likely authentic: on 6.0.8 the game needs the separate 32-Bit
     QuickDraw INIT, which the tester's install must have. To confirm:
-    MacsBug's trap word, or MAME maciicx on the same disk.
+    MacsBug's trap word, or MAME maciicx on the same disk. The 6.0.8
+    Printing Tools disk's "Apple Color" folder has it (QD32/LEAK, 15
+    resources; its Read Me: SE/30 and Mac II need it, IIci/IIfx/IIsi/LC
+    have it built in - which confirms the above). OPEN, a possible core
+    lead: the Installer HUNG copying it (Daniel, 10-22 evening; that
+    image, "Mister MacPlus backup\games\MACPLUS\System 6.0.8 printing
+    tools.dsk", is sound: machfs reads it, every resource fork's map is in
+    range) - retry as a Finder drag-copy (the Read Me's own method).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
