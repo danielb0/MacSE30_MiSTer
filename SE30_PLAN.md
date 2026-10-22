@@ -20648,12 +20648,13 @@ Daniel - add to it, move items out when fixed).**
     no colour code in it. The tester's is "(Color)", a different release:
     ask him for his copy (or its version). Daniel tries the B&W one
     meanwhile (same engine, the start-up path).
-    The colour release found (Daniel): C:	emp\Mac\MandM II    Might_and_Magic_II_0.sit (StuffIt 5) holds both - "Might & Magic II
+    The colour release found (Daniel): C:\temp\Mac\MandM II\
+    Might_and_Magic_II_0.sit (StuffIt 5) holds both - "Might & Magic II
     Color" (vers "1.0.4 (Color)", April 22 1992, needs System 6.0; 8-bit
     Color QuickDraw only, no 32-Bit QuickDraw traps) with a Master Roster
     but NO "MM2 Data", though its fNME 100 names one (a developer path
     ending "MM2 Data"); and the B&W folder with MM2 Data. On a READ-ONLY
-    payload disk for Daniel: C:	emp\Mac\MM2_payload_16MB.vhd (Apple
+    payload disk for Daniel: C:\temp\Mac\MM2_payload_16MB.vhd (Apple
     driver from mac_80mb.vhd, machfs volume - copy off it, never write
     to it). Test: the colour folder as it is; if it dies before the logo,
     again with MM2 Data copied in - a missing data file would explain the
