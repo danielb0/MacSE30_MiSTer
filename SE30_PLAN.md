@@ -20619,6 +20619,21 @@ Daniel - add to it, move items out when fixed).**
     crash-recovery INIT), not MacsBug; with it in, one random illegal
     instruction while playing (r3release, 7.1). Bomb Shelter out, MacsBug
     in: Theldrow plays and quits with no crash on 7.1 (Daniel, confirmed).
+    THE 6.0.8 CATCH (r3release, MacsBug 6.2.2; screenshots
+    20261022_225543/225557/225610/225630): bus error at $0062A4EA reading
+    a long from $6DB6DB6D, supervisor data (System 6 runs everything in
+    supervisor mode), 24-bit. CurApName = FINDER, and the code is the
+    FINDER's: 'CODE 0002 BigSeg'+$697E (the 6.0.8 Finder's CODE 2 is
+    "BigSeg", 31,420 bytes = the heap block's $7ABC; the chain's top is
+    its 'CODE 0003 Init'+$57A). So Theldrow quit and the Finder, starting
+    afresh (no MultiFinder), walked one of its lists - MOVEA.L (A2),A0 /
+    MOVEA.L $28(A0),A2 / CMPA.L A2,A4 - and a link held $6DB6DB6D. That
+    value is the ROM's own memory-test fill (the 6DB6DB6D... run at $37AC
+    of the SE/30 ROM): memory no one has written since start-up, the same
+    on a real machine. The A6 chain coherent, no restart-bug fingerprint.
+    LIKELY AUTHENTIC: the game leaves something the Finder trips over.
+    To close: r4release (Daniel); MAME maciicx with the same disk if
+    wanted.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
