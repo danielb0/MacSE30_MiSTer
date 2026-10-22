@@ -20345,6 +20345,15 @@ Daniel - add to it, move items out when fixed).**
     disc mounted - KNOWN ISSUES 15; a bootable image needs an Apple partition
     map and driver, the CD slot is data only - 16; never one image in two
     slots; the IIcx README's vsync_adjust workaround out once 24 is fixed);
+    ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
+    options - sys/video_freak.sv (already in sys/, unused) driving
+    VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
+    Narrower HV-Integer / Wider HV-Integer); the SE/30's 256:171 and the
+    IIcx's 4:3 kept as the ARs; no vertical crop (342x3 = 1026 and 480x2 =
+    960 already fit 1080p - crop is for 240-line cores); CRT untouched
+    (direct video gives video_freak zero HDMI sizes); same build and board
+    test as the sys/ update and 24 (each scale mode at 1080p + one other,
+    both cores, CRT unchanged); ascal's slack checked on the RC report;
     the release form (probes out, comments restored, token-identical to
     dev). GATES: Daniel's A/UX sessions ON THE RC (Daniel, 2026-10-22: the
     KNOWN ISSUES 33 memory-pressure test - tools/auxunix/pressure.sh - "best
