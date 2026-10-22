@@ -8,7 +8,8 @@
 # as environment: FRS_WP=1 some data pages write-protected, FRS_AUX=1 A/UX's
 # switch (FPCR and FP0-FP7 only; no FPSR-dependent instruction), FRS_DLG=1
 # a switch at every suspended dialog, B3_CACR the cache control register.
-# Exit status 0 when every seed passes.
+# Exit status 0 when every seed passes.  A seed can run 1.1 M clocks (~30 min
+# with 2 sims, longer 8-wide): the timeout is an hour (25 min cut 11 of 50).
 #   ./run_frssweep.sh N [FIRST] [env...]       the log is frssweep.log
 set -u
 cd "$(dirname "$0")"
@@ -19,7 +20,7 @@ one() {
   k=$1; d=$HERE/../_frs_$k
   rm -rf "$d"; mkdir -p "$d"
   cp "$HERE/gen_program.py" "$HERE/tb_cpfpu.v" "$HERE/run.sh" "$d/"
-  r=$(cd "$d" && env PROG=frs FRS=$k $EXTRA timeout 1500 ./run.sh +IRQSEED=$(printf '%x' $((k * 2654435761 % 4294967296 | 1))) 2>&1 | grep -E "^(==== |FAIL)" | head -4 | tr '\n' ' ')
+  r=$(cd "$d" && env PROG=frs FRS=$k $EXTRA timeout 3600 ./run.sh +IRQSEED=$(printf '%x' $((k * 2654435761 % 4294967296 | 1))) 2>&1 | grep -E "^(==== |FAIL)" | head -4 | tr '\n' ' ')
   echo "$k $r"
   rm -rf "$d"
 }
