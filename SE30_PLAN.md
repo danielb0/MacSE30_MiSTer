@@ -20328,6 +20328,27 @@ Daniel - add to it, move items out when fixed).**
     Daniel (~00:05): beyond the FPU sweep's items 1 and 2, NO MORE SWEEPS
     until the next MiSTer-devel release is published - unless testing turns
     up a bug that calls for one.
+    **THE NIGHT (2026-10-21/22).** The regression on 1b393b3's kernel (with
+    fif x3 and b3x x2): 56/57 - the one line fifsweep FIF_IRQ=1 95/164 a
+    BENCH ARTEFACT: only FPSR differed (FP0-FP7, FPCR, FPIAR, A6 equal);
+    A/UX's fpsave/fprest save FPCR and FP0-FP7 only and the 68882's FSAVE
+    frame holds no FPSR (unix.dis: FPSR/FPIAR read only by dump_fp_sregs
+    and fp_status) - the switch loses FPSR on a real IIcx too; fif must not
+    compare FPSR under FIF_IRQ (b3x never did). The builds then run by hand
+    (Daniel's go for builds after a passing regression; the failure
+    understood): output_files/MacSE30_30f153f4_r4release.rbf md5 92c72a87,
+    MacIIcx_30f153f4_r4release.rbf md5 ea64eea5 (30f153f = 1b393b3's
+    kernel). Ours met at every corner in both (the capture by A or B, margin
+    1.3-2.0 ns); the framework's ascal fails - SE/30 -0.834 setup slow 100C,
+    -0.139 hold; IIcx -0.086 / -0.055 - KNOWN ISSUES 6's class, the SE/30's
+    the largest yet (r3release met everything): re-check with the sys/
+    update in the RC. Item 1's scratch runs (sim/_k40): the new fif forms
+    44/104 - (a) memory indirect split after words 2-4: registers differ -
+    the bench's A6/A5 for indirect forms (A6 from the pointer, A5 the
+    operand: differs by construction - fixed in fsx, not yet in fif); (b)
+    EVERY "split after word 1" case (36: the F-line instruction's SECOND
+    word - command/condition word or branch displacement - on the invalid
+    page) TIMED OUT at 1200 s: a hang to investigate first.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
