@@ -20412,7 +20412,15 @@ Daniel - add to it, move items out when fixed).**
     Benched (the ADB mouse bench), then on the board with the Mouse control
     panel at each tracking speed;
     the release form (probes out, comments restored, token-identical to
-    dev). GATES: Daniel's A/UX sessions ON THE RC (Daniel, 2026-10-22: the
+    dev). THE ORDER (Daniel, 2026-10-22): the kernel's regression (the
+    night of 10-22, after 40/41/37) -> the RC changes, each with its own
+    check (24: the fit, timing and the board at 720p / vsync_adjust=0;
+    sys/: the compile and the board - HDMI, CRT, OSD, audio; the scaler:
+    the board, every mode, CRT unchanged; the mouse speed: a small bench,
+    then the board; the README) -> the release form (probes out, comments
+    restored; RTL token-identical to dev) -> THE FINAL REGRESSION ON THOSE
+    EXACT SOURCES, immediately before -> the RC builds (ritual + sta_corners
+    + ascal/reg_rdat checks) -> the board gates below. GATES: Daniel's A/UX sessions ON THE RC (Daniel, 2026-10-22: the
     KNOWN ISSUES 33 memory-pressure test - tools/auxunix/pressure.sh - "best
     to leave this test to the release candidate"; r4release carries KNOWN
     ISSUES 40: the quit tests and the loaded xeyes there too - 33's
