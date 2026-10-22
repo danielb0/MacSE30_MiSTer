@@ -68,6 +68,6 @@ if [ "$WHAT" != phase1 ]; then
   cat "$LOG.2"
 fi
 cat "$LOG.1" "$LOG.2" 2>/dev/null > "$LOG"
-N=$(grep -c . "$LOG"); P=$(grep -cE '^PASS|: ([0-9]+) / \1 PASS' "$LOG")
+N=$(grep -c . "$LOG"); P=$(grep -cE '^PASS|: ([0-9]+) / \1 (parts )?PASS' "$LOG")
 echo "==== regression: $P / $N lines pass"
 [ "$P" = "$N" ]

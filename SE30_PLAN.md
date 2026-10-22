@@ -20672,6 +20672,11 @@ Daniel - add to it, move items out when fixed).**
     lifted. For the tester: his System install (made for the IIcx?),
     32-Bit QuickDraw, MultiFinder, his game versions; Daniel's disk image
     to try.
+    THE OVERNIGHT REGRESSION (sim/overnight_r5.sh, RTL of 40cebb8 - KNOWN
+    ISSUES 37 fixed; 10-22 16:55 to 10-23 00:31): frs's 9 cut seeds 9/9
+    (frs 50/50 in all); sim/run_regression.sh 64/64 lines PASS in 398 min
+    (it printed 62/64: its count missed selfst's "9 / 9 parts PASS" form,
+    fixed). FIF_SUPER 46/46 + 60 deferred (KNOWN ISSUES 42/43).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
