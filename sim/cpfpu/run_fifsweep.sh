@@ -5,14 +5,19 @@
 # resident code compared) - each in its own copy of this directory, 8 at a
 # time, about 10 minutes.  Extra arguments are passed as environment:
 # FIF_IRQ=1 adds A/UX's context switch at the suspended dialog, B3_CACR the
-# cache control register.  Exit status 0 when every case passes.
-#   ./run_fifsweep.sh [FIF_IRQ=1] [B3_CACR=0x2101]      the log is fifsweep.log
+# cache control register; FIF_SUPER=1 runs only the supervisor block (the
+# PMMU forms, KNOWN ISSUES 40/41) - its cases tagged [deferred: KI n] are
+# expected failures, reported but outside the verdict.  Exit status 0 when
+# every other case passes.
+#   ./run_fifsweep.sh [FIF_IRQ=1] [B3_CACR=0x2101] [FIF_SUPER=1]   the log is fifsweep[_super].log
 set -u
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
 N=$(env $EXTRA FIFLIST=1 python gen_program.py fif | wc -l)
 [ "$N" -gt 0 ] || { echo "==== fifsweep: the case list is empty - the generator failed"; exit 1; }
+FIRST=0; LOG=fifsweep.log
+case " $EXTRA " in *" FIF_SUPER=1 "*) FIRST=$(FIFLIST=1 python gen_program.py fif | wc -l); LOG=fifsweep_super.log ;; esac
 one() {
   k=$1; d=$HERE/../_fif_$k
   rm -rf "$d"; mkdir -p "$d"
@@ -22,8 +27,12 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > fifsweep.log
-P=$(grep -c '==== PASS' fifsweep.log)
-env $EXTRA FIFLIST=1 python gen_program.py fif | paste -d'|' - <(cut -d' ' -f2- fifsweep.log) | grep -v "==== PASS" | sed 's/|/ : /'
-echo "==== fifsweep${EXTRA:+ ($EXTRA)}: $P / $N PASS"
-[ "$P" = "$N" ]
+seq $FIRST $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > $LOG
+LIST=$(env $EXTRA FIFLIST=1 python gen_program.py fif | sed -n "$((FIRST+1)),\$p" | paste -d'|' - <(cut -d' ' -f2- $LOG))
+echo "$LIST" | grep -v "==== PASS" | sed 's/|/ : /'
+P=$(echo "$LIST" | grep -v "\[deferred" | grep -c '==== PASS')
+T=$(echo "$LIST" | grep -vc "\[deferred")
+D=$(echo "$LIST" | grep -c "\[deferred")
+DP=$(echo "$LIST" | grep "\[deferred" | grep -c '==== PASS')
+echo "==== fifsweep${EXTRA:+ ($EXTRA)}: $P / $T PASS${D:+$( [ "$D" -gt 0 ] && echo " (+ $D deferred, $DP of them passing)")}"
+[ "$P" = "$T" ]

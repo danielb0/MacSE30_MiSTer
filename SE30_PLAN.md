@@ -20079,6 +20079,30 @@ Daniel - add to it, move items out when fixed).**
     "does seem to be more robust" than compile 81 (SE/30) and the IIcx dev
     builds - fewer Mac environment issues; consistent with 21, 23's class,
     30-32, 34 and 35 being in it (an impression, not a measured rate).
+    2026-10-22, r4release (IIcx), Daniel bullying it: a bus error on
+    QUITTING QUARKXPRESS under high load - "this may actually be a
+    consistent error when the system is at high load". The dialog only ever
+    names the signal ("bus error", sometimes "address error" or "illegal
+    instruction" - the latter two not seen for a while): on the 68030 an
+    address error is an instruction fetch at an odd PC and an illegal
+    instruction a PC in data - the restart/resume class (25, 29, 31, 34, 35,
+    38/39, all fixed), consistent with their disappearance. NEXT if it
+    repeats (same load each time - pressure.sh - N quits loaded vs unloaded):
+    a branch-trace build from CURRENT dev (b7bea715's is pre-31..41),
+    triggered on the kernel's SIGBUS delivery (the supervisor-fetch trigger,
+    as for 28), to see where the faulting address came from.
+    MACSBUG WORKS IN A/UX (2026-10-22): MacsBug 6.2.2 + Debugger Prefs in
+    /mac/sys/System Folder (not the MacPartition's), log out/in,
+    Cmd-Ctrl-I enters it; a Mac-environment bus error now lands in MacsBug.
+    FIRST CATCH, AUTHENTIC: MacX (r4release, loaded system, Daniel typing in
+    an X terminal) - bus error at 'CODE 000F'+3A06, MOVEA.L 0(A0,D0.L),A0
+    reading $D6036A04. The chain, read in MacsBug: p = -$44(A6) = NULL (a
+    function result / linked-list walk via +$18, never tested for NULL) ->
+    p->$18 = low memory $18 = $0001262C (the CHK vector) -> ->$80 = $126AC
+    = D603 6A00 (exception-code bytes read as a pointer) -> +4 faults.
+    Every step a real 68030's; MemErr 0. MacX's own unchecked NULL - not
+    the core. Method for the next ones: il pc-40 24, dm on the pointer
+    chain, dw 220 (MemErr).
 
 34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted

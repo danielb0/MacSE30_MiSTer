@@ -11,6 +11,8 @@
 #             b3x (KNOWN ISSUES 38: xeyes's shapes under A/UX's context switch;
 #             B3X_DLG=1 a switch at every suspended dialog) and fif (an FPU
 #             instruction's own fetch faulting mid-dialog: FIF=k, FIFLIST=1)
+#             (FIF_SUPER=1: supervisor, the PMMU forms), fsx (data faults over
+#             every EA form: FSX=k, FSXLIST=1) and frs (the FPU's rsweep: FRS=seed)
 #   extra arguments go to vsim as plusargs (+IRQSEED=<hex>, +IRQSKIP=n, +trace)
 #
 # Exit status is the bench's verdict: 0 on "==== PASS".

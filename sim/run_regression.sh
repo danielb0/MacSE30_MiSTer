@@ -47,9 +47,13 @@ if [ "$WHAT" != phase1 ]; then
         r=$(cd "$SIM/cpfpu" && ./run_fsweep.sh B3_CACR=$c FSW_WP=$w 2>&1 | tail -1); echo "$r B3_CACR=$c FSW_WP=$w"
       done
       r=$(cd "$SIM/cpfpu" && ./run_fifsweep.sh B3_CACR=$c 2>&1 | tail -1); echo "$r"   # (KNOWN ISSUES 38/39: an FPU fetch faulting mid-dialog)
+      for w in 0 1; do   # (the FPU sweep gap's item 1: data faults over every EA form)
+        r=$(cd "$SIM/cpfpu" && ./run_fsxsweep.sh B3_CACR=$c FSX_WP=$w 2>&1 | tail -1); echo "$r"
+      done
     done
     r=$(cd "$SIM/predec_fault" && ./run_uok_all.sh 2>&1 | tail -1); echo "$r"
     r=$(cd "$SIM/cpfpu" && ./run_fifsweep.sh FIF_IRQ=1 2>&1 | tail -1); echo "$r"   # (... with A/UX's switch at the suspended dialog)
+    r=$(cd "$SIM/cpfpu" && ./run_fifsweep.sh FIF_SUPER=1 2>&1 | tail -1); echo "$r"   # (KNOWN ISSUES 40/41: supervisor, the PMMU forms; 42/43 deferred)
     for c in 0 0x2101; do   # the third round: the walker's U/M write-back (UM 9.5.3), 15 cases
       job "um U/M write-back CACR=$c" predec_fault bash -c "d=../_um_$c; rm -rf \$d; mkdir \$d; cp gen_program.py tb_predec_fault.v run.sh \$d/; cd \$d && CASESET=um TCMODE=aux HANDLER=aux CACR=$c ./run.sh +UOK; r=\$?; cd ..; rm -rf \$d; exit \$r"
     done

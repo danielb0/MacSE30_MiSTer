@@ -236,12 +236,13 @@ module tb_cpfpu;
     end
     // KNOWN ISSUES 38 (inject.txt's second number = $FFFFFFFB, b3x's B3X_DLG=1):
     // while the program's $3F04 is set and its $3F08 clear, level 1 at the
-    // +IRQSKIP-th come-again ($8900, $C900) a user instruction ($1800-$1FFF, fif $C000-$DFFF)
+    // +IRQSKIP-th come-again ($8900, $C900) a user instruction ($1800-$1FFF, fif $C000-$DFFF, frs $12000-$15FFF)
     // reads - counted per instruction instance, so the RTE's re-read is not
     // taken again: every suspended dialog gets one context switch
     if (irq_mode == 32'hFFFFFFFB && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 && !dlg_seen &&
         cpu_addr[4:0] == 5'd0 && (fpu_q[31:16] == 16'h8900 || fpu_q[31:16] == 16'hC900) &&
-        ((cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000) || (cpu.kernel.opcode_pc >= 32'hC000 && cpu.kernel.opcode_pc < 32'hE000)) &&
+        ((cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000) || (cpu.kernel.opcode_pc >= 32'hC000 && cpu.kernel.opcode_pc < 32'hE000) ||
+         (cpu.kernel.opcode_pc >= 32'h12000 && cpu.kernel.opcode_pc < 32'h16000)) &&
         ram[32'h3F04 >> 2] != 0 && ram[32'h3F08 >> 2] == 0) begin
       dlg_seen <= 1;
       if (cpu.kernel.opcode_pc != dlg_pc) begin dlg_pc <= cpu.kernel.opcode_pc; dlg_n = 0; end
@@ -258,7 +259,8 @@ module tb_cpfpu;
       end else rdelay2 = rdelay2 - 1;
     end
     if ((irq_mode == 32'hFFFFFFFE || irq_mode == 32'hFFFFFFFB) && cpu.kernel.clkena_lw && cpu.kernel.decodeOPC &&
-        ((cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000) || (cpu.kernel.opcode_pc >= 32'hC000 && cpu.kernel.opcode_pc < 32'hE000)) && cpu.kernel.FlagsSR[5]) begin
+        ((cpu.kernel.opcode_pc >= 32'h1800 && cpu.kernel.opcode_pc < 32'h2000) || (cpu.kernel.opcode_pc >= 32'hC000 && cpu.kernel.opcode_pc < 32'hE000) ||
+         (cpu.kernel.opcode_pc >= 32'h12000 && cpu.kernel.opcode_pc < 32'h16000)) && cpu.kernel.FlagsSR[5]) begin
       if (sviol < 5) $display("FAIL: user code at %08x decoded in supervisor mode (t=%0t, IRQ %0d)", cpu.kernel.opcode_pc, $time, nirq);
       sviol = sviol + 1;
     end
@@ -302,6 +304,43 @@ module tb_cpfpu;
              cpu_rw_n ? cpu_din : cpu_dout, dsack_n, berr);
   end
 
+  // The user-mode checks (2026-10-21, the FPU sweep gap's item 1 - the
+  // integer sweeps' MODECHK and +UOK for fsw and fif): ucheck.hex, written by
+  // gen_program.py for every program, holds 16 user-code ranges then 32
+  // user-data ranges as {lo, hi} pairs (all zero: the checks off).  A user-code
+  // instruction decoded in supervisor mode, or a user-FC (1, 2) bus beat outside
+  // every range, is a failure - a fault's resume landing in the wrong mode or
+  // reading or writing where the program never named.
+  reg  [31:0] uck [0:95];
+  reg         uck_en = 0;
+  integer     uck_sv = 0, uck_stray = 0, uj;
+  initial begin
+    $readmemh("ucheck.hex", uck);
+    uck_en = (uck[0] != 0 || uck[1] != 0);
+  end
+  function uck_code(input [31:0] x);
+    begin
+      uck_code = 0;
+      for (uj = 0; uj < 16; uj = uj + 1) if (uck[2*uj+1] != 0 && x >= uck[2*uj] && x < uck[2*uj+1]) uck_code = 1;
+    end
+  endfunction
+  function uck_any(input [31:0] x);
+    begin
+      uck_any = uck_code(x);
+      for (uj = 16; uj < 48; uj = uj + 1) if (uck[2*uj+1] != 0 && x >= uck[2*uj] && x < uck[2*uj+1]) uck_any = 1;
+    end
+  endfunction
+  always @(posedge clk) if (uck_en && reset_n) begin
+    if (cpu.kernel.clkena_lw && cpu.kernel.decodeOPC && cpu.kernel.FlagsSR[5] && uck_code(cpu.kernel.opcode_pc)) begin
+      if (uck_sv < 5) $display("FAIL: user code at %08x decoded in supervisor mode (t=%0t)", cpu.kernel.opcode_pc, $time);
+      uck_sv = uck_sv + 1;
+    end
+    if (phi1 && !cpu_as_n && (dsack_n != 2'b11) && (cpu_fc == 3'd1 || cpu_fc == 3'd2) && !uck_any(cpu_addr)) begin
+      if (uck_stray < 8) $display("FAIL: a user %s at %08x the program never named (FC %0d, t=%0t)", cpu_rw_n ? "read" : "write", cpu_addr, cpu_fc, $time);
+      uck_stray = uck_stray + 1;
+    end
+  end
+
   // ------------------------------------------------------------ the run
   integer pass = 0, fails = 0, n, fd, r;
   reg [31:0] a, want, mask, v;
@@ -320,6 +359,11 @@ module tb_cpfpu;
     if (v[31:16] == 16'hDEAD) begin
       fails = fails + 1;
       $display("FAIL: exception vector %0d taken (%0s)", v[7:0], v[7:0] == 8'd11 ? "the F-line" : "unexpected");
+    end
+    if (uck_en) begin
+      $display("---- user-mode checks: %0d user-code decodes in supervisor mode, %0d user beats outside the named ranges", uck_sv, uck_stray);
+      if (uck_sv == 0 && uck_stray == 0) pass = pass + 1;
+      else fails = fails + 1;
     end
     if (cps_want != 32'hFFFFFFFF) begin
       if (cpu_space_other == cps_want) pass = pass + 1;
