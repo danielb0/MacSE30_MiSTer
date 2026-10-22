@@ -20574,14 +20574,21 @@ Daniel - add to it, move items out when fixed).**
     tools.dsk", is sound: machfs reads it, every resource fork's map is in
     range) - retry as a Finder drag-copy (the Read Me's own method).
     The Finder copy hung too, just before writing - but only to the games
-    disk; to Daniel's MacPack disk it copied at once. The games disk's
-    template, C:\temp\Mac\20MB.vhd, carries a THIRD-PARTY driver,
-    ".CMS_SCSI0" (CMS, with a driver cache), not Apple's; the 6.0.8
-    install had hung on it too, before Daniel erased the volume (Erase
-    keeps the driver). So the lead is that driver under System 6, not
-    the core. Next: Games608_80MB.vhd (a copy of mac_80mb.vhd, Apple HD SC
-    Setup 7.3.5's driver), erased in System 6's Finder. Never build test
-    disks on 20MB.vhd.
+    disk; to Daniel's MacPack disk it copied at once. CAUSE (the disk's
+    state after the hang, Test disks\Corrupted\Games608_20MB.vhd): the
+    HFS volume is still the one machfs built (not re-initialised - same
+    name, clumps, catalog start), and machfs builds its B-trees with NO
+    slack: clump sizes of one 512-byte block, an extents-overflow file of
+    ONE node (the header, 0 free), the catalog exactly full. The install's
+    writes grew the catalog a block at a time: 5 -> 10 blocks in three
+    extents (9976+8, 10198+1, 11094+1), every MDB slot used; the next
+    growth needs an extents-overflow record, in a tree with no room - and
+    System 6's File Manager hangs there. A disk-building artefact, not the
+    core. (Its template's driver is also third-party, ".CMS_SCSI0", from
+    20MB.vhd - not needed to explain it, but use Apple's.) Next: Games608_80MB.vhd (a
+    copy of mac_80mb.vhd, Apple HD SC Setup 7.3.5's driver) ERASED in
+    System 6's Finder, so the Mac sizes the B-trees, then Monkey Island and
+    32-Bit QuickDraw copied onto it.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
