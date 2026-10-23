@@ -20460,6 +20460,24 @@ Daniel - add to it, move items out when fixed).**
     what the reconfiguration core writes to a strip PLL (the post-fit
     netlist's address and counter-select LUTs, sys/pll_cfg's
     altera_pll_reconfig_core.v, the handbook's strip-PLL counter rules).
+    ROOT CAUSE FOUND (10-23, the research): the HDMI PLL is reconfigured
+    by sys/pll_cfg/pll_cfg_hdmi.v - the framework's TRIMMED copy of Intel's
+    core ("not needed functionality was cut out"): number_of_counters = 6,
+    c_cnt_changed[5] set whatever Main's counter select, the divider written
+    to DPRIO address 5 (fpll_1 = 0 - the fitter's LUT is GND in both
+    builds). It assumes the HDMI clock on PHYSICAL C5 - true in every core
+    with pll_hdmi at X0_Y1 (the SE/30's netlist: output_counter_index 5,
+    X0_Y5). The IIcx's pll_hdmi in the strip at X0_Y32 got its output on
+    physical C8 (output_counter_index 8, PLLOUTPUTCOUNTER_X0_Y31): Main's C
+    goes to the unused C5, C8 keeps its power-on 3 - 1080p right (C = 3),
+    720p 2x fast, 640x480 ~5x: every symptom. (The cnt_sel LUTs decoded
+    earlier serve only the phase-shift path.) FIX, no sys/ change: pin
+    pll_hdmi's counter[0].output_counter to physical C5 of X0_Y32 (the
+    strip allows C4-C8 on a clock network). The counter sites, from the
+    netlists: X89_Y1 Y0-8 = C0-8; X0_Y1 Y5 = C5; X0_Y56 Y60 = C5, Y61 = C6
+    (Cn = Y55+n); X0_Y74 Y73 = C8; X0_Y32 Y31 = C8 - so C5 = X0_Y28 if
+    X0_Y32 counts upward like X0_Y56 (one point: confirm output_counter_
+    index = 5 in the new netlist before the board).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
