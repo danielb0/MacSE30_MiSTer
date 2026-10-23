@@ -20495,6 +20495,22 @@ Daniel - add to it, move items out when fixed).**
     4_17 bits [17-i]) - plus MacIIcx.qsf pinning the counter to
     PLLOUTPUTCOUNTER_X0_Y31 so a later fit cannot move it. Worth reporting
     upstream (Template_MiSTer's pll_cfg_hdmi assumes C5).
+    NO sys/ CHANGE (Daniel, 10-23: "we are not supposed to change the
+    framework"). HOW THE OTHER CORES DO IT: MacLC, MacIIvi and Quadra 800
+    clock CLK_VIDEO from a pll_video of their own, as we do, referenced to
+    CLK_50M. MacLC's fit (output_files/MacLC.fit.rpt): pll_video at
+    X89_Y1 (Dedicated Pin, clk_0), pll_hdmi at X0_Y1 with its output on
+    C5 (X0_Y5) - where pll_cfg_hdmi expects it - and the CORE'S MAIN PLL
+    IN THE STRIP at X0_Y15 (Dedicated Pin, clk_2): FPGA_CLK2_50 reaches
+    BOTH X89_Y1 and X0_Y15. Our 10-09 note ("each 50 MHz pin feeds only
+    the PLL beside it", Error 11239) was wrong in general - that fit put
+    pll_vid on X89_Y1 against the main PLL; the way out it did not try was
+    the main PLL into the strip. THE FIX TO TRY: pll_vid's reference
+    CLK_50M (30.24 MHz fractional from 50, as from 94.0032 now), pinned at
+    X89_Y1; the main PLL pinned at X0_Y15 (the strip: C4-C8 = exactly our
+    five outputs); pll_hdmi at X0_Y1 with counter[0] at X0_Y5 (C5). RISK:
+    the main PLL's move shifts the SDRAM clocks' insertion delays - the
+    read capture (A/B) and SDRAM output margins are sta_corners' verdict.
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
