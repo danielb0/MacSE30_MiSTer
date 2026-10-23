@@ -20764,6 +20764,17 @@ Daniel - add to it, move items out when fixed).**
     of Persia). To decide: MacsBug on 6.0.8 - ATB SndNewChannel, MR, the
     OSErr on the stack (5 min, Daniel); or MAME maciicx, 6.0.8, the same
     game (~20 min) - silent there too = authentic.
+    THE LANGUAGE SCREEN (Daniel, 10-23: "1 - English, 2 - Francais...";
+    the number keys do nothing, Cmd-Q quits; every System): the game's
+    own keyboard code. Its key events (GetOSEvent, mask keyDown|keyUp) go
+    through a table indexed by the Mac key code: WITHOUT SHIFT the twelve
+    top-row keys ($12-$1D) have their character replaced ($BB-$C4, '=',
+    '-') - the French AZERTY layout, where that row types & e " ' ( and
+    the digits need Shift. On a US layout Shift+1 is '!', so the top row
+    can never give '1'. The keypad ($52-$5C) is not in the table: its
+    digits pass. Our core maps the PC keypad to the ADB keypad (KP1 $69 ->
+    $53). Authentic (a French release); use the KEYPAD's 1, or the French
+    keyboard layout with Shift.
     THE OVERNIGHT REGRESSION (sim/overnight_r5.sh, RTL of 40cebb8 - KNOWN
     ISSUES 37 fixed; 10-22 16:55 to 10-23 00:31): frs's 9 cut seeds 9/9
     (frs 50/50 in all); sim/run_regression.sh 64/64 lines PASS in 398 min
