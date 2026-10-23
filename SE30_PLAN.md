@@ -24480,6 +24480,44 @@ ISSUES 24 -> latent errors (25, 23, the PMMU reg_rdat timing path).
 dev = this record, unpushed (Daniel pushes).
 
 
+**END OF SESSION 2026-10-23 (~20:35, Daniel closed it: "I will continue with
+this tomorrow") - READ THIS TO RESUME, then KNOWN ISSUES 24's last blocks and
+FUTURE BOARD TESTS 13.** The session was KNOWN ISSUES 24 (the IIcx's HDMI
+modes) from review to board proof. ROOT CAUSE: the framework's pll_cfg_hdmi
+writes Main's HDMI divider to physical counter C5 only; the IIcx fit had put
+pll_hdmi in the strip at X0_Y32 on C8, so the power-on C = 3 stayed and every
+mode but 1080p ran at the wrong rate. A PLL-only probe project (80 s a fit,
+reproduces the fitter's periphery errors) exhausted the placement space: the
+HDMI clock switch needs both PLLs on one chip edge, the bottom edge holds
+X0_Y1 and the main PLL at X89_Y1, and the SDRAM capture select cannot be fed
+from a strip PLL - so pll_vid as a PLL of its own can never coexist with
+pll_hdmi on C5. FIX (E2, Daniel's choice, no sys/ change): the card's 30.24
+MHz dot clock is the main PLL's sixth output - VCO 846.0288 MHz, counters
+27/9/9/9/9/28, 30.2153 MHz (-0.082 %, 66.61 Hz against 66.67; no software
+effect), capture phases re-quantised (1034/10342/8419 ps); pll_vid deleted;
+MacIIcx.qsf pins pll_hdmi at FRACTIONALPLL_X0_Y1 / PLLOUTPUTCOUNTER_X0_Y5_N1;
+the SE/30 build preprocesses identically. Every option is written up in
+KNOWN ISSUES 24 (a)-(g) and FUTURE ADDITIONS 11 (the exact dot clock, some
+day). BUILT 32c5fa0 = output_files/MacIIcx_32c5fa00_k24e2.rbf (md5 7b13e795,
+38,949 ALMs; ours met at every corner, capture included; ascal misses =
+KNOWN ISSUES 6). BOARD: all twelve cases of FUTURE BOARD TESTS 13 pass (modes
+0/4/6/8 x vsync_adjust 0/1/2; 66.6 Hz at 1 and 2; dividers 3, 4, 5, 6, 15, 16
+proven) - KNOWN ISSUES 24 FIXED ON THE BOARD, item 13 DONE on HDMI, the CRT
+with the forum testers. The "very wide" picture at 1280x1024 was the monitor
+stretching 5:4 to 16:9. A second forum report (mode 4, 1280x1024@60) is the
+same bug; the earlier workaround advice was half right - for an unfixed build
+only video_mode 8/9 helps, vsync_adjust=1 alone retimes the chosen geometry
+and still fails. dev = 8600455 + this commit, PUSHED (79 commits, Daniel).
+NEXT, in order: (1) a Mac OS session and an A/UX boot on k24e2 (the capture
+phases moved 30-40 ps; E1 - VCO 940.032 kept, dot 30.3236 MHz - is the
+two-line fallback in rtl/pll/pll_0002.v); (2) the IIcx README (workaround
+line out; the dot clock note); (3) Daniel's forum follow-up correcting the
+workaround to video_mode=8; (4) the upstream Template_MiSTer report
+(pll_cfg_hdmi assumes physical C5); (5) whether the probe project goes under
+tools/ (it lives only in the 10-23 session's scratchpad - ask before it is
+lost); then the RC list: the IIcx CPU timing miss (RDindex_B -> Add55, slow
+100C) in RTL, the release form, the final regression, the RC builds.
+
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
 KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
 The session began as a review of the bug-class sweeps ("is there potential for
