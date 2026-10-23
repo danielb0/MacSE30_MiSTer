@@ -20401,6 +20401,20 @@ Daniel - add to it, move items out when fixed).**
     disc mounted - KNOWN ISSUES 15; a bootable image needs an Apple partition
     map and driver, the CD slot is data only - 16; never one image in two
     slots; the IIcx README's vsync_adjust workaround out once 24 is fixed);
+    SYS/ DONE (2026-10-23, 7d5ae83): Template_MiSTer@5dda373, eleven commits
+    on from 69b8a2a, wholesale and byte-exact (all 57 files compared). Net
+    seven files: ascal resets o_state at vsync (the gray-counter rewrites
+    were reverted upstream) - "o_clk is paused during PLL reconfig and
+    causes o_state to get stuck in sREAD state" - a candidate for KNOWN
+    ISSUES 24 itself (vsync_adjust=0 reconfigures the HDMI PLL per mode);
+    hps_io's vid_fclks (frame clocks for Main); emu_ports' LFB_* inputs
+    (unused; our top includes emu_ports.vh); registered AUDIO_L/R/SPDIF
+    with FAST_OUTPUT_REGISTER; mcp23009's mode bit read twice; yc_out.
+    Template.sv's "video sync always running" is the template's own core,
+    not sys/ - not taken. Both tops elaborate. Board check with the RC
+    test build: HDMI (each mode, both cores; the IIcx at 720p with
+    vsync_adjust=0 FIRST - if ascal's fix cures 24, option B is not
+    needed), CRT, OSD, audio (analog and HDMI).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
@@ -20417,20 +20431,6 @@ Daniel - add to it, move items out when fixed).**
     mouse's counts 1:1 (800-1600+ DPI = 8-16x a real mouse's, before Mac
     OS's acceleration); the divider on the accumulated deltas, the
     remainder kept (slow movement not lost); handler 2's doubling after it.
-    SYS/ DONE (2026-10-23, 7d5ae83): Template_MiSTer@5dda373, eleven commits
-    on from 69b8a2a, wholesale and byte-exact (all 57 files compared). Net
-    seven files: ascal resets o_state at vsync (the gray-counter rewrites
-    were reverted upstream) - "o_clk is paused during PLL reconfig and
-    causes o_state to get stuck in sREAD state" - a candidate for KNOWN
-    ISSUES 24 itself (vsync_adjust=0 reconfigures the HDMI PLL per mode);
-    hps_io's vid_fclks (frame clocks for Main); emu_ports' LFB_* inputs
-    (unused; our top includes emu_ports.vh); registered AUDIO_L/R/SPDIF
-    with FAST_OUTPUT_REGISTER; mcp23009's mode bit read twice; yc_out.
-    Template.sv's "video sync always running" is the template's own core,
-    not sys/ - not taken. Both tops elaborate. Board check with the RC
-    test build: HDMI (each mode, both cores; the IIcx at 720p with
-    vsync_adjust=0 FIRST - if ascal's fix cures 24, option B is not
-    needed), CRT, OSD, audio (analog and HDMI).
     Benched (the ADB mouse bench), then on the board with the Mouse control
     panel at each tracking speed;
     DONE IN RTL (2026-10-23, 0eab8fa): se30_mouse_speed (rtl/se30_adb_dev.v)
