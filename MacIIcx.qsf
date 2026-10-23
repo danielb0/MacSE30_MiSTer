@@ -95,6 +95,13 @@ set_instance_assignment -name D1_DELAY 0 -to SDRAM_DQ[*]
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[0]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[1]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[2]"
+# KNOWN ISSUES 24: the framework's pll_cfg_hdmi writes Main's HDMI divider to
+# physical counter C5 and nowhere else, and pll_hdmi reaches the HDMI clock
+# switch from C5 only at FRACTIONALPLL_X0_Y1 (every other core's site).  The
+# IIcx fits of 2026-10 put it in the PLL strip (X0_Y32, output on C8) and
+# every HDMI mode but 1080p broke.  Pinned, so no fit can move it again.
+set_location_assignment FRACTIONALPLL_X0_Y1_N0 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll"
+set_location_assignment PLLOUTPUTCOUNTER_X0_Y5_N1 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|counter[0].output_counter"
 
 source sys/sys.tcl
 source sys/sys_analog.tcl

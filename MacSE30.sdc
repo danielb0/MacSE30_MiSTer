@@ -154,12 +154,17 @@ set fpu_apu1 [remove_from_collection $fpu_apu $fpu_p0]
 set_multicycle_path -setup -end 2 -from $fpu_apu1 -to $fpu_apu1
 set_multicycle_path -hold  -end 1 -from $fpu_apu1 -to $fpu_apu1
 
-# The IIcx build's card (SE30_PLAN.md 14.3 item 4): its dot clock is a PLL of
-# its own, fed from clk_mem at a fractional ratio (1071/128 up, 26 down) -
-# unrelated in practice to every other clock in the design, and every
-# crossing is built for that: the VRAM and CLUT are dual-clock block RAMs,
-# the depth and base are written only after WaitVBL and taken once a frame,
-# the frame toggle and the blanking level cross through two flip-flops.
+# The IIcx build's card (SE30_PLAN.md 14.3 item 4, KNOWN ISSUES 24): its dot
+# clock is the main PLL's sixth output, 30.2153 MHz = the 846.0288 MHz VCO
+# / 28 against clk_sys's / 27.  Related clocks to STA - they meet every 756
+# VCO cycles and their edges come within one VCO period (1.18 ns) - so
+# timed as such every crossing would be an impossible path.  In the design
+# they are unrelated, and every crossing is built for that: the VRAM and
+# CLUT are dual-clock block RAMs, the depth and base are written only after
+# WaitVBL and taken once a frame, the frame toggle and the blanking level
+# cross through two flip-flops.  (Until 2026-10-23 the dot clock was a PLL
+# of its own, rtl/pll_vid, exact at 30.24 MHz from clk_mem; the HDMI clock
+# switch's placement rules ended that - KNOWN ISSUES 24.)
 #
 # It is CLK_VIDEO too, so the framework's video side - ascal's input, the
 # OSD, hps_io's video_calc, the VGA and HDMI outputs - runs on it and
@@ -176,6 +181,6 @@ set_multicycle_path -hold  -end 1 -from $fpu_apu1 -to $fpu_apu1
 # requirement the timing-driven placer and router can never meet and, under
 # High Performance Effort, never stop trying to (the post-map TimeQuest run
 # of 2026-10-10, plan 14.3).  The SE/30 build has no such clock and skips this.
-if {[llength [get_clocks -nowarn {emu|pll_vid|*}]] > 0} {
-  set_clock_groups -asynchronous -group [get_clocks {emu|pll_vid|*}]
+if {[llength [get_clocks -nowarn {emu|pll|pll_inst|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk}]] > 0} {
+  set_clock_groups -asynchronous -group [get_clocks {emu|pll|pll_inst|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk}]
 }

@@ -13,10 +13,26 @@
 //                                    A, for slow silicon
 //   outclk_4  clk_capb  94.0032 MHz  clk_mem - 2.261 ns: read-data capture
 //                                    B, for fast silicon
+//   outclk_5  clk_pix   30.2153 MHz  IIcx only (`MACIICX): the video card's
+//                                    dot clock, the nearest this VCO comes
+//                                    to the card's 30.24 MHz (-0.082 %)
 //
-// All five come from one VCO (940.032 MHz) through integer counters, so
-// they are related clocks and STA times every crossing exactly
-// (MacSE30.sdc).  The three phases are rtl/se30_sdram.v's header.
+// The SE/30's five come from one VCO at 940.032 MHz through integer
+// counters (30, 10, 10, 10, 10), so they are related clocks and STA times
+// every crossing exactly (MacSE30.sdc).  The three phases are
+// rtl/se30_sdram.v's header.
+//
+// The IIcx (KNOWN ISSUES 24, 2026-10-23): the card's dot clock must come
+// from this PLL - the framework's HDMI clock switch takes CLK_VIDEO only
+// from a PLL on pll_hdmi's edge of the chip, and that edge has two PLLs,
+// pll_hdmi's and ours - and no VCO divides to both 31.3344 and 30.24
+// (544/525).  So the IIcx's VCO is 846.0288 MHz (counters 27, 9, 9, 9, 9,
+// 28: clk_sys and clk_mem exact, the dot clock 30.2153 MHz), and the three
+// phases are re-quantised to that VCO's 147.7 ps step: +1034, -296 and
+// -2219 ps for +1064, -266 and -2261 (30-42 ps moves on margins of over a
+// nanosecond; sta_corners is the verdict).  Exact 30.24 MHz needs a PLL of
+// its own on that edge, which needs the SDRAM capture select redesigned -
+// the plan's KNOWN ISSUES 24 lists every route tried and the ones left.
 
 `timescale 1 ps / 1 ps
 module pll (
@@ -27,6 +43,9 @@ module pll (
 		output wire  outclk_2, // outclk2.clk
 		output wire  outclk_3, // outclk3.clk
 		output wire  outclk_4, // outclk4.clk
+`ifdef MACIICX
+		output wire  outclk_5, // outclk5.clk - the IIcx card's dot clock
+`endif
 		output wire  locked    //  locked.export
 	);
 
@@ -38,6 +57,9 @@ module pll (
 		.outclk_2 (outclk_2), // outclk2.clk
 		.outclk_3 (outclk_3), // outclk3.clk
 		.outclk_4 (outclk_4), // outclk4.clk
+`ifdef MACIICX
+		.outclk_5 (outclk_5), // outclk5.clk
+`endif
 		.locked   (locked)    //  locked.export
 	);
 

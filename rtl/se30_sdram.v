@@ -38,6 +38,9 @@
 //             hold of our outputs at the chip (about 2.4 ns each)
 //   clk_capa  clk - 0.266 ns: read-data capture A, for slow silicon
 //   clk_capb  clk - 2.261 ns: read-data capture B, for fast silicon
+//   (The IIcx build's PLL runs its VCO at 846.0288 MHz for the card's dot
+//   clock - KNOWN ISSUES 24 - so there the three phases are re-quantised
+//   to that VCO's 147.7 ps step: +1.034, -0.296 and -2.219 ns.  rtl/pll.)
 //   clk_cap   the capture register's clock: A or B, chosen by cap_sel
 //             through a clock control block
 //   Why two captures: a read word is at our pin for about 6.6 ns, and

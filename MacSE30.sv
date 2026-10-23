@@ -298,19 +298,14 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 // C16M's edges, one clk_sys each, alternating.
 
 wire clk_sys, clk_mem, clk_sdc, clk_capa, clk_capb, pll_locked;
-// The IIcx card's dot clock: the book's 30.24 MHz (864 x 525 at 66.67
-// Hz) from a PLL of its own (rtl/pll_vid; plan 14.3 item 4) - the main
-// PLL's VCO has no integer division to it.  The SE/30 build has no card.
+// The IIcx card's dot clock, clk_pix: the book's 30.24 MHz (864 x 525 at
+// 66.67 Hz) as near as the main PLL gives it - 30.2153 MHz, its sixth
+// output (rtl/pll; -0.082 %, the card's frame 66.61 Hz).  A PLL of its own
+// (rtl/pll_vid, 2026-10-09 to 10-23) was exact but could not sit where
+// the framework's HDMI clock switch and its reconfigured PLL need it:
+// KNOWN ISSUES 24.  The SE/30 build has no card.
 wire clk_pix;
-`ifdef MACIICX
-pll_vid pll_vid
-(
-	.refclk(clk_mem),                                     // the 50 MHz pins' PLLs are all taken; 50-700 MHz (rtl/pll_vid)
-	.rst(0),
-	.outclk_0(clk_pix),
-	.locked()
-);
-`else
+`ifndef MACIICX
 assign clk_pix = clk_sys;
 `endif
 pll pll
@@ -322,6 +317,9 @@ pll pll
 	.outclk_2(clk_sdc),
 	.outclk_3(clk_capa),
 	.outclk_4(clk_capb),
+`ifdef MACIICX
+	.outclk_5(clk_pix),
+`endif
 	.locked(pll_locked)
 );
 
