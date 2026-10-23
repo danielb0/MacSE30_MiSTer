@@ -305,7 +305,7 @@ wire clk_pix;
 `ifdef MACIICX
 pll_vid pll_vid
 (
-	.refclk(CLK_50M),                                     // beside pll_hdmi at X89_Y1 (MacIIcx.qsf, rtl/pll_vid)
+	.refclk(clk_mem),                                     // the 50 MHz pins' PLLs are all taken; 50-700 MHz (rtl/pll_vid)
 	.rst(0),
 	.outclk_0(clk_pix),
 	.locked()

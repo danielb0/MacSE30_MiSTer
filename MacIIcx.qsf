@@ -96,16 +96,6 @@ set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[1]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[2]"
 
-# KNOWN ISSUES 24: the framework's sys/pll_cfg/pll_cfg_hdmi.v reconfigures only
-# counter C5, so pll_hdmi must sit at X0_Y1 with its output on C5 (X0_Y5), as
-# in every core.  pll_vid (the card's dot clock, which the HDMI clock switch
-# pairs with pll_hdmi on one edge) takes X89_Y1 and the main PLL moves into the
-# left edge's strip (X0_Y15, counters C4-C8) - the MacLC core's arrangement.
-set_location_assignment FRACTIONALPLL_X0_Y1_N0 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll"
-set_location_assignment PLLOUTPUTCOUNTER_X0_Y5_N1 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|counter[0].output_counter"
-set_location_assignment FRACTIONALPLL_X89_Y1_N0 -to "emu:emu|pll_vid:pll_vid|pll_vid_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL"
-set_location_assignment FRACTIONALPLL_X0_Y15_N0 -to "emu:emu|pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL"
-
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip
