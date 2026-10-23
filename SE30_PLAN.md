@@ -20406,9 +20406,9 @@ Daniel - add to it, move items out when fixed).**
     C:\temp\Mac\MacSE30_page_draft_20261023.html (SE/30 + IIcx, a Core
     column, A/UX, KNOWN ISSUES 44's games, CD-ROM drivers, MacsBug, Scale,
     Mouse speed). PUBLISH ONLY WHEN THE NEW VERSIONS ARE OUT (Daniel,
-    10-23); before then re-read the live page, merge, and settle: Ishar
-    B&W's System, Theldrow's version, Ishar Color on 6.0.8 (MacsBug check),
-    the README's final wording;
+    10-23); before then re-read the live page, merge, and settle Ishar
+    Color on 6.0.8 (MacsBug check) and the README's final wording (Ishar
+    B&W = 6.0.8, Theldrow 2.3 and the A/UX wording settled, in the draft);
     SYS/ DONE (2026-10-23, 7d5ae83): Template_MiSTer@5dda373, eleven commits
     on from 69b8a2a, wholesale and byte-exact (all 57 files compared). Net
     seven files: ascal resets o_state at vsync (the gray-counter rewrites
@@ -20710,6 +20710,7 @@ Daniel - add to it, move items out when fixed).**
     Plus (1 MB, System 6, plain Finder) Theldrow BOMBS ON EXIT too. (MacPack
     has Theldrow 1.0, 1988, 384K, and 2.3, 1992, 1024K/512K; Glenn Andreas,
     shareware.) The game's bug, not the core.
+    VERSION 2.3 (Daniel, 10-23); it quits cleanly on 7.5.5 too.
     (d): MacPack's copy (Games:1992:Might & Magic II (1.04)) is the
     BLACK-AND-WHITE release - vers 1.0.4, April 22 1992; its requirements
     dialog asks only for "A Macintosh Computer, 1 Megabyte, System 4.1";
