@@ -4912,7 +4912,7 @@ with its source hash recorded there. So the cut is:
 
 | what | from | how |
 |---|---|---|
-| `sys/` - the MiSTer framework, whole directory | `MiSTer-devel/Template_MiSTer@69b8a2a` (2026-07-16) | byte-exact, line endings as they are. **Never edited** (MacLC's `CLAUDE.md` law, learned there 2026-07-17: a night of framework edits produced STA-met builds with dead video); updated only wholesale from the template, as one revertible commit |
+| `sys/` - the MiSTer framework, whole directory | `MiSTer-devel/Template_MiSTer@5dda373` (2026-10-16; was `69b8a2a` 2026-07-16 until 7d5ae83, 2026-10-23) | byte-exact, line endings as they are. **Never edited** (MacLC's `CLAUDE.md` law, learned there 2026-07-17: a night of framework edits produced STA-met builds with dead video); updated only wholesale from the template, as one revertible commit |
 | project files: `MacSE30.qpf`, `MacSE30.qsf`, `MacSE30.sdc`, `MacSE30.srf`, `files.qip`, `clean.bat`, `.gitignore` | the template's `Template.*` at the same commit | renamed and edited: the qsf keeps the template's global settings and `source sys/sys.tcl` (device and pins come from the framework, not inline as MacLC's older qsf carries them); `LAST_QUARTUS_VERSION` is MacLC's "17.0.2 Lite Edition"; the sdc is the template's two lines plus ours (3.2). `jtag.cdf` is Quartus's own and gitignored (`*.cdf`), as in the template |
 | `.gitattributes` | MacLC's idea | pins the three project files Quartus rewrites with CRLF on every compile (`.qpf`, `.qsf`, `.sdc`) to `eol=lf`, and nothing else - a broad pattern would renormalise inherited blobs |
 | build flow: `scripts/build_only.sh`, `scripts/setup_env.sh`, `scripts/local.env.sample` | `MiSTer-devel/MacLC_MiSTer@045f896` | byte-exact bar the sample's core section (`RBF_NAME`, the seed paths), which is the documented porting edit. `045f896` is the upstream tip and carries Daniel's stabilisation work (checked 2026-09-26: the local clone, `origin` `danielb0/MacLC_MiSTer` and `upstream` `MiSTer-devel/MacLC_MiSTer` are at the same commit) |
@@ -20417,6 +20417,20 @@ Daniel - add to it, move items out when fixed).**
     mouse's counts 1:1 (800-1600+ DPI = 8-16x a real mouse's, before Mac
     OS's acceleration); the divider on the accumulated deltas, the
     remainder kept (slow movement not lost); handler 2's doubling after it.
+    SYS/ DONE (2026-10-23, 7d5ae83): Template_MiSTer@5dda373, eleven commits
+    on from 69b8a2a, wholesale and byte-exact (all 57 files compared). Net
+    seven files: ascal resets o_state at vsync (the gray-counter rewrites
+    were reverted upstream) - "o_clk is paused during PLL reconfig and
+    causes o_state to get stuck in sREAD state" - a candidate for KNOWN
+    ISSUES 24 itself (vsync_adjust=0 reconfigures the HDMI PLL per mode);
+    hps_io's vid_fclks (frame clocks for Main); emu_ports' LFB_* inputs
+    (unused; our top includes emu_ports.vh); registered AUDIO_L/R/SPDIF
+    with FAST_OUTPUT_REGISTER; mcp23009's mode bit read twice; yc_out.
+    Template.sv's "video sync always running" is the template's own core,
+    not sys/ - not taken. Both tops elaborate. Board check with the RC
+    test build: HDMI (each mode, both cores; the IIcx at 720p with
+    vsync_adjust=0 FIRST - if ascal's fix cures 24, option B is not
+    needed), CRT, OSD, audio (analog and HDMI).
     Benched (the ADB mouse bench), then on the board with the Mouse control
     panel at each tracking speed;
     DONE IN RTL (2026-10-23, 0eab8fa): se30_mouse_speed (rtl/se30_adb_dev.v)
