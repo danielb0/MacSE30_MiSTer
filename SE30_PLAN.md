@@ -20424,6 +20424,15 @@ Daniel - add to it, move items out when fixed).**
     (direct video gives video_freak zero HDMI sizes); same build and board
     test as the sys/ update and 24 (each scale mode at 1080p + one other,
     both cores, CRT unchanged); ascal's slack checked on the RC report;
+    SCALER DONE IN RTL (2026-10-23): video_freak in MacSE30.sv (VGA_DE_IN
+    = ~(hblank | vblank); ARX/ARY as before; CROP 0; SCALE {0, status[9:8]});
+    OSD O[9:8] "Scale". tools/aspect_check.py - the MacIIvi core's model of
+    video_scale_int (same sys/video_freak.sv), its 1437-px self-test
+    reproduced - passes every mode on 17 panels (640x480 .. 3840x2160) for
+    the SE/30's 512x342 and the IIcx's 640x480: fits, integer multiple,
+    exact aspect. Square pixels on both, so the three integer modes give
+    the same size (1080p: 1536x1026 and 1280x960). Both tops elaborate.
+    Board check with the RC test build;
     ADDED (Daniel, 2026-10-22, the forum tester: "the mouse may be too
     fast"): an OSD "Mouse speed" - Normal / /2 / /4 / /8 - in
     se30_adb_mouse (rtl/se30_adb_dev.v): the core reports the Apple
