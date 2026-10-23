@@ -20438,6 +20438,12 @@ Daniel - add to it, move items out when fixed).**
     only video_mode=0 + vsync_adjust=0 tests 24. His 10-16 readings at
     vsync_adjust=0 (0/2/6 fail, 8 works) are valid: that path always takes
     video_mode.
+    EXPERIMENT 1 CANNOT FIT (10-23, 327f727, reverted 13eceea): pll_hdmi
+    at FRACTIONALPLL_X0_Y74 - the fitter stopped in 10 min, Error 177020:
+    its reference clock FPGA_CLK1_50 (PIN_V11, sys_top.v) has no dedicated
+    route to X0_Y74. With 10-18's result pll_hdmi can sit only at X0_Y1
+    (forcing pll_vid onto the bottom edge: no free PLL) or in the strip.
+    Placement is out; experiment 2 (WYSIWYG_REMAP off) is next.
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
