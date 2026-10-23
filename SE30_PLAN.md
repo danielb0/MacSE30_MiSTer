@@ -20642,6 +20642,10 @@ Daniel - add to it, move items out when fixed).**
     meets it. Left: (d) Might and Magic II.
     Confirmed: under 6.0.8 WITH MultiFinder (from the Utilities 1 disk;
     Easy Install had not put it in) Theldrow quits cleanly (Daniel).
+    CONFIRMED ON REAL HARDWARE (Daniel, 10-23 morning): on his real Mac
+    Plus (1 MB, System 6, plain Finder) Theldrow BOMBS ON EXIT too. (MacPack
+    has Theldrow 1.0, 1988, 384K, and 2.3, 1992, 1024K/512K; Glenn Andreas,
+    shareware.) The game's bug, not the core.
     (d): MacPack's copy (Games:1992:Might & Magic II (1.04)) is the
     BLACK-AND-WHITE release - vers 1.0.4, April 22 1992; its requirements
     dialog asks only for "A Macintosh Computer, 1 Megabyte, System 4.1";
