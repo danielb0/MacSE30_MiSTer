@@ -20401,6 +20401,14 @@ Daniel - add to it, move items out when fixed).**
     disc mounted - KNOWN ISSUES 15; a bootable image needs an Apple partition
     map and driver, the CD slot is data only - 16; never one image in two
     slots; the IIcx README's vsync_adjust workaround out once 24 is fixed);
+    THE ONLINE PAGE (https://claude.ai/artifact/GFSjjUngMjt4HQPqCEuRSA,
+    public, last published ~10-08): updated draft for the coming release -
+    C:\temp\Mac\MacSE30_page_draft_20261023.html (SE/30 + IIcx, a Core
+    column, A/UX, KNOWN ISSUES 44's games, CD-ROM drivers, MacsBug, Scale,
+    Mouse speed). PUBLISH ONLY WHEN THE NEW VERSIONS ARE OUT (Daniel,
+    10-23); before then re-read the live page, merge, and settle: Ishar
+    B&W's System, Theldrow's version, Ishar Color on 6.0.8 (MacsBug check),
+    the README's final wording;
     SYS/ DONE (2026-10-23, 7d5ae83): Template_MiSTer@5dda373, eleven commits
     on from 69b8a2a, wholesale and byte-exact (all 57 files compared). Net
     seven files: ascal resets o_state at vsync (the gray-counter rewrites
