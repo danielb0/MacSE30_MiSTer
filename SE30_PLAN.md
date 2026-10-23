@@ -20444,6 +20444,13 @@ Daniel - add to it, move items out when fixed).**
     route to X0_Y74. With 10-18's result pll_hdmi can sit only at X0_Y1
     (forcing pll_vid onto the bottom edge: no free PLL) or in the strip.
     Placement is out; experiment 2 (WYSIWYG_REMAP off) is next.
+    EXPERIMENT 2 NO EFFECT (10-23, bcf6c06, reverted): WYSIWYG_REMAP OFF
+    built MacIIcx_bcf6c06c_k24b2.rbf BIT-IDENTICAL to rctest1 (md5 b7698456,
+    0 bytes differ; the IIcx's build tag reaches no logic without probes) -
+    no board test needed. Both option B experiments spent; next is research:
+    what the reconfiguration core writes to a strip PLL (the post-fit
+    netlist's address and counter-select LUTs, sys/pll_cfg's
+    altera_pll_reconfig_core.v, the handbook's strip-PLL counter rules).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
