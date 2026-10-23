@@ -20732,6 +20732,38 @@ Daniel - add to it, move items out when fixed).**
     lifted. For the tester: his System install (made for the IIcx?),
     32-Bit QuickDraw, MultiFinder, his game versions; Daniel's disk image
     to try.
+    THE TESTER'S REPLY (vanfanel, forum, 10-23; Daniel's image): (a)
+    Monkey Island sounds right - CLOSED (his earlier test followed Ishar
+    Color with the audio "in a bad state"; whether that state survived a
+    Mac restart or only the game is to ask - a state surviving a restart
+    would be a core lead). (b) REOPENED: his Ishar was the COLOUR release;
+    the B&W one sounds right for him too. Daniel: the colour release has
+    NO SOUND ON 6.0.8 and sound on 7.5.5, where it stops at the language
+    selection after the titles (to investigate). (d) REOPENED: Might and
+    Magic II Color does not start for him on Daniel's image either (boot
+    files from update_all); Daniel cannot make it fail on three core
+    versions and several Systems - asked him about zapping PRAM and his
+    MiSTer.
+    (b) THE COLOUR RELEASE, read (C:\Users\User\Downloads\quadra.zip, a
+    QEMU q800 disk, System7:Games:Ishar; Ishar II has the same "A"):
+    "Start Ishar" (APPL ISHR, 1,682 + 4,156 bytes; Silmarils; menus Jouer /
+    Quitter, Sons inactifs / Emulation joystick / Mode 320 x 200; needs 2.4
+    MB) loads "A" - an ATARI ST TOS executable ($601A, text $FE12, data
+    $3A0, bss $4913A, 2,255 relocations) run natively, the Mac traps
+    inside. Its sound: SndNewChannel(sampledSynth 5, init $E0 =
+    initStereo + initSRate22k, a userRoutine), then from the callback a
+    double buffer - bufferCmd ($51) with two standard SoundHeaders of 370
+    bytes at 22,254.5454 Hz (16.6 ms each, alternated), each followed by
+    callBackCmd ($0D), noWait; SndNewChannel's result unchecked. On
+    exit it sets VIA1 PB7 and rewrites ORA's PA0-2 (the Plus/SE sound
+    disable and volume; nothing on the SE/30's VIA1 here). So the sound is
+    the Sound Manager's, not the ASC driven directly: System 6.0.8's
+    Sound Manager against 7.5.5's - an init option or the bufferCmd /
+    callBackCmd loop it does not support would give exactly "silent on 6,
+    fine on 7", authentic. Our ASC FIFO path works under System 6 (Prince
+    of Persia). To decide: MacsBug on 6.0.8 - ATB SndNewChannel, MR, the
+    OSErr on the stack (5 min, Daniel); or MAME maciicx, 6.0.8, the same
+    game (~20 min) - silent there too = authentic.
     THE OVERNIGHT REGRESSION (sim/overnight_r5.sh, RTL of 40cebb8 - KNOWN
     ISSUES 37 fixed; 10-22 16:55 to 10-23 00:31): frs's 9 cut seeds 9/9
     (frs 50/50 in all); sim/run_regression.sh 64/64 lines PASS in 398 min
