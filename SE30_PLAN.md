@@ -20448,8 +20448,8 @@ Daniel - add to it, move items out when fixed).**
     three integer modes look the same, as predicted (square pixels: the
     SE/30 1536x1026 = 3x, the IIcx 1280x960 = 2x in all three; Normal
     fills 1080 lines).
-    DANIEL HAS HDMI ONLY (10-23): no CRT, so the CRT check and analog
-    audio go to the forum testers with the RC. The analog video is
+    DANIEL HAS HDMI ONLY (10-23): no CRT and no HDMI speaker, so the CRT check,
+    analog audio and HDMI audio go to the forum testers with the RC. The analog video is
     logically unchanged: with CROP_SIZE 0 video_freak's vde is held 1, so
     VGA_DE = VGA_DE_IN, and sys_top's analog chain takes that DE as before;
     the analog audio's change is sys/'s registered AUDIO_L/R pins.
