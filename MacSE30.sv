@@ -59,12 +59,6 @@ assign BUTTONS   = 0;
 
 //////////////////////////////////////////////////////////////////
 
-// 512 x 342 at square pixels, the SE/30's own image (256:171, as
-// MacPlus has it; plan 3.5); the IIcx's card, 640 x 480 (4:3)
-wire [1:0] ar = status[2:1];
-assign VIDEO_ARX = (!ar) ? (IICX ? 12'd4 : 12'd256) : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? (IICX ? 12'd3 : 12'd171) : 12'd0;
-
 `include "build_id.v"
 
 // The external floppy drive (plan 5.14) is a build option (plan 10.4 item
@@ -187,6 +181,7 @@ localparam CONF_STR = {
 	"SC5,NVR,Mount PRAM;",
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"O[9:8],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"O[4],Memory,8 MB,16 MB;",
 	"O[7:6],Mouse speed,Normal,/2,/4,/8;",
 `ifdef MACIICX
@@ -872,7 +867,25 @@ assign LED_DISK = {1'b0, dbg_swim[15] | dbg_fdhd2[15]};   // either drive's moto
 // The IIcx: the card's own dot clock, a pixel every clock (clk_pix, above).
 assign CLK_VIDEO = IICX ? clk_pix : clk_sys;
 assign CE_PIXEL  = IICX ? 1'b1 : phi1;
-assign VGA_DE = ~(hblank | vblank);
+
+// 512 x 342 at square pixels, the SE/30's own image (256:171, as
+// MacPlus has it; plan 3.5); the IIcx's card, 640 x 480 (4:3).  The
+// framework's video_freak applies the OSD's "Scale" (integer scaling;
+// no crop - 342 x 3 and 480 x 2 already fit 1080p); tools/aspect_check.py
+// shows every mode fits every panel.
+wire [1:0] ar = status[2:1];
+wire       vga_de = ~(hblank | vblank);
+video_freak video_freak
+(
+	.*,
+	.VGA_DE_IN(vga_de),
+	.ARX((!ar) ? (IICX ? 12'd4 : 12'd256) : (ar - 1'd1)),
+	.ARY((!ar) ? (IICX ? 12'd3 : 12'd171) : 12'd0),
+	.CROP_SIZE(12'd0),
+	.CROP_OFF(5'd0),
+	.SCALE({1'b0, status[9:8]})
+);
+
 assign VGA_HS = hsync_n;
 assign VGA_VS = vsync_n;
 assign VGA_R  = pwr_off ? 8'd0 : rgb[23:16];                // off: the screen dark (the IIcx's soft power)
