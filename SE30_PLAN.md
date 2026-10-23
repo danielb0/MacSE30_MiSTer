@@ -20423,6 +20423,18 @@ Daniel - add to it, move items out when fixed).**
     test build: HDMI (each mode, both cores; the IIcx at 720p with
     vsync_adjust=0 FIRST - if ascal's fix cures 24, option B is not
     needed), CRT, OSD, audio (analog and HDMI).
+    KNOWN ISSUES 24 NOT CURED (Daniel, 10-23, MacIIcx_7a710a82_rctest1):
+    [MacIIcx] video_mode=0, vsync_adjust=0 - no picture; 1080p50 (mode 9)
+    at vsync_adjust=0 gives a picture (148.5 MHz, 50.00 Hz - C = 3, the
+    power-on value, is right for both 1080p modes: fits the C-write
+    hypothesis). So option B's experiments go ahead. INI TRAPS met on the
+    way: video_mode_ntsc/pal, when set (Daniel's [MiSTer] had both = 9),
+    override video_mode - a section's video_mode=0 was ignored; and
+    video_mode_ntsc/pal=0 in a section did not select mode 0 (read as
+    unset; the global video_mode applied) - for a mode-0 test set
+    video_mode=0 and leave ntsc/pal unset. Daniel's earlier 24 readings
+    (modes 0/2/6 fail, 8 works, 10-16) may have met the same override if
+    those global lines were there then.
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
