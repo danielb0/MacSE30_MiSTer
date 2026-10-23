@@ -96,6 +96,12 @@ set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[1]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[2]"
 
+# KNOWN ISSUES 24, option B experiment 1: pll_hdmi out of the left edge's PLL
+# strip (X0_Y56/Y32/Y15, whose counters C0-C3 do not reach a clock network -
+# Cyclone V handbook vol. 1, 4.2.1) to X0_Y74, the edge's other PLL; pll_vid
+# must stay on this edge (the HDMI clock switch), pll_audio is left to the fitter.
+set_location_assignment FRACTIONALPLL_X0_Y74_N0 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll"
+
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip
