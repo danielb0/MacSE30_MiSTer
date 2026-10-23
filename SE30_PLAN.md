@@ -20419,6 +20419,15 @@ Daniel - add to it, move items out when fixed).**
     remainder kept (slow movement not lost); handler 2's doubling after it.
     Benched (the ADB mouse bench), then on the board with the Mouse control
     panel at each tracking speed;
+    DONE IN RTL (2026-10-23, 0eab8fa): se30_mouse_speed (rtl/se30_adb_dev.v)
+    divides hps_io's PS/2 counts ahead of the machine - floor division, the
+    remainder kept (out x divisor + remainder = in after every packet) -
+    so se30_adb_mouse and every machine bench are untouched and handler
+    2's doubling comes after; OSD O[7:6] "Mouse speed" (both cores, one
+    top). sim/mousespeed 80/80 (speed 0 bit-exact; 4,000 random packets
+    a divisor; slow movement; a speed change), both planted faults caught
+    (no remainder: 12 fail; truncation: 6). Board check with the RC test
+    build;
     the release form (probes out, comments restored, token-identical to
     dev). THE ORDER (Daniel, 2026-10-22): the kernel's regression (the
     night of 10-22, after 40/41/37) -> the RC changes, each with its own
