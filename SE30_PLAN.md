@@ -20451,6 +20451,23 @@ Daniel - add to it, move items out when fixed).**
     a divisor; slow movement; a speed change), both planted faults caught
     (no remainder: 12 fail; truncation: 6). Board check with the RC test
     build;
+    THE RC TEST BUILDS (2026-10-23, 7a710a8, tag 7a710a82, 08:57-10:10;
+    the SE/30 with its probe deck, the IIcx plain):
+    output_files/MacSE30_7a710a82_rctest1.rbf - 40,060 ALMs (96 %), 362/553
+    M10K; ours met at every corner (the capture by A or B, margin 1.3-2.0
+    ns); the framework's ascal -0.028 ns at slow -40C only (o_vcpt_pre3 ->
+    o_sync, KNOWN ISSUES 6; r4release's -0.834 at slow 100C gone, slow 100C
+    +0.166). output_files/MacIIcx_7a710a82_rctest1.rbf - 38,897 ALMs (93 %),
+    538/553 M10K; ascal MET at every corner (+0.201 worst); OURS MISSES at
+    slow 100C: -0.514 ns, TNS -1.969, clk_sys, in the CPU kernel
+    (TG68KdotC_Kernel RDindex_B[0] -> Add55~9_OTERM7645, a 31.7 ns path in
+    a 31.9 ns period) - NEW: r3/r4release met there (+0.602 in the
+    20261012 release); the RTL beside it changed only at the top (mouse
+    speed, video_freak) and sys/, so placement, but the rule is timing met
+    at every corner and no seed lottery: the path is fixed in the RTL
+    before the RC builds. Fine for the board checks above (every other
+    corner met; slow 100C is the pessimistic corner). No STA loop in either;
+    the tree restored (build_tag.v, both qsfs);
     the release form (probes out, comments restored, token-identical to
     dev). THE ORDER (Daniel, 2026-10-22): the kernel's regression (the
     night of 10-22, after 40/41/37) -> the RC changes, each with its own
