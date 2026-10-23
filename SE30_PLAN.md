@@ -20511,6 +20511,21 @@ Daniel - add to it, move items out when fixed).**
     five outputs); pll_hdmi at X0_Y1 with counter[0] at X0_Y5 (C5). RISK:
     the main PLL's move shifts the SDRAM clocks' insertion delays - the
     read capture (A/B) and SDRAM output margins are sta_corners' verdict.
+    THE MacLC ARRANGEMENT CANNOT FIT (10-23, 268dcf3, reverted): the main
+    PLL at X0_Y15 - Error 177013, general[3] (an SDRAM capture clock) feeds
+    se30_sdram's cap_clkctrl, a clock control block the strip's counters
+    cannot reach ("destination is in the wrong region"). MacLC's SDRAM has
+    no such capture clock. So our main PLL stays at X89_Y1 (the capture
+    design, plan 3.8 items 18-23), the HDMI clock switch needs CLK_VIDEO
+    from a PLL on pll_hdmi's edge, and X0_Y1 + X89_Y1 are the only two
+    there: CLK_VIDEO would have to come from the main PLL (option A, out:
+    the CRT) or pll_hdmi must move (C8, needs the sys/ change, out).
+    WHAT REMAINS: (1) ship the IIcx with the documented workaround
+    (1080p or vsync_adjust 1/2 - the 20261012 README's) and report the
+    framework limitation upstream (pll_cfg_hdmi reconfigures only C5);
+    (2) rework the SDRAM capture clocking so the main PLL can live in the
+    strip - the capture saga reopened, large; (3) the sys/ change if
+    upstream adopts a fix.
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
