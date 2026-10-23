@@ -20659,6 +20659,39 @@ Daniel - add to it, move items out when fixed).**
     out of range. Only the two 1080p modes want C = 3. Mode 4 added to
     FUTURE BOARD TESTS 13; the workaround for the reporter is the README's
     (`vsync_adjust=1`, or `video_mode` 8 / 9).
+    **E2 COMPILED (2026-10-23 17:44-18:27, 32c5fa0, `QUARTUS_REVISION=
+    MacIIcx build_stages.sh`): `output_files/MacIIcx_32c5fa00_k24e2.rbf`
+    (md5 7b13e795), 38,949 ALMs (93 %), fit 32 min.** The fit is the
+    probe's: pll_hdmi FRACTIONALPLL_X0_Y1, its output on
+    PLLOUTPUTCOUNTER_X0_Y5 (C5 - where pll_cfg_hdmi writes); the main PLL
+    at X89_Y1, VCO 846.028798 MHz, the dot clock 30.215314 MHz on X89_Y5;
+    hdmi_tx_clk on CLKSEL_X42_Y0_N2 (GCLK4), vga_tx_clk X42_Y0_N5 (GCLK5),
+    the capture select CLKSEL_X89_Y35_N14 / GCLK11; pll_audio X0_Y56. No
+    332125 loop. sta_corners MacIIcx: THE CAPTURE MET AT EVERY CORNER
+    (fast -40C best margin 1.785 ns), every path of ours met at every
+    corner, no hold miss anywhere; the only misses are the framework's
+    ascal at slow -40C (12 paths, worst -0.261 ns, o_h_lum_pix ->
+    o_poly_lum) and slow 100C (2 paths, -0.051) - KNOWN ISSUES 6's class,
+    as rctest1 (-0.126) and auxfixes (-0.041) before it. NOT FLASHED -
+    Daniel flashes; then FUTURE BOARD TESTS 13 (modes 0, 4, 6, 8 x
+    vsync_adjust 0, 1, 2; 66.6 Hz at 1 and 2). build_tag.v and MacIIcx.qsf
+    restored after the archive.
+    **THE WORKAROUND WAS ONLY HALF RIGHT (Daniel, 10-23 18:30: second
+    board, `[MacIIcx] vsync_adjust=1, video_mode=4` - no picture):** with
+    vsync_adjust 1 or 2 Main keeps the chosen mode's geometry and sets
+    Fpix = total pixels x the core's refresh (video.cpp adjust_video_mode),
+    then setPLL picks C as before. The stuck C = 3 is right only when
+    Fpix x 3 lands in the VCO's window, i.e. Fpix in [133.3, 200) MHz:
+    the 1080p geometries (148.5 -> 165 MHz at 66.6 Hz) and nothing
+    smaller - mode 4 retimed is 1688 x 1066 x 66.6 = 120 MHz, C = 4,
+    stuck 3 = 160 MHz, out of range; mode 6 retimed is 28 MHz, C = 15.
+    The 10-16 "vsync_adjust 1/2 work at 640x480" readings were mode 9 by
+    Daniel's global video_mode_ntsc/pal = 9 (noted 10-23 above), not mode
+    6. So the ONLY workaround for an unfixed IIcx build is a 1080p
+    video_mode (8 or 9), with any vsync_adjust; "vsync_adjust=1" alone
+    helps nobody whose video_mode is not 1080p. The forum reply and the
+    20261012 README's workaround line need that correction until the
+    fixed build ships.
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
