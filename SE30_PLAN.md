@@ -20716,7 +20716,9 @@ Daniel - add to it, move items out when fixed).**
     vsync_adjust 2 (~20:05): works. Mode 4, vsync_adjust 2 (~20:10): works.
     Mode 6, vsync_adjust 2 (~20:15): works. Mode 8, vsync_adjust 2
     (~20:20): works. ALL TWELVE CASES PASS - FUTURE BOARD TESTS 13 DONE
-    on HDMI. STILL TO RUN: the CRT (Daniel has none - forum
+    on HDMI; every case was a Mac OS cold boot, so the re-quantised
+    capture phases have twelve trainings and boots behind them (A/UX
+    still to run). STILL TO RUN: the CRT (Daniel has none - forum
     testers), A/UX and the SDRAM training on the re-quantised capture
     phases (an A/UX boot and a Mac OS session on this build).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
@@ -24508,9 +24510,11 @@ stretching 5:4 to 16:9. A second forum report (mode 4, 1280x1024@60) is the
 same bug; the earlier workaround advice was half right - for an unfixed build
 only video_mode 8/9 helps, vsync_adjust=1 alone retimes the chosen geometry
 and still fails. dev = 8600455 + this commit, PUSHED (79 commits, Daniel).
-NEXT, in order: (1) a Mac OS session and an A/UX boot on k24e2 (the capture
-phases moved 30-40 ps; E1 - VCO 940.032 kept, dot 30.3236 MHz - is the
-two-line fallback in rtl/pll/pll_0002.v); (2) the IIcx README (workaround
+Each of the twelve tests was a cold boot of Mac OS on k24e2 (Daniel) - twelve
+SDRAM trainings and boots on the re-quantised capture phases, no fault: the
+Mac OS half of the capture check is done. NEXT, in order: (1) an A/UX boot
+on k24e2 (E1 - VCO 940.032 kept, dot 30.3236 MHz - stays the two-line
+fallback in rtl/pll/pll_0002.v if it misbehaves); (2) the IIcx README (workaround
 line out; the dot clock note); (3) Daniel's forum follow-up correcting the
 workaround to video_mode=8; (4) the upstream Template_MiSTer report
 (pll_cfg_hdmi assumes physical C5); (5) whether the probe project goes under
