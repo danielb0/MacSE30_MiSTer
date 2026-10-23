@@ -485,3 +485,44 @@ module se30_adb_mouse #(
     .flush(flush), .dev_reset(dev_reset), .addr(addr), .handler(handler), .dbg(dbg));
 
 endmodule
+
+// ---------------------------------------------------------------------
+// se30_mouse_speed - the OSD's "Mouse speed" (SE30_PLAN.md, the RC):
+// hps_io's PS/2 mouse packets with their motion divided by 1, 2, 4 or 8.
+//
+//   The mouse reports the Apple Standard Mouse's 100 counts per inch but
+//   passes a USB mouse's counts 1:1 - 800-1600 DPI or more, 8-16 times a
+//   real mouse's.  Each axis divides its count plus the remainder the last
+//   packet left (rounding toward minus infinity), so slow movement is
+//   delayed, never lost: over any run of packets the counts out times the
+//   divisor plus the remainder equal the counts in.  Buttons and the packet
+//   strobe (bit 24) pass through, one clock later; speed 0 passes the
+//   packet unchanged.  Ahead of se30_adb_mouse, so handler 2's doubling
+//   comes after the division.
+
+module se30_mouse_speed (
+  input             clk,
+  input       [1:0] speed,          // 0 normal, 1 /2, 2 /4, 3 /8
+  input      [24:0] ps2_in,
+  output reg [24:0] ps2_out = 0
+);
+
+  reg  [2:0] rx = 0, ry = 0;        // the remainders, 0 .. divisor-1
+  reg        strobe_q = 0;
+  wire [2:0] mask = (3'd1 << speed) - 3'd1;
+
+  wire signed  [9:0] sx = {ps2_in[4], ps2_in[4], ps2_in[15:8]}  + $signed({7'd0, rx & mask});
+  wire signed  [9:0] sy = {ps2_in[5], ps2_in[5], ps2_in[23:16]} + $signed({7'd0, ry & mask});
+  wire signed  [9:0] qx = sx >>> speed;
+  wire signed  [9:0] qy = sy >>> speed;
+
+  always @(posedge clk) begin
+    strobe_q <= ps2_in[24];
+    if (ps2_in[24] != strobe_q) begin
+      rx <= sx[2:0] & mask;
+      ry <= sy[2:0] & mask;
+      ps2_out <= {ps2_in[24], qy[7:0], qx[7:0], ps2_in[7:6], qy[8], qx[8], ps2_in[3:0]};
+    end
+  end
+
+endmodule

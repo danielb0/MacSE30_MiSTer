@@ -188,6 +188,7 @@ localparam CONF_STR = {
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[4],Memory,8 MB,16 MB;",
+	"O[7:6],Mouse speed,Normal,/2,/4,/8;",
 `ifdef MACIICX
 	"O[5],Power switch,Normal,Locked on;",
 `endif
@@ -202,6 +203,7 @@ wire   [1:0] buttons;
 wire [127:0] status;
 wire  [10:0] ps2_key;
 wire  [24:0] ps2_mouse;
+wire  [24:0] ps2_mouse_s;                  // ps2_mouse at the OSD's "Mouse speed"
 wire  [32:0] TIMESTAMP;
 wire         ioctl_download, ioctl_wr;
 wire  [15:0] ioctl_index;
@@ -820,6 +822,10 @@ always @(posedge clk_sys) begin
 	if ((sd_ack[2] && !scsi_ack_q[0]) || (sd_ack[3] && !scsi_ack_q[1])) scsi_sectors <= scsi_sectors + 1'd1;
 end
 
+// The OSD's "Mouse speed": the USB mouse's counts divided by 1, 2, 4 or 8
+// before the ADB mouse takes them (rtl/se30_adb_dev.v, se30_mouse_speed).
+se30_mouse_speed mouse_speed (.clk(clk_sys), .speed(status[7:6]), .ps2_in(ps2_mouse), .ps2_out(ps2_mouse_s));
+
 se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 (
 	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram16(ram16),
@@ -835,7 +841,7 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 	.pace_en(1'b1),
 	.dbg_addr(dbg_addr), .dbg_fc(dbg_fc), .dbg_as_n(dbg_as_n), .dbg_rw_n(dbg_rw_n),
 	.dbg_dsack_n(dbg_dsack_n), .dbg_berr(dbg_berr), .dbg_halted(dbg_halted), .reset_out_n(reset_out_n),
-	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse), .timestamp(TIMESTAMP),
+	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse_s), .timestamp(TIMESTAMP),
 	.pram_h_we(pram_h_we), .pram_h_addr(pram_h_addr), .pram_h_wdata(pram_h_wdata), .pram_h_raddr(pram_h_raddr),
 	.pram_h_rdata(pram_h_rdata), .pram_wr(pram_wr),
 	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
