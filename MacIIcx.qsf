@@ -101,7 +101,7 @@ set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst
 # its output.  The IIcx's pll_hdmi sits in the left edge's PLL strip (X0_Y32,
 # beside pll_vid), and the fitter gave it C8, so every mode but 1080p kept the
 # power-on divider.  Its output counter is pinned to that PLL's C5.
-set_location_assignment PLLOUTPUTCOUNTER_X0_Y28_N1 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|counter[0].output_counter"
+set_location_assignment PLLOUTPUTCOUNTER_X0_Y34_N1 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|counter[0].output_counter"
 
 source sys/sys.tcl
 source sys/sys_analog.tcl
