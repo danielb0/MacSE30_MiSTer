@@ -20444,6 +20444,10 @@ Daniel - add to it, move items out when fixed).**
     route to X0_Y74. With 10-18's result pll_hdmi can sit only at X0_Y1
     (forcing pll_vid onto the bottom edge: no free PLL) or in the strip.
     Placement is out; experiment 2 (WYSIWYG_REMAP off) is next.
+    BOARD (Daniel, 10-23, rctest1): MOUSE SPEED WORKS; SCALE at 1080p - the
+    three integer modes look the same, as predicted (square pixels: the
+    SE/30 1536x1026 = 3x, the IIcx 1280x960 = 2x in all three; Normal
+    fills 1080 lines).
     DANIEL HAS HDMI ONLY (10-23): no CRT, so the CRT check and analog
     audio go to the forum testers with the RC. The analog video is
     logically unchanged: with CROP_SIZE 0 video_freak's vde is held 1, so
