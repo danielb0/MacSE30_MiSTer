@@ -20526,6 +20526,54 @@ Daniel - add to it, move items out when fixed).**
     (2) rework the SDRAM capture clocking so the main PLL can live in the
     strip - the capture saga reopened, large; (3) the sys/ change if
     upstream adopts a fix.
+    THE PLACEMENT SPACE IS EXHAUSTED, AND THE FIX THAT FITS (10-23
+    evening, a probe project): a 200-line Quartus project of the IIcx's
+    PLLs and sys_top's two clock switches alone (the session scratchpad's
+    probe/ - probe.v, base.qsf, run.sh, variants/, results/; 80 s a fit)
+    reproduces the real design's every failure by error code - 175020
+    (10-18), 177013 (268dcf3), 175007 (c1e9bfc) - and, unconstrained,
+    compile 9's fit exactly (pll_hdmi X0_Y32 on C8 = Y31, pll_vid X0_Y56
+    on Y60, the switches CLKSEL_X0_Y35 on GCLK0/GCLK3). Then every
+    placement with pll_vid as a PLL of its own: pll_hdmi at X0_Y1 reaches
+    only the bottom switches (CLKSEL_X42_Y0), whose other input must come
+    from X89_Y1 (Error 11239, "already occupied by" the main PLL; pll_vid
+    pinned to any left PLL: 175011, conflicting region assignments);
+    pll_hdmi at X0_Y15 - FPGA_CLK1_50 reaches it, but no path from it to
+    a switch (175006); at X0_Y56 and X0_Y74 FPGA_CLK1_50 does not reach
+    (177020); at X0_Y32 only Y31 = C8 reaches a switch (175007 for Y34 =
+    C5, as before). So: two bottom PLLs, pll_cfg_hdmi's C5 only at
+    X0_Y1, the capture select needing two counters of one PLL on one side
+    (the strip's cannot, 177013) - CLK_VIDEO must come from the main PLL
+    at X89_Y1, and from its VCO no exact 30.24 MHz exists (544/525 against
+    clk_sys: a 16 GHz VCO). THE FIX THAT FITS: the dot clock as the main
+    PLL's SIXTH output, pll_vid gone, pll_hdmi back at X0_Y1 on C5 as in
+    every other core. The probe fits it in the SE/30's arrangement exactly
+    (pll_hdmi X0_Y1 / counter Y5, the dot clock on X89_Y5 into
+    CLKSEL_X42_Y0_N5 = GCLK5, the capture select CLKSEL_X42_Y0_N11), in
+    two forms - DANIEL'S CHOICE, the card's dot clock being off its 30.24:
+      (E1) VCO 940.032 MHz as now, C_dot = 31: 30.3236 MHz, +0.276 %
+           (2760 ppm; frame 66.85 Hz, line 35.10 kHz). Nothing else
+           moves: the SE/30's counters and capture phases to the step.
+      (E2) VCO 846.0288 MHz (M 16.920576), C_sys 27, C_mem 9, C_dot 28:
+           30.2153 MHz, -0.082 % (820 ppm; 66.61 Hz, 34.97 kHz). The
+           capture phases re-quantised to the 147.7 ps step: clk_sdc
+           +1034 ps, capa -296, capb -2219 against +1064, -266, -2261 -
+           30-42 ps moves on margins of 1.3-2.4 ns, sta_corners the
+           verdict. The IP refuses the old phase strings at this VCO
+           (illegal output_clock_frequency); step multiples fit.
+    Either is IIcx-only: `ifdef MACIICX in rtl/pll/pll_0002.v (6 clocks,
+    frequency5, E2's phases) and rtl/pll.v (outclk_5); MacSE30.sv's
+    clk_pix from it; MacSE30.sdc's pll_vid group renamed to general[5]'s
+    divclk, still asynchronous to every clock (the card's crossings are
+    built for it; timed as related, the relationship to clk_sys would be
+    one VCO period); rtl/pll_vid out of files.qip; MacIIcx.qsf pinning
+    pll_hdmi at FRACTIONALPLL_X0_Y1 with its counter at
+    PLLOUTPUTCOUNTER_X0_Y5 (no seed lottery). The deviation is uniform -
+    no CE cadence, every pixel the same width on the CRT; vsync_adjust
+    1/2 retime HDMI to the card's 66.61 or 66.85 Hz. The exact 30.24 needs
+    a PLL of its own, which needs the main PLL off the bottom edge, which
+    needs the capture select redesigned (item 2 above) or the sys/ change
+    (item 3).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
