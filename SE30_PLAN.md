@@ -20596,6 +20596,13 @@ Daniel - add to it, move items out when fixed).**
     try: into the Scumm Bar, several cold starts (the tester's
     "sometimes"), r3release as the tester has it. In the game too, the
     music plays (Daniel, same evening) - on BOTH r3release and r4release.
+    MUSIC QUALITY (Daniel, 10-23): the game's music setting "best" seems to
+    overwhelm the CPU; "better" plays cleanly - a plausible source of the
+    tester's late, hissing, wrong-sounding music if he chose "best". Not
+    yet known whether a real IIcx (16 MHz 68030) copes with "best" -
+    likely written for faster Macs; our CPU matches the real SE/30's
+    Speedometer figures (Math ~13-16 % fast, accepted). Advice for the
+    tester: "better".
     What is left of the tester's setup is System 6.0.8.
     6.0.8 (Daniel's own install, and from a floppy): "Unimplemented trap"
     at launch. The game (Mky1 1.0, 1991) calls 32-Bit QuickDraw's traps:
