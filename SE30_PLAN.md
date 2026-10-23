@@ -20714,9 +20714,9 @@ Daniel - add to it, move items out when fixed).**
     vsync_adjust 1 (~20:00): works - 1080p retimed (2200 x 1125 x 66.61 =
     164.9 MHz, C = 3). ALL FOUR MODES PASS AT vsync_adjust 0 AND 1. Mode 0,
     vsync_adjust 2 (~20:05): works. Mode 4, vsync_adjust 2 (~20:10): works.
-    Mode 6, vsync_adjust 2 (~20:15): works. STILL TO RUN: mode 8 at
-    vsync_adjust 2 (66.6 Hz; the same retiming as 1 with Main's
-    low-latency path), the CRT (Daniel has none - forum
+    Mode 6, vsync_adjust 2 (~20:15): works. Mode 8, vsync_adjust 2
+    (~20:20): works. ALL TWELVE CASES PASS - FUTURE BOARD TESTS 13 DONE
+    on HDMI. STILL TO RUN: the CRT (Daniel has none - forum
     testers), A/UX and the SDRAM training on the re-quantised capture
     phases (an A/UX boot and a Mac OS session on this build).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
@@ -21546,7 +21546,9 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     disk). The MacPlus precedent: a new ROM file broke the original core.
     ~3 minutes.
     **DONE 2026-10-09 (Daniel): "It works with boot3.rom in the folder."**
-13. **The IIcx's HDMI modes** (KNOWN ISSUES 24, before the next IIcx
+13. **DONE 2026-10-23 ~20:20 (MacIIcx_32c5fa00_k24e2: all twelve cases
+    pass - KNOWN ISSUES 24 FIXED; the CRT stays with the forum testers).
+    The IIcx's HDMI modes** (KNOWN ISSUES 24, before the next IIcx
     release): the IIcx build at `video_mode` 0, 4, 6 and 8, each with
     `vsync_adjust` 0, 1 and 2 and `video_info` on; read the overlay's
     measured Hz. Expected: at 0, 720p 60.0, 1280x1024 60.0, 640x480 59.9,
@@ -21555,8 +21557,7 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     not fixed. Mode 4 is the forum reporter's case (10-23: the IIcx
     invisible at 1280x1024@60, with and without vsync_adjust=1). The menu core at
     mode 0 is the reference. ~20 minutes. DONE SO FAR on MacIIcx_32c5fa00_k24e2
-    (10-23): all four modes at 0 and at 1, modes 0, 4 and 6 at 2 - all
-    correct (KNOWN ISSUES 24). Left: mode 8 at 2.
+    (10-23): all four modes at 0, 1 and 2 - all correct (KNOWN ISSUES 24).
 14. **The IIcx's A/UX start-up flash** (Daniel, 2026-10-19, screenshot
     `C:\temp\Mac\Screenshots\20261019_112015-screen.png`): between A/UX's
     start and the desktop the grey screen's top line shows five short
