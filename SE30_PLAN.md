@@ -20481,6 +20481,20 @@ Daniel - add to it, move items out when fixed).**
     (Cn = Y55+n); X0_Y74 Y73 = C8; X0_Y32 Y31 = C8 - so C5 = X0_Y28 if
     X0_Y32 counts upward like X0_Y56 (one point: confirm output_counter_
     index = 5 in the new netlist before the board).
+    PINNING TO C5 IMPOSSIBLE (10-23, c1e9bfc/b672195, both reverted):
+    PLLOUTPUTCOUNTER_X0_Y28 is illegal (Error 171016) - X0_Y32 counts the
+    other way, C8 at Y31 up to C0 at Y39; X0_Y34 (= C5) is legal but the
+    fitter finds no route from it to a global clock driver for hdmi_tx_clk
+    / vga_tx_clk (Error 175007, CLKCTRL_G0-G3) - the handbook's Table 4-6:
+    a left-side GCLK control block takes PLL counters only from fixed
+    counters. So the IIcx's HDMI clock stays on C8. REMAINING FIX (a sys/
+    change, Daniel's decision): pll_cfg_hdmi.v's hard-wired counter 5 made
+    a localparam - 8 under MACIICX, 5 otherwise (lines 52 number_of_
+    counters, 573-575 the [5] marks, the four loops from i = 5; the
+    address/bit formulas are already generic: arrays [0:17], address i,
+    4_17 bits [17-i]) - plus MacIIcx.qsf pinning the counter to
+    PLLOUTPUTCOUNTER_X0_Y31 so a later fit cannot move it. Worth reporting
+    upstream (Template_MiSTer's pll_cfg_hdmi assumes C5).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
