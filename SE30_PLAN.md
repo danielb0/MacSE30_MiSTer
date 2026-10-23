@@ -20444,6 +20444,11 @@ Daniel - add to it, move items out when fixed).**
     route to X0_Y74. With 10-18's result pll_hdmi can sit only at X0_Y1
     (forcing pll_vid onto the bottom edge: no free PLL) or in the strip.
     Placement is out; experiment 2 (WYSIWYG_REMAP off) is next.
+    DANIEL HAS HDMI ONLY (10-23): no CRT, so the CRT check and analog
+    audio go to the forum testers with the RC. The analog video is
+    logically unchanged: with CROP_SIZE 0 video_freak's vde is held 1, so
+    VGA_DE = VGA_DE_IN, and sys_top's analog chain takes that DE as before;
+    the analog audio's change is sys/'s registered AUDIO_L/R pins.
     EXPERIMENT 2 NO EFFECT (10-23, bcf6c06, reverted): WYSIWYG_REMAP OFF
     built MacIIcx_bcf6c06c_k24b2.rbf BIT-IDENTICAL to rctest1 (md5 b7698456,
     0 bytes differ; the IIcx's build tag reaches no logic without probes) -
