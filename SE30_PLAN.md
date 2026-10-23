@@ -20712,9 +20712,10 @@ Daniel - add to it, move items out when fixed).**
     C = 5, a fifth divider proven). Mode 6, vsync_adjust 1 (~19:55): works -
     640x480 retimed (800 x 525 x 66.61 = 28.0 MHz, C = 15). Mode 8,
     vsync_adjust 1 (~20:00): works - 1080p retimed (2200 x 1125 x 66.61 =
-    164.9 MHz, C = 3). ALL FOUR MODES PASS AT vsync_adjust 0 AND 1. STILL
-    TO RUN: modes 0, 4, 6, 8 at vsync_adjust 2 (66.6 Hz; the same
-    retiming as 1 with Main's low-latency path), the CRT (Daniel has none - forum
+    164.9 MHz, C = 3). ALL FOUR MODES PASS AT vsync_adjust 0 AND 1. Mode 0,
+    vsync_adjust 2 (~20:05): works. STILL TO RUN: modes 4, 6, 8 at
+    vsync_adjust 2 (66.6 Hz; the same retiming as 1 with Main's
+    low-latency path), the CRT (Daniel has none - forum
     testers), A/UX and the SDRAM training on the re-quantised capture
     phases (an A/UX boot and a Mac OS session on this build).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
@@ -21553,8 +21554,8 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     not fixed. Mode 4 is the forum reporter's case (10-23: the IIcx
     invisible at 1280x1024@60, with and without vsync_adjust=1). The menu core at
     mode 0 is the reference. ~20 minutes. DONE SO FAR on MacIIcx_32c5fa00_k24e2
-    (10-23): all four modes at 0 and at 1 - all correct (KNOWN ISSUES 24).
-    Left: all four at 2.
+    (10-23): all four modes at 0 and at 1, mode 0 at 2 - all correct (KNOWN
+    ISSUES 24). Left: modes 4, 6, 8 at 2.
 14. **The IIcx's A/UX start-up flash** (Daniel, 2026-10-19, screenshot
     `C:\temp\Mac\Screenshots\20261019_112015-screen.png`): between A/UX's
     start and the desktop the grey screen's top line shows five short
