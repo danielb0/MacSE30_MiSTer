@@ -20774,7 +20774,9 @@ Daniel - add to it, move items out when fixed).**
     can never give '1'. The keypad ($52-$5C) is not in the table: its
     digits pass. Our core maps the PC keypad to the ADB keypad (KP1 $69 ->
     $53). Authentic (a French release); use the KEYPAD's 1, or the French
-    keyboard layout with Shift.
+    keyboard layout with Shift. CONFIRMED (Daniel, 10-23): the keypad gets
+    past it, and the game is fully functional on 7.5.5, sound included.
+    Left of (b): only the silence on 6.0.8 (the MacsBug check above).
     THE OVERNIGHT REGRESSION (sim/overnight_r5.sh, RTL of 40cebb8 - KNOWN
     ISSUES 37 fixed; 10-22 16:55 to 10-23 00:31): frs's 9 cut seeds 9/9
     (frs 50/50 in all); sim/run_regression.sh 64/64 lines PASS in 398 min
