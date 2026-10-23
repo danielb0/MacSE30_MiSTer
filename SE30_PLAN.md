@@ -20702,10 +20702,12 @@ Daniel - add to it, move items out when fixed).**
     it right). Mode 4, vsync_adjust 0: 108.00 MHz, 60.00 Hz - the default-
     settings case the two reports hit, blank at 144 MHz before. Mode 0,
     vsync_adjust 0: 1280x720, 74.25 MHz, 60.0 Hz (120 Hz before). Dividers
-    3, 4 and 6 proven; the counter-5 mechanism is board-proven. STILL TO
-    RUN (Daniel: "we will continue this later"): modes 6 and 8 at
-    vsync_adjust 0 (25.18 MHz 59.9 Hz; 148.50 MHz 60.0 Hz), modes 0, 6, 8 at
-    vsync_adjust 1 and 2 (66.6 Hz), the CRT (Daniel has none - forum
+    3, 4 and 6 proven; the counter-5 mechanism is board-proven. Mode 6,
+    vsync_adjust 0 (Daniel, ~19:30): works - 640x480 with the divider of
+    16, the forum reporter's original 10-16 case (~320 Hz before).
+    STILL TO RUN: mode 8 at vsync_adjust 0 (148.50 MHz 60.0 Hz - the
+    one case that always worked), modes 0, 6, 8 at vsync_adjust 1 and 2
+    (66.6 Hz) and mode 4 at 2, the CRT (Daniel has none - forum
     testers), A/UX and the SDRAM training on the re-quantised capture
     phases (an A/UX boot and a Mac OS session on this build).
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
@@ -21544,8 +21546,8 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     not fixed. Mode 4 is the forum reporter's case (10-23: the IIcx
     invisible at 1280x1024@60, with and without vsync_adjust=1). The menu core at
     mode 0 is the reference. ~20 minutes. DONE SO FAR on MacIIcx_32c5fa00_k24e2
-    (10-23): mode 4 at 0 and 1, mode 0 at 0 - all correct (KNOWN ISSUES 24).
-    Left: modes 6 and 8 at 0; modes 0, 6, 8 at 1 and 2.
+    (10-23): mode 4 at 0 and 1, modes 0 and 6 at 0 - all correct (KNOWN
+    ISSUES 24). Left: mode 8 at 0; modes 0, 6, 8 at 1 and 2; mode 4 at 2.
 14. **The IIcx's A/UX start-up flash** (Daniel, 2026-10-19, screenshot
     `C:\temp\Mac\Screenshots\20261019_112015-screen.png`): between A/UX's
     start and the desktop the grey screen's top line shows five short
