@@ -17107,6 +17107,7 @@ status and where each was decided. Test tooling is not listed here.
 | 8 | **A Macintosh IIcx build**, a compile option of this core: the SE/30's ROM ($97221136), CPU, 68882, GLUE, VIAs, SCC, SCSI, SWIM, ASC, ADB and RTC unchanged; the mono pseudo-slot video out; NuBus slots with item 4's colour card; the machine's ID bits for a IIcx (which VIA lines: from the *Guide*); soft power (Shut Down stops or resets the core). Build options already exist (`SE30_EXT_DRIVE`, CD-ROM, PBER) | **STARTED 2026-10-09 (Daniel: "we should start working on the Mac IIcx/ci variant"); the IIcx first. **The IIcx is to be finished (Daniel, 2026-10-09: "definitely finish the cx. It's cheap, and there are no other colour 68030 models"); **after it, NO MORE MAC MODELS (Daniel, 2026-10-09).** His tests: a model must be properly emulated (authentic speed on the DE10-Nano) and distinguishable by the user. Reviewed that day against the MiSTer core list (Apple I, II+/IIe, IIgs, Lisa, MacPlus, LC, SE/30; danifunker's Quadra 800 and IIvi; his Power Mac, expected at about half speed): Mac II/IIx = a IIcx to the user; Classic II, Color Classic, LC II/III = the SE/30 and LC cores; IIci and PowerBook 140/170 = faster or portable SE/30/IIcx-class machines; Centris/Quadra = the Quadra 800 core; IIfx (40 MHz) and the Power Macs cannot run at authentic speed; the Portable/PowerBook 100 = the MacPlus core's 16 MHz mode with another screen (Daniel). The Lisa (Macintosh XL) has its own core.** **The IIci is OPEN, LOW PRIORITY** (Daniel, 2026-10-09: "Leave it open but low priority. I doubt there's much point to it." - to the user a IIci is a faster IIcx with more RAM: Low End Mac's real machines, Speedometer 4.02 8-bit, IIci CPU 0.38 / Graphics 0.39 / Math 1.25 (0.40 / 0.46 / 1.37 with the 32 KB cache card) against the IIcx's 0.26 / 0.25 / 0.96, the same 640 x 480 x 8-bit screen; the Quadra 800 core already offers a fast colour Mac. Earlier: "leave it open" - my proposal to follow with it was never his decision; his test: no point in cores the user cannot tell apart). It is a new machine on the same parts: ROM $368CADFE, MDU decode, RBV video and VIA2, 25 MHz.** **Packaging decided (Daniel, 2026-10-09): one repository, a second Quartus project** - `MacIIcx.qpf/.qsf/.srf` beside `MacSE30.*` sharing `rtl/` and `sys/`, a define switching the differences; `releases/MacIIcx_<date>.rbf` beside `MacSE30_<date>.rbf`; a second wiki Cores row `| [Apple Macintosh IIcx](https://github.com/MiSTer-devel/MacSE30_MiSTer) |MACIICX| Yes | |` (the distribution takes, per row, the rbfs whose names contain that row's home, so the two names must not contain each other; undated `releases/` files go to both games folders). Precedent: MiSTer-devel/Atari800_MiSTer (Atari800 + Atari5200) and Daniel's UK101 core. Was: planned, after the SE/30's release (Daniel, 2026-10-09: "we will attempt it, maybe when the SE/30 is released"). Fit estimate: release 37,372 - mono video 91 + card ~1,000-1,100 = **~38,300-38,400 ALMs, at the ~38.3k ceiling**; M10K: the mono screen's 136 freed leaves ~327, an 8-bit 640 x 480 screen (~300) plus CLUT and declaration ROM fits in block RAM, barely. Levers if over: CD-ROM (776), floppy writing (~1,100), the CPU/FPU audit. Chosen over a IIvi: the IIvi (VASP, Egret, 1 MB ROM, 0.5-1 MB VRAM) is a different chipset; the MacIIvi_MiSTer core stalled at 93-98 % ALMs and 98 % M10K without an FPU, its peripherals the LC's (SCSI 7,988 against our 1,731, Egret 2,256, Ethernet 888), timing hunted by seed, Speedometer CPU 3.95x slower than a real Performa 600 | here |
 | 9 | **MIDI: an Apple MIDI Interface on the modem port.** The Mac had no MIDI port: an interface on a serial port clocked the SCC itself (1 MHz on HSKi, which the board ties to /TRxC; the SCC's x32 factor gives 31,250 baud). Ours: a 1 MHz clock on channel A's HSKi (0.5 / 2 MHz as options, as Apple's MIDI Driver offers), TxD to MIDI out, MIDI in to RxD (`MacSE30.sv` ties both ports empty today, `scc_port_in`). Out to the **MT32-pi** on the USER port (`sys/mt32pi.sv` is already in our framework; the LC core's measured 123 ALMs) and/or **MidiLink** over the UART (USB MIDI devices, the ARM's software synths), in from MidiLink; an OSD choice as on the LC (`MIDI` in CONF_STR). Est. 150-250 ALMs. Tests: a seam bench (the SCC at x32 on 1 MHz: bytes at 31,250, both ways), then the board | **wanted** (Daniel, 2026-10-09; soon after the release): his ST setup - Cubase to the MT32-pi, a keyboard in over USB MIDI. Test material on `MacPack_minivmac.dsk`: Applications:Music - **Cubase 2.5.1r3** (with Apple MIDI Manager, Apple MIDI Driver, PatchBay, and Roland MT32 / GS instrument sets) and **ConcertWare+MIDI** (MIDI Manager, MIDI Setup, example songs) | here |
 | 10 | **The IIcx card's extended resolutions (704 x 512, 672-pixel mode)**: Low End Mac reports the Macintosh II Video Card reached 704 x 512 on certain Apple 640 x 480 displays with the shareware MaxAppleZoom control panel (last updated June 1993, expired), and a 672-pixel mode for the 12" Monochrome Display. How MaxAppleZoom does it is unread (believed: it rewrites the card's timing registers to shrink the blanking within the same 30.24 MHz frame, and reports the larger bounds). Our card cannot follow: (a) the timing registers are stored but not modelled - the scan-out is the book's fixed 640 x 480 (`rtl/nubus_tfb.v`, scan-out; header "The timing registers are not modelled"); (b) the compaction keeps only the first 640 pixels and 480 rows of each page in block RAM, the rest goes to SDRAM unseen; (c) 704 x 512 x 8 = ~360 KB visible against 300 KB, ~53 M10K more with 15 free (IIcx 538/553). Needs: the timing registers' meaning from *Designing Cards and Drivers* ch. 11 (documentation, not MAME), a scan-out that follows them, and the pixels beyond 640 x 480 streamed from SDRAM; MaxAppleZoom itself to test (its expiry may need the Mac's clock set back) | **interesting, NOT a priority** (Daniel, 2026-10-13) | here |
+| 11 | **The IIcx card's exact 30.24 MHz dot clock** (since 2026-10-23 it is 30.2153 MHz, the main PLL's sixth output, -0.082 %: KNOWN ISSUES 24, E2) | some day (Daniel, 2026-10-23: "maybe we'll be able to do something else"); needs the SDRAM read-capture select redesigned so the main PLL can leave the chip's bottom edge, or an upstream pll_cfg_hdmi that follows the HDMI PLL's counter - KNOWN ISSUES 24's options (c) and (d) | KNOWN ISSUES 24 |
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
@@ -20574,6 +20575,81 @@ Daniel - add to it, move items out when fixed).**
     a PLL of its own, which needs the main PLL off the bottom edge, which
     needs the capture select redesigned (item 2 above) or the sys/ change
     (item 3).
+    **DECIDED: E2 (Daniel, 2026-10-23 evening: "go ahead with E2. Make
+    sure all options are written up. Maybe we'll be able to do something
+    else some day"). BUILT, 32c5fa0:** rtl/pll/pll_0002.v and rtl/pll.v
+    under `MACIICX - six clocks, the dot clock "30.2153142857 MHz", the
+    phases 1034 / 10342 / 8419 ps; MacSE30.sv's clk_pix from outclk_5,
+    pll_vid gone (rtl/pll_vid deleted, out of files.qip); MacSE30.sdc's
+    asynchronous group renamed to general[5]'s divclk; MacIIcx.qsf pins
+    pll_hdmi at FRACTIONALPLL_X0_Y1_N0 and its counter at
+    PLLOUTPUTCOUNTER_X0_Y5_N1; rtl/se30_sdram.v's header notes the IIcx's
+    phases. The SE/30 build's sources preprocess to the same text as
+    before (checked), its qsf untouched. Board test: FUTURE BOARD TESTS 13
+    (modes 0/6/8 x vsync_adjust 0/1/2; the overlay's core Hz now reads
+    66.6). Then the IIcx README loses its vsync_adjust workaround.
+    **EFFECT ON THE MACHINE (Daniel asked, 10-23):** the dot clock times
+    the card only - pixels, lines, the slot VBL interrupt (66.61 Hz for
+    66.67). Ticks, the Time Manager, the VIA timers, the ASC, SCSI and the
+    SCC run from clk_sys, exact. Slot-VBL-paced code (the cursor,
+    QuickDraw's screen sync, a game waiting on the slot VBL) runs 0.08 %
+    slow; no classic software reads or reports the card's refresh (the
+    declaration ROM carries resolution and depth, not timing). A CRT locks
+    on; HDMI at vsync_adjust 1/2 follows the card at 66.61 Hz; the one
+    visible trace is the info overlay's 66.6 Hz. A real Toby card's
+    crystal is typically within about 100 ppm; this is 820 ppm -
+    measurable, invisible. The dot clock is now phase-locked to the CPU
+    clock where a real card's is independent: tearing between CPU writes
+    and scan-out happens at the same rate either way, unobservable.
+    **THE OPTIONS, ALL OF THEM, FOR SOME DAY:**
+      (a) SHIPPED: E2 above - uniform, 820 ppm slow.
+      (b) E1 - the same with the VCO kept at 940.032 MHz, C_dot 31: 2760
+          ppm fast, no phase change at all; a two-line fallback if E2's
+          re-quantised capture phases ever misbehave.
+      (c) The exact 30.24 MHz from a PLL of its own needs that PLL on the
+          bottom edge (X0_Y1 or X89_Y1: the HDMI clock switch takes both
+          its inputs from one edge, and pll_hdmi must be at X0_Y1 for C5),
+          so the main PLL must leave X89_Y1 - and it cannot while the
+          SDRAM read capture selects between two of its counters through
+          a clock control block (no strip PLL can feed one: 177013, 10-23,
+          real design and probe alike). Routes: (c1) ONE capture clock
+          whose phase is set at run time through the PLL's own
+          reconfiguration (a pll_cfg-style core on OUR PLL; the training
+          steps the phase instead of choosing A or B; the main PLL then in
+          the strip at X0_Y15, counters C4-C8 = its five clocks, pll_vid
+          at X89_Y1 from CLK2_50 as MacLC's pll_video) - the capture saga
+          reopened: the training rewritten, every margin re-proved, the
+          strip's insertion delays new. (c2) The capture select as fabric
+          logic into a global buffer's internal-logic input - rejected:
+          the capture edge would carry LUT and routing delay with a corner
+          spread of nanoseconds against the 2 ns between the captures.
+          (c3) The main PLL at X0_Y1 and pll_vid at X89_Y1 - then pll_hdmi
+          has no bottom site left: three PLLs want two sites, dead
+          regardless of which pins reach where.
+      (d) The sys/ change: pll_cfg_hdmi.v's hard-wired counter 5 made a
+          parameter (8 under MACIICX, pll_hdmi pinned at X0_Y32 with its
+          counter at Y31) - six lines, works wherever the fitter puts the
+          PLL, pll_vid stays exact; refused (Daniel, 10-23: the framework
+          is not ours to change). REPORT UPSTREAM: Template_MiSTer's
+          pll_cfg_hdmi assumes the HDMI PLL's output on physical C5, true
+          only at FRACTIONALPLL_X0_Y1; a core whose own PLLs push pll_hdmi
+          into the strip gets every video_mode but 1080p wrong at
+          vsync_adjust 0. If upstream ever follows the counter, (c) is
+          unnecessary and pll_vid comes back as it was (the tree before
+          32c5fa0: rtl/pll_vid, MacSE30.sv's instance, the SDC group).
+      (e) Option A, a fractional CE_PIXEL on clk_sys or clk_mem: out, the
+          CRT shows the uneven pixels (Daniel, 10-21).
+      (f) pll_vid from another 50 MHz pin (CLK3_50 / E11, CLK1_50 / V11):
+          the pin changes nothing - the switch's edge rule is the
+          constraint, and sys_top owns both pins anyway.
+      (g) The framework's MISTER_DEBUG_NOHDMI path (hdmi_tx_clk = clk_vid,
+          no switch): takes the HDMI scaler output away - not an option.
+    The placement facts behind all this are the probe project's (memory:
+    lesson-pll-placement-probe; this session's scratchpad probe/ - to be
+    kept under tools/ if wanted): pll_hdmi reaches a switch only from X0_Y1
+    (bottom, partner X89_Y1 only) and X0_Y32 (left, counter Y31 = C8 only);
+    CLK1_50 reaches X0_Y1, X0_Y15, X0_Y32, not X0_Y56 or X0_Y74; X0_Y15
+    reaches no switch; a strip PLL cannot feed a two-counter select.
     ADDED (Daniel, 2026-10-22, a forum request): the standard scaler
     options - sys/video_freak.sv (already in sys/, unused) driving
     VIDEO_ARX/ARY and VGA_DE, an OSD "Scale" (Normal / V-Integer /
