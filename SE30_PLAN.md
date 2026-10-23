@@ -20650,9 +20650,9 @@ Daniel - add to it, move items out when fixed).**
     (bottom, partner X89_Y1 only) and X0_Y32 (left, counter Y31 = C8 only);
     CLK1_50 reaches X0_Y1, X0_Y15, X0_Y32, not X0_Y56 or X0_Y74; X0_Y15
     reaches no switch; a strip PLL cannot feed a two-counter select.
-    A SECOND REPORT (Daniel, 2026-10-23 evening, while E2 compiled): a
-    forum report of the same fault, and Daniel's second board at
-    `video_mode` 4 (1280x1024@60) shows no IIcx at all. The same
+    A SECOND REPORT (forum, relayed by Daniel 2026-10-23 evening while E2
+    compiled): the same fault on another user's board - at `video_mode`
+    4 (1280x1024@60) no IIcx picture at all. The same
     mechanism, predicted: Main's setPLL picks the smallest C with Fpix x
     C >= 400 MHz (video.cpp:275) - for 108 MHz that is C = 4, VCO 432;
     the stuck power-on C = 3 gives 144 MHz, the 1280x1024 timing at 80 Hz,
@@ -20676,8 +20676,9 @@ Daniel - add to it, move items out when fixed).**
     Daniel flashes; then FUTURE BOARD TESTS 13 (modes 0, 4, 6, 8 x
     vsync_adjust 0, 1, 2; 66.6 Hz at 1 and 2). build_tag.v and MacIIcx.qsf
     restored after the archive.
-    **THE WORKAROUND WAS ONLY HALF RIGHT (Daniel, 10-23 18:30: second
-    board, `[MacIIcx] vsync_adjust=1, video_mode=4` - no picture):** with
+    **THE WORKAROUND WAS ONLY HALF RIGHT (the forum reporter, 10-23 18:30,
+    after Daniel's reply: `[MacIIcx] vsync_adjust=1, video_mode=4` - still
+    no picture):** with
     vsync_adjust 1 or 2 Main keeps the chosen mode's geometry and sets
     Fpix = total pixels x the core's refresh (video.cpp adjust_video_mode),
     then setPLL picks C as before. The stuck C = 3 is right only when
@@ -21525,8 +21526,8 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     measured Hz. Expected: at 0, 720p 60.0, 1280x1024 60.0, 640x480 59.9,
     1080p 60.0; at 1 and 2, 66.6 in every mode (the card's dot clock is
     30.2153 MHz since E2, 10-23). A monitor error, 80, 120 or ~320 Hz =
-    not fixed. Mode 4 is the second board's case (Daniel, 10-23: the IIcx
-    invisible at 1280x1024@60) and a forum report's. The menu core at
+    not fixed. Mode 4 is the forum reporter's case (10-23: the IIcx
+    invisible at 1280x1024@60, with and without vsync_adjust=1). The menu core at
     mode 0 is the reference. ~20 minutes.
 14. **The IIcx's A/UX start-up flash** (Daniel, 2026-10-19, screenshot
     `C:\temp\Mac\Screenshots\20261019_112015-screen.png`): between A/UX's
