@@ -20450,7 +20450,7 @@ Daniel - add to it, move items out when fixed).**
     fills 1080 lines).
     OSD (Daniel, 10-23, SE/30 rctest1): ALL PASS - settings saved and
     restored across a reload (old and new options), mounting, Reset &
-    Apply Memory. The IIcx's OSD check on the KNOWN ISSUES 24 fix build.
+    Apply Memory. The IIcx (rctest1): ALL PASS too (Daniel, 10-23).
     DANIEL HAS HDMI ONLY (10-23): no CRT and no HDMI speaker, so the CRT check,
     analog audio and HDMI audio go to the forum testers with the RC. The analog video is
     logically unchanged: with CROP_SIZE 0 video_freak's vde is held 1, so
