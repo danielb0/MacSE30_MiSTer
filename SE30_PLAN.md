@@ -24566,6 +24566,38 @@ repo only, tools are not in the release - Daniel), pre-E2 PLLs in pre_e2/,
 v2 and e6b rerun from there identical to the 10-23 results; then the RC list: the IIcx CPU timing miss (RDindex_B -> Add55, slow
 100C) in RTL, the release form, the final regression, the RC builds.
 
+**THE IIcx CPU TIMING MISS (2026-10-24).** On k24e2 (kernel RTL identical
+to rctest1's) the kernel met: worst +0.857 ns slow 100C, a different
+route - pmmu_reg_sel_int -> PMMU reg_rdat -> OP2out -> ALU bit-field
+shifter -> regin (4 levels) -> register-file write muxes -> OP1out,
+30.7 ns of a 31.889 ns clk_sys period (compiles 75/79's misses). The
+kernel's worst paths form a BAND at 30.6-31.7 ns; which one is worst, and
+by how much, moves with each fit (physical-synthesis register retiming -
+the _OTERM registers - places differently): 20261012 +0.602, compile 75
+-0.234, 79 -0.315, rctest1 -0.514 (RDindex_B -> Add55, untraceable now:
+cell names change per fit, rctest1's db is gone), k24e2 +0.857. Two fixes
+weighed (Daniel chose A first): A - reg_rdat selected by brief(14:10)
+without pmmu_reg_sel_int's state gating (every consumer - regin on
+set/exec(pmmu_rd), OP2out and data_write_tmp in or entering
+pmove_mmu_to_mem_hi/lo - lies inside the gate; ~1.5-2 ns off that route
+only); B - shorten the shared tail (the regin source mux's rare sources
+selected a cycle ahead), helps the whole band, half a day + an overnight
+regression. A DONE, 531343f: benches pmmu_rom_contract 67 (now on OUR
+PMMU - its default had been the MacIIvi clone, fixed 8a69287), kernel_bus
+338, insn_probe 32, machine, mmu16, cpfpu FIF_SUPER 46/46 (+60 deferred,
+as 10-22). IIcx COMPILED (34 min): output_files/MacIIcx_531343f4_rdsel.rbf
+(md5 bee56738), 39,063 ALMs (93 %); sta_corners: met at every corner,
+worst 0.059 = ascal at slow -40C (KNOWN ISSUES 6's class; slow 100C ascal
++0.226); the capture A 1.631 at slow 100C (B -0.261 there, as designed).
+THE KERNEL: worst +0.770 slow 100C - the PMMU route is gone from the top
+30 (no pmmu_reg_sel_int in it); the new head is Mux467 (retimed) -> Add56
+(address adder) -> PMMU Equal54 -> dib_sub_hit -> memmaskmux -> OP1out ->
+ALU addsub -> ... - the same band. A removed one member, as predicted; the
+band's level is unchanged (+0.77 against +0.86), so the rctest1-type miss
+can recur on another fit. NOT FLASHED (no board test needed: A changes no
+behaviour). DECISION PENDING (Daniel): B before the RC, or accept the band
+as met-at-every-corner per fit (the rule: no seed lottery).
+
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
 KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
 The session began as a review of the bug-class sweeps ("is there potential for
