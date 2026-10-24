@@ -24681,6 +24681,15 @@ runs A/UX on the board; releases/MacSE30_20261024.rbf + MacIIcx_20261024.rbf
 (the prerelease rbf stays on release only). README: the intro without names
 (Credits holds them), A/UX from SCSI-0 or SCSI-1 (SCSI-1 board-checked, Daniel).
 
+**END OF SESSION 2026-10-24 (~20:30, Daniel closed it) - READ THIS TO RESUME.**
+Released (above); dev pushed (3de0e32). Forum: Daniel posts the short "new
+release, update_all soon" notes to the SE/30 and IIcx threads (drafted this
+session); the formal change-thread announcement waits until the cores are on
+update_all. NEXT, after the release: FUTURE BOARD TESTS 15 (A/UX System Software
++ buffer cache), KNOWN ISSUES 44 (the forum tester's game reports), 42/43/45
+(the PMMU forms), option B (IIcx kernel timing), FUTURE ADDITIONS 12 (offer the
+CPU/MMU/FPU; changelog C:\temp\Mac\TG68K_030_changelog.md, never in the repo).
+
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
 KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
 The session began as a review of the bug-class sweeps ("is there potential for
