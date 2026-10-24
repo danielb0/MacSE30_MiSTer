@@ -24675,6 +24675,11 @@ ran with Chrome open - memory the likelier cause). Met at every corner, worst
 +0.059 (ascal, slow -40C); clk_sys +0.770, clk_mem +0.495, the dot clock +14.96,
 hold >= +0.078, the capture met by A or B at every corner. Both rbfs go into
 releases/ together after Daniel's board look at the IIcx (Daniel, 10-24).
+**RELEASED 2026-10-24 ~19:50: "Release 20261024: A/UX", main e7bde74, pushed to
+danielb0 (main, release a57086f) and MiSTer-devel master.** The IIcx RC boots and
+runs A/UX on the board; releases/MacSE30_20261024.rbf + MacIIcx_20261024.rbf
+(the prerelease rbf stays on release only). README: the intro without names
+(Credits holds them), A/UX from SCSI-0 or SCSI-1 (SCSI-1 board-checked, Daniel).
 
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
 KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
