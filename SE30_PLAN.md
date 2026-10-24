@@ -24521,9 +24521,9 @@ brought up to the release README + the dot clock note; no README ever carried
 the workaround line, only the forum replies did); (3) Daniel's forum follow-up correcting the
 workaround to video_mode=8; (4) DROPPED (Daniel, 10-24): no upstream
 Template_MiSTer report - the template is Sorgelig's, users do not feed it;
-(5) whether the probe project goes under
-tools/ (it lives only in the 10-23 session's scratchpad - ask before it is
-lost); then the RC list: the IIcx CPU timing miss (RDindex_B -> Add55, slow
+(5) the probe project: DONE 10-24 - tools/pll_probe on dev (4e9bd3d; private
+repo only, tools are not in the release - Daniel), pre-E2 PLLs in pre_e2/,
+v2 and e6b rerun from there identical to the 10-23 results; then the RC list: the IIcx CPU timing miss (RDindex_B -> Add55, slow
 100C) in RTL, the release form, the final regression, the RC builds.
 
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
