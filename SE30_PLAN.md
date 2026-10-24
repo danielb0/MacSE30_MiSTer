@@ -24595,8 +24595,32 @@ THE KERNEL: worst +0.770 slow 100C - the PMMU route is gone from the top
 ALU addsub -> ... - the same band. A removed one member, as predicted; the
 band's level is unchanged (+0.77 against +0.86), so the rctest1-type miss
 can recur on another fit. NOT FLASHED (no board test needed: A changes no
-behaviour). DECISION PENDING (Daniel): B before the RC, or accept the band
-as met-at-every-corner per fit (the rule: no seed lottery).
+behaviour). DECISION (Daniel): B NOT NOW; cut the release, run the
+regression and the RC builds; if an RC build misses timing,
+MacIIcx_531343f4_rdsel is the IIcx in reserve.
+
+**THE RC CUT (2026-10-24 ~11:45).** Release tree = worktree
+`C:\Git\MacSE30_rc` on branch `release`, commit 7281c21: a three-way merge
+per file (base dev 31d4835 - the 10-12 release's RTL - ours release
+c72b21e, theirs dev), conflicts resolved to dev's code with the release's
+comments; sys/ copied verbatim; pll_vid deleted; every comment dev added
+cut to the release style (one line, no plan/KNOWN ISSUES/dates; the
+kernel's 47 added blocks one line each or kept where already plain).
+MacSE30.sv redone from the release's own copy plus dev's four functional
+changes (Scale via video_freak, Mouse speed, clk_pix from pll outclk_5,
+dbg_coff tied 0). Token check (scratchpad tokcmp.py, validated on c72b21e
+vs 31d4835): 103 of 105 HDL/SDC/QIP files token-identical to dev, MacSE30.sv
+and files.qip by design; dev-only files = the debug instruments and the
+unused TG68K_Cache_030. Both revisions elaborate. Release README: A/UX
+(16 MB, shut down before a reset, the Mac environment's restart,
+QuarkXPress/AppleTalk), Scale and Mouse speed, what a bootable image needs,
+the IIcx's 66.6 Hz, a Credits section (Daniel). dev README got the same user
+lines (54bc7ad). RUNNING (scratchpad rc_chain.sh, log sim/rc_chain.log): the
+full regression on dev 54bc7ad (sim/rc_regression.out, ~6.6 h), then - only
+if every line passes - both release compiles in C:\Git\MacSE30_rc
+(output_files/<rev>_7281c21_rc.rbf, <rev>_rc.sta.log). Then: Daniel's board
+gates on the RC (A/UX sessions with pressure.sh - KNOWN ISSUES 33; KNOWN
+ISSUES 23's check), releases/<rev>_<date>.rbf, main, MiSTer-devel.
 
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
 KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
