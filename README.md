@@ -98,8 +98,8 @@ Memory control panel. Older software often fails in 32-bit mode, as on a real SE
 
 A/UX 3.1 runs on both cores: the Finder, CommandShell, the Unix tools and `cc`, and the X11
 clients under MacX (in colour on the IIcx). It boots from a hard-disk image with A/UX
-already installed; A/UX Startup on the image's Mac OS partition starts the kernel. Tested
-with the image mounted as SCSI-0; SCSI-1 has not been tried. Installing A/UX on the core
+already installed, mounted as SCSI-0 or SCSI-1 (SCSI-1 alone checked on the board, 2026-10-24);
+A/UX Startup on the image's Mac OS partition starts the kernel. Installing A/UX on the core
 has not been tried.
 
 - Select **16 MB**. A/UX also runs at 8 MB, with less room.
