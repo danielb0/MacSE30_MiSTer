@@ -99,7 +99,6 @@ already installed, mounted as SCSI-0; A/UX Startup on the image's Mac OS partiti
 the kernel. Installing A/UX on the core has not been tried.
 
 - Select **16 MB**. A/UX also runs at 8 MB, with less room.
-- Mount the PRAM image (see [PRAM](#pram)).
 - Shut A/UX down from the Finder before resetting the core or copying the image off the SD
   card: A/UX keeps recent writes in its buffer cache, and a reset loses them.
 - When a Mac program crashes, A/UX restarts its Mac environment (the Finder and the
@@ -118,8 +117,9 @@ the kernel. Installing A/UX on the core has not been tried.
 ## PRAM
 
 Copy the blank `MacSE30.nvr` from [releases](releases) to `games/MACSE30` (on the IIcx,
-`MacIIcx.nvr` to `games/MACIICX`) and mount it with `Mount PRAM` to keep the Mac's settings.
-It is loaded at core start, and changes are saved automatically. `Mount PRAM` and
+`MacIIcx.nvr` to `games/MACIICX`) and mount it with `Mount PRAM` to keep the Mac's settings;
+this is recommended for every use of the core. Without it the settings last only until the
+core is reloaded, as with a flat battery. It is loaded at core start, and changes are saved automatically. `Mount PRAM` and
 `Wipe PRAM` restart the Mac. The clock is set from MiSTer's time.
 
 ## Macintosh IIcx
