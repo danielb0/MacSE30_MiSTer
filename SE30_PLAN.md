@@ -24667,8 +24667,14 @@ corner: clk_sys +0.595 (slow 100C), clk_mem +0.420, SDRAM outputs >= +2.32 /
 (-0.243 slow 100C, -0.105 slow -40C), KNOWN ISSUES 6's class. Daniel accepted it as
 the release SE/30 (10-24): "Everything that can be tested has been"; he runs it on
 the board for obvious defects - BOARD: it boots into A/UX like the previous
-build (Daniel, 10-24 ~18:10). The IIcx RC compile started 17:59 (reserve
-MacIIcx_531343f4_rdsel).
+build (Daniel, 10-24 ~18:10). **The release IIcx = `MacIIcx_7281c21_rc.rbf`,
+md5 bee56738fbb6d44e3620240e35e7fbcb - bit-identical to dev's
+MacIIcx_531343f4_rdsel** (the release form changes no bit of the IIcx), 39,063
+ALMs (93 %), compile 37 min, routing 6:30 (Chrome closed; the SE/30's 30 min route
+ran with Chrome open - memory the likelier cause). Met at every corner, worst
++0.059 (ascal, slow -40C); clk_sys +0.770, clk_mem +0.495, the dot clock +14.96,
+hold >= +0.078, the capture met by A or B at every corner. Both rbfs go into
+releases/ together after Daniel's board look at the IIcx (Daniel, 10-24).
 
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
 KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
