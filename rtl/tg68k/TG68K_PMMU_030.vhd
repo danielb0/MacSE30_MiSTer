@@ -30,6 +30,7 @@ entity TG68K_PMMU_030 is
     reg_sel        : in  std_logic_vector(4 downto 0); -- brief(14:10): 00010=TT0 00011=TT1 10000=TC 10010=SRP 10011=CRP 11000=MMUSR
     reg_wdat       : in  std_logic_vector(31 downto 0);
     reg_rdat       : out std_logic_vector(31 downto 0);
+    reg_rsel       : in  std_logic_vector(4 downto 0); -- reg_rdat's selector: brief(14:10) without reg_sel's state gating (timing)
     reg_part       : in  std_logic; -- '1' = high, '0' = low for 64-bit regs (CRP/SRP)
     reg_fd         : in  std_logic; -- '1' = flush disable (PMOVEFD)
     
@@ -1495,14 +1496,16 @@ begin
   -- BUG #178 FIX: Use correct extension word P-register selectors (bits 14-10):
   --   TT0: 00010 (0x02), TT1: 00011 (0x03), TC: 10000 (0x10)
   --   SRP: 10010 (0x12), CRP: 10011 (0x13), MMUSR: 11000 (0x18)
-  reg_rdat <= TT0                          when reg_sel = "00010" else
-              TT1                          when reg_sel = "00011" else
-              TC                           when reg_sel = "10000" else
-              SRP_H                        when reg_sel = "10010" and reg_part = '1' else
-              SRP_L                        when reg_sel = "10010" and reg_part = '0' else
-              CRP_H                        when reg_sel = "10011" and reg_part = '1' else
-              CRP_L                        when reg_sel = "10011" and reg_part = '0' else
-              X"0000" & MMUSR when reg_sel = "11000" else
+  -- Selected by reg_rsel: reg_sel's state gating made this mux the head of the
+  -- kernel's longest clk_sys path (SE30_PLAN.md, the IIcx CPU timing miss)
+  reg_rdat <= TT0                          when reg_rsel = "00010" else
+              TT1                          when reg_rsel = "00011" else
+              TC                           when reg_rsel = "10000" else
+              SRP_H                        when reg_rsel = "10010" and reg_part = '1' else
+              SRP_L                        when reg_rsel = "10010" and reg_part = '0' else
+              CRP_H                        when reg_rsel = "10011" and reg_part = '1' else
+              CRP_L                        when reg_rsel = "10011" and reg_part = '0' else
+              X"0000" & MMUSR when reg_rsel = "11000" else
               (others => '0');
   debug_mmusr <= MMUSR;
   -- BUG #446: Expose the sticky illegal-reg_sel latch.

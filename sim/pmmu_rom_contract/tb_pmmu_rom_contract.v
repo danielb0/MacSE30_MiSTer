@@ -77,7 +77,7 @@ module tb_pmmu_rom_contract;
   TG68K_PMMU_030 uut (
     .clk(clk), .nreset(nreset),
     .reg_we(reg_we), .reg_re(reg_re), .reg_sel(reg_sel), .reg_wdat(reg_wdat),
-    .reg_rdat(reg_rdat), .reg_part(reg_part), .reg_fd(reg_fd),
+    .reg_rdat(reg_rdat), .reg_rsel(reg_sel), .reg_part(reg_part), .reg_fd(reg_fd),
     .ptest_req(1'b0), .pflush_req(1'b0), .pload_req(1'b0),
     .pmmu_fc(3'b000), .pmmu_addr(32'h0), .pmmu_brief(16'h0),
     .req(req), .is_insn(is_insn), .rw(rw), .rmw(rmw), .fc(fc),

@@ -958,6 +958,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal pmmu_reg_re_d    : std_logic;
 	signal pmmu_reg_sel_d   : std_logic_vector(4 downto 0);
 	signal pmmu_reg_sel_int : std_logic_vector(4 downto 0);  -- BUG #119: Internal signal for VHDL-93 compatibility
+	signal pmmu_reg_rsel    : std_logic_vector(4 downto 0);  -- reg_rdat's selector, ungated (timing)
 	signal pmmu_reg_sel_valid : boolean;  -- Valid selector gating for PMMU register access
 	-- BUG #53 FIX: 1-stage pipeline - these 2-stage signals no longer needed
 	-- signal pmmu_reg_sel_pending : std_logic;  -- REMOVED: Old 2-stage pipeline
@@ -1134,6 +1135,7 @@ BEGIN
       -- pmmu_src_data is combinational and has correct value when reg_we asserts.
       reg_wdat      => pmmu_src_data,
       reg_rdat      => pmmu_reg_rdat,
+      reg_rsel      => pmmu_reg_rsel,
       reg_part      => pmmu_reg_part_int,
       reg_fd        => pmmu_reg_fd_c,
 
@@ -1251,6 +1253,9 @@ BEGIN
                                    pmmu_reg_sel_int = "10010" OR pmmu_reg_sel_int = "10011" OR pmmu_reg_sel_int = "11000")
                         else false;
   pmmu_reg_sel  <= pmmu_reg_sel_int;  -- Drive output port from internal signal
+  -- The read selector: every reg_rdat consumer (regin on set/exec(pmmu_rd), OP2out and
+  -- data_write_tmp in or entering pmove_mmu_to_mem_hi/lo) lies inside pmmu_reg_sel_int's gate
+  pmmu_reg_rsel <= pmmu_brief(14 downto 10) when CPU(1) = '1' else (others => '0');
   -- BUG #119 FIX (continued): Use combinational pmmu_src_data to match what PMMU actually receives
   pmmu_reg_wdat <= pmmu_src_data when CPU(1) = '1'  else (others => '0');
   pmmu_reg_part <= pmmu_reg_part_int when CPU(1) = '1'  else '0';
