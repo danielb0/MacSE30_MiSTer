@@ -24583,8 +24583,8 @@ k24e2 (Daniel, night of 2026-10-23) - E1 not needed. NEXT, in order:
 (2) the IIcx README (workaround
 line out; the dot clock note) - DONE 10-24 on dev's README (2bd95f4: dev
 brought up to the release README + the dot clock note; no README ever carried
-the workaround line, only the forum replies did); (3) Daniel's forum follow-up correcting the
-workaround to video_mode=8; (4) DROPPED (Daniel, 10-24): no upstream
+the workaround line, only the forum replies did); (3) CLOSED (Daniel, 10-24): he deleted the
+workaround line from the forum post, nothing to correct; (4) DROPPED (Daniel, 10-24): no upstream
 Template_MiSTer report - the template is Sorgelig's, users do not feed it;
 (5) the probe project: DONE 10-24 - tools/pll_probe on dev (4e9bd3d; private
 repo only, tools are not in the release - Daniel), pre-E2 PLLs in pre_e2/,
