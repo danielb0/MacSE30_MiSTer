@@ -21090,6 +21090,22 @@ Daniel - add to it, move items out when fixed).**
     (frs 50/50 in all); sim/run_regression.sh 64/64 lines PASS in 398 min
     (it printed 62/64: its count missed selfst's "9 / 9 parts PASS" form,
     fixed). FIF_SUPER 46/46 + 60 deferred (KNOWN ISSUES 42/43).
+45. **OPEN, after the release (2026-10-24, found reading the kernel for the
+    IIcx CPU timing miss) - the kernel accepts PMOVE with a Dn or An
+    operand, which the 68030 has no form for.** M68000PRM.pdf section 6,
+    PMOVE (MC68030 only), the SRP/CRP/TC page: "Only control alterable
+    addressing modes can be used" - the table marks Dn and An "--"; the
+    MMUSR and TT pages refer back to it. Our kernel decodes EA modes 000 and
+    001 in pmove_decode (pmove_dn_mode, pmove_dn_regnum, pmove_dn_areg;
+    TG68KdotC_Kernel.vhd ~5396-5415) and moves the MMU register to or from
+    the CPU register (regin <= pmmu_reg_rdat on set(pmmu_rd); the
+    pmove_dn_hi/lo states) - inherited, the MC68851's forms. What the real
+    68030 does with such an encoding is not in the pages read (an F-line
+    trap is the likely answer; the 68030 UM's coprocessor/F-line section
+    and its unimplemented-encoding rules to be read first - documentation,
+    not MAME). No known software uses the form (a deliberately illegal
+    encoding only); the work: read the UM, then decode modes 000/001 as
+    the chip does, with a bench, and drop the Dn path if it goes.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
