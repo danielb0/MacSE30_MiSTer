@@ -24624,7 +24624,11 @@ full regression on dev 54bc7ad (sim/rc_regression.out, ~6.6 h), then - only
 if every line passes - both release compiles in C:\Git\MacSE30_rc
 (output_files/<rev>_7281c21_rc.rbf, <rev>_rc.sta.log). Then: Daniel's look
 at the RC builds on the board (KNOWN ISSUES 23 closed 10-24, its check = the
-post-fix A/UX sessions), releases/<rev>_<date>.rbf, main, MiSTer-devel. pressure.sh DROPPED as a gate (Daniel, 10-24): several days of
+post-fix A/UX sessions), releases/<rev>_<date>.rbf, main, MiSTer-devel.
+NO FORUM ROUND (Daniel, 10-24): "This is an extraordinarily well tested
+core. It seems extremely robust. More testing and use will continue after
+release. If more bugs show up, we will fix them then." The RC builds are
+the release builds. pressure.sh DROPPED as a gate (Daniel, 10-24): several days of
 loaded A/UX sessions on both cores with no crash, and high-load sessions at
 8 MB (more paging than the script's 10 MB at 16 MB) whose only crash came at
 0K free - legitimate Mac behaviour (the 10-22 Word catch). The script stays
