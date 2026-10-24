@@ -91,6 +91,30 @@ uses at most 8 MB. The SE/30 ROM is not 32-bit clean: for 32-bit addressing inst
 Apple's **MODE32** extension (with its installer) and turn 32-Bit Addressing on in the
 Memory control panel. Older software often fails in 32-bit mode, as on a real SE/30.
 
+## A/UX
+
+A/UX 3.1 runs on both cores: the Finder, CommandShell, the Unix tools and `cc`, and the X11
+clients under MacX (in colour on the IIcx). It boots from a hard-disk image with A/UX
+already installed, mounted as SCSI-0; A/UX Startup on the image's Mac OS partition starts
+the kernel. Installing A/UX on the core has not been tried.
+
+- Select **16 MB**. A/UX also runs at 8 MB, with less room.
+- Mount the PRAM image (see [PRAM](#pram)).
+- Shut A/UX down from the Finder before resetting the core or copying the image off the SD
+  card: A/UX keeps recent writes in its buffer cache, and a reset loses them.
+- When a Mac program crashes, A/UX restarts its Mac environment (the Finder and the
+  programs in it); Unix runs on.
+- QuarkXPress 3.32 reports "Unable to access network" and quits, under MAME's SE/30 as
+  well. With AppleTalk off (Chooser: Inactive, and `/etc/appletalk -d` as root) it runs;
+  `/etc/appletalk -u` and Chooser: Active turn AppleTalk back on.
+- To trace a Mac-environment crash, install MacsBug 6.2.2 in `/mac/sys/System Folder` (the
+  Mac environment's own System Folder, not the one on the Mac OS partition) and log out and
+  in again. A crash then stops in MacsBug, and Cmd-Ctrl-I (Alt+Ctrl+I) enters it; without
+  MacsBug there, Cmd-Ctrl-I restarts the Mac environment.
+- A/UX's TextEditor keeps Unix line ends: use it, not TeachText, for scripts and C sources.
+  CommandShell handles one line per command; put longer commands in a script and run it
+  with `sh`. A/UX's `cc` is K&R C.
+
 ## PRAM
 
 Copy the blank `MacSE30.nvr` from [releases](releases) to `games/MACSE30` (on the IIcx,
@@ -143,6 +167,22 @@ Every module has a bench under `sim/`, each with a `run.sh` whose exit status is
 verdict. Our own RTL runs under [Icarus Verilog](http://iverilog.icarus.com/); anything that
 includes the CPU (whose kernel is VHDL) runs under the ModelSim Starter Edition that ships
 with Quartus, mixed-language. [SE30_PLAN.md](SE30_PLAN.md) section 1.10 explains the split.
+
+## Lineage and thanks
+
+The MiSTer framework (`sys/`) is Sorgelig's, taken verbatim from
+[Template_MiSTer](https://github.com/MiSTer-devel/Template_MiSTer). The CPU is the TG68K.C
+kernel by Tobias Gubener, with the 68030 PMMU and audit work by apolkosnik
+([Minimig-AGA_MiSTer](https://github.com/apolkosnik/Minimig-AGA_MiSTer), branch `030_mmu2`),
+which reached the Macintosh through Dani Sarfati's
+[MacIIvi_MiSTer](https://github.com/danifunker/MacIIvi_MiSTer); the kernel in this tree
+carries its own bus work and is documented in `rtl/tg68k/README.md`. The build scripts and
+several peripheral modules come from Dani Sarfati's
+[MacLC_MiSTer](https://github.com/MiSTer-devel/MacLC_MiSTer) and Sorgelig's
+[MacPlus_MiSTer](https://github.com/MiSTer-devel/MacPlus_MiSTer), which descends from Steve
+Chamberlin's [Plus Too](http://www.bigmessowires.com/plus-too/); each file records where it
+came from. Bolle's reproduction of the SE/30 video PALs and the `macse30mlb` schematic
+redraw made the video and GLUE readable.
 
 ## Licence
 
