@@ -19,6 +19,7 @@ card's own declaration ROM.
 ### Working
 
 - Boots **System 6.0.5, 6.0.8, 7.1 and 7.5.5** from floppy or SCSI, in 24-bit or 32-bit mode
+- Runs **A/UX 3.1**, Apple's Unix, with its X11 clients (see [A/UX](#aux))
 - **68030 CPU with PMMU and caches** at the SE/30's 15.67 MHz, timed to match a real machine
 - **68882 FPU**
 - **Memory:** 8 MB or 16 MB
@@ -47,7 +48,9 @@ card's own declaration ROM.
 2. Copy `boot0.rom`, `boot1.rom` and `boot2.rom` from [releases](releases) to the `games/MACSE30` folder.
 3. Place a bootable SCSI hard-disk image (`.vhd` / `.img`) or floppy image in the `games/MACSE30` folder.
 
-Open the on-screen display with **F12** to mount images and change options.
+Open the on-screen display with **F12** to mount images and change options. **Aspect ratio**
+and **Scale** set the picture's shape and integer scaling; **Mouse speed** slows a modern
+mouse (/2, /4, /8) toward the feel of Apple's.
 
 For the IIcx, use the newest `MacIIcx_<date>.rbf` and the `games/MACIICX` folder, with
 `boot0.rom`, `boot2.rom` and `boot3.rom` (see [Macintosh IIcx](#macintosh-iicx) below).
@@ -74,7 +77,9 @@ with a disk error, and the Mac may then eject it by itself.
 ## Hard disks and CD-ROM
 
 `Mount SCSI-0` and `Mount SCSI-1` are hard disks at IDs 0 and 1. `Mount CD-ROM` takes ISO
-or Toast images at ID 3; the System needs Apple's CD-ROM extension to read them.
+or Toast images at ID 3; the System needs Apple's CD-ROM extension to read them. Start up
+from a hard disk or a floppy: a hard-disk image needs an Apple partition map and driver (prepare
+a blank image with Apple HD SC Setup); the CD-ROM is for data discs.
 
 **Never mount the same image file in both SCSI slots.** The Mac then sees two disks sharing
 every block, and each one's writes overwrite the other's directory: the image is quickly
