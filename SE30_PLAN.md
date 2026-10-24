@@ -21613,6 +21613,26 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     and probably outside the Mac environment's space. Check: set it to
     512K, restart, same programs open - System Software ~850K lower = it
     is counted there.
+16. **Linux/m68k and NetBSD/mac68k at 16 MB** (Daniel, 2026-10-24; AFTER
+    THE RELEASE - a compatibility and stability test, not a feature). Both
+    still support the SE/30 (mainline Linux's Mac platform; NetBSD/mac68k
+    an official port). Booted from Mac OS by Penguin (Linux) or the NetBSD
+    Booter, which load the kernel and jump to it; from then on the guest
+    drives the hardware with drivers written apart from Apple's ROM:
+    - the PMMU with its own table layout, rebuilt at every fork and exit;
+    - bus errors: the kernel parses the 68030's frames (`$A`/`$B`) and
+      restarts the faulted instruction (KNOWN ISSUES 35/36 territory);
+    - the 68882: FPU-heavy userland, state saved at every context switch;
+    - `mac_scsi` (53C80 with pseudo-DMA), the SWIM, SCC and ADB drivers;
+    - all 16 MB, whatever the ROM's 24-bit limit (Penguin passes the size).
+    ASC sound is barely supported, so audio is not covered. An older
+    kernel (2.4-4.x) with a minimal root file system on a SCSI image suits
+    a 16 MHz 68030 better than current Debian. MAME's macse30 booting the
+    same image first says whether the image is sound. Preparation ~1-2 h
+    (Penguin, a Mac kernel, a root image); each board boot a few minutes
+    to a shell. Pass: boot to a shell, compile something, a few hours of
+    load without a kernel oops. A later 64 MB build (FUTURE ADDITIONS 5)
+    would use the same guests.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
