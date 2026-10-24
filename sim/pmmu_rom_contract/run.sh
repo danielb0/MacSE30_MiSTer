@@ -3,7 +3,7 @@
 # Quartus Prime Lite 17.0).  Mixed-language: the PMMU is VHDL, the bench is
 # Verilog.  See the header of tb_pmmu_rom_contract.v for what it proves.
 #
-#   TG68K_SRC  where TG68K_PMMU_030.vhd lives (default: the MacIIvi clone)
+#   TG68K_SRC  where TG68K_PMMU_030.vhd lives (default: this tree's rtl/tg68k)
 #   ROM        the $97221136 256KB ROM image (default: the ROMS folder)
 #   MODELSIM   the win32aloem bin directory
 #
@@ -12,7 +12,7 @@ set -u
 cd "$(dirname "$0")"
 
 MODELSIM=${MODELSIM:-/c/intelFPGA_lite/17.0/modelsim_ase/win32aloem}
-TG68K_SRC=${TG68K_SRC:-/c/Git/MiSTer-devel/MacIIvi_MiSTer/rtl/tg68k}
+TG68K_SRC=${TG68K_SRC:-../../rtl/tg68k}
 ROM=${ROM:-"/c/temp/Mac/ROMS/256KB ROMs/1988-09 - 97221136 - Mac II FDHD & IIx & IIcx.ROM"}
 
 cp "$ROM" se30.rom || exit 1
