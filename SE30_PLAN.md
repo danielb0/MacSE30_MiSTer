@@ -21573,6 +21573,19 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     MAME comparison; the cause was never identified (seen on a 10-19 build;
     the later kernel fixes, KNOWN ISSUES 31 onward, and E2 landed since). If it
     returns, the MAME maciicx comparison above is the first step.
+15. **A/UX's "System Software" figure, SE/30 against IIcx** (Daniel,
+    2026-10-24; AFTER THE RELEASE - "interesting, but almost certainly not
+    a bug"): the same image shows ~5 MB on the SE/30, 6-7 MB on the IIcx.
+    About This Macintosh's figure is a remainder - Total minus the
+    partitions minus Largest Unused Block (20261015_231316: 16,384 - 576
+    - 11,204 = 4,604K, shown 4,571K; 20261022_131021: 16,384 - 7,088 -
+    4,327 = 4,969K, shown 4,937K) - so it holds the system heap,
+    temporary memory and every free hole, and depends on what has run.
+    Under A/UX it is the Mac environment process's virtual space, not
+    physical RAM; Unix load pages it out but does not change it. Test
+    (~15 min): fresh image, no apps, About This Macintosh on both cores
+    (the IIcx at 1-bit and at 256 colours), MacsBug `hz` / `ht` for the
+    real system-heap size. Equal at 1-bit = the colour cost, authentic.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
