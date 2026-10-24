@@ -96,8 +96,8 @@ Memory control panel. Older software often fails in 32-bit mode, as on a real SE
 
 ## A/UX
 
-A/UX 3.1 runs from a hard-disk image with A/UX installed, on either core (tested with the image
-mounted as SCSI-0).
+A/UX 3.1 runs from a hard-disk image with A/UX installed, mounted as SCSI-0 or SCSI-1, on
+either core.
 
 - Select **16 MB**.
 - Shut A/UX down from the Finder before resetting the core or copying the image off the SD
