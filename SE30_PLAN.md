@@ -24655,6 +24655,19 @@ loaded A/UX sessions on both cores with no crash, and high-load sessions at
 0K free - legitimate Mac behaviour (the 10-22 Word catch). The script stays
 in tools/auxunix for a quit bomb that returns. KNOWN ISSUES 33 left open,
 not seen since the KNOWN ISSUES 36-41 fixes.
+RESULTS: the regression 64 / 64 lines pass (11:45-16:58; FIF_SUPER 46/46 +
+60 deferred = KNOWN ISSUES 42/43). **The release SE/30 = `MacSE30_7281c21_rc.rbf`,
+md5 5ceaa4c6f9113f1fb2517569618a4f29**, 38,130 ALMs (91 %); compile 1 h 00 min,
+its routing 30:04 against ~6 min on every recent fit (interconnect peak 69 %,
+hold delay added ~2 us - neither the cause; the post-map STA showed normal
+requirements on every clock pair, so no impossible constraint). Ours met at every
+corner: clk_sys +0.595 (slow 100C), clk_mem +0.420, SDRAM outputs >= +2.32 /
++2.53, core hold >= +0.083, the capture met by A or B at every corner (A's fast
+-40C hold -0.139, B +1.854). sta_corners' NOT MET = ascal alone on the HDMI clock
+(-0.243 slow 100C, -0.105 slow -40C), KNOWN ISSUES 6's class. Daniel accepted it as
+the release SE/30 (10-24): "Everything that can be tested has been"; he runs it on
+the board for obvious defects. The IIcx RC compile started 17:59 (reserve
+MacIIcx_531343f4_rdsel).
 
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
 KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
