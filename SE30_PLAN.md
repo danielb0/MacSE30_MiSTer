@@ -19368,8 +19368,12 @@ Daniel - add to it, move items out when fixed).**
     this core has booted A/UX twice in succession.** Further fresh-image
     boots and real work (applications from a second HFS disk) to confirm.
 
-23. **FIXED IN SIM (2026-10-18, 3b9951b + ef37274; the class, not the case) -
-    a fetch-faulted instruction drained with its bus cycles live.** The
+23. **CLOSED (Daniel, 2026-10-24): FIXED IN SIM (2026-10-18, 3b9951b + ef37274;
+    the class, not the case), its board check = the days of loaded A/UX
+    sessions on both cores on every build since (r3release, r4release,
+    k24e2), the workload where its stray cycles would corrupt memory - none
+    seen; no JTRACE build. The sweeps (xsweep, isweep, dsweep, ifetch) stay in
+    the regression. - a fetch-faulted instruction drained with its bus cycles live.** The
     extension-word sweep (CASESET=xsweep, 127 cases, the bench's new +UOK
     stray-access check) found 87/127 cases making user beats the program
     never named, 18 of them WRITES: after an instruction-fetch fault on an
@@ -24618,9 +24622,9 @@ the IIcx's 66.6 Hz, a Credits section (Daniel). dev README got the same user
 lines (54bc7ad). RUNNING (scratchpad rc_chain.sh, log sim/rc_chain.log): the
 full regression on dev 54bc7ad (sim/rc_regression.out, ~6.6 h), then - only
 if every line passes - both release compiles in C:\Git\MacSE30_rc
-(output_files/<rev>_7281c21_rc.rbf, <rev>_rc.sta.log). Then: Daniel's board
-gates on the RC (KNOWN ISSUES 23's check), releases/<rev>_<date>.rbf, main,
-MiSTer-devel. pressure.sh DROPPED as a gate (Daniel, 10-24): several days of
+(output_files/<rev>_7281c21_rc.rbf, <rev>_rc.sta.log). Then: Daniel's look
+at the RC builds on the board (KNOWN ISSUES 23 closed 10-24, its check = the
+post-fix A/UX sessions), releases/<rev>_<date>.rbf, main, MiSTer-devel. pressure.sh DROPPED as a gate (Daniel, 10-24): several days of
 loaded A/UX sessions on both cores with no crash, and high-load sessions at
 8 MB (more paging than the script's 10 MB at 16 MB) whose only crash came at
 0K free - legitimate Mac behaviour (the 10-22 Word catch). The script stays
