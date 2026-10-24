@@ -20397,7 +20397,8 @@ Daniel - add to it, move items out when fixed).**
     the manual; the predicted no-fault 64 KB-crossing variant); the sys/
     framework brought to the current Template (3 commits behind, same build
     as 24's fix - it touches the HDMI PLL area); the README items (A/UX:
-    the image, 16 MB, mount the .nvr, a Mac-environment crash restarts that
+    the image, 16 MB, [the .nvr: for every use, not A/UX - Daniel 10-24; dev
+    README e57663b], a Mac-environment crash restarts that
     environment, QuarkXPress needs AppleTalk off; Apple CD-ROM 5.1.7+ or a
     disc mounted - KNOWN ISSUES 15; a bootable image needs an Apple partition
     map and driver, the CD slot is data only - 16; never one image in two
