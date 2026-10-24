@@ -1,0 +1,1 @@
+set_global_assignment -name QIP_FILE pre_e2/pll.qip

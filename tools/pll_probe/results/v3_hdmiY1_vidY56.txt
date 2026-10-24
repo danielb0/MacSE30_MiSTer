@@ -1,0 +1,14 @@
+== v3_hdmiY1_vidY56  (fit rc=3, 24 s) ==
+set_location_assignment FRACTIONALPLL_X0_Y1_N0 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll"
+set_location_assignment FRACTIONALPLL_X0_Y56_N0 -to "pll_vid:pll_vid|pll_vid_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL"
+-- errors --
+Error (14566): The Fitter cannot place 1 periphery component(s) due to conflicts with existing constraints . Fix the errors described in the submessages, and then rerun the Fitter. The Intel FPGA Knowledge Database may also contain articles with information on
+    Error (175011): Conflicting region assignments found for global clock driver
+Error (12289): An error occurred while applying the periphery constraints. Review the offending constraints and rerun the Fitter.
+-- PLLs --
+-- clock switches / global buffers --
+; |altclkctrl:cap_clkctrl| ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0 (0) ; 0 (0) ; 0 (0) ; 0 ; 0 ; 0 ; 0 ; |probe|altclkctrl:cap_clkctrl ; altclkctrl ; work ;
+; |altclkctrl_t0t:auto_generated| ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0 (0) ; 0 (0) ; 0 (0) ; 0 ; 0 ; 0 ; 0 ; |probe|altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated ; altclkctrl_t0t ; work ;
+; altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated|sd2 ; Unassigned ; 32 ; Clock ; no ; -- ; -- ; -- ; -- ; -- ; pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[3] ; pll:pll|pll_0002:pll_inst|altera_pll:altera_pl
+; hdmi_tx_clk ; Unassigned ; 9 ; Clock ; no ; -- ; -- ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll_vid:pll_vid|pll_vid_0002:pll_inst|altera
+; vga_tx_clk ; Unassigned ; 6 ; Clock ; no ; -- ; -- ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll_vid:pll_vid|pll_vid_0002:pll_inst|altera_

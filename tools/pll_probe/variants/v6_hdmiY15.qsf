@@ -1,0 +1,1 @@
+set_location_assignment FRACTIONALPLL_X0_Y15_N0 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll"

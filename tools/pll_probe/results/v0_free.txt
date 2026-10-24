@@ -1,0 +1,44 @@
+== v0_free  (fit rc=0, 81 s) ==
+-- errors --
+-- PLLs --
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- PLL Location ; FRACTIONALPLL_X0_Y32_N0 ;
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- Reference Clock Sourced by ; Dedicated Pin ;
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- PLL Refclk Select Location ; PLLREFCLKSELECT_X0_Y38_N0 
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- CLKIN(0) source ; N/A ;
+ -- ; -- Output Clock Frequency ; 148.499999 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X0_Y31_N1 ;
+pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- PLL Location ; FRACTIONALPLL_X89_Y1_N0 ;
+pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- Reference Clock Sourced by ; Dedicated Pin ;
+pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- PLL Refclk Select Location ; PLLREFCLKSELECT_X89_Y7_N0 ;
+pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- CLKIN(0) source ; FPGA_CLK2_50~input ;
+ -- ; -- Output Clock Frequency ; 31.3344 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y3_N1 ;
+ -- ; -- Output Clock Frequency ; 94.0032 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y0_N1 ;
+ -- ; -- Output Clock Frequency ; 94.0032 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y8_N1 ;
+ -- ; -- Output Clock Frequency ; 94.0032 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y2_N1 ;
+ -- ; -- Output Clock Frequency ; 94.0032 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y1_N1 ;
+pll_vid:pll_vid|pll_vid_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- PLL Location ; FRACTIONALPLL_X0_Y56_N0 ;
+pll_vid:pll_vid|pll_vid_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- Reference Clock Sourced by ; Dedicated Pin ;
+pll_vid:pll_vid|pll_vid_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- PLL Refclk Select Location ; PLLREFCLKSELECT_X0_Y62_N0 ;
+pll_vid:pll_vid|pll_vid_0002:pll_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- CLKIN(0) source ; N/A ;
+ -- ; -- Output Clock Frequency ; 30.239999 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X0_Y60_N1 ;
+pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- PLL Location ; FRACTIONALPLL_X0_Y74_N0 ;
+pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- Reference Clock Sourced by ; Dedicated Pin ;
+pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- PLL Refclk Select Location ; PLLREFCLKSELECT_X0_Y80_N0 ;
+pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- CLKIN(0) source ; FPGA_CLK3_50~input ;
+ -- ; -- Output Clock Frequency ; 24.576 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X0_Y73_N1 ;
+-- clock switches / global buffers --
+; |altclkctrl:cap_clkctrl| ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0 (0) ; 0 (0) ; 0 (0) ; 0 ; 0 ; 0 ; 0 ; 0 ; |probe|altclkctrl:cap_clkctrl ; altclkctrl ; work ;
+; |altclkctrl_t0t:auto_generated| ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0 (0) ; 0 (0) ; 0 (0) ; 0 ; 0 ; 0 ; 0 ; 0 ; |probe|altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated ; altclkctrl_t0t ; work ;
+; altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated|sd2 ; CLKSEL_X89_Y35_N11 ; 32 ; Clock ; yes ; Global Clock ; GCLK10 ; -- ; -- ; -- ; pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[3] ; pll:pll|pll_0002:pll_in
+; hdmi_tx_clk ; CLKSEL_X0_Y35_N5 ; 18 ; Clock ; yes ; Global Clock ; GCLK0 ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll_vid:pll_vid|pll_vid
+; vga_tx_clk ; CLKSEL_X0_Y35_N14 ; 14 ; Clock ; yes ; Global Clock ; GCLK3 ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll_vid:pll_vid|pll_vid
+; altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated|outclk ; CLKCTRL_G10 ; 32 ; Global Clock ; GCLK10 ; -- ; -- ; -- ; pll:pll|pll_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[3] ; pll:pll|pll_0002:pll_inst|altera_pll:alte
+; hdmi_tx_clk ; CLKSEL_X0_Y35_N5 ; 18 ; Global Clock ; GCLK0 ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll_vid:pll_vid|pll_vid_0002:pll_inst
+; vga_tx_clk ; CLKSEL_X0_Y35_N14 ; 14 ; Global Clock ; GCLK3 ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll_vid:pll_vid|pll_vid_0002:pll_inst

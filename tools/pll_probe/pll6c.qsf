@@ -1,0 +1,3 @@
+set_global_assignment -name VERILOG_FILE pll6c.v
+set_global_assignment -name VERILOG_MACRO "VID_FROM_MAIN=1"
+set_global_assignment -name VERILOG_MACRO "PLL6=pll6c"

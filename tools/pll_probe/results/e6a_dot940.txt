@@ -1,0 +1,40 @@
+== e6a_dot940  (fit rc=0, 69 s) ==
+-- errors --
+-- PLLs --
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- PLL Location ; FRACTIONALPLL_X0_Y1_N0 ;
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- Reference Clock Sourced by ; Dedicated Pin ;
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- PLL Refclk Select Location ; PLLREFCLKSELECT_X0_Y7_N0 ;
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- CLKIN(0) source ; FPGA_CLK1_50~input ;
+ -- ; -- Output Clock Frequency ; 148.499999 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X0_Y5_N1 ;
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- PLL Location ; FRACTIONALPLL_X89_Y1_N0 ;
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- Reference Clock Sourced by ; Dedicated Pin ;
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- PLL Refclk Select Location ; PLLREFCLKSELECT_X89_Y7_N0 
+pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll ; -- CLKIN(0) source ; FPGA_CLK2_50~input ;
+ -- ; -- Output Clock Frequency ; 31.3344 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y0_N1 ;
+ -- ; -- Output Clock Frequency ; 94.0032 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y1_N1 ;
+ -- ; -- Output Clock Frequency ; 94.0032 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y8_N1 ;
+ -- ; -- Output Clock Frequency ; 30.323612 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y5_N1 ;
+ -- ; -- Output Clock Frequency ; 94.0032 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y6_N1 ;
+ -- ; -- Output Clock Frequency ; 94.0032 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X89_Y7_N1 ;
+pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- PLL Location ; FRACTIONALPLL_X0_Y56_N0 ;
+pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- Reference Clock Sourced by ; Dedicated Pin ;
+pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- PLL Refclk Select Location ; PLLREFCLKSELECT_X0_Y62_N0 ;
+pll_audio:pll_audio|pll_audio_0002:pll_audio_inst|altera_pll:altera_pll_i|general[0].gpll~FRACTIONAL_PLL ; -- CLKIN(0) source ; FPGA_CLK3_50~input ;
+ -- ; -- Output Clock Frequency ; 24.576 MHz ;
+ -- ; -- Output Clock Location ; PLLOUTPUTCOUNTER_X0_Y61_N1 ;
+-- clock switches / global buffers --
+; |altclkctrl:cap_clkctrl| ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0 (0) ; 0 (0) ; 0 (0) ; 0 ; 0 ; 0 ; 0 ; 0 ; |probe|altclkctrl:cap_clkctrl ; altclkctrl ; work ;
+; |altclkctrl_t0t:auto_generated| ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0 (0) ; 0 (0) ; 0 (0) ; 0 ; 0 ; 0 ; 0 ; 0 ; |probe|altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated ; altclkctrl_t0t ; work ;
+; altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated|sd2 ; CLKSEL_X42_Y0_N11 ; 32 ; Clock ; yes ; Global Clock ; GCLK7 ; -- ; -- ; -- ; pll6a:pll|pll6a_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[3] ; pll6a:pll|pll6a_0002:
+; hdmi_tx_clk ; CLKSEL_X42_Y0_N5 ; 17 ; Clock ; yes ; Global Clock ; GCLK5 ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll6a:pll|pll6a_0002:pl
+; vga_tx_clk ; CLKSEL_X42_Y0_N2 ; 12 ; Clock ; yes ; Global Clock ; GCLK4 ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll6a:pll|pll6a_0002:pll
+; altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated|outclk ; CLKCTRL_G7 ; 32 ; Global Clock ; GCLK7 ; -- ; -- ; -- ; pll6a:pll|pll6a_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[3] ; pll6a:pll|pll6a_0002:pll_inst|altera_pl
+; hdmi_tx_clk ; CLKSEL_X42_Y0_N5 ; 17 ; Global Clock ; GCLK5 ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll6a:pll|pll6a_0002:pll_inst|altera_
+; vga_tx_clk ; CLKSEL_X42_Y0_N2 ; 12 ; Global Clock ; GCLK4 ; -- ; -- ; -- ; pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|divclk[0] ; pll6a:pll|pll6a_0002:pll_inst|altera_p

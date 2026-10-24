@@ -1,0 +1,9 @@
+== e6b_dot846  (fit rc=3, 16 s) ==
+-- errors --
+-- PLLs --
+-- clock switches / global buffers --
+; |altclkctrl:cap_clkctrl| ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0 (0) ; 0 (0) ; 0 (0) ; 0 ; 0 ; 0 ; 0 ; |probe|altclkctrl:cap_clkctrl ; altclkctrl ; work ;
+; |altclkctrl_t0t:auto_generated| ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0.0 (0.0) ; 0 (0) ; 0 (0) ; 0 (0) ; 0 ; 0 ; 0 ; 0 ; |probe|altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated ; altclkctrl_t0t ; work ;
+; altclkctrl:cap_clkctrl|altclkctrl_t0t:auto_generated|sd2 ; Unassigned ; 32 ; Clock ; no ; -- ; -- ; -- ; -- ; -- ; pll6b:pll|pll6b_0002:pll_inst|altera_pll:altera_pll_i|outclk_wire[3] ; pll6b:pll|pll6b_0002:pll_inst|altera_pll:a
+; hdmi_tx_clk ; Unassigned ; 9 ; Clock ; no ; -- ; -- ; -- ; -- ; -- ; -- ; -- ; -- ; -- ;
+; vga_tx_clk ; Unassigned ; 6 ; Clock ; no ; -- ; -- ; -- ; -- ; -- ; -- ; -- ; -- ; -- ;
