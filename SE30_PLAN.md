@@ -21586,6 +21586,12 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     (~15 min): fresh image, no apps, About This Macintosh on both cores
     (the IIcx at 1-bit and at 256 colours), MacsBug `hz` / `ht` for the
     real system-heap size. Equal at 1-bit = the colour cost, authentic.
+    Also (Daniel, 10-24): A/UX's Memory control panel shows "A/UX buffer
+    cache" 1368K - the kernel's disk-block cache, physical RAM; the same
+    setting on both cores (one image), so not the SE/30-IIcx difference,
+    and probably outside the Mac environment's space. Check: set it to
+    512K, restart, same programs open - System Software ~850K lower = it
+    is counted there.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
