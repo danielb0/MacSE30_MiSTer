@@ -24619,8 +24619,13 @@ lines (54bc7ad). RUNNING (scratchpad rc_chain.sh, log sim/rc_chain.log): the
 full regression on dev 54bc7ad (sim/rc_regression.out, ~6.6 h), then - only
 if every line passes - both release compiles in C:\Git\MacSE30_rc
 (output_files/<rev>_7281c21_rc.rbf, <rev>_rc.sta.log). Then: Daniel's board
-gates on the RC (A/UX sessions with pressure.sh - KNOWN ISSUES 33; KNOWN
-ISSUES 23's check), releases/<rev>_<date>.rbf, main, MiSTer-devel.
+gates on the RC (KNOWN ISSUES 23's check), releases/<rev>_<date>.rbf, main,
+MiSTer-devel. pressure.sh DROPPED as a gate (Daniel, 10-24): several days of
+loaded A/UX sessions on both cores with no crash, and high-load sessions at
+8 MB (more paging than the script's 10 MB at 16 MB) whose only crash came at
+0K free - legitimate Mac behaviour (the 10-22 Word catch). The script stays
+in tools/auxunix for a quit bomb that returns. KNOWN ISSUES 33 left open,
+not seen since the KNOWN ISSUES 36-41 fixes.
 
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
 KNOWN ISSUES 34 and 35 and the THIRD ROUND block (before APPLICATION TESTS).**
