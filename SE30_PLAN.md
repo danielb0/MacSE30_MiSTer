@@ -24666,7 +24666,8 @@ corner: clk_sys +0.595 (slow 100C), clk_mem +0.420, SDRAM outputs >= +2.32 /
 -40C hold -0.139, B +1.854). sta_corners' NOT MET = ascal alone on the HDMI clock
 (-0.243 slow 100C, -0.105 slow -40C), KNOWN ISSUES 6's class. Daniel accepted it as
 the release SE/30 (10-24): "Everything that can be tested has been"; he runs it on
-the board for obvious defects. The IIcx RC compile started 17:59 (reserve
+the board for obvious defects - BOARD: it boots into A/UX like the previous
+build (Daniel, 10-24 ~18:10). The IIcx RC compile started 17:59 (reserve
 MacIIcx_531343f4_rdsel).
 
 **END OF SESSION 2026-10-21 (~09:40, Daniel closed it) - READ THIS TO RESUME, then
