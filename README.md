@@ -6,13 +6,11 @@ screen; both cores are built from this one source tree.
 
 The core is built from the SE/30's documentation (the *Guide to the Macintosh Family
 Hardware*, Apple's schematic and the chips' manuals), with MAME and WinUAE used as
-cross-checks. The CPU is Tobias Gubener's TG68K core with apolkosnik's 68030 PMMU, extended
-here to the full 68030 bus and caches. The SCSI target (hard disks and CD-ROM) is Daniel
-Baum's rewrite of the one in the [MacPlus MiSTer core](https://github.com/MiSTer-devel/MacPlus_MiSTer),
-which came from the MiST port of Plus Too. Bolle's
-reproduction of the SE/30's video PALs made the video readable. The IIcx's NuBus interface and
-video card follow Apple's *Designing Cards and Drivers for the Macintosh Family* and the
-card's own declaration ROM.
+cross-checks. The CPU is the TG68K core with a 68030 PMMU, extended here to the full 68030
+bus and caches; the SCSI targets (hard disks and CD-ROM) are a rewrite of the MacPlus core's.
+The IIcx's NuBus interface and video card follow Apple's *Designing Cards and Drivers for the
+Macintosh Family* and the card's own declaration ROM.
+See [Credits](#credits) for the people whose work this builds on.
 
 ## Status
 
@@ -98,7 +96,8 @@ Memory control panel. Older software often fails in 32-bit mode, as on a real SE
 
 ## A/UX
 
-A/UX 3.1 runs from a hard-disk image with A/UX installed, mounted as SCSI-0, on either core.
+A/UX 3.1 runs from a hard-disk image with A/UX installed, on either core (tested with the image
+mounted as SCSI-0).
 
 - Select **16 MB**.
 - Shut A/UX down from the Finder before resetting the core or copying the image off the SD
@@ -147,7 +146,8 @@ Quartus Prime 17.0.2 Lite: open `MacSE30.qpf` and compile; for the IIcx, compile
   [MacIIvi](https://github.com/danifunker/MacIIvi_MiSTer) cores, the source of several peripheral
   modules and the PMMU's route to the Macintosh
 - **Steve Chamberlin**: [Plus Too](http://www.bigmessowires.com/plus-too/), where the MacPlus core began
-- **Bolle**: the reproduction of the SE/30's video PALs and the `macse30mlb` schematic redraw
+- **Bolle**: the reproduction of the SE/30's video PALs and the `macse30mlb` schematic redraw,
+  which made the video readable
 
 ## Licence
 
