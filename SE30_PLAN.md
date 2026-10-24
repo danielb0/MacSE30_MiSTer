@@ -24516,9 +24516,12 @@ SDRAM trainings and boots on the re-quantised capture phases, no fault: the
 Mac OS half of the capture check is done. (1) DONE: A/UX boots and runs on
 k24e2 (Daniel, night of 2026-10-23) - E1 not needed. NEXT, in order:
 (2) the IIcx README (workaround
-line out; the dot clock note); (3) Daniel's forum follow-up correcting the
-workaround to video_mode=8; (4) the upstream Template_MiSTer report
-(pll_cfg_hdmi assumes physical C5); (5) whether the probe project goes under
+line out; the dot clock note) - DONE 10-24 on dev's README (2bd95f4: dev
+brought up to the release README + the dot clock note; no README ever carried
+the workaround line, only the forum replies did); (3) Daniel's forum follow-up correcting the
+workaround to video_mode=8; (4) DROPPED (Daniel, 10-24): no upstream
+Template_MiSTer report - the template is Sorgelig's, users do not feed it;
+(5) whether the probe project goes under
 tools/ (it lives only in the 10-23 session's scratchpad - ask before it is
 lost); then the RC list: the IIcx CPU timing miss (RDindex_B -> Add55, slow
 100C) in RTL, the release form, the final regression, the RC builds.
