@@ -21570,8 +21570,8 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     Cosmetic, low priority. ~10 minutes.
     **GONE (Daniel, 2026-10-24): it no longer happens on the latest build
     (MacIIcx_32c5fa00_k24e2, A/UX boots of 10-23).** Closed without the
-    MAME comparison; the cause was never identified (seen on a 10-19 build,
-    before KNOWN ISSUES 29's and later kernel fixes and before E2). If it
+    MAME comparison; the cause was never identified (seen on a 10-19 build;
+    the later kernel fixes, KNOWN ISSUES 31 onward, and E2 landed since). If it
     returns, the MAME maciicx comparison above is the first step.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
