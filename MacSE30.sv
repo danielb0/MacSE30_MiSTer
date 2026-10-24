@@ -50,10 +50,6 @@ assign LED_POWER = 0;
 assign LED_USER  = ioctl_download;
 assign BUTTONS   = 0;
 
-// the aspect ratio: the SE/30's 512 x 342 at square pixels, the IIcx card's 640 x 480 at 4:3
-wire [1:0] ar = status[2:1];
-assign VIDEO_ARX = (!ar) ? (IICX ? 12'd4 : 12'd256) : (ar - 1'd1);
-assign VIDEO_ARY = (!ar) ? (IICX ? 12'd3 : 12'd171) : 12'd0;
 
 `include "build_id.v"
 
@@ -99,7 +95,9 @@ localparam CONF_STR = {
 	"SC5,NVR,Mount PRAM;",
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"O[9:8],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"O[4],Memory,8 MB,16 MB;",
+	"O[7:6],Mouse speed,Normal,/2,/4,/8;",
 `ifdef MACIICX
 	"O[5],Power switch,Normal,Locked on;",
 `endif
@@ -114,6 +112,7 @@ wire   [1:0] buttons;
 wire [127:0] status;
 wire  [10:0] ps2_key;
 wire  [24:0] ps2_mouse;
+wire  [24:0] ps2_mouse_s;                  // ps2_mouse at the OSD's "Mouse speed"
 wire  [32:0] TIMESTAMP;
 wire         ioctl_download, ioctl_wr;
 wire  [15:0] ioctl_index;
@@ -198,17 +197,9 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 
 // clk_sys = 2 x C16M; clk_mem = 3 x clk_sys for the SDRAM
 wire clk_sys, clk_mem, clk_sdc, clk_capa, clk_capb, pll_locked;
-// the IIcx card's dot clock, 30.24 MHz, from a PLL of its own
+// the IIcx card's dot clock, 30.2153 MHz: the main PLL's sixth output
 wire clk_pix;
-`ifdef MACIICX
-pll_vid pll_vid
-(
-	.refclk(clk_mem),                                     // every 50 MHz pin's PLL is taken
-	.rst(0),
-	.outclk_0(clk_pix),
-	.locked()
-);
-`else
+`ifndef MACIICX
 assign clk_pix = clk_sys;
 `endif
 pll pll
@@ -220,6 +211,9 @@ pll pll
 	.outclk_2(clk_sdc),
 	.outclk_3(clk_capa),
 	.outclk_4(clk_capb),
+`ifdef MACIICX
+	.outclk_5(clk_pix),
+`endif
 	.locked(pll_locked)
 );
 
@@ -563,6 +557,9 @@ se30_sdram sdram
 wire        vidout, hsync_n, vsync_n, hblank, vblank;
 wire [23:0] rgb;
 wire [63:0] dbg_swim;
+// the OSD's "Mouse speed": the mouse's counts divided by 1, 2, 4 or 8
+se30_mouse_speed mouse_speed (.clk(clk_sys), .speed(status[7:6]), .ps2_in(ps2_mouse), .ps2_out(ps2_mouse_s));
+
 se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 (
 	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram16(ram16),
@@ -573,10 +570,10 @@ se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 	.poweroff_req(poweroff_req),
 	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
 	.vidout(vidout), .rgb(rgb), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank),
-	.dbg_tr_addr(10'd0),
+	.dbg_tr_addr(10'd0), .dbg_coff(2'b00),
 	.nmi_n(1'b1),
 	.pace_en(1'b1),
-	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse), .timestamp(TIMESTAMP),
+	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse_s), .timestamp(TIMESTAMP),
 	.pram_h_we(pram_h_we), .pram_h_addr(pram_h_addr), .pram_h_wdata(pram_h_wdata), .pram_h_raddr(pram_h_raddr),
 	.pram_h_rdata(pram_h_rdata), .pram_wr(pram_wr),
 	.adb_pm_we(adb_pm_we), .adb_pm_waddr(adb_pm_waddr), .adb_pm_wdata(adb_pm_wdata),
@@ -602,7 +599,20 @@ assign LED_DISK = {1'b0, dbg_swim[15] | dbg_fdhd2[15]};
 // video: one pixel per C16M clock; the IIcx card's, one per clk_pix
 assign CLK_VIDEO = IICX ? clk_pix : clk_sys;
 assign CE_PIXEL  = IICX ? 1'b1 : phi1;
-assign VGA_DE = ~(hblank | vblank);
+// the aspect ratio: the SE/30's 512 x 342 at square pixels, the IIcx card's 640 x 480 at 4:3;
+// the framework's video_freak applies the OSD's "Scale"
+wire [1:0] ar = status[2:1];
+wire       vga_de = ~(hblank | vblank);
+video_freak video_freak
+(
+	.*,
+	.VGA_DE_IN(vga_de),
+	.ARX((!ar) ? (IICX ? 12'd4 : 12'd256) : (ar - 1'd1)),
+	.ARY((!ar) ? (IICX ? 12'd3 : 12'd171) : 12'd0),
+	.CROP_SIZE(12'd0),
+	.CROP_OFF(5'd0),
+	.SCALE({1'b0, status[9:8]})
+);
 assign VGA_HS = hsync_n;
 assign VGA_VS = vsync_n;
 assign VGA_R  = pwr_off ? 8'd0 : rgb[23:16];                // the IIcx switched off: dark

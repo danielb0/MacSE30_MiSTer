@@ -30,6 +30,7 @@ entity TG68K_PMMU_030 is
     reg_sel        : in  std_logic_vector(4 downto 0); -- brief(14:10): 00010=TT0 00011=TT1 10000=TC 10010=SRP 10011=CRP 11000=MMUSR
     reg_wdat       : in  std_logic_vector(31 downto 0);
     reg_rdat       : out std_logic_vector(31 downto 0);
+    reg_rsel       : in  std_logic_vector(4 downto 0); -- reg_rdat's selector: brief(14:10) without reg_sel's state gating (timing)
     reg_part       : in  std_logic; -- '1' = high, '0' = low for 64-bit regs (CRP/SRP)
     reg_fd         : in  std_logic; -- '1' = flush disable (PMOVEFD)
     
@@ -241,6 +242,9 @@ architecture rtl of TG68K_PMMU_030 is
   signal saved_fc           : std_logic_vector(2 downto 0) := (others => '0');
   signal saved_is_insn      : std_logic := '0';
   signal saved_rw           : std_logic := '0';
+  -- a write for write protection: R/W low or RMC (UM 9.5.3.1), so CAS2/CAS/TAS fault
+  -- on their read; the M bit is still set at the write, not at the RMC read
+  signal saved_wacc         : std_logic := '0';
   signal req_prev           : std_logic := '0';
   signal translation_pending : std_logic := '0';
   -- ATC (Address Translation Cache), 22 entries per MC68030 hardware
@@ -1485,14 +1489,15 @@ begin
   -- BUG #178 FIX: Use correct extension word P-register selectors (bits 14-10):
   --   TT0: 00010 (0x02), TT1: 00011 (0x03), TC: 10000 (0x10)
   --   SRP: 10010 (0x12), CRP: 10011 (0x13), MMUSR: 11000 (0x18)
-  reg_rdat <= TT0                          when reg_sel = "00010" else
-              TT1                          when reg_sel = "00011" else
-              TC                           when reg_sel = "10000" else
-              SRP_H                        when reg_sel = "10010" and reg_part = '1' else
-              SRP_L                        when reg_sel = "10010" and reg_part = '0' else
-              CRP_H                        when reg_sel = "10011" and reg_part = '1' else
-              CRP_L                        when reg_sel = "10011" and reg_part = '0' else
-              X"0000" & MMUSR when reg_sel = "11000" else
+  -- Selected by reg_rsel, without reg_sel's state gating (timing)
+  reg_rdat <= TT0                          when reg_rsel = "00010" else
+              TT1                          when reg_rsel = "00011" else
+              TC                           when reg_rsel = "10000" else
+              SRP_H                        when reg_rsel = "10010" and reg_part = '1' else
+              SRP_L                        when reg_rsel = "10010" and reg_part = '0' else
+              CRP_H                        when reg_rsel = "10011" and reg_part = '1' else
+              CRP_L                        when reg_rsel = "10011" and reg_part = '0' else
+              X"0000" & MMUSR when reg_rsel = "11000" else
               (others => '0');
   debug_mmusr <= MMUSR;
   -- BUG #446: Expose the sticky illegal-reg_sel latch.
@@ -1887,6 +1892,7 @@ begin
       saved_fc <= (others => '0');
       saved_is_insn <= '0';
       saved_rw <= '0';
+      saved_wacc <= '0';
       req_prev <= '0';
       translation_pending <= '0';
       walk_req <= '0';
@@ -2182,8 +2188,8 @@ begin
               translated_cfg_seq <= xlat_cfg_seq;
               cache_inhibit_reg <= '1';
               write_protect_reg <= '1';
-            elsif rw = '0' and atc_attr(hit_idx)(0) = '1' then
-              -- Write to write-protected page - generate fault (rw='0' is WRITE)
+            elsif (rw = '0' or rmw = '1') and atc_attr(hit_idx)(0) = '1' then
+              -- Write (or a read-modify-write's read) to a write-protected page - generate fault
               status_tmp := encode_mmusr_fault(
                 bus_error => '0',
                 limit_violation => '0',
@@ -2306,6 +2312,7 @@ begin
               saved_fc <= fc;
               saved_is_insn <= is_insn;
               saved_rw <= rw;
+              saved_wacc <= (not rw) or rmw;
               walk_req <= '1';
               translation_pending <= '1';
             else
@@ -2467,6 +2474,7 @@ begin
             saved_fc <= ptest_fc;
             saved_is_insn <= '0';
             saved_rw <= ptest_rw;  -- BUG #17 FIX: PTEST R/W from brief(9): 0=PTESTW(write), 1=PTESTR(read)
+            saved_wacc <= not ptest_rw;
             walk_req <= '1';
             translation_pending <= '1';
             instr_walk_pending <= '1';  -- BUG #396: Mark walk as PTEST-initiated
@@ -2508,6 +2516,7 @@ begin
           saved_fc <= pload_fc;
           saved_is_insn <= '0';
           saved_rw <= pload_rw;
+          saved_wacc <= not pload_rw;
           walk_req <= '1';
           translation_pending <= '1';
           instr_walk_pending <= '1';
@@ -2618,8 +2627,8 @@ begin
               end if;
             -- Walker filled ATC successfully - check access violations for the original request
             -- BUG #17 FIX: saved_rw='0' is WRITE, saved_rw='1' is READ
-            elsif saved_rw = '0' and atc_attr(hit_idx)(0) = '1' then
-              -- Write to write-protected page - generate fault
+            elsif saved_wacc = '1' and atc_attr(hit_idx)(0) = '1' then
+              -- Write (or a read-modify-write's read) to write-protected page - generate fault
               status_tmp := encode_mmusr_fault(
                 bus_error => '0',
                 limit_violation => '0',

@@ -24,6 +24,7 @@ module tg68k (
   input         berr,
   input   [2:0] ipl_n,
   input         cdis,                  // CDIS* asserted (VIA2 PB0 low): the caches disabled
+  input   [1:0] coff,                  // debug: {instruction cache off, data cache off}
   input         pace_en,               // hold each instruction to the 68030's time; low: unpaced
   input         post_en,               // the write pending buffer; low: every write waited for
 
@@ -31,13 +32,21 @@ module tg68k (
   output        halted,                // double bus fault
   output [31:0] dbg_d6,                // debug: D6 and D7 (the ROM's test manager keeps a failed
   output [31:0] dbg_d7,                //   test's code there)
+  output [159:0] dbg_trg,              // debug: {D1, A1, A3, A5, A6} at a bus-error trigger
   output [56:0] dbg_exc,               // debug: {an exception taken (one clk), its vector number, the opcode, its PC}
   output [35:0] dbg_pace,              // debug: one instruction released by the pace: {release, its decoder row[7:0],
                                        //   clocks it took[8:0], its budget[9:0], its fetches' wait states[7:0]}
   output [63:0] dbg_cache,             // debug: {CDIS*, 1'b0, CACR[13:0], instruction hits[23:0], data hits[23:0]}
-  output [55:0] dbg_mmuf               // debug: the PMMU's last fault: {1'b0, the bus BERR pending, an MMU bus error
+  output [55:0] dbg_mmuf,              // debug: the PMMU's last fault: {1'b0, the bus BERR pending, an MMU bus error
                                        //   pending, then as latched at the fault: an instruction fetch, read, FC[2:0],
                                        //   its MMUSR-coded status[15:0], the logical address[31:0]}
+  output [96:0] dbg_rpr,               // debug: {a format $A replay under way, the frame as the RTE read it:
+                                       //   state1[15:0], SSW[15:0], fault address[31:0], DOB[31:0]}
+  output [106:0] dbg_rpk,              // debug: each kernel data write as its cycle starts: {one clk, logical
+                                       //   address[31:0], physical[31:0], data[31:0], SIZ[1:0], FC[2:0], posted,
+                                       //   the long's byte lanes[3:0]}
+  output [160:0] dbg_jtp,              // debug: {a beat taken now, its trace record}
+  output [160:0] dbg_jte               // debug: {a PMMU event now, its trace record}
 );
 
   // ------------------------------------------------------------- kernel
@@ -58,6 +67,7 @@ module tg68k (
   wire [31:0] k_trap_vector;
   wire [15:0] k_opcode;
   wire [31:0] k_opcode_pc;
+  wire [41:0] k_pflush;                // {PFLUSH request, MODE, MASK, FC, EA}
   wire        w_req, w_we, w_berr;
   wire [31:0] w_addr, w_wdat;
   reg         w_ack;
@@ -78,10 +88,15 @@ module tg68k (
     .debug_pmmu_busy(k_pmmu_busy), .debug_pmmu_fault(k_pmmu_fault),
     .debug_make_berr(k_make_berr), .debug_trap_berr(k_trap_berr), .debug_cpu_halted(k_halted),
     .debug_regfile_d6(dbg_d6), .debug_regfile_d7(dbg_d7),
+    .debug_regfile_d1(dbg_trg[159:128]), .debug_regfile_a1(dbg_trg[127:96]), .debug_regfile_a3(dbg_trg[95:64]),
+    .debug_regfile_a5(dbg_trg[63:32]), .debug_regfile_a6(dbg_trg[31:0]),
     .debug_exc_take(k_exc_take), .debug_trap_vector(k_trap_vector), .debug_opcode(k_opcode), .debug_opcode_pc(k_opcode_pc),
     .debug_decodeOPC(k_decode),
     .debug_pmmu_fault_addr(k_f_addr), .debug_pmmu_fault_mmusr(k_f_mmusr), .debug_pmmu_fault_fc(k_f_fc),
-    .debug_pmmu_fault_rw(k_f_rw), .debug_pmmu_fault_is_insn(k_f_insn), .debug_trap_mmu_berr(k_trap_mmu_berr)
+    .debug_pmmu_fault_rw(k_f_rw), .debug_pmmu_fault_is_insn(k_f_insn), .debug_trap_mmu_berr(k_trap_mmu_berr),
+    .debug_rte_fmt_a_replay(dbg_rpr[96]), .debug_rte_fmt_a_state1(dbg_rpr[95:80]), .debug_rte_fmt_a_ssw(dbg_rpr[79:64]),
+    .debug_rte_fmt_a_fault_addr(dbg_rpr[63:32]), .debug_rte_fmt_a_data_out(dbg_rpr[31:0]),
+    .debug_pflush(k_pflush)
   );
   // the fault as the PMMU raises it, latched while the fault line is up
   reg  [52:0] mmuf_q = 53'd0;
@@ -178,6 +193,7 @@ module tg68k (
   wire        pb_vid   = (k_addr[31:24] == 8'hFE);
   // post_en low waits for every write (for a write that may bus-error)
   wire        k_post   = post_en && k_dwrite && !k_rmc && (k_fc != 3'd7) && ((k_addr[31:30] == 2'b00) || pb_vid);
+  assign      dbg_rpk  = {s1_take && k_dwrite, k_addr_log, k_addr, k_dout, k_siz, k_fc, k_post, d_wbe};
   reg         post_ack;                // the kernel's acknowledge for its posted write, at the next phi1
   reg  [31:0] pb_lanes;                // the long as the kernel drove it: each byte on its own address's lane
   reg   [1:0] pb_lane;                 // the beat's lane in it
@@ -186,7 +202,7 @@ module tg68k (
   wire  [7:0] pb_nbyte = pb_lanes[31 - 8 * pb_ln -: 8];
   se30_cache030 cache (
     .clk(clk), .reset_n(reset_n),
-    .cacr(k_cacr[13:0]), .caar(k_cache_op_addr[7:2]), .cdis(cdis),
+    .cacr(k_cacr[13:0] & ~{5'b0, coff[0], 7'b0, coff[1]}), .caar(k_cache_op_addr[7:2]), .cdis(cdis),   // coff: EI/ED cleared
     .la(k_addr_log[31:2]), .fc(k_fc), .i_hit(i_hit), .i_q(i_q),
     .i_fill(i_fill), .fill_la(cyc_la), .fill_fc(cyc_fc), .fill_data(cpu_din),
     .d_hit(d_hit), .d_q(d_q), .d_fill(d_fill),
@@ -305,6 +321,19 @@ module tg68k (
   assign k_clkena     = phi1 && (k_cycle_ack || k_internal || k_force);
   assign k_beat_valid = k_cycle_ack || k_internal;
   assign k_din   = !hit_ack ? din_r : hit_z ? 32'h0 : hit_d ? d_q : i_q;
+  // debug trace: every beat the kernel takes, with where its data came from
+  assign dbg_jtp = {k_clkena && (k_busstate != 2'b01),
+                    k_busstate, k_fc, k_siz, k_addr_log, k_addr, (k_busstate == 2'b11) ? k_dout : k_din,
+                    k_beat_valid, k_force, hit_ack, hit_d, hit_z, post_ack, k_pmmu_fault, ack_berr,
+                    k_decode, k_opcode, k_opcode_pc};
+  // ... and the PMMU's walker descriptor cycles and PFLUSHes, in the same record (busstate 01)
+  reg         jt_pf_q = 1'b0;
+  always @(posedge clk) jt_pf_q <= k_pflush[41];
+  wire        jt_pf   = k_pflush[41] && !jt_pf_q;
+  assign dbg_jte = jt_pf ? {1'b1, 2'b01, 3'd2, 2'b00, k_pflush[31:0], k_addr_log, 32'h0,
+                            k_pflush[40:38], k_pflush[37:35], k_pflush[34:32], k_opcode, k_opcode_pc} :
+                           {w_ack, 2'b01, {2'b00, w_we}, 2'b00, w_addr, k_addr_log, w_we ? w_wdat : w_data,
+                            k_fc, 5'b0, 1'b0, k_opcode, k_opcode_pc};
 
   // ------------------------------------------------------------ the pace
   // at the kernel's decode beat the step is withheld until the instruction just run has had its

@@ -18,6 +18,10 @@ module  pll_0002(
 	output wire outclk_3,
 	// interface 'outclk4'
 	output wire outclk_4,
+`ifdef MACIICX
+	// interface 'outclk5' - the IIcx card's dot clock
+	output wire outclk_5,
+`endif
 	// interface 'locked'
 	output wire locked
 );
@@ -26,7 +30,11 @@ module  pll_0002(
 		.fractional_vco_multiplier("true"),
 		.reference_clock_frequency("50.0 MHz"),
 		.operation_mode("direct"),
+`ifdef MACIICX
+		.number_of_clocks(6),
+`else
 		.number_of_clocks(5),
+`endif
 		.output_clock_frequency0("31.334400 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
@@ -34,15 +42,31 @@ module  pll_0002(
 		.phase_shift1("0 ps"),
 		.duty_cycle1(50),
 		.output_clock_frequency2("94.003200 MHz"),
+`ifdef MACIICX
+		.phase_shift2("1034 ps"),
+`else
 		.phase_shift2("1064 ps"),
+`endif
 		.duty_cycle2(50),
 		.output_clock_frequency3("94.003200 MHz"),
+`ifdef MACIICX
+		.phase_shift3("10342 ps"),
+`else
 		.phase_shift3("10372 ps"),
+`endif
 		.duty_cycle3(50),
 		.output_clock_frequency4("94.003200 MHz"),
+`ifdef MACIICX
+		.phase_shift4("8419 ps"),
+`else
 		.phase_shift4("8377 ps"),
+`endif
 		.duty_cycle4(50),
+`ifdef MACIICX
+		.output_clock_frequency5("30.2153142857 MHz"),
+`else
 		.output_clock_frequency5("0 MHz"),
+`endif
 		.phase_shift5("0 ps"),
 		.duty_cycle5(50),
 		.output_clock_frequency6("0 MHz"),
@@ -85,7 +109,11 @@ module  pll_0002(
 		.pll_subtype("General")
 	) altera_pll_i (
 		.rst	(rst),
+`ifdef MACIICX
+		.outclk	({outclk_5, outclk_4, outclk_3, outclk_2, outclk_1, outclk_0}),
+`else
 		.outclk	({outclk_4, outclk_3, outclk_2, outclk_1, outclk_0}),
+`endif
 		.locked	(locked),
 		.fboutclk	( ),
 		.fbclk	(1'b0),
