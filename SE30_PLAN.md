@@ -21211,7 +21211,11 @@ Daniel - add to it, move items out when fixed).**
     if every line passes. Log: sim/overnight_k46.log. ~7-8 h + 6.6 h + 1.5 h.
     Then Daniel's board test (The Pawn on both cores, System 6 and 7).
     RELEASE: NOT on its own (Daniel, 2026-10-25) - the fix stays on dev and
-    goes out with the next batch of fixes.
+    goes out with the next batch of fixes. **NO RELEASE UNTIL EVERY OPEN
+    SWEEP CLASS IS DONE** (Daniel, 2026-10-25 night: "There will be no
+    release until all of this is complete. I think the current release is
+    good enough for now.") - 20261024 stays the public one; the chain's
+    k46release builds are for his board tests, not MiSTer-devel.
     **SECOND ITEM, OPEN, low (pre-existing, not this race):** the bus-error
     frame's pipe words. An interrupt taken just before the faulting
     instruction changes stacked pipe stage B (+$0E: $0000 for $4E71) and the
