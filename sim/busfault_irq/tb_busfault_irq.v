@@ -34,6 +34,9 @@
 //     4. no unexpected exception (the stub's $DEADFFFF), no halt
 //     5. reads (r, m): every iteration's frame SR is $3018's - the CCR
 //        before the faulting instruction (UM 8.2.2), never flags from bus data
+//     6. HMODE complete: D0 and D1 as the UM fixes them (gen_program.py's
+//        EXPECT) - a completed read's data is the DIB, a completed write
+//        moves nothing (KNOWN ISSUES 47)
 //   +PLANT=k: iteration k's bus error is replaced by an acknowledge with
 //   $DEADBEEF - the lost bus error itself; the bench must FAIL it.
 //
@@ -207,7 +210,7 @@ module tb_busfault_irq;
   reg [31:0] s_pc, s_epc;
   integer    trace = 0, trace_it = 2;
   reg  [7:0] s_flags, s_shadow; reg s_rccr, s_rsig, s_mmub, s_erw; reg [2:0] s_efc;
-  reg        s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw; reg [31:0] s_dsa, s_kaddr;
+  reg        s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw, s_dbank, s_dkv; reg [5:0] s_dord; reg [4:0] s_dk; reg [31:0] s_kaddr;
   initial if ($test$plusargs("TRACE")) begin
     trace = 1;
     if (!$value$plusargs("TRACE=%d", trace_it)) trace_it = 2;
@@ -238,12 +241,15 @@ module tb_busfault_irq;
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_hit", "/tb_busfault_irq/s_dsh");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_rw", "/tb_busfault_irq/s_dsrw");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/pmmu_rw", "/tb_busfault_irq/s_prw");
-    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_addr", "/tb_busfault_irq/s_dsa");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dacc_ord", "/tb_busfault_irq/s_dord");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dacc_k", "/tb_busfault_irq/s_dk");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dacc_bank", "/tb_busfault_irq/s_dbank");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dacc_kvalid", "/tb_busfault_irq/s_dkv");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/addr", "/tb_busfault_irq/s_kaddr");
   end
   always @(posedge clk) if (trace && it == trace_it && (s_clkena || s_berrk || s_mkberr))
-    $display("TR ds v%b f%b p%b h%b rw%b prw%b %08x ka %08x | fl %02x sh %02x rccr %b rsig %b mmub %b erw %b efc %o | %0d st %b ipl %0d setint %b int %b mkberr %b berrk %b tint %b tberr %b setopc %b setend %b dec %b pc %08x epc %08x as %b addr %08x berr %b",
-             s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw, s_dsa, s_kaddr, s_flags, s_shadow, s_rccr, s_rsig, s_mmub, s_erw, s_efc, cyc - t0, s_state, s_ipl, s_setint, s_int, s_mkberr, s_berrk, s_tint, s_tberr, s_setopc, s_setend, s_dec, s_pc, s_epc, cpu_as_n, cpu_addr, glue_berr);
+    $display("TR ds v%b f%b p%b h%b rw%b prw%b ord %0d k %0d b%b kv%b ka %08x | fl %02x sh %02x rccr %b rsig %b mmub %b erw %b efc %o | %0d st %b ipl %0d setint %b int %b mkberr %b berrk %b tint %b tberr %b setopc %b setend %b dec %b pc %08x epc %08x as %b addr %08x berr %b",
+             s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw, s_dord, s_dk, s_dbank, s_dkv, s_kaddr, s_flags, s_shadow, s_rccr, s_rsig, s_mmub, s_erw, s_efc, cyc - t0, s_state, s_ipl, s_setint, s_int, s_mkberr, s_berrk, s_tint, s_tberr, s_setopc, s_setend, s_dec, s_pc, s_epc, cpu_as_n, cpu_addr, glue_berr);
 
   // +WREC=n: the record's writes (the handler's frame copy) in iteration n
   integer wrec = -1;
@@ -321,6 +327,12 @@ module tb_busfault_irq;
           fails = fails + 1;
           $display("FAIL it %0d: the frame's SR %04x, not %04x (the CCR before the instruction)", k, rec(k, 20) >> 16, ram[32'h3018 >> 2]);
         end
+    // HMODE complete: D0 and D1 as the UM fixes them ($301C, $3020)
+    if (ram[32'h3024 >> 2] == 1 && (rec(1, 52) != ram[32'h301C >> 2] || rec(1, 56) != ram[32'h3020 >> 2])) begin
+      fails = fails + 1;
+      $display("FAIL the reference's D0 %08x D1 %08x, not %08x %08x (the completed accesses)",
+               rec(1, 52), rec(1, 56), ram[32'h301C >> 2], ram[32'h3020 >> 2]);
+    end
     if (rec(0, 0) != rec(1, 0)) begin
       fails = fails + 1; $display("FAIL iteration 0 (cold) took %0d exceptions, the reference %0d", rec(0, 0), rec(1, 0));
     end

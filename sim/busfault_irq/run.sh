@@ -27,5 +27,5 @@ if [ "${NOCOMPILE:-0}" != 1 ]; then
   "$MODELSIM/vlog.exe" -quiet -work work $DEFS "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" "$RTL/iicx_nuchip.v" tb_busfault_irq.v || exit 1
 fi
 "$MODELSIM/vsim.exe" -c -quiet -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" ${PLUSARGS:-} work.tb_busfault_irq > run.log 2>&1
-grep -E '^# (---- |==== |FAIL |EVT |NOTE )' run.log | sed 's/^# //'
-grep -q '^# ==== PASS' run.log
+grep -a -E '^# (---- |==== |FAIL |EVT |NOTE )' run.log | sed 's/^# //'
+grep -a -q '^# ==== PASS' run.log

@@ -17,6 +17,7 @@ it, and the interrupt is taken once, at a boundary.
                  acknowledge, $3F90 the iteration marker, $3F94 the
                  continuation marker (all watched by the bench); $3FF0 end
     $3018        the SR a read's fault stacks (the bench's check)
+    $301C        HMODE complete: D0, D1 at the continuation, $3024 = 1 (checked)
     $4000        MMU=1: the ROM's 24-bit table ($40800050, 16 descriptors)
     $6000+64*i   iteration i's record:
                    +0 exceptions taken   +4 interrupts taken
@@ -74,6 +75,8 @@ SHAPES = {
     "r_abs":      ("r", [], [0x2039, FAULT >> 16, FAULT & 0xFFFF], None),   # move.l (xxx).l,d0
     "r_idx":      ("r", [], [0x2030, 0x2004], FAULT - 4),         # move.l 4(a0,d2.w),d0
     "r_movem":    ("r", [], [0x4CD0, 0x0003], None),              # movem.l (a0),d0-d1
+    "r_movem9":   ("r", [], [0x4CD0, 0x0E3F], None),              # movem.l (a0),d0-d5/a1-a3  (KNOWN ISSUES 47)
+    "r_movem_w":  ("r", [], [0x4C90, 0x0003], None),              # movem.w (a0),d0-d1
     "r_add":      ("r", [], [0xD090], None),                      # add.l (a0),d0
     "r_tst":      ("r", [], [0x4A50], None),                      # tst.w (a0)
     # X read from the CCR: a junk X stacked would be added in on the rerun
@@ -86,12 +89,14 @@ SHAPES = {
     "w_move_l2":  ("w", [], [0x2080], FAULT + 2),                 # move.l d0,(a0), word-misaligned
     "w_d16":      ("w", [], [0x2140, 0x0038], FAULT - 0x38),      # move.l d0,$38(a0)
     "w_clr":      ("w", [], [0x4290], None),                      # clr.l (a0)
+    "w_movem":    ("w", [], [0x48D0, 0x0003], None),              # movem.l d0-d1,(a0)
     # read-modify-write
     "m_tas":      ("m", [], [0x4AD0], None),                      # tas (a0)
     "m_cas":      ("m", [], [0x0ED0, 0x0040], None),              # cas.l d0,d1,(a0)
     "m_add":      ("m", [], [0xD190], None),                      # add.l d0,(a0)
     "m_negx":     ("m", [0x003C, 0x0010], [0x4090], None),        # ori #$10,ccr ; negx.l (a0)
     "m_roxl":     ("m", [0x003C, 0x0010], [0xE5D0], None),        # ori #$10,ccr ; roxl.w (a0)
+    "m_move":     ("m", [], [0x2090], None),                      # move.l (a0),(a0): a read, then a write
     # instruction fetch from empty slot space
     "f_jmp":      ("f", [], [0x4ED0], None),                      # jmp (a0)
     "f_jsr":      ("f", [], [0x4E90], None),                      # jsr (a0)
@@ -135,6 +140,17 @@ for v in range(25, 32):
 # the SR a read's fault must stack (UM 8.2.2: the CCR before the instruction -
 # moveq #0,d2's Z, and X where the prelude sets it); the bench reads $3018
 put(0x3018, long(0x2014 if 0x003C in pre else 0x2004))
+# HMODE complete: D0 and D1 as the UM fixes them - a completed read's data is
+# the DIB ($C0DE5EED, right-justified, sign-extended by the instruction); a
+# completed write moves nothing.  The bench checks $301C/$3020 when $3024 is 1
+DIB = 0xC0DE5EED
+EXPECT = {"r_move_b": (0x111111ED, 0xBF96), "r_move_w": (0x11115EED, 0xBF96),
+          "r_move_l": (DIB, 0xBF96), "r_add": ((0x11111111 + DIB) & 0xFFFFFFFF, 0xBF96),
+          "r_movem": (DIB, DIB), "r_movem9": (DIB, DIB), "r_movem_w": (0x5EED, 0x5EED),
+          "w_move_l": (0x11111111, 0xBF96), "w_movem": (0x11111111, 0xBF96),
+          "m_add": (0x11111111, 0xBF96), "m_move": (0x11111111, 0xBF96)}
+if HMODE == "complete" and SHAPE in EXPECT:
+    put(0x301C, long(EXPECT[SHAPE][0]) + long(EXPECT[SHAPE][1]) + long(1))
 put(STUB, [0x21FC] + long(0xDEADFFFF) + [0x3FF0, 0x4E72, 0x2700])
 
 starts = []          # every instruction's address: where an interrupt may be taken

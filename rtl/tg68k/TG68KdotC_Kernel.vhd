@@ -632,6 +632,7 @@ architecture logic of TG68KdotC_Kernel is
 	-- address, and instead of dispatching we inject the DIB as the read
 	-- data - the instruction then completes naturally (its own stores,
 	-- flags, side effects). Scope: one instruction (cleared at retire).
+	-- (KNOWN ISSUES 47: the match is now the access's ordinal - dacc_*)
 	signal rte_mmu_fix_faddr	: std_logic_vector(31 downto 0) := (others => '0');
 	signal dib_sub_valid		: std_logic := '0';
 	signal dib_sub_fresh		: std_logic := '0';
@@ -639,7 +640,23 @@ architecture logic of TG68KdotC_Kernel is
 	signal bus_datum_dirty		: std_logic := '0';  -- a beat of the CURRENT in-flight datum was released invalid
 	signal ea_to_pc_datum_invalid : std_logic := '0';  -- full-format memory-indirect pointer read was fault-released
 	signal directpc_retry_hold : std_logic := '0'; -- retry an unacknowledged directPC data beat
-	signal dib_sub_addr		: std_logic_vector(31 downto 0) := (others => '0');
+	-- KNOWN ISSUES 47: the instruction's data access log.  Every data operand
+	-- an instruction moves gets an ordinal (dacc_ord, from 0 at its decode);
+	-- a read's value is logged at that ordinal.  A data fault freezes the
+	-- bank (dacc_bank swaps) with the faulted ordinal (dacc_k); a handler that
+	-- completes it (DF cleared, UM 8.2.1) has the re-executed instruction
+	-- take ordinals below k from the log and k from the DIB, with no cycle
+	-- for any of them - as the MC68030, which continues the instruction.
+	type dacc_log_t is array (0 to 63) of std_logic_vector(31 downto 0);
+	signal dacc_log			: dacc_log_t;
+	signal dacc_q			: std_logic_vector(31 downto 0);  -- the frozen bank at the current ordinal
+	signal dacc_ord			: std_logic_vector(5 downto 0) := (others => '0');  -- this operand's ordinal (32 and up: not logged)
+	signal dacc_bank		: std_logic := '0';  -- the bank being logged; the other is frozen
+	signal dacc_wa, dacc_ra		: std_logic_vector(5 downto 0);  -- the log's write (this bank) and read (the frozen one) addresses
+	signal dacc_k			: std_logic_vector(4 downto 0) := (others => '0');  -- the frozen bank's faulted ordinal
+	signal dacc_kvalid		: std_logic := '0';  -- ... and the frozen bank is an instruction's (not a dialog's, ordinal < 32)
+	signal dacc_done		: std_logic;  -- a data operand ends now, delivered
+	signal dacc_fault		: std_logic;  -- a data operand ends now in a fault
 	signal dib_sub_data		: std_logic_vector(31 downto 0) := (others => '0');
 	signal dib_sub_hit		: std_logic;
 	signal dib_sub_rw		: std_logic := '1';  -- the completed cycle's RW: 1 a read (the DIB is its data), 0 a write (the handler did it)
@@ -2494,22 +2511,57 @@ ALU: TG68K_ALU
 	-- Manager completes CMP.L (d16,A6),D6 this way (MODE32's zone check, RAM
 	-- $22F0 on the board; the ROM's own at $4080E606 is a MOVE), and an empty
 	-- slot or super slot bus-errors a re-run forever.  So the match is made
-	-- on the beat's address before any cycle goes out - dib_sub_pre, which the
-	-- wrapper answers as a hit (tg68k.v s_hit) - and, for a translation that
-	-- faults again (an MMU library's page still invalid), on the live fault as
-	-- before.  A split operand's later beat matches at +2.
-	dib_sub_pre <= '1' when dib_sub_valid = '1' AND state(1) = '1' AND pmmu_fault = '0' AND
-	                         pmmu_rw = dib_sub_rw AND
-	                         (addr(31 downto 1) = dib_sub_addr(31 downto 1) OR
-	                          addr(31 downto 1) = dib_sub_addr(31 downto 1) + 1)
+	-- before any cycle goes out - dib_sub_pre, which the wrapper answers as a
+	-- hit (tg68k.v s_hit).  KNOWN ISSUES 47: it matches the operand's ordinal,
+	-- not its address (1.18's) - every access the instruction made before the
+	-- fault (dacc_log) and the completed one (the DIB; a write dropped) - so
+	-- an instruction whose later access faults too (MOVEM, ADD Dn,<ea>) still
+	-- finishes.  The faulted ordinal's direction must be the frame's (RW).
+	dib_sub_pre <= '1' when dib_sub_valid = '1' AND dib_sub_fresh = '0' AND state(1) = '1' AND
+	                         dacc_ord(5) = '0' AND
+	                         (dacc_ord(4 downto 0) < dacc_k OR
+	                          (dacc_ord(4 downto 0) = dacc_k AND pmmu_rw = dib_sub_rw))
 	               else '0';
-	dib_sub_out <= dib_sub_pre;
-	dib_sub_hit <= '1' when (dib_sub_pre = '1' AND dib_sub_rw = '1') OR
-	                        (dib_sub_valid = '1' AND pmmu_fault = '1' AND
-	                         pmmu_fault_rw_out = '1' AND
-	                         (pmmu_fault_addr_out(31 downto 1) = dib_sub_addr(31 downto 1) OR
-	                          pmmu_fault_addr_out(31 downto 1) = dib_sub_addr(31 downto 1) + 1))
-	               else '0';
+	-- a translation that faults again (an MMU library's page still invalid)
+	-- is released by the wrapper as a fault; the kernel takes it as the hit
+	dib_sub_out <= dib_sub_pre AND NOT pmmu_fault;
+	dib_sub_hit <= dib_sub_pre;
+	dacc_done  <= '1' when clkena_lw = '1' AND state(1) = '1' AND (beat_valid = '1' OR dib_sub_hit = '1') AND
+	                       berr_k = '0' AND pmmu_dfault_k = '0' AND make_berr = '0' AND trap_berr = '0' else '0';
+	dacc_fault <= '1' when clkena_lw = '1' AND state(1) = '1' AND (berr_k = '1' OR pmmu_dfault_k = '1') AND
+	                       make_berr = '0' AND trap_berr = '0' else '0';
+	dacc_wa <= dacc_bank & dacc_ord(4 downto 0);
+	dacc_ra <= NOT dacc_bank & dacc_ord(4 downto 0);
+	PROCESS (clk)   -- the log: one M10K, written by a read operand, read by the replay
+	BEGIN
+		IF rising_edge(clk) THEN
+			IF dacc_done = '1' AND state = "10" AND dacc_ord(5) = '0' THEN
+				dacc_log(conv_integer(dacc_wa)) <= data_read;
+			END IF;
+			dacc_q <= dacc_log(conv_integer(dacc_ra));
+		END IF;
+	END PROCESS;
+	PROCESS (clk)
+	BEGIN
+		IF rising_edge(clk) THEN
+			-- an instruction's last write ends on the edge the next opcode is
+			-- taken (setopcode): the operand is still the old instruction's
+			IF Reset = '1' THEN
+				dacc_ord <= (OTHERS => '0'); dacc_bank <= '0'; dacc_kvalid <= '0';
+			ELSE
+				IF dacc_fault = '1' THEN
+					dacc_bank <= NOT dacc_bank;
+					dacc_k <= dacc_ord(4 downto 0);
+					dacc_kvalid <= NOT dacc_ord(5) AND NOT cp_bf_now;
+				END IF;
+				IF setopcode = '1' AND clkena_lw = '1' THEN
+					dacc_ord <= (OTHERS => '0');
+				ELSIF dacc_done = '1' AND dacc_ord(5) = '0' THEN
+					dacc_ord <= dacc_ord + 1;
+				END IF;
+			END IF;
+		END IF;
+	END PROCESS;
 	rte_mmu_fix_ccr_update <= '1' when rte_mmu_fix_commit = '1' AND
 		(rte_mmu_fix_opcode(8 downto 6) = "000" OR rte_mmu_fix_is_tst = '1') else '0';
 
@@ -2536,7 +2588,7 @@ ALU: TG68K_ALU
 		END CASE;
 	END PROCESS;
 
-PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, memread, memmask, data_read, dib_sub_hit, dib_sub_data, beat_n, byte_in, lane_in, bus_in, beat_rem, op_size)
+PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, memread, memmask, data_read, dib_sub_hit, dib_sub_data, dacc_ord, dacc_k, dacc_q, beat_n, byte_in, lane_in, bus_in, beat_rem, op_size)
 	BEGIN
 		-- this beat's bytes appended to what earlier beats brought (1.15 item 5);
 		-- a beat that moves nothing keeps the old word-wide stream timing
@@ -2551,14 +2603,19 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 		-- first beat (the previous beat strobed nothing) and op_size after.
 		-- (Before 1.15 the strobe history stood in for the size: "first beat"
 		-- or "an odd word's two single-byte beats" - true on a 16-bit port only.)
+		-- DIB substitution: the software-completed read's data (the DIB) or an
+		-- earlier operand's from the log, in place of the beats (KNOWN ISSUES
+		-- 47) - before the sign extension: the DIB is the operand right-justified
+		IF dib_sub_hit='1' THEN
+			IF dacc_ord(4 downto 0) = dacc_k THEN
+				data_read <= dib_sub_data;
+			ELSE
+				data_read <= dacc_q;
+			END IF;
+		END IF;
 		IF (memread(1 downto 0)="11" AND beat_rem <= 2) OR (memread(1 downto 0)/="11" AND op_size <= 2) THEN
 			data_read(31 downto 16) <= (OTHERS=>data_read(15));
 		END IF;
-		-- DIB substitution: the armed one-shot supplies the software-completed
-		-- read data in place of the (faulted, garbage) bus beats.
-		IF dib_sub_hit='1' THEN
-			data_read <= dib_sub_data;
-		END IF;	
 		
 		IF rising_edge(clk) THEN	
 			IF clkena_lw='1' AND state="10" THEN
@@ -6195,13 +6252,13 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					   rte_mmu_fix_ssw(15) = '0' AND rte_mmu_fix_ssw(14) = '0' AND
 					   rte_mmu_fix_ssw(13) = '0' AND rte_mmu_fix_ssw(12) = '0' AND
 					   rte_mmu_fix_ssw(8) = '0' AND
-					   rte_mmu_fix_ssw(7) = '0' THEN
+					   rte_mmu_fix_ssw(7) = '0' AND
+					   dacc_kvalid = '1' THEN
 						-- a read or a write (1.18): a write the handler completed is
 						-- not run again either (UM 8.2.1)
 						dib_sub_valid <= '1';
 						dib_sub_fresh <= '1';
 						dib_sub_rw    <= rte_mmu_fix_ssw(6);
-						dib_sub_addr  <= rte_mmu_fix_faddr;
 						dib_sub_data  <= rte_mmu_fix_input_buffer;
 					END IF;
 					-- Lifetime: the FIRST setopcode after arming is the
@@ -6212,7 +6269,9 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- the injection) - the window is over. Any dispatched
 					-- exception also ends it. NOT cleared at the hit edge:
 					-- a longword read is two word beats, both must inject.
-					IF trapmake='1' AND clkena_lw='1' THEN
+					-- A later access's fault ends it at once (KNOWN ISSUES 47:
+					-- its stacking and vector fetch are no ordinals to replay).
+					IF (trapmake='1' AND clkena_lw='1') OR dacc_fault='1' THEN
 						dib_sub_valid <= '0';
 						dib_sub_fresh <= '0';
 					ELSIF setopcode='1' AND clkena_lw='1' THEN
