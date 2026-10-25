@@ -2,8 +2,8 @@
 # The night of 2026-10-25 (Daniel: "Go ahead with option A, the regression,
 # then compile"): KNOWN ISSUES 46's class sweep in full (sim/busfault_irq,
 # every shape and handler, the SE/30 without and with the 24-bit row and
-# caches, the IIcx's NuBus timeout), then the full regression on cc4d510's
-# kernel, then - only if every line of both passed - the release-form builds
+# caches, the IIcx's NuBus timeout), then the full regression on the batch's
+# kernel (46 with its third item, 47, 48 - rerun 2026-10-25 night), then - only if every line of both passed - the release-form builds
 # of both cores (stamp, build_only, sta_corners, archive as
 # <rev>_<sha>_k46release, the qsfs and build_tag.v restored).  One sweep at a
 # time.  Log: sim/overnight_k46.log.

@@ -21256,6 +21256,69 @@ Daniel - add to it, move items out when fixed).**
     the flags except X for the X-readers. Then the class sweep again (the
     chain stops after this sweep, on the old kernel's failures), the
     regression, the builds; batched with (b).
+    RESULT (2026-10-25 evening): every r/m shape passes check 5 on the fix
+    (the 24-bit row + caches, 7 offsets; the night's sweep stopped there, on
+    the old kernel). The X-readers did not tell the kernels apart - the old
+    one stacks $2014 for them too, so they guard the fix but never failed.
+    COMMITTED 12e0e6b, with an iteration watchdog in the bench (+WDOG,
+    400,000 clocks: a hang ends as a FAIL, never a timeout - the night's
+    hung complete cases left orphaned simulators, a reboot). The same sweep
+    found KNOWN ISSUES 47 and 48.
+
+47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
+    pre-existing, both kernels): a handler that completes a faulted access
+    (DF cleared, UM 8.2.1) hung any instruction whose later access faulted
+    too.** The sweep's complete cases for MOVEM, ADD.L D0,(A0), NEGX and
+    ROXL to memory never ended (the night's bench had no watchdog: 4 h a
+    case, then an orphaned simulator). Trace: 1.18's substitution matched
+    ONE address - the frame's fault address - and the kernel re-executes the
+    instruction (it has no MC68030 continuation): MOVEM's first read was
+    answered from the DIB, its second faulted, the handler completed it,
+    and the re-run sent the first read out on the bus again, which faulted,
+    for ever; ADD's read, then its write, the same. FIX (TG68KdotC_Kernel.vhd,
+    dacc_*): every data operand gets an ordinal from its instruction's
+    decode (dacc_ord; an instruction's last write ends on the edge the next
+    opcode is taken and still counts as the old one's); reads are logged at
+    their ordinal (dacc_log, one M10K, two banks); a data fault swaps the
+    banks, freezing the faulted instruction's with its ordinal k (not a
+    coprocessor dialog's: those resume themselves, 7d B5c); the RTE of a
+    DF-cleared frame arms the replay - the re-executed instruction takes
+    ordinals below k from the log and k from the DIB (a write dropped), no
+    bus cycle for any of them, its later ones live; a later fault ends the
+    replay at once (its stacking is no ordinal). The DIB is now sign-extended
+    by the instruction (MOVEM.W). Limits: 32 operands an instruction (MOVEM
+    of 16 longs, FMOVEM.X of 8 fit); a bus error inside the handler loses
+    the outer instruction's log; DF SET still re-runs the whole instruction
+    (its earlier accesses again - the PMMU's page-fault path and A/UX's,
+    unchanged). BENCH (busfault_irq): shapes r_movem9 (MOVEM.L of nine
+    registers: nine bus errors, one completion each), r_movem_w, w_movem,
+    m_move (a read then a write); check 6 - HMODE complete, D0 and D1 as the
+    UM fixes them (the DIB for a read, sign-extended; nothing for a write).
+    Every complete shape passes, MMU off; sim/busfault_dib 24/24 (INSTR cmp,
+    move and write x alignment x handler x MMU/caches) - INSTR=write, 1.18.4's
+    open item, passes now. Committed (dev); the class sweep and regression
+    with 48.
+
+48. **FIXED IN TEST (2026-10-25, found with 47; pre-existing): a locked
+    cycle's bus error (CAS, CAS2, TAS - RM set) had a frame and a return
+    the UM's are not.** The external-BERR restart (5.11 item 5) excluded
+    locked cycles ("keep the old path"), so: (1) the frame's PC was the
+    prefetch pointer - TAS's next instruction, CAS's one word past it - where
+    UM Table 8-6 has the instruction in execution, and 8.2.2's handler reads
+    the operation word there to know a CAS from a TAS; (2) a rerun handler
+    (DF set) resumed past the instruction - the CAS/TAS never happened; (3)
+    CAS's compare register kept the faulted read's junk ($00404E71, varying
+    with an interrupt - the old kernel's sweep failed m_cas complete at
+    clocks 64/80 on it). And 8.2.2: "the RTE instruction expects the entire
+    operation to have been completed if the RM bit is set and the DF bit is
+    cleared" - the handler emulated it. FIX (TG68KdotC_Kernel.vhd): locked
+    cycles take the restart (PC = the instruction, the registers rolled
+    back, DF set re-runs it whole); the next instruction's address goes in
+    the long frame's internal word at +$30 (berr_skip_pc) and an RTE of an
+    RM=1, DF=0 frame resumes there (rte_rmc_skip) - nothing of the
+    instruction runs. BENCH: check 7 - every r/w/m frame's PC is the
+    faulting instruction's; m_cas/m_tas complete leave D0 the handler's.
+    m_cas and m_tas: abort, rerun (two exceptions now) and complete PASS.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -21449,6 +21512,37 @@ halt). **A RULE FOR EVERY REMAINING CLASS:** besides the self-reference
 compare (the core with vs without the disturbance), assert the values the
 UM fixes outright (the frame's SR, PC, SSW bits, format) - the junk CCR was
 consistent with itself and passed every self-compare.
+**CLASSES 11-13 (2026-10-25, Daniel: "if these bugs open up new
+possibilities for class sweeps, then please add them to the list"; from
+KNOWN ISSUES 46's third item, 47 and 48).** (11) **THE FRAMES AGAINST THE
+UM** - the junk CCR passed every self-compare because it was the same junk
+each time. For every exception that stacks a frame (bus error on a read,
+write, RMW and fetch, external and PMMU; address error; every trap; the
+FPU's pre-, mid- and post-instruction frames; format errors), every field
+the UM fixes asserted from a table, not from a reference run: SR (the CCR
+before the instruction, or after it for the post-instruction traps), PC
+(Table 8-6's "instruction in execution" against the next instruction's
+address), format and vector, SSW (FC, RW, SIZE, RM, DF, the FB/FC/RB/RC
+pipe bits), the fault address, the DOB for writes. (12) **SOFTWARE
+COMPLETION, EVERY MULTI-ACCESS INSTRUCTION** - 47 met MOVEM and the RMWs;
+the replay is ordinal-based, so the shapes that stress the ordering:
+CMPM, ADDX/SUBX/ABCD/SBCD -(An),-(An), CHK2/CMP2 (two reads), MOVEP
+(byte by byte), PACK/UNPK -(An), the five-byte bit fields (two operand
+cycles), MOVE mem-to-mem with each side faulting, MOVEM of 16 registers
+both ways, LINK/PEA/JSR (stack writes), MOVES, FMOVE.X and FMOVEM; faulted
+at EACH access in turn (only the Nth faults: a bench page map with one
+access's page bus-erroring), with the bus-cycle log asserting that no access
+before the faulted one goes out twice (the replay's point - an I/O read or
+write must not repeat). Also measures 47's known limit: DF SET re-runs the
+earlier accesses. (13) **LOCKED CYCLES UNDER EVERY FAULT** - 48 found TAS/
+CAS outside the restart path. CAS and TAS faulted on the read and on the
+write; CAS2 on each of its four accesses (two addresses); external bus
+error and PMMU page fault (invalid, WP); every handler (abort, rerun -
+the whole locked sequence again, complete - nothing runs); caches on
+(the data cache forces a locked read to miss, 1.16.2) and an interrupt at
+every clock around it, as busfault_irq does. NEXT ORDER, revised: 13 and
+11's bus-error part first (they share busfault_irq's harness and found
+bugs this week), then 7, 4 with 4b, 12, 2's directed part, 8; 9 in between.
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
 touch faults at level B (or A) and the handler writes a whole table; every
 sweep so far invalidated level C only. BUILT in `sim/predec_fault`

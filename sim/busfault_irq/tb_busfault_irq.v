@@ -36,7 +36,9 @@
 //        before the faulting instruction (UM 8.2.2), never flags from bus data
 //     6. HMODE complete: D0 and D1 as the UM fixes them (gen_program.py's
 //        EXPECT) - a completed read's data is the DIB, a completed write
-//        moves nothing (KNOWN ISSUES 47)
+//        moves nothing (KNOWN ISSUES 47); a locked cycle's runs nothing (48)
+//     7. reads, writes, RMW: every frame's PC the faulting instruction's
+//        (UM Table 8-6; the handler reads a CAS/TAS's operation word there)
 //   +PLANT=k: iteration k's bus error is replaced by an acknowledge with
 //   $DEADBEEF - the lost bus error itself; the bench must FAIL it.
 //
@@ -326,6 +328,14 @@ module tb_busfault_irq;
         if (rec(k, 20) >> 16 != ram[32'h3018 >> 2]) begin
           fails = fails + 1;
           $display("FAIL it %0d: the frame's SR %04x, not %04x (the CCR before the instruction)", k, rec(k, 20) >> 16, ram[32'h3018 >> 2]);
+        end
+    // a bus error's frame PC is the instruction in execution (UM Table 8-6) -
+    // here always the faulting one: a CAS/TAS too (KNOWN ISSUES 48)
+    if (fam == "r" || fam == "w" || fam == "m")
+      for (k = 0; k < iters; k = k + 1)
+        if ({rec(k, 20) & 16'hFFFF, rec(k, 24) >> 16} != F) begin
+          fails = fails + 1;
+          $display("FAIL it %0d: the frame's PC %08x, not the instruction's %08x", k, {rec(k, 20) & 16'hFFFF, rec(k, 24) >> 16}, F);
         end
     // HMODE complete: D0 and D1 as the UM fixes them ($301C, $3020)
     if (ram[32'h3024 >> 2] == 1 && (rec(1, 52) != ram[32'h301C >> 2] || rec(1, 56) != ram[32'h3020 >> 2])) begin

@@ -704,6 +704,9 @@ architecture logic of TG68KdotC_Kernel is
 	-- BUG #414/#415: Latched fault info for Format $A bus error frame
 	signal berr_fault_addr   : std_logic_vector(31 downto 0);  -- Faulting logical address
 	signal berr_frame_pc     : std_logic_vector(31 downto 0);  -- PC stacked in the 68030 bus-fault frame
+	signal berr_skip_pc      : std_logic_vector(31 downto 0) := (others => '0');  -- KNOWN ISSUES 48: the next instruction's address, frame +$30
+	signal rte_rmc_skip_pc   : std_logic_vector(31 downto 0) := (others => '0');  -- ... popped by RTE
+	signal rte_rmc_skip      : std_logic;  -- RTE of a locked cycle's frame the handler completed: resume after the instruction
 	signal stream_consumed_pc : std_logic_vector(31 downto 0) := (others => '0'); -- address of the newest stream word consumed by decode
 	signal insn_next_pc : std_logic_vector(31 downto 0) := (others => '0'); -- continuation PC of the instruction currently in execute: opcode address + 2 per consumed stream word
 	signal berr_pmmu_fault_next_pc : std_logic_vector(31 downto 0) := (others => '0'); -- insn_next_pc latched at PMMU-fault first-fire (the faulted instruction is still the executing one there)
@@ -2503,6 +2506,13 @@ ALU: TG68K_ALU
 	                               rte_mmu_fix_opcode(2 downto 0) = "001") else
 	                   "100";
 	rte_mmu_fix_commit <= rte_mmu_fix_write AND clkena_lw;
+	-- KNOWN ISSUES 48: "the RTE instruction expects the entire operation to
+	-- have been completed if the RM bit is set and the DF bit is cleared"
+	-- (UM 8.2.2) - the handler emulated the CAS, CAS2 or TAS, so none of it
+	-- runs again: resume at the next instruction, the frame's +$30
+	rte_rmc_skip <= '1' when clkena_lw = '1' AND micro_state = rte5 AND rot_cnt = "000010" AND
+	                         rte_format_word(15 downto 12) = "1011" AND rte_mmu_fix_armed = '1' AND
+	                         rte_mmu_fix_ssw(8) = '0' AND rte_mmu_fix_ssw(7) = '1' else '0';
 	-- The armed substitution matches the re-executed access (1.18). The MC68030
 	-- runs no bus cycle for a data access its handler completed in software
 	-- (UM 8.2.1: with DF clear "it assumes that the data input buffer value on
@@ -2929,6 +2939,8 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 								rte_mmu_fix_opcode <= data_read(15 downto 0);   -- SP+$14 low word
 							WHEN 9 =>
 								rte_mmu_fix_input_buffer <= data_read;           -- SP+$2C data input buffer
+							WHEN 10 =>
+								rte_rmc_skip_pc <= data_read;                    -- SP+$30 the next instruction (KNOWN ISSUES 48)
 							WHEN OTHERS =>
 								NULL;
 						END CASE;
@@ -3808,6 +3820,8 @@ PROCESS (clk)
 								data_write_tmp <= berr_fault_addr;
 							WHEN "000010" =>  -- $24: stage B address
 								data_write_tmp <= berr_fault_addr;
+							WHEN "000101" =>  -- $30: the next instruction's address (KNOWN ISSUES 48)
+								data_write_tmp <= berr_skip_pc;
 							WHEN OTHERS =>
 								data_write_tmp <= (others => '0');
 						END CASE;
@@ -5306,6 +5320,8 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						-- a committed (d16,An) resumed INTO its own extension
 						-- word - MuForce loop shape on multi-word MOVEs).
 						TG68_PC <= TG68_PC + rte_mmu_fix_len;
+					ELSIF rte_rmc_skip='1' THEN
+						TG68_PC <= rte_rmc_skip_pc;
 					ELSIF exec(directPC)='1' THEN
 						-- A read aborted by a PMMU fault must not supply the PC.
 						-- Register-bound faulted loads are undone by the restart
@@ -5783,10 +5799,13 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- completes the write (DF cleared) re-executes it with the write
 					-- dropped by the DIB substitution, and one that leaves DF set reruns
 					-- it.  Before, a write stacked the prefetch pointer and resumed one
-					-- word into the next instruction.  Locked cycles keep the old path.
+					-- word into the next instruction.  Locked cycles too (KNOWN ISSUES
+					-- 48): their frame's PC is the CAS/TAS itself (the handler reads the
+					-- operation word there, UM 8.2.2), DF set reruns it whole, and the
+					-- rollback undoes a register the faulted read wrote.
 					IF berr_k='1' AND make_berr='0' AND trap_berr='0' AND trap_mmu_berr='0' AND
 					   berr_exception_active='0' AND cp_bf_now='0' AND   -- (not a coprocessor dialog's: it goes on from the fault, 7d B5c)
-					   fc_internal(1 downto 0)="01" AND pmmu_rmw='0' THEN
+					   fc_internal(1 downto 0)="01" THEN
 						mmu_restart_pending <= '1';
 						mmu_restart_soft <= '0';
 						soft_dead <= '0';
@@ -6003,6 +6022,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								       " faddr_hi=" & integer'image(conv_integer(pmmu_fault_addr_out(31 downto 16))) severity note;
 								-- synthesis translate_on
 								berr_opcode_saved <= exe_opcode;
+								IF opc_buf_valid='1' AND last_opc_pc > insn_next_pc THEN
+									berr_skip_pc <= last_opc_pc;
+								ELSE
+									berr_skip_pc <= insn_next_pc;
+								END IF;
 								-- A coprocessor dialog's fault (7d B5c): always the long
 								-- frame (the dialog's state rides in it), its PC the
 								-- faulted fetch's address or scanPC - what RTE's PC

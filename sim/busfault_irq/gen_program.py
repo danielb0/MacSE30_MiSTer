@@ -148,7 +148,10 @@ EXPECT = {"r_move_b": (0x111111ED, 0xBF96), "r_move_w": (0x11115EED, 0xBF96),
           "r_move_l": (DIB, 0xBF96), "r_add": ((0x11111111 + DIB) & 0xFFFFFFFF, 0xBF96),
           "r_movem": (DIB, DIB), "r_movem9": (DIB, DIB), "r_movem_w": (0x5EED, 0x5EED),
           "w_move_l": (0x11111111, 0xBF96), "w_movem": (0x11111111, 0xBF96),
-          "m_add": (0x11111111, 0xBF96), "m_move": (0x11111111, 0xBF96)}
+          "m_add": (0x11111111, 0xBF96), "m_move": (0x11111111, 0xBF96),
+          # a locked cycle's frame with DF cleared says the handler emulated the
+          # whole CAS/TAS (UM 8.2.2): nothing of it runs, D0 is the handler's
+          "m_cas": (0x11111111, 0xBF96), "m_tas": (0x11111111, 0xBF96)}
 if HMODE == "complete" and SHAPE in EXPECT:
     put(0x301C, long(EXPECT[SHAPE][0]) + long(EXPECT[SHAPE][1]) + long(1))
 put(STUB, [0x21FC] + long(0xDEADFFFF) + [0x3FF0, 0x4E72, 0x2700])
