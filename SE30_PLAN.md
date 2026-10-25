@@ -20427,7 +20427,8 @@ Daniel - add to it, move items out when fixed).**
     public, last published ~10-08): updated draft for the coming release -
     C:\temp\Mac\MacSE30_page_draft_20261023.html (SE/30 + IIcx, a Core
     column, A/UX, KNOWN ISSUES 44's games, CD-ROM drivers, MacsBug, Scale,
-    Mouse speed). PUBLISH ONLY WHEN THE NEW VERSIONS ARE OUT (Daniel,
+    Mouse speed). PUBLISHED 2026-10-25 (version 16, synced with main's README +
+    The Pawn; copy C:\temp\Mac\MacSE30_page_20261025.html). Was: PUBLISH ONLY WHEN THE NEW VERSIONS ARE OUT (Daniel,
     10-23); before then re-read the live page, merge, and settle Ishar
     Color on 6.0.8 (MacsBug check) and the README's final wording (Ishar
     B&W = 6.0.8, Theldrow 2.3 and the A/UX wording settled, in the draft);
