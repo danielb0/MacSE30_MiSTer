@@ -21544,7 +21544,7 @@ write; CAS2 on each of its four accesses (two addresses); external bus
 error and PMMU page fault (invalid, WP); every handler (abort, rerun -
 the whole locked sequence again, complete - nothing runs); caches on
 (the data cache forces a locked read to miss, 1.16.2) and an interrupt at
-every clock around it, as busfault_irq does. **STAGED (2026-10-26
+every clock around it, as busfault_irq does. **STAGED (2026-10-25
 night, beside KNOWN ISSUES 46's chain; sim/_stage13, merged into
 sim/busfault_irq after it - the sweep copies those files per case):**
 class 13's shapes m_cas2 (CAS2's second address faults), m_cas2a (its
