@@ -21221,6 +21221,41 @@ Daniel - add to it, move items out when fixed).**
     Not used on the way back (rerun and complete give the reference's
     registers), so the sweep compares them only with +PIPE. To the UM
     (8.2.1/8.2.2, the frames) after this item.
+    **THIRD ITEM - FOUND BY THE NIGHT'S SWEEP, FIX IN TEST (2026-10-25):
+    a data read ended by an external bus error stacks flags computed from
+    the bus's junk.** The sweep at 18:28: 115/250 cases, 33 FAIL, one
+    signature - every read shape, every handler, SE/30 and IIcx, only with
+    the 24-bit row + caches, only the interrupt at clock 64 (80): the frame's
+    SR word differs (move.b $2000 vs the reference's $2008, cmp.w $2002 vs
+    $2004). The reference is wrong too: the instruction before is moveq
+    #0,d2, so the frame must hold $2004 - UM 8.2.2: the SR copy is the SR
+    when the fault is taken (the read-modify-write handler "modifies the
+    condition codes in the status register copy"); the read's operand never
+    arrived. The self-reference compare hid it: the junk was the same every
+    iteration until an interrupt changed what was left on the bus. CHECK
+    ADDED (tb_busfault_irq.v item 5): every r/m iteration's frame SR equals
+    $3018's (gen_program.py: $2004, $2014 for the X-readers); it FAILS on
+    the old kernel in every context, MMU off included (move.b/tst $2000,
+    cmp.w $2002; MMU+caches $2008). CAUSE (+TRACE with Flags, flags_shadow):
+    the PMMU's restart path rolls the CCR back to flags_shadow
+    (mmu_restart_restore_now), the external path never did; and on the edge
+    after the dispatch the faulting instruction's own flag write (exec
+    alu_setFlags, the junk operand) lands and outranks the ALU's restore,
+    and the next decode retakes the shadow from the junk. FIX
+    (TG68KdotC_Kernel.vhd, by restore_ccr_sig): berr_read_ccr_restore = the
+    dispatch edge of an external (make_mmu_berr 0) bus error on a data read
+    (berr_external_rw 1, FC data); it latches flags_shadow_now into
+    berr_ccr_val and berr_ccr_pend, which restores the CCR on every clkena
+    edge of the frame's stacking (trap_berr) - the SR word is stacked last.
+    Shape check on the fix: 7 offsets each, every r/m shape complete with
+    the 24-bit row + caches, controls (a write, a trap) MMU off. New shapes
+    for what it breaks for real: r_addx (ADDX.L -(A0),-(A1)), r_abcd,
+    m_negx, m_roxl.W (A0) with X set by the prelude (ori #$10,ccr) - a junk
+    X stacked is added in when the handler reruns the instruction. Impact:
+    small - Mac OS's bus-error users discard the frame; a rerun recomputes
+    the flags except X for the X-readers. Then the class sweep again (the
+    chain stops after this sweep, on the old kernel's failures), the
+    regression, the builds; batched with (b).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -21393,6 +21428,27 @@ Remaining: 4 interrupt shapes (+ 4b FPU fault x interrupt), 6 pointer-level
 faults, 7 trace (T0 never run; T1 x faults), 8 an OS-shaped random program,
 9 the devices outside the CPU (VIA, SCC, SCSI, SWIM, ASC, SDRAM: random
 benches). Order: 6 (+ 2's directed part), 7, 4 with 4b, 8, 9 in between.
+**STATUS AND A TENTH CLASS (2026-10-25, Daniel: "add the new class to the
+plan"; the sweeps continue after KNOWN ISSUES 46's chain).** Done: 1, 3, 5
+(round 3), 6 (round 4: directed x2, random ptr 50/50, ptrsuper 49/50 -
+seed 31 = the MOVES An,(An)+ fix). Open: 2's directed part, 4 (only the
+external-bus-error and trap shapes, by KNOWN ISSUES 46's sweep), 4b, 7 (T1 x
+one trap shape only), 8, 9. NEXT ORDER: 7, 4 with 4b, 2's directed part, 8;
+9 in between. **(10) EXTERNAL BUS ERRORS** - missed by the 10-20 review:
+every class above raises its faults through the PMMU (a descriptor), whose
+restart path differs from a bus cycle ended by BERR (GLUE's UI6 timeout on
+the SE/30, the NuChip's NuBus timeout on the IIcx). KNOWN ISSUES 46 found
+two bugs there in one day (the interrupt taken ahead of the bus error; the
+junk CCR). Covered by sim/busfault_irq (reads, writes, RMW, fetches, X-readers;
+abort/rerun/complete; MMU off and the 24-bit row + caches; SE/30 and IIcx).
+Left: a bus error on an FPU operand read/write; in the middle of a MOVEM
+transfer (some registers loaded); on a misaligned access's second cycle
+(r_move_l1/l2 check registers and SR, not the frame's SSW/size); during
+an RTE's frame reads and during exception stacking (a double fault: the
+halt). **A RULE FOR EVERY REMAINING CLASS:** besides the self-reference
+compare (the core with vs without the disturbance), assert the values the
+UM fixes outright (the frame's SR, PC, SSW bits, format) - the junk CCR was
+consistent with itself and passed every self-compare.
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
 touch faults at level B (or A) and the handler writes a whole table; every
 sweep so far invalidated level C only. BUILT in `sim/predec_fault`
