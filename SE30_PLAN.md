@@ -21202,6 +21202,15 @@ Daniel - add to it, move items out when fixed).**
     Slot Manager, the ROM's and MODE32's checks run at $2700); A/UX's faults
     are the PMMU's - it took a program reading junk pointers with interrupts
     open.
+    **THE NIGHT (2026-10-25 14:35, sim/overnight_k46.sh, Daniel: "option A,
+    the regression, then compile"):** the full class sweep (250 cases: every
+    shape and handler; the SE/30 without and with the 24-bit row + caches;
+    the IIcx's NuBus, bus shapes), then the full regression (the Pawn's
+    shape now a phase-2 line), then both release-form builds (k46release)
+    if every line passes. Log: sim/overnight_k46.log. ~7-8 h + 6.6 h + 1.5 h.
+    Then Daniel's board test (The Pawn on both cores, System 6 and 7).
+    RELEASE: NOT on its own (Daniel, 2026-10-25) - the fix stays on dev and
+    goes out with the next batch of fixes.
     **SECOND ITEM, OPEN, low (pre-existing, not this race):** the bus-error
     frame's pipe words. An interrupt taken just before the faulting
     instruction changes stacked pipe stage B (+$0E: $0000 for $4E71) and the
