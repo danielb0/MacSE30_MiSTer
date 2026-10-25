@@ -69,5 +69,5 @@ export -f run1; export HERE HPER
 LOG=sweep_$SET.log
 echo "==== $(date '+%F %T') SET=$SET LEVELS=$LEVELS CTX=$CTX: ${#CASES[@]} cases" > "$LOG"
 printf '%s\n' "${CASES[@]}" | xargs -P 8 -I{} bash -c 'run1 {}' >> "$LOG"
-echo "==== $(date '+%F %T') done: $(grep -c '==== PASS' "$LOG") PASS, $(grep -c '==== FAIL' "$LOG") FAIL of ${#CASES[@]}" >> "$LOG"
+echo "==== $(date '+%F %T') SET=$SET CTX=$CTX done: $(grep -c '==== PASS' "$LOG") / ${#CASES[@]} PASS" >> "$LOG"
 tail -1 "$LOG"

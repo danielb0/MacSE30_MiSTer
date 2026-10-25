@@ -63,6 +63,9 @@ if [ "$WHAT" != phase1 ]; then
     for c in 0 0x2101; do   # KNOWN ISSUES 37's class: an address register stored through its own (An)+/-(An), 132 cases
       r=$(cd "$SIM/predec_fault" && ./run_selfst.sh CACR=$c 2>&1 | tail -1); echo "$r"
     done
+    # KNOWN ISSUES 46: an interrupt at every clock around an empty-slot bus error (the Pawn's
+    # MOVEA.L, abort/rerun/complete), the SE/30's 24-bit row with the caches and the IIcx's NuBus
+    r=$(cd "$SIM/busfault_irq" && ./run_sweep.sh SET=pawn CTX="11 i11" 2>&1 | tail -1); echo "$r"
     job "bfx (KNOWN ISSUES 21)" predec_fault bash -c 'd=../_bfx; rm -rf $d; mkdir $d; cp gen_program.py tb_predec_fault.v run.sh $d/; cd $d && CASESET=bfx ./run.sh +UOK; r=$?; cd ..; rm -rf _bfx; exit $r'
   } > "$LOG.2"
   cat "$LOG.2"

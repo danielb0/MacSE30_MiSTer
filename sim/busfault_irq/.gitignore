@@ -5,3 +5,4 @@ offsets.txt
 run.log
 transcript
 evt.out
+sweep_*.log
