@@ -21544,7 +21544,22 @@ write; CAS2 on each of its four accesses (two addresses); external bus
 error and PMMU page fault (invalid, WP); every handler (abort, rerun -
 the whole locked sequence again, complete - nothing runs); caches on
 (the data cache forces a locked read to miss, 1.16.2) and an interrupt at
-every clock around it, as busfault_irq does. NEXT ORDER, revised: 13 and
+every clock around it, as busfault_irq does. **STAGED (2026-10-26
+night, beside KNOWN ISSUES 46's chain; sim/_stage13, merged into
+sim/busfault_irq after it - the sweep copies those files per case):**
+class 13's shapes m_cas2 (CAS2's second address faults), m_cas2a (its
+first), m_cas_wp and m_tas_wp (MMU=1: logical $103100, the second
+megabyte's descriptor WP; MMU=0 the empty slot) - abort, rerun, complete,
+both SE/30 contexts: PASS. The locked cycle faults on its READ (RW read, RM
+set): UM 9.x, the ATC translates "a write or read-modify-write access" only
+if it is not write-protected - so on these machines no locked cycle can
+fault on its write side (a WP page fails the read, an empty slot the read
+first); nothing to sweep there. Class 11's bus-error part: check 8 - every
+r/w/m frame's SSW bits 8-0 (DF, RM, RW, SIZE, FC) and fault address from a
+table (gen_program.py SSWX), 204/204 PASS (every bus shape, every handler,
+both SE/30 contexts); planted wrong SSW and wrong PC both FAIL. Left for
+class 13: the interrupt sweep of the four new shapes (run_sweep.sh SET=c13,
+36 cases incl. the IIcx) after the chain. NEXT ORDER, revised: 13 and
 11's bus-error part first (they share busfault_irq's harness and found
 bugs this week), then 7, 4 with 4b, 12, 2's directed part, 8; 9 in between.
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
