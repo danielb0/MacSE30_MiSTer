@@ -5057,7 +5057,14 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 			-- retire before the interrupt is serviced, so defer only the external
 			-- IRQ term across successful RTE retirement. Immediate fault/trace
 			-- cases still keep priority on the same edge.
-			IF ((v_irq_pending = '1') AND opcode /= x"4E73") OR make_trace='1' OR (make_trace_t0='1' AND v_is_cof='1') OR make_berr='1'
+			-- KNOWN ISSUES 46: no group 1 exception (interrupt, trace) on the
+			-- edge an external bus error arrives (berr_k, make_berr not yet
+			-- latched) - the fault dispatches on the next edge, ahead of them
+			-- (group 0, UM 8.1)
+			IF (((v_irq_pending = '1') AND opcode /= x"4E73") OR make_trace='1' OR (make_trace_t0='1' AND v_is_cof='1'))
+			   AND NOT (berr_k = '1' AND make_berr = '0') THEN
+				setinterrupt <= '1';
+			ELSIF make_berr='1'
 			   OR (pmmu_tc_en='1' AND pmmu_fault='1' AND dib_sub_hit='0' AND
 			       ((berr_exception_active='0' AND pmmu_fault_dispatched='0') OR pmmu_fault_was_cleared='1') AND
 			       trap_berr='0' AND trap_mmu_berr='0')

@@ -21144,7 +21144,9 @@ Daniel - add to it, move items out when fixed).**
     word from 10A02E20 in Supervisor data space"), System 6 hangs. SE/30
     run 2: the same report, A0 $10A02E20. A real SE/30 or IIcx should do the
     same; MAME (acknowledges every unmapped address) would at most follow the
-    junk further - a cross-check only, not run.
+    junk further - a cross-check only, not run. The game RUNS on the MacPlus
+    core (Daniel, 2026-10-25): the Plus ROM has no hierarchical-menu walk, so
+    an unknown ID just returns NIL - consistent with the reading above.
     (b) THE CORE FAULT - SE/30 run 1 (screenshot 20261025_125454): "Bus
     Error at 4080622E while fetching instructions from 40810BFA", A0
     $FA000059. Its stack has 8 bytes run 2's lacks, at SP $772C84: $2008
@@ -21165,6 +21167,50 @@ Daniel - add to it, move items out when fixed).**
     run must give the format $B frame with the faulting PC and DF, the
     destination unchanged, the interrupt after; a sanity plant that must
     fail. Then the fix, the regression, a compile, The Pawn on the SE/30.
+    Daniel then: sweep the class ("including the trap part", 2026-10-25).
+    **THE BENCH (sim/busfault_irq, 2026-10-25):** one exception-raising
+    instruction looped, the interrupt at a different clock of every
+    iteration (one simulation per case), every iteration compared with an
+    interrupt-free reference iteration (exception count, the frame, A0/D0/D1,
+    SR) plus the interrupt taken once at an instruction's address; +PLANT
+    (the bus error replaced by an acknowledge with $DEADBEEF) FAILS as it
+    must; +HPER shortens HSYNC* (UI6's wait); IICX=1 = the IIcx's GLUE +
+    NuChip (the empty slot a NuBus timeout); +TRACE spies the kernel's
+    boundary signals. Shapes: 13 reads, 6 writes, 3 read-modify-writes, 2
+    fetches (all from empty slot $A), 10 traps (TRAP, TRAPV, CHK, zero
+    divide, privilege, illegal, A-line, F-line, trace, address error);
+    handlers abort / rerun / complete (DIB).
+    **REPRODUCED, CAUSE, FIX.** The Pawn's shape (MOVEA.L (A0),A0, 24-bit
+    MMU, CACR $2101, level 2), 231 offsets: 36 FAIL - every interrupt that
+    arrives at ANY time during the bus-error-terminated cycle, not a
+    one-clock race: A0 = the bus's junk, the interrupt's vector fetched, the
+    bus error stacked with PC = the interrupt handler's, SSW $5066, the
+    handler never run, the mask left at 2 (the interrupt then never taken:
+    a hang-shaped symptom - the IIcx's System 6 hang may be this). +TRACE:
+    the faulted beat is acknowledged with berr_k = 1 on edge E while
+    make_berr (registered) is still 0; with no interrupt, E takes setopcode
+    and E+1 dispatches the bus error (make_berr = 1) with the faulting PC;
+    with one pending, E's boundary takes setinterrupt and the dispatch picks
+    the INTERRUPT (make_berr 0), make_berr latches during its stacking and
+    fires at the handler's first instruction. FIX (TG68KdotC_Kernel.vhd, the
+    boundary): no group-1 term (interrupt, trace) on the edge an external
+    bus error arrives (berr_k = 1, make_berr = 0) - the interrupt case takes
+    the no-interrupt path, the bus error wins on E+1 (group 0, UM 8.1). After
+    it: 231/231 the frame and registers; the driver (run_sweep.sh SET=pawn
+    CTX=11): abort 265/265, complete 273/273, rerun 433/433. Why nothing met
+    it before: Mac OS touches empty slots only with interrupts masked (the
+    Slot Manager, the ROM's and MODE32's checks run at $2700); A/UX's faults
+    are the PMMU's - it took a program reading junk pointers with interrupts
+    open.
+    **SECOND ITEM, OPEN, low (pre-existing, not this race):** the bus-error
+    frame's pipe words. An interrupt taken just before the faulting
+    instruction changes stacked pipe stage B (+$0E: $0000 for $4E71) and the
+    DOB (+$18, meaningless on a read); even the reference's are not the UM's
+    stages (stage B $7400 = the word BEFORE the instruction in the rerun
+    layout; the stage B address +$24 holds the fault address, not PC+4).
+    Not used on the way back (rerun and complete give the reference's
+    registers), so the sweep compares them only with +PIPE. To the UM
+    (8.2.1/8.2.2, the frames) after this item.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test

@@ -1,0 +1,5 @@
+==== 2026-10-25 13:38:43 SET=pawn LEVELS=2 CTX=11: 3 cases
+r_movea_l abort mmu1 cache1 L2 (265 offsets): ==== PASS: 265 iterations, every one as the reference 
+r_movea_l complete mmu1 cache1 L2 (273 offsets): ==== PASS: 273 iterations, every one as the reference 
+r_movea_l rerun mmu1 cache1 L2 (433 offsets): ==== PASS: 433 iterations, every one as the reference 
+==== 2026-10-25 13:57:04 done: 3 PASS, 0 FAIL of 3
