@@ -21126,6 +21126,45 @@ Daniel - add to it, move items out when fixed).**
     not MAME). No known software uses the form (a deliberately illegal
     encoding only); the work: read the UM, then decode modes 000/001 as
     the chip does, with a bench, and drop the Dn path if it goes.
+46. **OPEN (2026-10-25, Daniel, board, release 20261024; the game The Pawn,
+    1986) - an external (GLUE) bus error on a data read is LOST when a
+    level-2 interrupt arrives with it: the read completes with junk, the
+    interrupt is taken, the bus error surfaces at the handler's first
+    instruction.** Two separate things in one report:
+    (a) THE GAME'S CRASH - AUTHENTIC (read from the ROM, not yet
+    cross-checked). The Pawn uses its own menus (the Atari ST version's
+    system) and never makes a Menu Manager bar, so MenuList ($A1C) is NIL;
+    it then asks the Menu Manager for menu ID $BF96. The ROM stores ROMBase
+    + $10000 at address 0 on purpose ($4080D62E move.l A2,$0.w), so the NIL
+    handle dereferences to $40810000 (A1 on every screen) and the search for
+    the ID ($40810BD2, the hierarchical-menu walk the SE/II ROMs added; not
+    _InitMenus - MacsBug's nearest symbol) reads ROM code as a menu list.
+    MOVEA.L (A0),A0 at $40810BF6 then reads $10A02E20 = empty slot $A in
+    24-bit mode: a bus error. IIcx: System 7 bombs there ("reading long
+    word from 10A02E20 in Supervisor data space"), System 6 hangs. SE/30
+    run 2: the same report, A0 $10A02E20. A real SE/30 or IIcx should do the
+    same; MAME (acknowledges every unmapped address) would at most follow the
+    junk further - a cross-check only, not run.
+    (b) THE CORE FAULT - SE/30 run 1 (screenshot 20261025_125454): "Bus
+    Error at 4080622E while fetching instructions from 40810BFA", A0
+    $FA000059. Its stack has 8 bytes run 2's lacks, at SP $772C84: $2008
+    $4081 $0BF8 $0068 = a format 0 frame, SR $2008, PC $40810BF8, vector
+    offset $068 (level-2 autovector, VIA2). So the MOVEA.L COMPLETED (A0
+    loaded with junk), the level-2 interrupt was taken at the next boundary,
+    and the bus error was delivered at the VIA2 handler's first instruction
+    ($4080622E) with the old instruction's stage-B address. The 68030 ends a
+    bus-errored instruction with the bus error (long frame, the faulting PC,
+    DF, the destination unchanged) and samples interrupts only at
+    boundaries - run 2's result every time. The class is untested: every
+    fault x interrupt sweep (irqsweep, irqsweep3, IRQAT) used PMMU page
+    faults; the external bus-error benches (sim/busfault, busfault_dib)
+    hold the interrupt masked (+ipl, SR $2700). NEXT (Daniel, 2026-10-25:
+    "go ahead with the bench"): a bench from busfault_dib - an UNMASKED
+    level-2 interrupt raised at every clock across the GLUE's bus-error
+    read, the MOVEA.L (A0),A0 shape and the other read/write shapes; every
+    run must give the format $B frame with the faulting PC and DF, the
+    destination unchanged, the interrupt after; a sanity plant that must
+    fail. Then the fix, the regression, a compile, The Pawn on the SE/30.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
