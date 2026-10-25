@@ -16,6 +16,7 @@ it, and the interrupt is taken once, at a boundary.
     $1000        the loop (below); $3000 variables; $3F80 the interrupt's
                  acknowledge, $3F90 the iteration marker, $3F94 the
                  continuation marker (all watched by the bench); $3FF0 end
+    $3018        the SR a read's fault stacks (the bench's check)
     $4000        MMU=1: the ROM's 24-bit table ($40800050, 16 descriptors)
     $6000+64*i   iteration i's record:
                    +0 exceptions taken   +4 interrupts taken
@@ -32,7 +33,7 @@ The loop, per iteration:
             move.l d7,$3F90.w             the marker: the bench's clock 0
             move.w #$2000,sr              interrupts open
             movea.l #A0,a0 ; move.l #$11111111,d0 ; move.l #$BF96,d1 ; moveq #0,d2
-            [the shape's prelude]
+            [the shape's prelude]          (X-readers: ori #$10,ccr)
       F:    the shape's instruction       raises the exception
       Fn:   nop
       C:    move.l d7,$3F94.w ; nop x PAD ; move.w #$2700,sr ; the record
@@ -75,6 +76,9 @@ SHAPES = {
     "r_movem":    ("r", [], [0x4CD0, 0x0003], None),              # movem.l (a0),d0-d1
     "r_add":      ("r", [], [0xD090], None),                      # add.l (a0),d0
     "r_tst":      ("r", [], [0x4A50], None),                      # tst.w (a0)
+    # X read from the CCR: a junk X stacked would be added in on the rerun
+    "r_addx":     ("r", [0x003C, 0x0010, 0x43F8, 0x3100], [0xD388], FAULT + 4),   # ori #$10,ccr ; lea $3100,a1 ; addx.l -(a0),-(a1)
+    "r_abcd":     ("r", [0x003C, 0x0010, 0x43F8, 0x3100], [0xC308], FAULT + 1),   # ori #$10,ccr ; lea $3100,a1 ; abcd -(a0),-(a1)
     # writes to empty slot space
     "w_move_b":   ("w", [], [0x1080], None),                      # move.b d0,(a0)
     "w_move_w":   ("w", [], [0x3080], None),                      # move.w d0,(a0)
@@ -86,6 +90,8 @@ SHAPES = {
     "m_tas":      ("m", [], [0x4AD0], None),                      # tas (a0)
     "m_cas":      ("m", [], [0x0ED0, 0x0040], None),              # cas.l d0,d1,(a0)
     "m_add":      ("m", [], [0xD190], None),                      # add.l d0,(a0)
+    "m_negx":     ("m", [0x003C, 0x0010], [0x4090], None),        # ori #$10,ccr ; negx.l (a0)
+    "m_roxl":     ("m", [0x003C, 0x0010], [0xE5D0], None),        # ori #$10,ccr ; roxl.w (a0)
     # instruction fetch from empty slot space
     "f_jmp":      ("f", [], [0x4ED0], None),                      # jmp (a0)
     "f_jsr":      ("f", [], [0x4E90], None),                      # jsr (a0)
@@ -126,6 +132,9 @@ for v in list(range(2, 12)) + list(range(32, 48)):
     put(4 * v, long(XH))
 for v in range(25, 32):
     put(4 * v, long(IH))
+# the SR a read's fault must stack (UM 8.2.2: the CCR before the instruction -
+# moveq #0,d2's Z, and X where the prelude sets it); the bench reads $3018
+put(0x3018, long(0x2014 if 0x003C in pre else 0x2004))
 put(STUB, [0x21FC] + long(0xDEADFFFF) + [0x3FF0, 0x4E72, 0x2700])
 
 starts = []          # every instruction's address: where an interrupt may be taken

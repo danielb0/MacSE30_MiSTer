@@ -430,6 +430,9 @@ architecture logic of TG68KdotC_Kernel is
 	signal mmu_restart_restore	: std_logic;  -- re-applies the rollback one edge after dispatch (straggler writeback)
 	signal mmu_restart_active	: std_logic;  -- combinational: pending OR same-edge (undispatched) restart fault
 	signal mmu_restart_restore_now	: std_logic;  -- same-edge rollback request plus the one-edge hold
+	signal berr_read_ccr_restore	: std_logic;  -- KNOWN ISSUES 46: an external bus error on a data read rolls the CCR back
+	signal berr_ccr_pend		: std_logic := '0';  -- held from the dispatch through the frame's stacking
+	signal berr_ccr_val		: std_logic_vector(7 downto 0) := (OTHERS => '0');  -- the CCR before the instruction
 	signal pmmu_fault_restart_live	: std_logic;
 	signal insn_fetch_consumer	: std_logic;  -- decode is consuming the in-flight stream fetch (extension/immediate)
 	signal stream_word_take	: std_logic;  -- a state "00" cycle that consumes its stream word (not readahead)
@@ -1540,9 +1543,30 @@ BEGIN
 	-- MC68030 UM 8.2.2: The status register value in the format error exception
 	-- stack frame is the value in the status register before the RTE instruction
 	-- was executed.
-  restore_ccr_sig <= '1' WHEN mmu_restart_restore_now='1' OR trap_format_error='1' OR rte_mmu_fix_ccr_update='1' ELSE '0';
+  -- KNOWN ISSUES 46: a data read ended by an external bus error never
+  -- delivers its operand - the frame's SR is the CCR before the instruction
+  -- (UM 8.2.2), not flags from the bus data.  The shadow is taken on the
+  -- dispatch edge and put back on every edge of the frame's stacking (the
+  -- instruction's own flag write lands after the dispatch and outranks it)
+  berr_read_ccr_restore <= '1' WHEN setinterrupt = '1' AND make_berr = '1' AND make_mmu_berr = '0' AND
+                                    berr_external_rw = '1' AND berr_external_fc(1 downto 0) = "01" ELSE '0';
+  PROCESS (clk) BEGIN
+    IF rising_edge(clk) THEN
+      IF Reset = '1' THEN
+        berr_ccr_pend <= '0';
+      ELSIF clkena_lw = '1' THEN
+        IF berr_read_ccr_restore = '1' AND berr_ccr_pend = '0' THEN
+          berr_ccr_pend <= '1'; berr_ccr_val <= flags_shadow_now;
+        ELSIF berr_ccr_pend = '1' AND trap_berr = '0' AND setinterrupt = '0' THEN
+          berr_ccr_pend <= '0';
+        END IF;
+      END IF;
+    END IF;
+  END PROCESS;
+  restore_ccr_sig <= '1' WHEN mmu_restart_restore_now='1' OR (berr_ccr_pend='1' AND trap_berr='1') OR trap_format_error='1' OR rte_mmu_fix_ccr_update='1' ELSE '0';
   flags_shadow_now <= Flags WHEN flags_shadow_take = '1' ELSE flags_shadow;
   restore_ccr_value_mux <= flags_shadow_now WHEN mmu_restart_restore_now='1' ELSE
+                           berr_ccr_val WHEN berr_ccr_pend='1' AND trap_berr='1' ELSE
                            rte_mmu_fix_ccr_value WHEN rte_mmu_fix_ccr_update='1' ELSE
                            rte_saved_ccr;
 

@@ -32,6 +32,8 @@
 //        unless all the reference's exceptions came first (a completed
 //        access, HMODE=complete or a trap that returns)
 //     4. no unexpected exception (the stub's $DEADFFFF), no halt
+//     5. reads (r, m): every iteration's frame SR is $3018's - the CCR
+//        before the faulting instruction (UM 8.2.2), never flags from bus data
 //   +PLANT=k: iteration k's bus error is replaced by an acknowledge with
 //   $DEADBEEF - the lost bus error itself; the bench must FAIL it.
 //
@@ -203,9 +205,12 @@ module tb_busfault_irq;
   reg  [1:0] s_state;
   reg  [2:0] s_ipl;
   reg [31:0] s_pc, s_epc;
-  integer    trace = 0;
+  integer    trace = 0, trace_it = 2;
+  reg  [7:0] s_flags, s_shadow; reg s_rccr, s_rsig, s_mmub, s_erw; reg [2:0] s_efc;
+  reg        s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw; reg [31:0] s_dsa, s_kaddr;
   initial if ($test$plusargs("TRACE")) begin
     trace = 1;
+    if (!$value$plusargs("TRACE=%d", trace_it)) trace_it = 2;
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/clkena_lw", "/tb_busfault_irq/s_clkena");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/setinterrupt", "/tb_busfault_irq/s_setint");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/interrupt", "/tb_busfault_irq/s_int");
@@ -220,10 +225,32 @@ module tb_busfault_irq;
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/IPL_nr", "/tb_busfault_irq/s_ipl");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/TG68_PC", "/tb_busfault_irq/s_pc");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/exe_pc", "/tb_busfault_irq/s_epc");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/ALU/Flags", "/tb_busfault_irq/s_flags");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/flags_shadow", "/tb_busfault_irq/s_shadow");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/berr_read_ccr_restore", "/tb_busfault_irq/s_rccr");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/restore_ccr_sig", "/tb_busfault_irq/s_rsig");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/make_mmu_berr", "/tb_busfault_irq/s_mmub");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/berr_external_rw", "/tb_busfault_irq/s_erw");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/berr_external_fc", "/tb_busfault_irq/s_efc");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_valid", "/tb_busfault_irq/s_dsv");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_fresh", "/tb_busfault_irq/s_dsf");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_pre", "/tb_busfault_irq/s_dsp");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_hit", "/tb_busfault_irq/s_dsh");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_rw", "/tb_busfault_irq/s_dsrw");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/pmmu_rw", "/tb_busfault_irq/s_prw");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/dib_sub_addr", "/tb_busfault_irq/s_dsa");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/addr", "/tb_busfault_irq/s_kaddr");
   end
-  always @(posedge clk) if (trace && it == 2 && s_clkena)
-    $display("TR %0d st %b ipl %0d setint %b int %b mkberr %b berrk %b tint %b tberr %b setopc %b setend %b dec %b pc %08x epc %08x as %b addr %08x berr %b",
-             cyc - t0, s_state, s_ipl, s_setint, s_int, s_mkberr, s_berrk, s_tint, s_tberr, s_setopc, s_setend, s_dec, s_pc, s_epc, cpu_as_n, cpu_addr, glue_berr);
+  always @(posedge clk) if (trace && it == trace_it && (s_clkena || s_berrk || s_mkberr))
+    $display("TR ds v%b f%b p%b h%b rw%b prw%b %08x ka %08x | fl %02x sh %02x rccr %b rsig %b mmub %b erw %b efc %o | %0d st %b ipl %0d setint %b int %b mkberr %b berrk %b tint %b tberr %b setopc %b setend %b dec %b pc %08x epc %08x as %b addr %08x berr %b",
+             s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw, s_dsa, s_kaddr, s_flags, s_shadow, s_rccr, s_rsig, s_mmub, s_erw, s_efc, cyc - t0, s_state, s_ipl, s_setint, s_int, s_mkberr, s_berrk, s_tint, s_tberr, s_setopc, s_setend, s_dec, s_pc, s_epc, cpu_as_n, cpu_addr, glue_berr);
+
+  // +WREC=n: the record's writes (the handler's frame copy) in iteration n
+  integer wrec = -1;
+  initial if (!$value$plusargs("WREC=%d", wrec)) wrec = -1;
+  always @(posedge clk) if (wrec >= 0 && it == wrec && ram_wr_now &&
+                            ram_addr[14:0] >= (32'h6000 >> 2) + 16 * it && ram_addr[14:0] < (32'h6000 >> 2) + 16 * it + 16)
+    $display("WREC %0d +%0d %08x", cyc - t0, (ram_addr[14:0] - (32'h6000 >> 2) - 16 * it) * 4, ram_wdata);
 
   // ------------------------------------------------------------ scoring
   integer pass = 0, fails = 0, bad_its = 0;
@@ -238,7 +265,7 @@ module tb_busfault_irq;
     end
   endfunction
 
-  integer n, fd, r, k, o, iters, bad, pipe = 0;
+  integer n, fd, r, k, o, iters, bad, pipe = 0, wdog;
   reg [31:0] endcode, ipc;
   initial begin
     $readmemh("program.hex", img);
@@ -266,7 +293,11 @@ module tb_busfault_irq;
     repeat (20) @(posedge clk);
     reset_n = 1;
     n = 0;
-    while (ram[32'h3FF0 >> 2] == 0 && !halted && n < 200_000_000) begin @(posedge clk); n = n + 1; end
+    // an iteration is a few thousand clocks; 400,000 (+WDOG=n) is a hang (a
+    // bus error that recurs for ever), reported rather than left to a timeout
+    if (!$value$plusargs("WDOG=%d", wdog)) wdog = 400_000;
+    while (ram[32'h3FF0 >> 2] == 0 && !halted && cyc - t0 < wdog) begin @(posedge clk); n = n + 1; end
+    if (ram[32'h3FF0 >> 2] == 0 && !halted) $display("FAIL iteration %0d hung: %0d clocks without its end", it, wdog);
     repeat (40) @(posedge clk);
     endcode = ram[32'h3FF0 >> 2];
     $display("---- %0d clocks; end %08x; halted %0d", n, endcode, halted);
@@ -281,6 +312,15 @@ module tb_busfault_irq;
     if (rec(1, 0) == 0) begin
       fails = fails + 1; $display("FAIL the reference took no exception");
     end
+    // a read's fault stacks the SR before the instruction's flags (UM 8.2.2):
+    // $3018's (moveq #0,d2's Z, the prelude's X), never flags from the
+    // bus-errored data
+    if (fam == "r" || fam == "m")
+      for (k = 0; k < iters; k = k + 1)
+        if (rec(k, 20) >> 16 != ram[32'h3018 >> 2]) begin
+          fails = fails + 1;
+          $display("FAIL it %0d: the frame's SR %04x, not %04x (the CCR before the instruction)", k, rec(k, 20) >> 16, ram[32'h3018 >> 2]);
+        end
     if (rec(0, 0) != rec(1, 0)) begin
       fails = fails + 1; $display("FAIL iteration 0 (cold) took %0d exceptions, the reference %0d", rec(0, 0), rec(1, 0));
     end
