@@ -17943,7 +17943,9 @@ Daniel - add to it, move items out when fixed).**
     drops a trailing `_2026...`, so the name must differ before it).
     README: the swap rule (dev and release).
 
-17. **OPEN (2026-10-13, Daniel's first A/UX boot): A/UX's disk writes
+17. **FIXED (5108795, 2026-10-13: the IO-stall watchdog at 2^28, 8.6 s - the
+    aborted writes were our timer on a slow O_SYNC SD-card write); in the
+    release 20261024.** Opened as: **OPEN (2026-10-13, Daniel's first A/UX boot): A/UX's disk writes
     fail with ABORTED COMMAND - our own target's watchdogs, the lead
     suspect for everything else that went wrong.** Image:
     `C:\temp\Mac\AUX disk\AUX_3_1_1GB.dsk` (1,048,576,000 bytes, file date
@@ -18268,7 +18270,7 @@ Daniel - add to it, move items out when fixed).**
     GLUE PAL equations in `Docs`, or MAME), then a counter in `dc_adv`
     that ends the cycle with a bus error. Low; after KNOWN ISSUES 17.
 
-19. **FIXED IN RTL 2026-10-13 (compile pending): a user-mode RTR popped its
+19. **IN THE RELEASE 20261024 (4f706c9).** **FIXED IN RTL 2026-10-13 (compile pending): a user-mode RTR popped its
     CCR word and PC with the SUPERVISOR function code - every A/UX process
     returning from a signal handler died.** The remaining symptom of
     KNOWN ISSUES 17's second run, read off the booted image
@@ -18359,7 +18361,9 @@ Daniel - add to it, move items out when fixed).**
       tied to the bomb. TRAP #15 = `syscall1%`, A/UX's second system-call
       trap (the Toolbox's), not a fault.
 
-20. **OPEN (2026-10-13): A/UX's boot-time Mac environment (the Startup
+20. **FIXED (2026-10-15, compile 71: A/UX's first full boot to the Finder,
+    the ten defects listed under COMPILE 69 -> 71 below; the hangs after it
+    went to KNOWN ISSUES 22); in the release 20261024.** Opened as: **OPEN (2026-10-13): A/UX's boot-time Mac environment (the Startup
     System Folder's, no extensions) ends in a "System" bus error it
     catches itself, or blocks with the kernel idle - after KNOWN ISSUES
     17 and 19 are fixed.** Facts above (KNOWN ISSUES 19's board result).
@@ -19137,7 +19141,7 @@ Daniel - add to it, move items out when fixed).**
     `JMP $xxxxxxxx.L` entries, demand-paged). PFLN on the good boot: two
     F-lines, opcode $FFFF at $FFFFFE58 (a process executing on its stack -
     not yet placed). -> KNOWN ISSUES 22.
-21. **FIXED IN SIM (2026-10-19, 8973e14; the board build: the next IIcx release
+21. **IN THE RELEASE 20261024 (8973e14).** **FIXED IN SIM (2026-10-19, 8973e14; the board build: the next IIcx release
     form) - BOTH CAUSES FOUND BY SCAN 2.** (1) Bit fields: a five-byte field's
     write cycles split at the long boundary (1+4, 2+3, 3+2 bytes at P-1..P-3),
     so at a page boundary the second page is always the LAST cycle - but the
@@ -19180,7 +19184,10 @@ Daniel - add to it, move items out when fixed).**
     boundary inside the operand - an invalid page faults on the
     instruction's READ first, so the write never faults. The cure is to
     pre-check the second page before the first write, or continuation.
-22. **OPEN (2026-10-16, reproduced in sim): an instruction-fetch page fault
+22. **FIXED ON THE BOARD (compile 76, 2026-10-16: the fetch-fault
+    classification fixed in sim, then 32a9bb0 - the PMMU's FD is the executing
+    PMOVE's own; A/UX to the Finder twice in succession, no /core); in the
+    release 20261024.** Opened as: **OPEN (2026-10-16, reproduced in sim): an instruction-fetch page fault
     on an instruction's OWN extension words is classified as an unused
     prefetch and dropped - the instruction takes stale words.**
     `sim/predec_fault` CASESET=ifetch (IFONLY=k runs case k alone - the
@@ -19406,7 +19413,10 @@ Daniel - add to it, move items out when fixed).**
     fault) on an address the program never named. Not the A/UX killer
     (that was 22's PMOVE FD); to fix after the board result.
 
-24. **OPEN (2026-10-16, forum: Manfred; reproduced on Daniel's board): the
+24. **FIXED ON THE BOARD (2026-10-23, 32c5fa0, MacIIcx_32c5fa00_k24e2: E2,
+    the dot clock from the main PLL, pll_hdmi at X0_Y1; FUTURE BOARD TESTS 13,
+    all twelve cases); in the release 20261024. The diagnosis and the fix are
+    in KNOWN ISSUES 39's notes, from ROOT CAUSE FOUND.** Opened as: **OPEN (2026-10-16, forum: Manfred; reproduced on Daniel's board): the
     IIcx's HDMI output is wrong in every `video_mode` except 1080p with
     `vsync_adjust=0`.** Manfred (HDMI, `vsync_adjust=2`): an "extremely
     high" refresh, out of range, in every mode but 1920x1080. Daniel's
@@ -19750,7 +19760,7 @@ Daniel - add to it, move items out when fixed).**
       verdict on loops (lesson-combinational-loops-are-defects); this map
       table, with these 8 cells, is expected in every build.
 
-28. **FIXED IN SIM (2026-10-17; compile 80 to test) - an exception before a handler's first instruction re-stacked the coprocessor's frame (CAUSE AND FIX below).** Opened as: **(2026-10-17, board, compile 78): FPU-heavy user code under A/UX
+28. **IN THE RELEASE 20261024 (49bdde2; compile 80 on the board: no panic, 57b79b1).** **FIXED IN SIM (2026-10-17; compile 80 to test) - an exception before a handler's first instruction re-stacked the coprocessor's frame (CAUSE AND FIX below).** Opened as: **(2026-10-17, board, compile 78): FPU-heavy user code under A/UX
     gets wrong FPU results, then runs in SUPERVISOR mode.** Found with
     tools/auxunix/fpstress.c (FPU work through function calls, as xeyes; the
     same result demanded every round; optional SIGALRM handler with FPU work
@@ -19930,7 +19940,7 @@ Daniel - add to it, move items out when fixed).**
     wait (Daniel's test) - the Finder's own window restore on a 16 MHz
     machine under A/UX, not a hang. A CommandShell running at shutdown is
     re-opened at the next boot too (Daniel) - the session is restored.
-30. **FIXED IN SIM (2026-10-18, d8270c4; board test = the IIcx build
+30. **IN THE RELEASE 20261024 (d8270c4).** **FIXED IN SIM (2026-10-18, d8270c4; board test = the IIcx build
     `MacIIcx_103c9dbc_ki30ccr.rbf` (md5 209b005d), MacX's first run in 256
     colours) - a page-fault restart rolled
     the CCR back past the previous instruction.** Found by the data-fault
@@ -19988,7 +19998,7 @@ Daniel - add to it, move items out when fixed).**
     the release forms meet). NEXT: the regression, then the IIcx release
     form for MacX's first run in 256 colours.
 
-32. **FIXED IN SIM (2026-10-19; found by the paired isweep) - a long branch's
+32. **IN THE RELEASE 20261024 (0b46b37).** **FIXED IN SIM (2026-10-19; found by the paired isweep) - a long branch's
     second displacement word was not a consumer of its fetch.** isweep 196
     (BEQ.L taken, the displacement's low word on the faulting page, its first
     two words resident): D0 4 in the faulting run, 0 in the reference. The
@@ -20150,7 +20160,7 @@ Daniel - add to it, move items out when fixed).**
     Word catch too - its screenshots show no memory size) ran on 8 MB.
     Valid tests at 8 MB; the RC's memory-pressure test runs at 16 MB.
 
-34. **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
+34. **IN THE RELEASE 20261024 (89b9753).** **FIXED IN SIM (2026-10-20 14:50; found by the third round's supervisor
     MOVES sweep, 13/130 cases) - a MOVES Rn,(d16,An) whose write page-faulted
     resumed one word EARLY, on its displacement word.** Every size (B/W/L),
     Dn and An sources, every offset into the page: the faulting run's D0 ended
@@ -20175,7 +20185,7 @@ Daniel - add to it, move items out when fixed).**
     KNOWN ISSUES 33-shaped flake: rare (only when the user page is out) and
     never the same twice.
 
-35. **FIXED IN SIM (2026-10-21 ~00:40; found by the third round's supervisor
+35. **IN THE RELEASE 20261024 (12ab905).** **FIXED IN SIM (2026-10-21 ~00:40; found by the third round's supervisor
     random sweep - 0/100 seeds, every one) - a (xxx).L or (d16,An) MOVES that
     followed an (An)/(An)+ MOVES fetched its address word from the base
     register's VALUE.** The sweep's seed 0: MOVES.L A3,($6A005).L after
@@ -20204,7 +20214,7 @@ Daniel - add to it, move items out when fixed).**
     sendsig / struct-copyout shape again, and so another KNOWN ISSUES 33
     candidate. The ssweep (130 + 65) never saw it: its pair pattern has one
     MOVES per run.
-36. **FIXED IN SIM (2026-10-21 ~12:00; found by the fourth round's directed
+36. **IN THE RELEASE 20261024 (5fe048f).** **FIXED IN SIM (2026-10-21 ~12:00; found by the fourth round's directed
     pointer-level sweep, DSW_PTR=bc and abc) - a DIVU.W/DIVS.W whose operand
     read faulted took a ZERO-DIVIDE trap from the faulted read's garbage before
     the bus error, so the bus error was stacked inside that trap (SR $2000, on
@@ -20238,7 +20248,7 @@ Daniel - add to it, move items out when fixed).**
     not; 64/64 at CACR 0 and $2101. A/UX: any user DIVU/DIVS whose operand
     page faults, if the garbage is zero - a process escalated to supervisor
     mode; a KNOWN ISSUES 33 candidate. Both r3release forum builds predate it.
-37. **FIXED (2026-10-22, not yet built) - WIDER than recorded: every
+37. **IN THE RELEASE 20261024 (40cebb8).** **FIXED (2026-10-22, not yet built) - WIDER than recorded: every
     MOVES.L An,(An)+ / An,-(An) stored the OLD An whenever the long's first
     beat went out (an aligned long whole - with NO fault; a misaligned one
     its high word), and a fault's frame took the same value.** The directed
@@ -20283,7 +20293,10 @@ Daniel - add to it, move items out when fixed).**
     page (format $B rerun), WP (format $A replay), the 64 KB crossing. Not an
     A/UX shape (compilers never emit it; A/UX's copy loops use separate
     registers) - so the r4release builds go ahead without it (Daniel).
-38. **OPEN (2026-10-21 ~21:00, IIcx r3release on the board, Daniel: a
+38. **FIXED (1b393b3, 2026-10-21): ONE BUG WITH 39, diagnosed there - xeyes's
+    FADD.D #0.5 straddled the page and its resume took a word twice. In
+    r4release and the release 20261024; not seen since (Daniel, 2026-10-25:
+    no A/UX errors in several days).** Opened as: **OPEN (2026-10-21 ~21:00, IIcx r3release on the board, Daniel: a
     loaded system, constantly switching between programs) - xeyes died
     executing the DISPLACEMENT WORD of an FPU store.** The core
     (C:\temp\Mac\AUX disk\used\xeyes crash\AUX_3_1_1GB-clean2.vhd,
@@ -20338,7 +20351,9 @@ Daniel - add to it, move items out when fixed).**
     C07FC000 00001234 against 4000 C0000000 00001234: the immediate double
     read WRONG after the fetch fault mid-immediate - KNOWN ISSUES 39.** The
     full fif sweep (164) is running to map the class.
-39. **OPEN (2026-10-21 ~22:35; found by PROG=fif) - an FPU instruction whose
+39. **FIXED (1b393b3, 2026-10-21: cp_imw's first word goes through cp_xfr;
+    CAUSE AND FIX under DIAGNOSED below; fif in the regression); in r4release
+    and the release 20261024.** Opened as: **OPEN (2026-10-21 ~22:35; found by PROG=fif) - an FPU instruction whose
     IMMEDIATE operand's fetch page-faults part way (the instruction across
     a page boundary, the next page not resident) computes with a wrong
     immediate.** FADD.D #0.5,FP1 split after word 3 (F23C 5422 3FE0 |
@@ -20820,7 +20835,7 @@ Daniel - add to it, move items out when fixed).**
     EVERY "split after word 1" case (36: the F-line instruction's SECOND
     word - command/condition word or branch displacement - on the invalid
     page) TIMED OUT at 1200 s: a hang to investigate first.
-40. **FIXED in RTL, not yet built (2026-10-22; found by item 1's fif) - an
+40. **IN THE RELEASE 20261024 (46400ee).** **FIXED in RTL, not yet built (2026-10-22; found by item 1's fif) - an
     F-line instruction whose SECOND word's fetch page-faults HANGS the
     CPU.** cp_decode waits for fline_context_valid, which latches only from
     a valid beat; the faulted fetch armed the restart (mrp=1, make_berr=1)
@@ -20834,7 +20849,7 @@ Daniel - add to it, move items out when fixed).**
     privilege trap first; fif FIF_SUPER=1 cases 268/272/274/276 hung),
     ends through nop, since setendOPC excludes pmove_decode. Verified:
     228 and 164 user and supervisor, the four PMMU cases.
-41. **FIXED in RTL, not yet built (2026-10-22; FIF_SUPER=1) - a PMMU
+41. **IN THE RELEASE 20261024 (46400ee).** **FIXED in RTL, not yet built (2026-10-22; FIF_SUPER=1) - a PMMU
     instruction's EA extension word page-faulting armed no restart: the
     garbage word went into the EA and the instruction ran on.** PMOVE.L
     TC,-$20(A6) with the d16 on the invalid page (FIF=270): the d16 is
