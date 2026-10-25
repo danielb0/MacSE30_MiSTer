@@ -16,7 +16,7 @@ set -u
 cd "$(dirname "$0")"
 HERE=$(pwd)
 SET=${SET:-all}; LEVELS=${LEVELS:-2}; CTX=${CTX:-"00 11"}; HPER=${HPER:-64}
-for a in "$@"; do eval "$a"; done
+for a in "$@"; do printf -v "${a%%=*}" '%s' "${a#*=}"; done   # NAME=value, spaces kept
 CASES=()
 for s in $(SHAPELIST=1 python gen_program.py | awk '{print $1":"$2}'); do
   shape=${s%%:*}; fam=${s##*:}
