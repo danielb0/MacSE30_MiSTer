@@ -21640,6 +21640,22 @@ shapes once. Not under trace: t_trace, t_adderr; CHK/DIVU under T1 only.
 Found KNOWN ISSUES 50; the full staged set on its fix is running. Left for
 7: T0 x each change-of-flow instruction (Bcc taken/not, DBcc, RTS, RTE,
 SR writes) with an interrupt at every clock - after the c13 sweep.
+Class 7's flow shapes STAGED too (2026-10-26 ~03:00): o_bra, o_beq (taken),
+o_bne (not), o_dbf_t, o_dbf_nt, o_rts, o_movesr - family o, TRACE only, no
+exception (mode abort only); T1 traces each, T0 the taken ones, RTS and the
+SR write: 14/14 PASS; a planted wrong expectation FAILS.
+**THE NEXT CHAIN - PROPOSED, NEEDS DANIEL (each run > 30 min).** After
+overnight_k46 ends: merge sim/_rtl_c12's kernel (KNOWN ISSUES 49, 50, 48's
+CAS2 +6) into rtl/ and sim/_stage13's bench (gen_program.py, tb, run.sh,
+run_sweep.sh: SET=c13|c12|flow, TRACE=1|0, DRY=1) into sim/busfault_irq,
+then (one sweep at a time, ~2 min a case at 8 wide): (a) SET=all CTX="00 11
+i11" - 418 cases, ~14 h (every shape incl. classes 12/13's; the c_ shapes
+in the MMU contexts only); (b) TRACE=1 SET=all - 288 cases with CTX="00
+11", ~9.5 h (CTX=11 alone: ~4.7 h); (c) TRACE=0 the same, 280, ~9.3 h (or
+~4.7 h); (d) class 4's interrupt levels: SET=bus LEVELS="1 4" CTX=11 - 272,
+~9 h (level 4 alone ~4.5 h); then the regression (~7 h) and the release-form
+builds (~1.5 h). In full ~50 h; trimmed (b, c and d on CTX=11, d level 4
+only) ~36 h.
 NEXT ORDER, revised: 13 and
 11's bus-error part first (they share busfault_irq's harness and found
 bugs this week), then 7, 4 with 4b, 12, 2's directed part, 8; 9 in between.
