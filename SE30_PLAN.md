@@ -21395,6 +21395,31 @@ Daniel - add to it, move items out when fixed).**
     the immediate ops (CMPI excluded), NEG/NEGX/NOT/NBCD, ADDQ/SUBQ, the
     memory shifts, BFCHG/BFCLR/BFSET/BFINS, AND/OR/EOR to memory, and
     ABCD/SBCD. 1.17.2's four and PACK/UNPK were the only write-only ones.
+52. **FIXED IN A PRIVATE COPY (2026-10-26 ~06:00, found by 51's class
+    sweep; pre-existing, since 1.17.2 and before): with the PMMU on,
+    1.17.2's answered read was still translated.** The affected
+    instructions are CLR, Scc, MOVE from SR/CCR and PACK/UNPK. On an invalid
+    page the read faulted, so the SSW said READ: $145 for CLR.L, $155 for
+    ST and PACK. The 68030 runs no such read, so the fault is the write's:
+    $105/$115. A handler that maps a page read-only on a read fault would
+    take a second fault; nothing breaks, but the frame isn't the UM's.
+    Fix: pmmu_req is low for that read (wronly_rd), so it is untranslated
+    and cannot fault, and the write faults as a write. New shapes in
+    sim/_stage13 (MMU=1, the third megabyte invalid): w_clr_inv, w_st_inv,
+    w_pack_inv, and m_add_wp (ADD.L to the WP megabyte, a write-back fault).
+    Pre-existing behaviour, allowed by the UM: such a write-back fault
+    stacks the NEXT instruction's PC and the SR after the instruction. The
+    PMMU checks the write from the write pending buffer while the next
+    instruction runs. UM 8.1.2: the saved PC is "the instruction that was
+    executing at the time the fault was detected ... not necessarily the
+    instruction that initiated the bus cycle". The bench now accepts either
+    pair: (F, the CCR before) or (FN, the shape's POST_SR; $3074-$307C).
+    Checks on _rtl_c12:
+    - All 12 cases (4 shapes x 3 modes) PASS.
+    - The tree's kernel FAILS the _inv shapes on the SSW.
+    - A wrong POST_SR FAILS.
+    - predec_fault's dsweep write-only cases (CLR, Scc, MOVE from SR/CCR,
+      PACK/UNPK; 36) PASS invalid and PASS with DSW_WP=1.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -21685,7 +21710,7 @@ one long. 4 offsets then PASS, and a planted wrong interrupt count FAILS.
 Time: 84 min for case 0 beside the 8-wide chain (~13 s an iteration). The
 full sweep at 8 wide is ~40 h. Every 4th clock instead of every 2nd is ~20 h.
 **THE NEXT CHAIN - PROPOSED, NEEDS DANIEL (each run > 30 min).** After
-overnight_k46 ends: merge sim/_rtl_c12's kernel (KNOWN ISSUES 49, 50, 51, 48's
+overnight_k46 ends: merge sim/_rtl_c12's kernel (KNOWN ISSUES 49-52, 48's
 CAS2 +6) into rtl/ and sim/_stage13's bench (gen_program.py, tb, run.sh,
 run_sweep.sh: SET=c13|c12|flow, TRACE=1|0, DRY=1) into sim/busfault_irq,
 then (one sweep at a time, ~2 min a case at 8 wide): (a) SET=all CTX="00 11
