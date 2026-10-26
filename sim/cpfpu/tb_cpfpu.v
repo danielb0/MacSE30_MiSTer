@@ -342,6 +342,33 @@ module tb_cpfpu;
   end
 
   // ------------------------------------------------------------ the run
+  // class 4b (PROG=fswi, +IRQLOOP): a level-1 interrupt at offsets.txt's
+  // offset i-1 after iteration i's marker ($3F90 written), i > 0
+  integer maxclk, il_on = 0, il_n = 0, il_at = -1, il_cyc = 0, il_fd, il_r, il_t0 = 0, il_it = -1, il_s = 0, il_e = 0;
+  integer il_off [0:4095];
+  initial if ($test$plusargs("IRQLOOP")) begin
+    il_on = 1;
+    il_fd = $fopen("offsets.txt", "r");
+    while (!$feof(il_fd) && il_n < 4096) begin il_r = $fscanf(il_fd, "%d", il_off[il_n]); if (il_r == 1) il_n = il_n + 1; end
+    $fclose(il_fd);
+    $display("---- +IRQLOOP: %0d offsets", il_n);
+  end
+  always @(posedge clk) begin
+    il_cyc <= il_cyc + 1;
+    if (il_on && phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F90 >> 2)) begin
+      il_at <= (ram_wdata >= 1 && ram_wdata - 1 < il_n) ? il_cyc + il_off[ram_wdata - 1] : -1;
+      if (ram_wdata == 1) $display("---- +IRQLOOP: an iteration is %0d clocks", il_cyc - il_t0);
+      il_t0 = il_cyc; il_it = ram_wdata;
+    end
+    // +IRQLOOP's events: iteration 0's instruction decoded, and the next
+    if (il_on && il_it == 0 && cpu.kernel.clkena_lw && cpu.kernel.decodeOPC) begin
+      if (cpu.kernel.opcode_pc == ram[32'h3F1C >> 2] && !il_s) begin il_s = 1; $display("EVT insn %0d", il_cyc - il_t0); end
+      if (cpu.kernel.opcode_pc == ram[32'h3F20 >> 2] && il_s && !il_e) begin il_e = 1; $display("EVT end %0d", il_cyc - il_t0); end
+    end
+    if (il_on && il_it == 0 && il_s && !il_e && phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3010 >> 2))
+      $display("EVT pf %0d", il_cyc - il_t0);   // the pager's count: its RTE is near
+    else if (il_on && il_at >= 0 && il_cyc >= il_at) begin irq1_n <= 0; nirq = nirq + 1; il_at <= -1; end
+  end
   integer pass = 0, fails = 0, n, fd, r;
   reg [31:0] a, want, mask, v;
   initial begin
@@ -350,7 +377,8 @@ module tb_cpfpu;
     repeat (20) @(posedge clk);
     reset_n = 1;
     n = 0;
-    while (ram[32'h3FF0 >> 2] == 32'h0 && !halted && n < 2000000) begin @(posedge clk); n = n + 1; end
+    if (!$value$plusargs("MAXCLK=%d", maxclk)) maxclk = 2000000;
+    while (ram[32'h3FF0 >> 2] == 32'h0 && !halted && n < maxclk) begin @(posedge clk); n = n + 1; end
     repeat (200) @(posedge clk);
     v = ram[32'h3FF0 >> 2];
     $display("---- the run: %0d clocks, marker %08x, %0d CIR cycles, %0d other CPU-space cycles",

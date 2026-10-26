@@ -39,6 +39,14 @@
 //        moves nothing (KNOWN ISSUES 47); a locked cycle's runs nothing (48)
 //     7. reads, writes, RMW: every frame's PC the faulting instruction's
 //        (UM Table 8-6; the handler reads a CAS/TAS's operation word there)
+//     8. reads, writes, RMW: every frame's SSW (DF, RM, RW, SIZE, FC) and
+//        fault address as the UM fixes them (gen_program.py's SSWX; class 11)
+//     9. class 12 (c_ shapes, MMU=1): HMODE abort and complete - every access
+//        the instruction made before the fault went out once (the zone's
+//        bus accesses counted); no access is run twice
+//    10. TRACE=1/0 (class 7): every iteration's traces as the UM fixes them
+//        (8.1.7): their count, and the first's frame - format $2, vector $24,
+//        PC, the traced instruction's address, the SR copy's T bits
 //   +PLANT=k: iteration k's bus error is replaced by an acknowledge with
 //   $DEADBEEF - the lost bus error itself; the bench must FAIL it.
 //
@@ -177,10 +185,43 @@ module tb_busfault_irq;
   integer off [0:8191];
   integer berr_edges = 0;
   reg     glue_berr_q = 0;
+  // class 12: the bus accesses an iteration makes to the zone (tb RAM $1FFF0-
+  // $1FFFF): each once ($3034) unless the handler reruns
+  integer zcount = 0, zfails = 0;
+  wire    zone_now = phi1 && ram_req && !ram_ack && ram_addr[14:0] >= 15'h7FFC;
+  task zcheck;
+    if (ram[32'h3038 >> 2] == 1 && it >= 0 && zcount != ram[32'h3034 >> 2]) begin
+      zfails = zfails + 1;
+      $display("FAIL it %0d: %0d bus accesses to the zone, not %0d (an access before the fault went out again)",
+               it, zcount, ram[32'h3034 >> 2]);
+    end
+  endtask
+  // class 7 (TRACE): each iteration's traces against the UM's ($3060-$3070),
+  // read when the next iteration's first instruction writes $3004
+  integer tfails = 0;
+  task tcheck;
+    if (ram[32'h3070 >> 2] == 1 && it >= 0) begin
+      if (ram[32'h305C >> 2] != ram[32'h3060 >> 2]) begin
+        tfails = tfails + 1;
+        $display("FAIL it %0d: %0d traces, not %0d (UM 8.1.7); the first's PC %08x address %08x", it, ram[32'h305C >> 2], ram[32'h3060 >> 2],
+                 ram[32'h3050 >> 2], ram[32'h3054 >> 2]);
+      end else if (ram[32'h3060 >> 2] != 0 &&
+                   (ram[32'h3050 >> 2] != ram[32'h3064 >> 2] || ram[32'h3054 >> 2] != ram[32'h3068 >> 2] ||
+                    ram[32'h3058 >> 2] >> 16 != 16'h2024 || (ram[32'h3058 >> 2] & 16'hC000) != ram[32'h306C >> 2])) begin
+        tfails = tfails + 1;
+        $display("FAIL it %0d: the trace frame PC %08x address %08x format/vector %04x SR %04x, not %08x %08x 2024 T %04x",
+                 it, ram[32'h3050 >> 2], ram[32'h3054 >> 2], ram[32'h3058 >> 2] >> 16, ram[32'h3058 >> 2] & 16'hFFFF,
+                 ram[32'h3064 >> 2], ram[32'h3068 >> 2], ram[32'h306C >> 2]);
+      end
+    end
+  endtask
   always @(posedge clk) begin
     glue_berr_q <= glue_berr;
+    if (zone_now) zcount = zcount + 1;
+    if (ram_wr_now && ram_addr[14:0] == (32'h3004 >> 2)) tcheck;
     // the marker: iteration it starts at clock t0
     if (ram_wr_now && ram_addr[14:0] == (32'h3F90 >> 2)) begin
+      zcheck; zcount = 0;
       if (irq && it >= 2) $display("NOTE iteration %0d: the interrupt was still pending at its end", it);
       irq <= 0;
       it = ram_wdata; t0 = cyc; px_restart <= 1;
@@ -212,7 +253,7 @@ module tb_busfault_irq;
   reg [31:0] s_pc, s_epc;
   integer    trace = 0, trace_it = 2;
   reg  [7:0] s_flags, s_shadow; reg s_rccr, s_rsig, s_mmub, s_erw; reg [2:0] s_efc;
-  reg        s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw, s_dbank, s_dkv; reg [5:0] s_dord; reg [4:0] s_dk; reg [31:0] s_kaddr;
+  reg        s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw, s_dbank, s_dkv; reg [5:0] s_dord; reg [4:0] s_dk; reg [31:0] s_kaddr; reg s_mtr, s_ttr;
   initial if ($test$plusargs("TRACE")) begin
     trace = 1;
     if (!$value$plusargs("TRACE=%d", trace_it)) trace_it = 2;
@@ -247,11 +288,13 @@ module tb_busfault_irq;
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/dacc_k", "/tb_busfault_irq/s_dk");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/dacc_bank", "/tb_busfault_irq/s_dbank");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/dacc_kvalid", "/tb_busfault_irq/s_dkv");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/make_trace", "/tb_busfault_irq/s_mtr");
+    $init_signal_spy("/tb_busfault_irq/cpu/kernel/trap_trace", "/tb_busfault_irq/s_ttr");
     $init_signal_spy("/tb_busfault_irq/cpu/kernel/addr", "/tb_busfault_irq/s_kaddr");
   end
   always @(posedge clk) if (trace && it == trace_it && (s_clkena || s_berrk || s_mkberr))
-    $display("TR ds v%b f%b p%b h%b rw%b prw%b ord %0d k %0d b%b kv%b ka %08x | fl %02x sh %02x rccr %b rsig %b mmub %b erw %b efc %o | %0d st %b ipl %0d setint %b int %b mkberr %b berrk %b tint %b tberr %b setopc %b setend %b dec %b pc %08x epc %08x as %b addr %08x berr %b",
-             s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw, s_dord, s_dk, s_dbank, s_dkv, s_kaddr, s_flags, s_shadow, s_rccr, s_rsig, s_mmub, s_erw, s_efc, cyc - t0, s_state, s_ipl, s_setint, s_int, s_mkberr, s_berrk, s_tint, s_tberr, s_setopc, s_setend, s_dec, s_pc, s_epc, cpu_as_n, cpu_addr, glue_berr);
+    $display("TR mtr %b ttr %b | ds v%b f%b p%b h%b rw%b prw%b ord %0d k %0d b%b kv%b ka %08x | fl %02x sh %02x rccr %b rsig %b mmub %b erw %b efc %o | %0d st %b ipl %0d setint %b int %b mkberr %b berrk %b tint %b tberr %b setopc %b setend %b dec %b pc %08x epc %08x as %b addr %08x berr %b",
+             s_mtr, s_ttr, s_dsv, s_dsf, s_dsp, s_dsh, s_dsrw, s_prw, s_dord, s_dk, s_dbank, s_dkv, s_kaddr, s_flags, s_shadow, s_rccr, s_rsig, s_mmub, s_erw, s_efc, cyc - t0, s_state, s_ipl, s_setint, s_int, s_mkberr, s_berrk, s_tint, s_tberr, s_setopc, s_setend, s_dec, s_pc, s_epc, cpu_as_n, cpu_addr, glue_berr);
 
   // +WREC=n: the record's writes (the handler's frame copy) in iteration n
   integer wrec = -1;
@@ -264,6 +307,12 @@ module tb_busfault_irq;
   integer pass = 0, fails = 0, bad_its = 0;
   function [31:0] rec(input integer k, input integer o);
     rec = ram[(32'h6000 + 64 * k + o) >> 2];
+  endfunction
+  // iteration k's frame names the next instruction with the SR after the
+  // faulting one ($3074/$3078, when $307C is 1)
+  function wb_next(input integer k);
+    wb_next = ram[32'h307C >> 2] == 1 && {rec(k, 20) & 16'hFFFF, rec(k, 24) >> 16} == ram[32'h3074 >> 2] &&
+              rec(k, 20) >> 16 == ram[32'h3078 >> 2];
   endfunction
   function legal_pc(input [31:0] pc);
     integer j;
@@ -295,6 +344,10 @@ module tb_busfault_irq;
       $fclose(fd);
     end
     iters = 2 + noff;
+    if (32'h6000 + 64 * iters > 32'h1FFF0) begin   // the records end below the zone's data (128 KB, aliased)
+      $display("FAIL %0d iterations overrun the record table at $6000 (1663 at most): split offsets.txt", iters);
+      $finish;
+    end
     ram[32'h3014 >> 2] = iters;
     $display("---- %0s, HMODE %0s: F $%0h, Fn $%0h, C $%0h, A0 $%08h; level %0d; %0d iterations (%0d offsets); plant %0d",
              fam, hmode, F, FN, C, A0, level, iters, noff, plant);
@@ -317,7 +370,7 @@ module tb_busfault_irq;
     if (endcode != 32'h600D0001 || halted) begin
       fails = fails + 1; $display("FAIL the run did not end on the loop's path: end %08x, halted %0d", endcode, halted);
     end
-    if (rec(1, 0) == 0) begin
+    if (rec(1, 0) == 0 && fam != "o") begin      // (class 7's flow shapes take none)
       fails = fails + 1; $display("FAIL the reference took no exception");
     end
     // a read's fault stacks the SR before the instruction's flags (UM 8.2.2):
@@ -325,18 +378,31 @@ module tb_busfault_irq;
     // bus-errored data
     if (fam == "r" || fam == "m")
       for (k = 0; k < iters; k = k + 1)
-        if (rec(k, 20) >> 16 != ram[32'h3018 >> 2]) begin
+        if (rec(k, 20) >> 16 != ram[32'h3018 >> 2] && !wb_next(k)) begin
           fails = fails + 1;
           $display("FAIL it %0d: the frame's SR %04x, not %04x (the CCR before the instruction)", k, rec(k, 20) >> 16, ram[32'h3018 >> 2]);
         end
     // a bus error's frame PC is the instruction in execution (UM Table 8-6) -
-    // here always the faulting one: a CAS/TAS too (KNOWN ISSUES 48)
+    // the faulting one: a CAS/TAS too (KNOWN ISSUES 48); a write the PMMU
+    // faults from the write pending buffer may name the next (wb_next)
     if (fam == "r" || fam == "w" || fam == "m")
       for (k = 0; k < iters; k = k + 1)
-        if ({rec(k, 20) & 16'hFFFF, rec(k, 24) >> 16} != F) begin
+        if ({rec(k, 20) & 16'hFFFF, rec(k, 24) >> 16} != F && !wb_next(k)) begin
           fails = fails + 1;
           $display("FAIL it %0d: the frame's PC %08x, not the instruction's %08x", k, {rec(k, 20) & 16'hFFFF, rec(k, 24) >> 16}, F);
         end
+    // class 11: every frame's SSW (bits 8-0) and fault address as the UM
+    // fixes them ($3028, $302C)
+    if (ram[32'h3030 >> 2] == 1)
+      for (k = 0; k < iters; k = k + 1)
+        if ((rec(k, 28) & 32'h1FF) != ram[32'h3028 >> 2] || rec(k, 36) != ram[32'h302C >> 2]) begin
+          fails = fails + 1;
+          $display("FAIL it %0d: the frame's SSW %03x fault address %08x, not %03x %08x (UM 8.2.1)",
+                   k, rec(k, 28) & 32'h1FF, rec(k, 36), ram[32'h3028 >> 2], ram[32'h302C >> 2]);
+        end
+    zcheck;                                      // the last iteration's zone
+    tcheck;                                      // ... and its traces
+    fails = fails + zfails + tfails;
     // HMODE complete: D0 and D1 as the UM fixes them ($301C, $3020)
     if (ram[32'h3024 >> 2] == 1 && (rec(1, 52) != ram[32'h301C >> 2] || rec(1, 56) != ram[32'h3020 >> 2])) begin
       fails = fails + 1;

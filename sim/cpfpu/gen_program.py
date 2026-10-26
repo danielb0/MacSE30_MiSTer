@@ -1215,7 +1215,7 @@ elif MODE == 'b5u':
         (0x3018, 0x00009FF8, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
-elif MODE == 'fsw':
+elif MODE in ('fsw', 'fswi'):
     # scan 3 (2026-10-18, the bug-class scans before the next test releases):
     # an FPU instruction's MEMORY operand page-faulting, in user mode as A/UX
     # runs FPU code - each case runs one instruction twice through the same
@@ -1355,6 +1355,94 @@ elif MODE == 'fsw':
     ]
     if os.environ.get('FSW_DUMP') == '1':      # every saved long printed (as failures)
         expect += [(o + 4 * i, 0xDEADBEEF, 0xFFFFFFFF) for o in (FSW_O1, FSW_O2) for i in range(28)]
+    if MODE == 'fswi':
+        # class 4b (2026-10-26): the fsw case's faulting run ITERATED, a level-1
+        # interrupt at a different clock of each (offsets.txt, the bench's
+        # +IRQLOOP: iteration i > 0 at offset i-1 after its marker) - every
+        # iteration's registers and window must be the reference's, one
+        # interrupt taken, the page fault(s) as fsw's.  Each iteration's TRAP #1
+        # (supervisor) restores the window from a pristine copy ($5000),
+        # invalidates (or write-protects) the page again and flushes the ATC.
+        offs = [int(x) for x in open('offsets.txt').read().split()] if os.path.exists('offsets.txt') else []
+        iters = 1 + len(offs)
+        put(0x3014, L(iters))
+        put(0x5000, [x for x in (win if os.environ.get('FSW_SANITY') != '1' else win)])   # (the pristine window)
+        a = Asm(0x1000)
+        a.emit(0x203C, *L(CACR_K28), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr
+        a.emit(0x41F8, 0x6F00)                    # lea $6F00.w,a0
+        a.emit(0xF010, 0x4C00)                    # pmove.q (a0),crp
+        a.emit(0xF028, 0x4000, 0x0008)            # pmove.l 8(a0),tc
+        a.emit(0x41F9, *L(0xA000))                # lea $A000,a0
+        a.emit(0x4E60)                            # move.l a0,usp
+        a.emit(0x46FC, 0x0000)                    # move.w #$0000,sr     user, interrupts open
+        a.label('U')
+        a.emit(0x4BF9, *L(FSW_R + off))           # the reference: lea R+off,a5
+        a.emit(0x4DF9, *L(FSW_R + off + adj))     # lea R+off+adj,a6
+        a.br(0x6100, 'RUN')                       # bsr RUN
+        a.emit(0x41F9, *L(FSW_O1))                # lea O1,a0
+        a.emit(0xF210, 0xF0FF)                    # fmovem.x fp0-fp7,(a0)
+        a.emit(0xF228, 0xBC00, 0x0060)            # fmovem.l fpcr/fpsr/fpiar,$60(a0)
+        a.emit(0x214E, 0x006C)                    # move.l a6,$6C(a0)
+        a.emit(0x7800)                            # moveq #0,d4          the iteration
+        a.label('LOOP')
+        a.emit(0x4E41)                            # trap #1              window, page, ATC, counts
+        a.emit(0x21C4, 0x3F90)                    # move.l d4,$3F90.w    the marker: the bench's clock 0
+        a.emit(0x4BF9, *L(FSW_P + off))           # lea P+off,a5
+        a.emit(0x4DF9, *L(FSW_P + off + adj))     # lea P+off+adj,a6
+        a.br(0x6100, 'RUN')                       # bsr RUN
+        a.emit(0x41F9, *L(FSW_O2))                # lea O2,a0
+        a.emit(0xF210, 0xF0FF)                    # fmovem.x fp0-fp7,(a0)
+        a.emit(0xF228, 0xBC00, 0x0060)            # fmovem.l fpcr/fpsr/fpiar,$60(a0)
+        a.emit(0x214E, 0x006C)                    # move.l a6,$6C(a0)
+        a.emit(0x7E00)                            # moveq #0,d7          the differences
+        for lo1, lo2, n in ((FSW_O1, FSW_O2, 28), (FSW_R - 64, FSW_P - 64, 48)):
+            a.emit(0x41F9, *L(lo1), 0x43F9, *L(lo2))   # lea; lea
+            a.emit(0x303C, n - 1)                 # move.w #n-1,d0
+            a.label('C%x' % lo1); a.emit(0xB388)  # cmpm.l (a0)+,(a1)+
+            a.br(0x56C8, 'C%x' % lo1)             # dbne d0,C
+            a.emit(0x56C1, 0x8E01)                # sne d1; or.b d1,d7
+            a.emit(0xE38F)                        # lsl.l #1,d7
+        a.emit(0x2004, 0xE588)                    # move.l d4,d0; lsl.l #2,d0
+        a.emit(0x41F9, *L(0x7000))                # lea $7000,a0
+        a.emit(0x7200, 0x1238, 0x3013, 0x4841)    # moveq #0,d1; move.b $3013.w,d1; swap d1   the page faults
+        a.emit(0x1238, 0x3F1B, 0xE149, 0x8E81)    # move.b $3F1B.w,d1; lsl.w #8,d1; or.l d1,d7   the interrupts
+        a.emit(0x2187, 0x0800)                    # move.l d7,(0,a0,d0.l)   faults<<16 | interrupts<<8 | differences
+        a.emit(0x5284)                            # addq.l #1,d4
+        a.emit(0xB8B8, 0x3014)                    # cmp.l $3014.w,d4
+        a.br(0x6600, 'LOOP')                      # bne.w LOOP
+        a.emit(0x42B8, 0x3100)                    # clr.l $3100.w        (fsw's verdict word: the tables say it)
+        a.emit(0x4E40)                            # trap #0
+        a.label('RUN')
+        a.emit(0x41F8, FSW_INIT)                  # lea INIT.w,a0
+        a.emit(0xF210, 0xD0FF)                    # fmovem.x (a0),fp0-fp7
+        a.emit(0xF23C, 0x8800, 0, 0)              # fmove.l #0,fpsr
+        a.label('INSN'); a.emit(*ws)              # THE INSTRUCTION
+        a.emit(0x9DCD)                            # suba.l a5,a6
+        a.emit(0x4E75)                            # rts
+        p = a.done()
+        put(0x1000, p)
+        put(0x3F1C, L(a.lab['INSN']) + L(a.lab['INSN'] + 2 * len(ws)))   # the instruction and the next: the bench's EVT
+        n_p = FSW_P >> 12
+        put(4 * 33, L(0x2700))                    # TRAP #1 (supervisor)
+        put(0x2700, [0x48E7, 0x80C0,              # movem.l d0/a0-a1,-(a7)
+                     0x41F9, *L(0x5000), 0x43F9, *L(FSW_P - 64),   # lea pristine,a0; lea P-64,a1
+                     0x303C, 47,                  # move.w #47,d0
+                     0x22D8, 0x51C8, 0xFFFC,      # move.l (a0)+,(a1)+; dbf d0,*-2
+                     *movel_abs(((n_p << 12) | 5) if WPM else 0, 0x6800 + 4 * n_p),   # the page: WP, or invalid
+                     0xF000, 0x2400,              # pflusha
+                     0x42B8, 0x3010, 0x42B8, 0x3F18,   # clr.l $3010.w; clr.l $3F18.w
+                     0x4CDF, 0x0301,              # movem.l (a7)+,d0/a0-a1
+                     0x4E73])                     # rte
+        put(4 * 25, L(0x2600))                    # level 1: drop it, count it
+        put(0x2600, [*movel_abs(1, 0x3F00), 0x52B8, 0x3F18, 0x4E73])
+        ucheck = ([(a.lab['U'], 0x1000 + 2 * len(p) + 16)],
+                  [((a.lab['U'] & ~3) - 4, a.lab['U']), (0x3010, 0x3018), (0x3F18, 0x3F1C), (0x3F90, 0x3F94),
+                   (0x3100, 0x3104), (FSW_R - 64, FSW_R + 128), (FSW_P - 64, FSW_P + 128), (FSW_INIT, FSW_INIT + 0x60),
+                   (FSW_O1, FSW_O1 + 0x70), (FSW_O2, FSW_O2 + 0x70), (0x7000, 0x7C00), (0x9F00, 0xA000)])
+        expect = [(0x3FF0, 0x600D0001, 0xFFFFFFFF)]
+        assert iters <= 0x300, iters
+        for i in range(iters):                    # the reference's registers and window; one interrupt (none in iteration 0); fsw's page faults
+            expect += [(0x7000 + 4 * i, faults << 16 | (1 if i else 0) << 8, 0xFFFFFFFF)]
 elif MODE == 'fif':
     # KNOWN ISSUES 38's second candidate (xeyes resumed at an FPU store's d16
     # word): the FETCH of an FPU instruction's extension words or immediate

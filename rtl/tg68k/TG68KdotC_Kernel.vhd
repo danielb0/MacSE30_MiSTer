@@ -647,9 +647,16 @@ architecture logic of TG68KdotC_Kernel is
 	-- completes it (DF cleared, UM 8.2.1) has the re-executed instruction
 	-- take ordinals below k from the log and k from the DIB, with no cycle
 	-- for any of them - as the MC68030, which continues the instruction.
-	type dacc_log_t is array (0 to 63) of std_logic_vector(31 downto 0);
+	type dacc_log_t is array (0 to 63) of std_logic_vector(39 downto 0);
 	signal dacc_log			: dacc_log_t;
-	signal dacc_q			: std_logic_vector(31 downto 0);  -- the frozen bank at the current ordinal
+	signal dacc_q			: std_logic_vector(39 downto 0);  -- the frozen bank at the current ordinal: a bit field's fifth byte, the operand
+	signal bf_ext_next		: std_logic_vector(7 downto 0);   -- the fifth byte this beat would latch (bf_ext_in)
+	-- KNOWN ISSUES 49: the faulted operand's bytes already read when a later
+	-- cycle of it faulted (a split operand's second word, a bit field's fifth
+	-- byte): the DIB supplies only the bytes remaining (UM 8.2.2)
+	signal dacc_part		: std_logic_vector(31 downto 0) := (others => '0');
+	signal dacc_rem			: integer range 0 to 5 := 4;
+	signal dacc_split		: std_logic := '0';
 	signal dacc_ord			: std_logic_vector(5 downto 0) := (others => '0');  -- this operand's ordinal (32 and up: not logged)
 	signal dacc_bank		: std_logic := '0';  -- the bank being logged; the other is frozen
 	signal dacc_wa, dacc_ra		: std_logic_vector(5 downto 0);  -- the log's write (this bank) and read (the frozen one) addresses
@@ -707,6 +714,9 @@ architecture logic of TG68KdotC_Kernel is
 	signal berr_skip_pc      : std_logic_vector(31 downto 0) := (others => '0');  -- KNOWN ISSUES 48: the next instruction's address, frame +$30
 	signal rte_rmc_skip_pc   : std_logic_vector(31 downto 0) := (others => '0');  -- ... popped by RTE
 	signal rte_rmc_skip      : std_logic;  -- RTE of a locked cycle's frame the handler completed: resume after the instruction
+	signal trace_drop_fetch  : std_logic;  -- KNOWN ISSUES 50: a trace taken over the next opcode fetch's bus error
+	signal rmc_trace_ia      : std_logic_vector(31 downto 0) := (others => '0');  -- KNOWN ISSUES 50: the skipped CAS/TAS's address, for its trace
+	signal rmc_trace_v       : std_logic := '0';
 	signal stream_consumed_pc : std_logic_vector(31 downto 0) := (others => '0'); -- address of the newest stream word consumed by decode
 	signal insn_next_pc : std_logic_vector(31 downto 0) := (others => '0'); -- continuation PC of the instruction currently in execute: opcode address + 2 per consumed stream word
 	signal berr_pmmu_fault_next_pc : std_logic_vector(31 downto 0) := (others => '0'); -- insn_next_pc latched at PMMU-fault first-fire (the faulted instruction is still the executing one there)
@@ -1013,6 +1023,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal pmmu_ch_inhibit  : std_logic;
 	signal pmmu_wr_protect  : std_logic;
 	signal pmmu_fault       : std_logic;
+	signal wronly_rd        : std_logic;   -- wronly_rd_out's term, read inside
 	signal pmmu_fault_stat  : std_logic_vector(31 downto 0);
 	signal pmmu_fault_addr_out : std_logic_vector(31 downto 0);  -- BUG #415: Faulting logical address from PMMU
 	signal pmmu_fault_fc_out   : std_logic_vector(2 downto 0);   -- BUG #414: FC at fault time from PMMU
@@ -1447,10 +1458,14 @@ BEGIN
   -- 5(0/1/1)).  This marks that read (the data read state, the write back
   -- armed, the opcode one of the four) so the wrapper answers it without a
   -- bus cycle; the ALU's result (0, the condition, SR or CCR) never uses it.
-  wronly_rd_out <= '1' when state = "10" and exec_write_back = '1' and berr_exception_active = '0' and
+  -- PACK/UNPK -(Ax),-(Ay) read their destination the same way (micro-state
+  -- pack2's read); the 68030 runs one read and one write, 11(1/0/1).
+  wronly_rd_out <= wronly_rd;
+  wronly_rd <= '1' when state = "10" and exec_write_back = '1' and berr_exception_active = '0' and
                           (opcode(15 downto 8) = X"42" or                                   -- CLR, MOVE from CCR
                            opcode(15 downto 6) = "0100000011" or                            -- MOVE from SR
-                           (opcode(15 downto 12) = "0101" and opcode(7 downto 6) = "11"))   -- Scc
+                           (opcode(15 downto 12) = "0101" and opcode(7 downto 6) = "11") or -- Scc
+                           (opcode(15 downto 12) = "1000" and micro_state = pack3))         -- PACK/UNPK -(Ax),-(Ay): 11(1/0/1), the destination unread (KNOWN ISSUES 51)
                    else '0';
   
   -- CACR (Cache Control Register) bit definitions for MC68030:
@@ -1506,7 +1521,8 @@ BEGIN
                              and restart_squash = '0'
                              and not (state = "00" and soft_pc_dead = '1')
                              and not (state = "00" and TG68_PC(0) = '1')
-                             and not (state = "00" and berr_stack_fetch_squash = '1')) else '0';
+                             and not (state = "00" and berr_stack_fetch_squash = '1')
+                             and wronly_rd = '0') else '0';   -- the answered read a 68030 does not run: untranslated, it cannot fault (KNOWN ISSUES 52)
   pmmu_is_insn  <= '1' when state = "00" else '0';
   pmmu_rw       <= '0' when state = "11" else '1';
   -- exec_tas/exec_cas are decode/execute pulses, while CAS performs its bus
@@ -2203,7 +2219,7 @@ ALU: TG68K_ALU
 	                                    berr_pmmu_fault_is_insn='1'))
 	                       ELSE '0';
 	clr_berr <= '1' WHEN setopcode='1' AND trap_berr='1' ELSE '0';
-	cp_berr_ack <= cp_nocp;   -- (7d B5: the initiating access's bus error, taken as no coprocessor)
+	cp_berr_ack <= cp_nocp OR trace_drop_fetch;   -- (7d B5: the initiating access's bus error, taken as no coprocessor; KNOWN ISSUES 50)
 
 	-- MMU RESTART qualifier.  Non-LASTWRITE PMMU DATA faults restart the
 	-- whole instruction; Format $A/LASTWRITE writes keep the existing replay
@@ -2462,6 +2478,12 @@ ALU: TG68K_ALU
 		rte_mmu_fix_ssw(8) = '0' AND
 		rte_mmu_fix_ssw(7) = '0' AND
 		rte_mmu_fix_ssw(6) = '1' AND
+		-- (not a split operand's later cycle: its DIB holds only the bytes
+		-- remaining - the replay joins them to the first ones, KNOWN ISSUES 49)
+		dacc_split = '0' AND
+		-- (nor a traced one: the commit skips the instruction, so its trace
+		-- would be lost - the replay re-runs it and it traces, UM 8.1.7)
+		FlagsSR(7) = '0' AND
 		-- Side-effect-free FIXED-LENGTH source EA modes only: (An), (d16,An),
 		-- (xxx).W, (xxx).L, (d16,PC). The commit skips the whole
 		-- instruction (rte_mmu_fix_len below), so post-increment/pre-decrement
@@ -2540,13 +2562,17 @@ ALU: TG68K_ALU
 	                       berr_k = '0' AND pmmu_dfault_k = '0' AND make_berr = '0' AND trap_berr = '0' else '0';
 	dacc_fault <= '1' when clkena_lw = '1' AND state(1) = '1' AND (berr_k = '1' OR pmmu_dfault_k = '1') AND
 	                       make_berr = '0' AND trap_berr = '0' else '0';
+	bf_ext_next <= last_data_in(23 downto 16) WHEN beat_n = 2 ELSE
+	               last_data_in(15 downto 8) WHEN beat_n = 3 ELSE
+	               last_data_in(7 downto 0) WHEN beat_n = 4 ELSE
+	               last_data_in(31 downto 24);
 	dacc_wa <= dacc_bank & dacc_ord(4 downto 0);
 	dacc_ra <= NOT dacc_bank & dacc_ord(4 downto 0);
 	PROCESS (clk)   -- the log: one M10K, written by a read operand, read by the replay
 	BEGIN
 		IF rising_edge(clk) THEN
 			IF dacc_done = '1' AND state = "10" AND dacc_ord(5) = '0' THEN
-				dacc_log(conv_integer(dacc_wa)) <= data_read;
+				dacc_log(conv_integer(dacc_wa)) <= bf_ext_next & data_read;
 			END IF;
 			dacc_q <= dacc_log(conv_integer(dacc_ra));
 		END IF;
@@ -2563,6 +2589,13 @@ ALU: TG68K_ALU
 					dacc_bank <= NOT dacc_bank;
 					dacc_k <= dacc_ord(4 downto 0);
 					dacc_kvalid <= NOT dacc_ord(5) AND NOT cp_bf_now;
+					dacc_part <= last_data_in;
+					dacc_rem <= beat_rem;
+					IF op_full = '0' AND beat_rem < 4 THEN
+						dacc_split <= '1';
+					ELSE
+						dacc_split <= '0';
+					END IF;
 				END IF;
 				IF setopcode = '1' AND clkena_lw = '1' THEN
 					dacc_ord <= (OTHERS => '0');
@@ -2598,7 +2631,7 @@ ALU: TG68K_ALU
 		END CASE;
 	END PROCESS;
 
-PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, memread, memmask, data_read, dib_sub_hit, dib_sub_data, dacc_ord, dacc_k, dacc_q, beat_n, byte_in, lane_in, bus_in, beat_rem, op_size)
+PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, memread, memmask, data_read, dib_sub_hit, dib_sub_data, dacc_ord, dacc_k, dacc_q, dacc_part, dacc_rem, dacc_split, beat_n, byte_in, lane_in, bus_in, beat_rem, op_size)
 	BEGIN
 		-- this beat's bytes appended to what earlier beats brought (1.15 item 5);
 		-- a beat that moves nothing keeps the old word-wide stream timing
@@ -2618,9 +2651,19 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 		-- 47) - before the sign extension: the DIB is the operand right-justified
 		IF dib_sub_hit='1' THEN
 			IF dacc_ord(4 downto 0) = dacc_k THEN
-				data_read <= dib_sub_data;
+				-- a split operand: its bytes read before the fault, then the
+				-- DIB's remaining ones, right-justified (KNOWN ISSUES 49)
+				IF dacc_split = '1' AND dacc_rem = 1 THEN
+					data_read <= dacc_part(23 downto 0) & dib_sub_data(7 downto 0);
+				ELSIF dacc_split = '1' AND dacc_rem = 2 THEN
+					data_read <= dacc_part(15 downto 0) & dib_sub_data(15 downto 0);
+				ELSIF dacc_split = '1' AND dacc_rem = 3 THEN
+					data_read <= dacc_part(7 downto 0) & dib_sub_data(23 downto 0);
+				ELSE
+					data_read <= dib_sub_data;
+				END IF;
 			ELSE
-				data_read <= dacc_q;
+				data_read <= dacc_q(31 downto 0);
 			END IF;
 		END IF;
 		IF (memread(1 downto 0)="11" AND beat_rem <= 2) OR (memread(1 downto 0)/="11" AND op_size <= 2) THEN
@@ -2630,12 +2673,12 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 		IF rising_edge(clk) THEN	
 			IF clkena_lw='1' AND state="10" THEN
 				-- the fifth byte of a bit field: the one the 32-bit stream overflows
-				CASE beat_n IS
-					WHEN 2 => bf_ext_in <= last_data_in(23 downto 16);
-					WHEN 3 => bf_ext_in <= last_data_in(15 downto 8);
-					WHEN 4 => bf_ext_in <= last_data_in(7 downto 0);
-					WHEN OTHERS => bf_ext_in <= last_data_in(31 downto 24);
-				END CASE;
+				-- (an earlier operand replayed: the logged one, KNOWN ISSUES 49)
+				IF dib_sub_hit='1' AND dacc_ord(4 downto 0) /= dacc_k THEN
+					bf_ext_in <= dacc_q(39 downto 32);
+				ELSE
+					bf_ext_in <= bf_ext_next;
+				END IF;
 			END IF;	
 			IF Reset='1' THEN
 				last_data_read <= (OTHERS => '0');
@@ -2668,13 +2711,19 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 							last_data_read(31 downto 16) <= (OTHERS=>lane_in(31));
 						END IF;
 					END IF;
-					CASE beat_n IS
-						WHEN 1 => last_data_in <= last_data_in(23 downto 0)&lane_in(31 downto 24);
-						WHEN 3 => last_data_in <= last_data_in(7 downto 0)&lane_in(31 downto 8);
-						WHEN 4 => last_data_in <= lane_in;
-						WHEN 2 => last_data_in <= last_data_in(15 downto 0)&lane_in(31 downto 16);
-						WHEN OTHERS => last_data_in <= last_data_in(15 downto 0)&bus_in(31 downto 16);
-					END CASE;
+					IF dib_sub_hit='1' AND dacc_split='1' AND dacc_ord(4 downto 0) = dacc_k THEN
+						-- the replayed split operand's beats before its fault: the
+						-- bytes they brought the first time (KNOWN ISSUES 49)
+						last_data_in <= dacc_part;
+					ELSE
+						CASE beat_n IS
+							WHEN 1 => last_data_in <= last_data_in(23 downto 0)&lane_in(31 downto 24);
+							WHEN 3 => last_data_in <= last_data_in(7 downto 0)&lane_in(31 downto 8);
+							WHEN 4 => last_data_in <= lane_in;
+							WHEN 2 => last_data_in <= last_data_in(15 downto 0)&lane_in(31 downto 16);
+							WHEN OTHERS => last_data_in <= last_data_in(15 downto 0)&bus_in(31 downto 16);
+						END CASE;
+					END IF;
 				END IF;
 			END IF;
 		END IF;
@@ -3705,7 +3754,11 @@ PROCESS (clk)
 					-- Priority 2: Format $2 instruction address longword must come from
 					-- exe_pc. Keep this branch BEFORE exec(writePC_add), otherwise a stale
 					-- writePC_add can overwrite trap00 with TG68_PC_add.
-					data_write_tmp <= exe_pc; --TH
+					IF rmc_trace_v = '1' AND trap_trace = '1' THEN
+						data_write_tmp <= rmc_trace_ia;   -- (KNOWN ISSUES 50)
+					ELSE
+						data_write_tmp <= exe_pc; --TH
+					END IF;
 					useStackframe2 <= '1';
 					-- BUG #443 FIX: Gate with trap_trace='0'. During stacked trace frames,
 					-- set(trap_chk)/trap_trap/trap_trapv are combinationally active from the
@@ -4960,7 +5013,7 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 -----------------------------------------------------------------------------
 PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data, direct_data, next_micro_state, micro_state, stop, make_trace, make_trace_t0, make_berr, IPL_nr, FlagsSR, set_rot_cnt, opcode, writePCbig, set_exec, exec,
         PC_dataa, PC_datab, setnextpass, last_data_read, TG68_PC_brw, TG68_PC_word, Z_error, trap_trap, trap_trapv, interrupt, tmp_TG68_PC, TG68_PC, use_VBR_Stackframe, writePCnext, pmove_dn_mode, cpu_halted, exe_condition, dbcc_t0_suppress, c_out,
-        rte_b_resume_refetch, opc_buf_valid, beat_valid, dib_sub_hit, cp_br_sel, cp_br_disp, fline_opcode_pc, cp_irq_take, cp_cof)
+        rte_b_resume_refetch, opc_buf_valid, beat_valid, dib_sub_hit, cp_br_sel, cp_br_disp, fline_opcode_pc, cp_irq_take, cp_cof, berr_k)
 	variable v_is_cof : std_logic;  -- T0 trace: change-of-flow instruction
 	variable v_irq_pending : std_logic;
 	variable v_pmmu_datatype : std_logic_vector(1 downto 0);
@@ -5023,6 +5076,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 		setopcode <= '0';
 		setendOPC <= '0';
 		setinterrupt <= '0';
+		trace_drop_fetch <= '0';
 
 		-- T0 trace: combinational change-of-flow detection from opcode.
 		-- Instruction set per MC68030 UM 8.1.7 (p.8-12): "all branches, jumps,
@@ -5156,9 +5210,17 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 			-- edge an external bus error arrives (berr_k, make_berr not yet
 			-- latched) - the fault dispatches on the next edge, ahead of them
 			-- (group 0, UM 8.1)
+			-- (KNOWN ISSUES 50: but a bus error on the next opcode's fetch
+			-- does not hold back the ended instruction's trace - the faulted
+			-- word is not used (UM 8.1.2); the fetch runs again after the trace
+			-- handler, and the wrapper lets go of this one, cp_berr_ack)
 			IF (((v_irq_pending = '1') AND opcode /= x"4E73") OR make_trace='1' OR (make_trace_t0='1' AND v_is_cof='1'))
-			   AND NOT (berr_k = '1' AND make_berr = '0') THEN
+			   AND NOT (berr_k = '1' AND make_berr = '0' AND
+			            NOT (state = "00" AND (make_trace='1' OR (make_trace_t0='1' AND v_is_cof='1')))) THEN
 				setinterrupt <= '1';
+				IF berr_k = '1' AND make_berr = '0' THEN
+					trace_drop_fetch <= '1';
+				END IF;
 			ELSIF make_berr='1'
 			   OR (pmmu_tc_en='1' AND pmmu_fault='1' AND dib_sub_hit='0' AND
 			       ((berr_exception_active='0' AND pmmu_fault_dispatched='0') OR pmmu_fault_was_cleared='1') AND
@@ -5887,10 +5949,19 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								berr_ssw(12) <= '1';          -- RB=1
 								END IF;
 						-- BUG #400 FIX: Also check pmmu_fault directly for same-cycle dispatch
-						ELSIF make_berr='1' OR
+						ELSIF (make_berr='1' OR
 						      (pmmu_tc_en='1' AND pmmu_fault='1' AND
 						       ((berr_exception_active='0' AND pmmu_fault_dispatched='0') OR pmmu_fault_was_cleared='1') AND
-						       trap_berr='0' AND trap_mmu_berr='0') THEN
+						       trap_berr='0' AND trap_mmu_berr='0')) AND
+						      -- KNOWN ISSUES 50: a traced JMP/JSR/branch whose target's
+						      -- fetch bus-errored is traced first - a prefetch fault is
+						      -- taken only when the word is used (UM 8.1.2), the trace
+						      -- comes at the instruction's end (8.1.7); the fetch runs
+						      -- again after the trace handler's RTE (an external bus
+						      -- error's; the PMMU's fetch faults keep their path)
+						      NOT (make_berr='1' AND make_mmu_berr='0' AND pmmu_fault='0' AND berr_pmmu_fault_valid='0' AND
+						           berr_external_fc(1 downto 0)="10" AND
+						           (make_trace='1' OR (make_trace_t0='1' AND v_is_cof='1'))) THEN
 								-- MC68030 Double bus fault detection: bus error while still in berr exception window
 								-- This catches the case where the handler instruction fetch faults
 								IF (cpu(1) = '1' AND berr_exception_active = '1') THEN
@@ -6022,7 +6093,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								       " faddr_hi=" & integer'image(conv_integer(pmmu_fault_addr_out(31 downto 16))) severity note;
 								-- synthesis translate_on
 								berr_opcode_saved <= exe_opcode;
-								IF opc_buf_valid='1' AND last_opc_pc > insn_next_pc THEN
+								IF exe_opcode = x"0CFC" OR exe_opcode = x"0EFC" THEN
+									-- CAS2: the operation word and its two extension words
+									-- (the stream count misses the second, KNOWN ISSUES 48)
+									berr_skip_pc <= exe_pc + 6;
+								ELSIF opc_buf_valid='1' AND last_opc_pc > insn_next_pc THEN
 									berr_skip_pc <= last_opc_pc;
 								ELSE
 									berr_skip_pc <= insn_next_pc;
@@ -6826,6 +6901,16 @@ PROCESS (clk, Reset, FlagsSR, last_data_read, OP2out, exec)
 				END IF;
 				IF micro_state = dbcc1 AND exe_condition = '0' AND c_out(1) = '0' AND last_data_read(0) = '0' THEN
 					dbcc_t0_suppress <= '1';
+				END IF;
+				-- KNOWN ISSUES 50: a locked instruction the handler completed
+				-- (rte_rmc_skip) has ended - traced under T1 as soon as the RTE
+				-- ends (UM 8.1.7), its trace frame naming it, not the RTE
+				IF rte_rmc_skip = '1' AND FlagsSR(7) = '1' THEN
+					make_trace <= '1';
+					rmc_trace_v <= '1';
+					rmc_trace_ia <= TG68_PC;
+				ELSIF setopcode = '1' THEN
+					rmc_trace_v <= '0';
 				END IF;
 				IF trap_berr='1' OR trap_illegal='1' OR trap_addr_error='1' OR trap_priv='1' OR trap_1010='1' OR trap_1111='1' OR trap_mmu_config='1' OR trap_mmu_berr='1' OR trap_format_error='1' THEN
 					make_trace <= '0';
