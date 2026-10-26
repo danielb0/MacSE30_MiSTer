@@ -21376,7 +21376,7 @@ Daniel - add to it, move items out when fixed).**
     handler's RTE and faults then; and a fetch fault already latched yields
     to a due trace in the dispatch. The replayed shapes (47) were traced
     right already. Staged bench (TRACE=1/0, check 10) on it: see class 7.
-51. **FIXED IN A PRIVATE COPY (2026-10-26 ~05:00, found by class 12's
+51. **FIXED IN A PRIVATE COPY (2026-10-26 ~04:05, found by class 12's
     staged PACK/UNPK shapes; pre-existing, TG68K's): PACK and UNPK
     -(Ax),-(Ay) read their destination before writing it.** The UM's timing
     table gives both 11(1/0/1): one read (the source) and one write.
@@ -21395,7 +21395,7 @@ Daniel - add to it, move items out when fixed).**
     the immediate ops (CMPI excluded), NEG/NEGX/NOT/NBCD, ADDQ/SUBQ, the
     memory shifts, BFCHG/BFCLR/BFSET/BFINS, AND/OR/EOR to memory, and
     ABCD/SBCD. 1.17.2's four and PACK/UNPK were the only write-only ones.
-52. **FIXED IN A PRIVATE COPY (2026-10-26 ~06:00, found by 51's class
+52. **FIXED IN A PRIVATE COPY (2026-10-26 ~04:15, found by 51's class
     sweep; pre-existing, since 1.17.2 and before): with the PMMU on,
     1.17.2's answered read was still translated.** The affected
     instructions are CLR, Scc, MOVE from SR/CCR and PACK/UNPK. On an invalid
@@ -21666,7 +21666,7 @@ destination), c_split and c_split_w (a long's second word). Check 9: in
 abort and complete every access to the zone goes out ONCE per iteration
 (the bus accesses counted - an I/O access must not repeat); rerun is not
 checked (47's limit). All PASS but the split reads - KNOWN ISSUES 49, fixed
-in sim/_rtl_c12. Added 2026-10-26 ~05:00:
+in sim/_rtl_c12. Added 2026-10-26 ~04:05:
 - c_unpk: UNPK -(a0),-(a1), the word write faults.
 - c_pack: PACK, the byte write faults.
 - c_moves: MOVES.L (a0),d0 with SFC 5, a split operand whose second word
@@ -21714,7 +21714,7 @@ overnight_k46 ends: merge sim/_rtl_c12's kernel (KNOWN ISSUES 49-52, 48's
 CAS2 +6) into rtl/ and sim/_stage13's bench (gen_program.py, tb, run.sh,
 run_sweep.sh: SET=c13|c12|flow, TRACE=1|0, DRY=1) into sim/busfault_irq,
 then (one sweep at a time, ~2 min a case at 8 wide; counts as of
-2026-10-26 ~06:00, with 51/52's shapes):
+2026-10-26 ~04:20, with 51/52's shapes):
 - (a) SET=all CTX="00 11 i11": 472 cases, ~16 h. Every shape, incl.
   classes 12/13's; the c_ shapes in the MMU contexts only.
 - (b) TRACE=1 SET=all CTX="00 11": 321 cases, ~10.7 h (CTX=11 alone
