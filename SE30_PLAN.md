@@ -21324,6 +21324,28 @@ Daniel - add to it, move items out when fixed).**
     faulting instruction's; m_cas/m_tas complete leave D0 the handler's.
     m_cas and m_tas: abort, rerun (two exceptions now) and complete PASS.
 
+49. **FIXED IN A PRIVATE COPY (2026-10-26 00:30, found by class 12's staged
+    bench; pre-existing - 1.18's substitution had it too): a handler that
+    completes a SPLIT operand's later cycle lost the bytes its first cycle
+    read.** MOVE.L (A0),D0 at $8FFFFE (one word RAM, one word empty slot 9)
+    completed with D0 = the whole DIB ($C0DE5EED) - the UM's is $88885EED
+    (8.2.2: the DIB holds the bytes remaining, right-justified; the frame's
+    SIZE says word); BFEXTU (A0){8:32} whose fifth byte faults the same
+    ($C0DE5EED for $778888ED). Two paths: the replay gave ordinal k the
+    whole DIB, and MOVE to Dn took the old register commit (rte_mmu_fix_*),
+    which writes the DIB alone. FIX (sim/_rtl_c12, into rtl/ after the
+    chain): at the fault the operand's bytes so far (last_data_in), the
+    bytes remaining (beat_rem) and whether it was split (not op_full,
+    beat_rem < 4) are kept; the replay joins them - the bytes so far, then
+    the DIB's remaining ones - and its beats before the fault restore
+    last_data_in, so a bit field's fifth byte (bf_ext_in) comes out right;
+    the log is 40 bits wide (bf_ext_in for an earlier operand replayed: a
+    five-byte field read before a later fault); a split fault never takes
+    the register commit. Still not to the UM: a five-byte field whose FIRST
+    (long) cycle faults - its fifth byte is answered from the replay instead
+    of going out (UM: a second operand cycle). Staged bench on it: 282/282
+    (every shape, every handler, both SE/30 contexts), busfault_dib 24/24.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -21559,7 +21581,20 @@ r/w/m frame's SSW bits 8-0 (DF, RM, RW, SIZE, FC) and fault address from a
 table (gen_program.py SSWX), 204/204 PASS (every bus shape, every handler,
 both SE/30 contexts); planted wrong SSW and wrong PC both FAIL. Left for
 class 13: the interrupt sweep of the four new shapes (run_sweep.sh SET=c13,
-36 cases incl. the IIcx) after the chain. NEXT ORDER, revised: 13 and
+36 cases incl. the IIcx) after the chain. CLASS 12, STAGED (2026-10-26
+00:30): the c_ shapes, MMU=1 only - logical $800000-$8FFFFF mapped to RAM
+(CI) right below empty slot 9 ($900000), so an instruction's early accesses
+land in RAM and a later one faults: c_cmpm (the second read), c_movem and
+c_movem_w (d2/d3 of four), c_move_mm (the write), c_movep (bytes 3 and 4),
+c_cmp2 (the upper bound), c_bfext (the fifth byte), c_addx (the
+destination), c_split and c_split_w (a long's second word). Check 9: in
+abort and complete every access to the zone goes out ONCE per iteration
+(the bus accesses counted - an I/O access must not repeat); rerun is not
+checked (47's limit). All PASS but the split reads - KNOWN ISSUES 49, fixed
+in sim/_rtl_c12. Left for 12: PACK/UNPK, MOVES, LINK/PEA/JSR stack
+writes, MOVEM of 16 (the bench's own registers), the FPU's operands (a
+dialog's frame: completion not honoured - 1.18's open item). NEXT ORDER,
+revised: 13 and
 11's bus-error part first (they share busfault_irq's harness and found
 bugs this week), then 7, 4 with 4b, 12, 2's directed part, 8; 9 in between.
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
