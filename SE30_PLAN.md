@@ -21644,6 +21644,21 @@ Class 7's flow shapes STAGED too (2026-10-26 ~02:00): o_bra, o_beq (taken),
 o_bne (not), o_dbf_t, o_dbf_nt, o_rts, o_movesr - family o, TRACE only, no
 exception (mode abort only); T1 traces each, T0 the taken ones, RTS and the
 SR write: 14/14 PASS; a planted wrong expectation FAILS.
+Class 4b STAGED (2026-10-26 ~04:00) in sim/_stage4b (a copy of sim/cpfpu):
+PROG=fswi runs each of fsw's 236 cases (an FPU memory operand page-faulting
+mid-dialog) once as the reference and then once for each interrupt offset.
+A TRAP #1 restores the window and the page before each run, and the bench
+raises IRQ 1 at offset i after the marker (+IRQLOOP, offsets.txt). Each
+iteration packs one long at $7000+4i: faults<<16 | interrupts<<8 |
+differences. The table holds at most 768 iterations. run_fswisweep.sh first
+runs an EVT run per case (the decode, the pager, the next decode). It then
+places offsets every 2nd clock at [-20,+200] of the decode, [-60,+300] of
+the pager and +-60 of the end, plus every 16th clock between.
+Trial on _rtl_c12, case 0: 394 offsets. The first run failed on a bench bug:
+the old three tables held 256 entries each. The fix packs each iteration into
+one long. 4 offsets then PASS, and a planted wrong interrupt count FAILS.
+Time: 84 min for case 0 beside the 8-wide chain (~13 s an iteration). The
+full sweep at 8 wide is ~40 h. Every 4th clock instead of every 2nd is ~20 h.
 **THE NEXT CHAIN - PROPOSED, NEEDS DANIEL (each run > 30 min).** After
 overnight_k46 ends: merge sim/_rtl_c12's kernel (KNOWN ISSUES 49, 50, 48's
 CAS2 +6) into rtl/ and sim/_stage13's bench (gen_program.py, tb, run.sh,
@@ -21653,8 +21668,9 @@ i11" - 418 cases, ~14 h (every shape incl. classes 12/13's; the c_ shapes
 in the MMU contexts only); (b) TRACE=1 SET=all - 288 cases with CTX="00
 11", ~9.5 h (CTX=11 alone: ~4.7 h); (c) TRACE=0 the same, 280, ~9.3 h (or
 ~4.7 h); (d) class 4's interrupt levels: SET=bus LEVELS="1 4" CTX=11 - 272,
-~9 h (level 4 alone ~4.5 h); then the regression (~7 h) and the release-form
-builds (~1.5 h). In full ~50 h; trimmed (b, c and d on CTX=11, d level 4
+~9 h (level 4 alone ~4.5 h); (e) class 4b, run_fswisweep.sh RTL=../../rtl
+from sim/cpfpu once merged - ~40 h, or ~20 h at every 4th clock; then the regression (~7 h) and the release-form
+builds (~1.5 h). In full ~50 h without (e); trimmed (b, c and d on CTX=11, d level 4
 only) ~36 h.
 NEXT ORDER, revised: 13 and
 11's bus-error part first (they share busfault_irq's harness and found
