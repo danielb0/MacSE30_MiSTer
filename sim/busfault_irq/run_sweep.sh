@@ -69,14 +69,18 @@ for x in c:    dense |= set(range(x - 30, x + 61, 2))
 offs = sorted(o for o in dense | set(range(0, end, 16)) if 0 <= o < end)
 print("\n".join(map(str, offs)))
 EOF
-  # runs of 1600 offsets at most: the bench's record table holds 1663 iterations
-  n=$(wc -l < offsets.txt); mv offsets.txt all_offsets.txt; split -l 1600 -d all_offsets.txt part_
+  # runs of 1600 offsets at most (the bench's record table holds 1663
+  # iterations) and ~2 h each: an iteration is about the last offset in
+  # clocks, ~1000 clocks a second (r_movem9 complete on the IIcx: 629)
+  n=$(wc -l < offsets.txt); mv offsets.txt all_offsets.txt
+  per=$(python -c "m = max(int(x) for x in open('all_offsets.txt')); print(max(100, min(1600, 7200000 // max(m, 1))))")
+  split -l $per -d -a 3 all_offsets.txt part_
   r=""
   for f in part_*; do
     cp "$f" offsets.txt
-    o=$(PLUSARGS="+OFFS +LEVEL=$5 +HPER=$HPER" NOCOMPILE=1 RTL=$HERE/../../rtl timeout 14400 ./run.sh 2>&1 |
+    o=$(PLUSARGS="+OFFS +LEVEL=$5 +HPER=$HPER" NOCOMPILE=1 RTL=$HERE/../../rtl timeout 43200 ./run.sh 2>&1 |
         grep -E "^(==== |FAIL)" | head -4 | tr '\n' ' ')
-    case "$o" in "==== PASS"*) ;; *) r="$r[$f] ${o:-FAIL no result (timeout?)} " ;; esac
+    case "$o" in "==== PASS"*) ;; *) r="$r[$f] ${o:-FAIL no result (the 12 h timeout?)} " ;; esac
   done
   [ -z "$r" ] && r="==== PASS: $n iterations, every one as the reference"
   cd "$HERE"; rm -rf "$d"
