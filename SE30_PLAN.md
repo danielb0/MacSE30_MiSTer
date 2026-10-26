@@ -21346,7 +21346,7 @@ Daniel - add to it, move items out when fixed).**
     of going out (UM: a second operand cycle). Staged bench on it: 282/282
     (every shape, every handler, both SE/30 contexts), busfault_dib 24/24.
 
-50. **FIXED IN A PRIVATE COPY (2026-10-26 ~02:00, found by class 7's staged
+50. **FIXED IN A PRIVATE COPY (2026-10-26 ~01:00, found by class 7's staged
     bench - trace x bus errors; pre-existing): three ways a traced
     instruction lost its trace (UM 8.1.7: "if an instruction does not
     complete due to a bus error ... trace exception processing is deferred
@@ -21619,7 +21619,7 @@ checked (47's limit). All PASS but the split reads - KNOWN ISSUES 49, fixed
 in sim/_rtl_c12. Left for 12: PACK/UNPK, MOVES, LINK/PEA/JSR stack
 writes, MOVEM of 16 (the bench's own registers), the FPU's operands (a
 dialog's frame: completion not honoured - 1.18's open item). CLASS 7,
-STAGED (2026-10-26 ~02:00): TRACE=1 (T1) / TRACE=0 (T0) in the staged
+STAGED (2026-10-26 ~01:00): TRACE=1 (T1) / TRACE=0 (T0) in the staged
 bench - ori.w #T,sr as the prelude's last instruction traces the shape's
 instruction alone; a trace handler on vector 9 (TH) records the first trace
 of the instruction under test (its address below C - under T0 the loop's
