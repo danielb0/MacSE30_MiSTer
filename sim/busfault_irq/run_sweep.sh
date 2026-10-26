@@ -8,7 +8,7 @@
 # after it (traps: the whole iteration), every 16th clock elsewhere; then
 # one run takes them all, one iteration each.  HSYNC* at HPER clocks (64:
 # UI6's wait ~150 clocks).  8 cases at a time.
-#   ./run_sweep.sh [SET=all|bus|trap|pawn|c13|c12|flow] [TRACE=1|0] [LEVELS="2"] [CTX="00 11"] [HPER=64]
+#   ./run_sweep.sh [SET=all|bus|trap|pawn|c13|c12|flow] [ONLY=shape] [MODES="..."] [TRACE=1|0] [LEVELS="2"] [CTX="00 11"] [HPER=64]
 #   CTX: MMU and CACHE per context (00 = both off, 11 = the board's 24-bit
 #   row with CACR $2101; i11 = 11 on the IIcx, an empty slot the NuChip's
 #   timeout - bus shapes only).  The log is sweep_<SET>.log.
@@ -21,6 +21,7 @@ CASES=()
 export TRACE=${TRACE:-}                                       # class 7: 1 (T1) or 0 (T0)
 for s in $(SHAPELIST=1 python gen_program.py | awk '{print $1":"$2}'); do
   shape=${s%%:*}; fam=${s##*:}
+  [ -n "${ONLY:-}" ] && [ "$shape" != "$ONLY" ] && continue    # ONLY=shape: one shape
   case "$SET" in
     bus)  [ "$fam" = t ] && continue ;;
     trap) [ "$fam" != t ] && continue ;;
@@ -34,6 +35,7 @@ for s in $(SHAPELIST=1 python gen_program.py | awk '{print $1":"$2}'); do
     o)     modes="abort" ;;                                  # class 7's flow shapes: no exception
     *)     modes="abort rerun" ;;
   esac
+  [ -n "${MODES:-}" ] && modes=$MODES                          # MODES="complete": those handler modes only
   for m in $modes; do for c in $CTX; do for l in $LEVELS; do
     # class 12's shapes need the MMU (the RAM below slot 9)
     if [ "${shape:0:2}" = c_ ] && [ "${c:0:1}" = 0 ]; then continue; fi
