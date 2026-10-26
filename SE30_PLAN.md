@@ -21323,6 +21323,12 @@ Daniel - add to it, move items out when fixed).**
     instruction runs. BENCH: check 7 - every r/w/m frame's PC is the
     faulting instruction's; m_cas/m_tas complete leave D0 the handler's.
     m_cas and m_tas: abort, rerun (two exceptions now) and complete PASS.
+    CORRECTION (2026-10-26 ~02:00, found by class 7's trace check, fixed in
+    sim/_rtl_c12): a CAS2's skip address was its own +4, not +6 - the stream
+    count misses CAS2's second extension word, so the RTE resumed ON it
+    ($90C2 = SUBA.W D2,A0, harmless with the bench's D2 = 0, so the untraced
+    check passed); the trace frame's PC showed it. Now a CAS2's (opcode
+    $0CFC/$0EFC) is its address + 6.
 
 49. **FIXED IN A PRIVATE COPY (2026-10-26 00:30, found by class 12's staged
     bench; pre-existing - 1.18's substitution had it too): a handler that
