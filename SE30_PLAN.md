@@ -21640,7 +21640,7 @@ shapes once. Not under trace: t_trace, t_adderr; CHK/DIVU under T1 only.
 Found KNOWN ISSUES 50; the full staged set on its fix is running. Left for
 7: T0 x each change-of-flow instruction (Bcc taken/not, DBcc, RTS, RTE,
 SR writes) with an interrupt at every clock - after the c13 sweep.
-Class 7's flow shapes STAGED too (2026-10-26 ~03:00): o_bra, o_beq (taken),
+Class 7's flow shapes STAGED too (2026-10-26 ~02:00): o_bra, o_beq (taken),
 o_bne (not), o_dbf_t, o_dbf_nt, o_rts, o_movesr - family o, TRACE only, no
 exception (mode abort only); T1 traces each, T0 the taken ones, RTS and the
 SR write: 14/14 PASS; a planted wrong expectation FAILS.
