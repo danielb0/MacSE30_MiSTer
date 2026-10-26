@@ -21376,6 +21376,20 @@ Daniel - add to it, move items out when fixed).**
     handler's RTE and faults then; and a fetch fault already latched yields
     to a due trace in the dispatch. The replayed shapes (47) were traced
     right already. Staged bench (TRACE=1/0, check 10) on it: see class 7.
+51. **FIXED IN A PRIVATE COPY (2026-10-26 ~05:00, found by class 12's
+    staged PACK/UNPK shapes; pre-existing, TG68K's): PACK and UNPK
+    -(Ax),-(Ay) read their destination before writing it.** The UM's timing
+    table gives both 11(1/0/1): one read (the source) and one write.
+    Micro-state pack2 ran a data read at -(Ay) through the write-back path,
+    the same 68000 habit as 1.17.2's CLR/Scc/MOVE from SR. An extra read
+    reaches I/O. A bus error on the destination was reported as a READ fault:
+    SSW $165/$155 where the UM's is $125/$115 (RW clear, word/byte). Fix:
+    wronly_rd_out also marks that read (opcode 8xxx, micro-state pack3). The
+    wrapper answers it with no cycle (z_hit). The result never used it
+    (hold_ea_data). Checks on _rtl_c12:
+    - c_unpk and c_pack PASS in abort, rerun and complete.
+    - The tree's kernel FAILS them (the plant).
+    - predec_fault's dsweep cases 201-212 (PACK/UNPK at P..P-3) PASS.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -21622,8 +21636,14 @@ destination), c_split and c_split_w (a long's second word). Check 9: in
 abort and complete every access to the zone goes out ONCE per iteration
 (the bus accesses counted - an I/O access must not repeat); rerun is not
 checked (47's limit). All PASS but the split reads - KNOWN ISSUES 49, fixed
-in sim/_rtl_c12. Left for 12: PACK/UNPK, MOVES, LINK/PEA/JSR stack
-writes, MOVEM of 16 (the bench's own registers), the FPU's operands (a
+in sim/_rtl_c12. Added 2026-10-26 ~05:00:
+- c_unpk: UNPK -(a0),-(a1), the word write faults.
+- c_pack: PACK, the byte write faults.
+- c_moves: MOVES.L (a0),d0 with SFC 5, a split operand whose second word
+  faults.
+On _rtl_c12, MOVES PASSES in all three modes. PACK/UNPK found KNOWN
+ISSUES 51 and pass on its fix. Left for 12: LINK/PEA/JSR stack writes
+(the stack's own fault - with class 10's stacking faults), MOVEM of 16 (the bench's own registers), the FPU's operands (a
 dialog's frame: completion not honoured - 1.18's open item). CLASS 7,
 STAGED (2026-10-26 ~01:00): TRACE=1 (T1) / TRACE=0 (T0) in the staged
 bench - ori.w #T,sr as the prelude's last instruction traces the shape's
@@ -21660,7 +21680,7 @@ one long. 4 offsets then PASS, and a planted wrong interrupt count FAILS.
 Time: 84 min for case 0 beside the 8-wide chain (~13 s an iteration). The
 full sweep at 8 wide is ~40 h. Every 4th clock instead of every 2nd is ~20 h.
 **THE NEXT CHAIN - PROPOSED, NEEDS DANIEL (each run > 30 min).** After
-overnight_k46 ends: merge sim/_rtl_c12's kernel (KNOWN ISSUES 49, 50, 48's
+overnight_k46 ends: merge sim/_rtl_c12's kernel (KNOWN ISSUES 49, 50, 51, 48's
 CAS2 +6) into rtl/ and sim/_stage13's bench (gen_program.py, tb, run.sh,
 run_sweep.sh: SET=c13|c12|flow, TRACE=1|0, DRY=1) into sim/busfault_irq,
 then (one sweep at a time, ~2 min a case at 8 wide): (a) SET=all CTX="00 11
