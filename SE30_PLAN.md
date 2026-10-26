@@ -21713,15 +21713,20 @@ full sweep at 8 wide is ~40 h. Every 4th clock instead of every 2nd is ~20 h.
 overnight_k46 ends: merge sim/_rtl_c12's kernel (KNOWN ISSUES 49-52, 48's
 CAS2 +6) into rtl/ and sim/_stage13's bench (gen_program.py, tb, run.sh,
 run_sweep.sh: SET=c13|c12|flow, TRACE=1|0, DRY=1) into sim/busfault_irq,
-then (one sweep at a time, ~2 min a case at 8 wide): (a) SET=all CTX="00 11
-i11" - 418 cases, ~14 h (every shape incl. classes 12/13's; the c_ shapes
-in the MMU contexts only); (b) TRACE=1 SET=all - 288 cases with CTX="00
-11", ~9.5 h (CTX=11 alone: ~4.7 h); (c) TRACE=0 the same, 280, ~9.3 h (or
-~4.7 h); (d) class 4's interrupt levels: SET=bus LEVELS="1 4" CTX=11 - 272,
-~9 h (level 4 alone ~4.5 h); (e) class 4b, run_fswisweep.sh RTL=../../rtl
-from sim/cpfpu once merged - ~40 h, or ~20 h at every 4th clock; then the regression (~7 h) and the release-form
-builds (~1.5 h). In full ~50 h without (e); trimmed (b, c and d on CTX=11, d level 4
-only) ~36 h.
+then (one sweep at a time, ~2 min a case at 8 wide; counts as of
+2026-10-26 ~06:00, with 51/52's shapes):
+- (a) SET=all CTX="00 11 i11": 472 cases, ~16 h. Every shape, incl.
+  classes 12/13's; the c_ shapes in the MMU contexts only.
+- (b) TRACE=1 SET=all CTX="00 11": 321 cases, ~10.7 h (CTX=11 alone
+  ~5.4 h).
+- (c) TRACE=0, the same: 313 cases, ~10.4 h (or ~5.2 h).
+- (d) class 4's interrupt levels, SET=bus LEVELS="1 4" CTX=11: 314 cases,
+  ~10.5 h (level 4 alone ~5.2 h).
+- (e) class 4b, run_fswisweep.sh RTL=../../rtl from sim/cpfpu once
+  merged: ~40 h, or ~20 h at every 4th clock.
+- Then the regression (~7 h) and the release-form builds (~1.5 h).
+In full ~56 h without (e). Trimmed (b, c and d on CTX=11, d level 4 only):
+~40 h.
 NEXT ORDER, revised: 13 and
 11's bus-error part first (they share busfault_irq's harness and found
 bugs this week), then 7, 4 with 4b, 12, 2's directed part, 8; 9 in between.
