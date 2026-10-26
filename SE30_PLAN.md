@@ -21390,6 +21390,11 @@ Daniel - add to it, move items out when fixed).**
     - c_unpk and c_pack PASS in abort, rerun and complete.
     - The tree's kernel FAILS them (the plant).
     - predec_fault's dsweep cases 201-212 (PACK/UNPK at P..P-3) PASS.
+    The class: every write_back site in the kernel was checked against the
+    UM's read counts. The rest are true read-modify-writes: BCHG/BCLR/BSET,
+    the immediate ops (CMPI excluded), NEG/NEGX/NOT/NBCD, ADDQ/SUBQ, the
+    memory shifts, BFCHG/BFCLR/BFSET/BFINS, AND/OR/EOR to memory, and
+    ABCD/SBCD. 1.17.2's four and PACK/UNPK were the only write-only ones.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
