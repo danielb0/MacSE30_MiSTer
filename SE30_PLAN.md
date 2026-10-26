@@ -21346,6 +21346,31 @@ Daniel - add to it, move items out when fixed).**
     of going out (UM: a second operand cycle). Staged bench on it: 282/282
     (every shape, every handler, both SE/30 contexts), busfault_dib 24/24.
 
+50. **FIXED IN A PRIVATE COPY (2026-10-26 ~02:00, found by class 7's staged
+    bench - trace x bus errors; pre-existing): three ways a traced
+    instruction lost its trace (UM 8.1.7: "if an instruction does not
+    complete due to a bus error ... trace exception processing is deferred
+    until after the execution of the suspended instruction is resumed and
+    the instruction execution completes normally").** (a) MOVE/MOVEA/TST to
+    a register completed by its handler took the register commit, which
+    skips the instruction - its trace was lost and the NEXT instruction was
+    traced; now a traced one (the restored SR's T1) declines the commit and
+    the replay re-runs it, traced. (b) A CAS/TAS the handler completed (RM,
+    DF cleared - 48's skip) was not traced; now the RTE ends with the trace,
+    its frame naming the CAS/TAS (rmc_trace_ia), PC the next instruction.
+    (c) A traced JMP/JSR into an empty slot: the target's fetch bus-errored
+    on the boundary edge and KNOWN ISSUES 46's rule (no group 1 exception on
+    the edge an external bus error arrives) held the trace back - the fetch
+    fault won and the trace was gone (abort), or came later with PC target+2
+    (rerun). UM 8.1.2: a prefetch fault is taken when the word is USED; the
+    trace comes at the instruction's end. Now a bus error on the next
+    opcode's fetch (state "00" at the boundary) does not hold back a due
+    trace: the trace is taken, the wrapper lets go of the bus error
+    (cp_berr_ack, trace_drop_fetch), the fetch runs again after the trace
+    handler's RTE and faults then; and a fetch fault already latched yields
+    to a due trace in the dispatch. The replayed shapes (47) were traced
+    right already. Staged bench (TRACE=1/0, check 10) on it: see class 7.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -21593,8 +21618,23 @@ abort and complete every access to the zone goes out ONCE per iteration
 checked (47's limit). All PASS but the split reads - KNOWN ISSUES 49, fixed
 in sim/_rtl_c12. Left for 12: PACK/UNPK, MOVES, LINK/PEA/JSR stack
 writes, MOVEM of 16 (the bench's own registers), the FPU's operands (a
-dialog's frame: completion not honoured - 1.18's open item). NEXT ORDER,
-revised: 13 and
+dialog's frame: completion not honoured - 1.18's open item). CLASS 7,
+STAGED (2026-10-26 ~02:00): TRACE=1 (T1) / TRACE=0 (T0) in the staged
+bench - ori.w #T,sr as the prelude's last instruction traces the shape's
+instruction alone; a trace handler on vector 9 (TH) records the first trace
+of the instruction under test (its address below C - under T0 the loop's
+later move #$2700,sr is a traced SR write too) and clears T. Check 10, from
+UM 8.1.7 / Table 8-5: a bus-error shape is traced once only when the access
+completes (complete; never abort or a rerun into the same fault), PC the
+next instruction, address the instruction; a JMP/JSR before its target's
+fetch fault; a trap after its processing (PC the handler); ILLEGAL, A/F-
+line and privilege violations never; format $2, vector $24, the SR copy's
+T bits. T0: bus shapes never (no change of flow), TRAP/TRAPV and the fetch
+shapes once. Not under trace: t_trace, t_adderr; CHK/DIVU under T1 only.
+Found KNOWN ISSUES 50; the full staged set on its fix is running. Left for
+7: T0 x each change-of-flow instruction (Bcc taken/not, DBcc, RTS, RTE,
+SR writes) with an interrupt at every clock - after the c13 sweep.
+NEXT ORDER, revised: 13 and
 11's bus-error part first (they share busfault_irq's harness and found
 bugs this week), then 7, 4 with 4b, 12, 2's directed part, 8; 9 in between.
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
