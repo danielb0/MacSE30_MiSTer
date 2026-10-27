@@ -21273,9 +21273,12 @@ Daniel - add to it, move items out when fixed).**
     Error at 40810BF6 _InitMenus+0208 while reading long word from 10A02E20
     in Supervisor data space", A0 $10A02E20 (the destination unchanged), SP
     $5D0CEC every run (no level-2 frame under the bus error's) - (b) not
-    seen. Three runs agree with the fix, the sweeps prove it. STILL TO RUN:
-    the IIcx on System 6 (the hang before - this bug's left mask?) and the
-    SE/30 (MacSE30_2804832a_k52release).
+    seen. Three runs agree with the fix, the sweeps prove it. SE/30
+    (MacSE30_2804832a_k52release, the same System, x3, 10:02-10:03): the
+    same report every run, A0 $10A02E20, SP $772C8C every run - 8 bytes
+    above the 2026-10-25 faulty run 1's $772C84 (its format 0 level-2 frame
+    gone). STILL TO RUN: the IIcx on System 6 (the hang before - this bug's
+    left mask?).
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
