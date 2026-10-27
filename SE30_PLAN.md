@@ -21268,6 +21268,14 @@ Daniel - add to it, move items out when fixed).**
     400,000 clocks: a hang ends as a FAIL, never a timeout - the night's
     hung complete cases left orphaned simulators, a reboot). The same sweep
     found KNOWN ISSUES 47 and 48.
+    **BOARD (2026-10-27, Daniel, IIcx, MacIIcx_2804832a_k52release, System
+    7.1.2, The Pawn x3):** all three runs the authentic report, (a): "Bus
+    Error at 40810BF6 _InitMenus+0208 while reading long word from 10A02E20
+    in Supervisor data space", A0 $10A02E20 (the destination unchanged), SP
+    $5D0CEC every run (no level-2 frame under the bus error's) - (b) not
+    seen. Three runs agree with the fix, the sweeps prove it. STILL TO RUN:
+    the IIcx on System 6 (the hang before - this bug's left mask?) and the
+    SE/30 (MacSE30_2804832a_k52release).
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
