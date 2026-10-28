@@ -31,7 +31,7 @@ if pf is not None: dense |= set(range(pf - 60, pf + 301, 2))
 print("\n".join(map(str, sorted(o for o in dense | set(range(s - 20, e + 61, 16)) if o >= 0)[:767])))   # the bench's table: 768 iterations
 PY
   n=$(wc -l < offsets.txt)
-  r=$(env PROG=fswi FSW=$k $EXTRA timeout 14400 ./run.sh +IRQLOOP +MAXCLK=200000000 2>&1 | grep -a -E "^(==== |FAIL)" | head -4 | tr '\n' ' ')
+  r=$(env PROG=fswi FSW=$k $EXTRA timeout 43200 ./run.sh +IRQLOOP +MAXCLK=200000000 2>&1 | grep -a -E "^(==== |FAIL)" | head -4 | tr '\n' ' ')
   cd "$HERE"; rm -rf "$d"
   echo "$k ($n offsets) $r"
 }
