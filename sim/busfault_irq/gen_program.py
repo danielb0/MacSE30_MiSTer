@@ -246,7 +246,7 @@ SSWX = {"r_movea_l": (1, L), "r_cmp_w": (1, W), "r_move_b": (1, B), "r_move_w": 
         "w_d16": (0, L), "w_clr": (0, L), "w_movem": (0, L),
         "w_clr_inv": (0, L), "w_st_inv": (0, B), "w_pack_inv": (0, B),
         "m_tas": (1, B), "m_cas": (1, L), "m_add": (1, L), "m_negx": (1, L), "m_roxl": (1, W),
-        "m_move": (1, L), "m_cas2": (1, L), "m_cas2a": (1, L), "m_cas_wp": (1, L), "m_tas_wp": (1, B), "m_add_wp": (0, L),
+        "m_move": (1, L), "m_cas2": (1, L), "m_cas2a": (1, L), "m_cas_wp": (1, L), "m_tas_wp": (1, B), "m_add_wp": (0 if MMU else 1, L),   # MMU off: the empty slot faults ADD's read
         "c_cmpm": (1, L), "c_movem": (1, L), "c_movem_w": (0, L), "c_move_mm": (0, L),
         "c_movep": (1, B), "c_cmp2": (1, L), "c_bfext": (1, B), "c_addx": (1, L),
         "c_split": (1, W), "c_split_w": (0, W),
