@@ -717,6 +717,10 @@ architecture logic of TG68KdotC_Kernel is
 	signal trace_drop_fetch  : std_logic;  -- KNOWN ISSUES 50: a trace taken over the next opcode fetch's bus error
 	signal rmc_trace_ia      : std_logic_vector(31 downto 0) := (others => '0');  -- KNOWN ISSUES 50: the skipped CAS/TAS's address, for its trace
 	signal rmc_trace_v       : std_logic := '0';
+	signal berr_pmmu_fault_ia : std_logic_vector(31 downto 0) := (others => '0');  -- KNOWN ISSUES 53: the faulted write's instruction
+	signal berr_trace_due    : std_logic := '0';  -- KNOWN ISSUES 53: a $A frame's instruction ended with its trace due
+	signal berr_trace_dlen   : std_logic_vector(31 downto 0);  -- ... its length (the frame PC less its address)
+	signal rte_fmt_a_trace   : std_logic;  -- KNOWN ISSUES 53: the RTE of such a frame ends with that trace
 	signal stream_consumed_pc : std_logic_vector(31 downto 0) := (others => '0'); -- address of the newest stream word consumed by decode
 	signal insn_next_pc : std_logic_vector(31 downto 0) := (others => '0'); -- continuation PC of the instruction currently in execute: opcode address + 2 per consumed stream word
 	signal berr_pmmu_fault_next_pc : std_logic_vector(31 downto 0) := (others => '0'); -- insn_next_pc latched at PMMU-fault first-fire (the faulted instruction is still the executing one there)
@@ -2532,6 +2536,10 @@ ALU: TG68K_ALU
 	-- have been completed if the RM bit is set and the DF bit is cleared"
 	-- (UM 8.2.2) - the handler emulated the CAS, CAS2 or TAS, so none of it
 	-- runs again: resume at the next instruction, the frame's +$30
+	berr_trace_dlen <= berr_frame_pc - berr_pmmu_fault_ia;
+	rte_fmt_a_trace <= '1' when clkena_lw = '1' AND micro_state = rte5 AND rot_cnt = "000010" AND
+	                            rte_format_word(15 downto 12) = "1010" AND
+	                            rte_fmt_a_state1(8) = '1' AND rte_fmt_a_state1(7) = '1' else '0';
 	rte_rmc_skip <= '1' when clkena_lw = '1' AND micro_state = rte5 AND rot_cnt = "000010" AND
 	                         rte_format_word(15 downto 12) = "1011" AND rte_mmu_fix_armed = '1' AND
 	                         rte_mmu_fix_ssw(8) = '0' AND rte_mmu_fix_ssw(7) = '1' else '0';
@@ -3903,7 +3911,11 @@ PROCESS (clk)
 					-- 68030 last-write short bus fault, so preserve LASTWRITE for RTE.
 					-- $0A: SSW Special Status Word (FC/RW/SIZE/DF/FB/RB).
 					IF berr_long_frame='0' THEN
-						data_write_tmp <= x"0100" & berr_ssw;
+						IF berr_trace_due = '1' THEN
+							data_write_tmp <= x"01" & '1' & berr_trace_dlen(6 downto 0) & berr_ssw;   -- (KNOWN ISSUES 53)
+						ELSE
+							data_write_tmp <= x"0100" & berr_ssw;
+						END IF;
 					ELSE
 						data_write_tmp <= x"0000" & berr_ssw;
 					END IF;
@@ -5015,6 +5027,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
         PC_dataa, PC_datab, setnextpass, last_data_read, TG68_PC_brw, TG68_PC_word, Z_error, trap_trap, trap_trapv, interrupt, tmp_TG68_PC, TG68_PC, use_VBR_Stackframe, writePCnext, pmove_dn_mode, cpu_halted, exe_condition, dbcc_t0_suppress, c_out,
         rte_b_resume_refetch, opc_buf_valid, beat_valid, dib_sub_hit, cp_br_sel, cp_br_disp, fline_opcode_pc, cp_irq_take, cp_cof, berr_k)
 	variable v_is_cof : std_logic;  -- T0 trace: change-of-flow instruction
+	variable v_trace_due : std_logic;  -- KNOWN ISSUES 53
 	variable v_irq_pending : std_logic;
 	variable v_pmmu_datatype : std_logic_vector(1 downto 0);
 	variable v_pmmu_beat_rem : integer range 0 to 5;
@@ -5817,6 +5830,11 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 							ELSE
 								berr_pmmu_fault_next_pc <= insn_next_pc;
 							END IF;
+							IF rmc_trace_v = '1' THEN
+								berr_pmmu_fault_ia <= rmc_trace_ia;   -- an RTE's replay: the instruction it completes (KNOWN ISSUES 53)
+							ELSE
+								berr_pmmu_fault_ia <= exe_pc;
+							END IF;
 							berr_pmmu_fault_addr <= pmmu_fault_addr_out;
 							berr_pmmu_fault_fc <= pmmu_fault_fc_out;
 							berr_pmmu_fault_rw <= pmmu_fault_rw_out;
@@ -5904,6 +5922,7 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 						trap_mmu_berr <= '0';  -- BUG #159: Clear MMU BERR trap
 						trap_addr_error <= '0';  -- Clear by default
 						berr_long_frame <= '0';
+						berr_trace_due <= '0';
 						IF pmmu_fault_restart_dispatch = '1' THEN
 							mmu_restart_pending <= '0';
 							mmu_restart_soft <= '0';
@@ -6036,12 +6055,22 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 								-- an unconsumed readahead word, the next unexecuted
 								-- instruction is at last_opc_pc = TG68_PC-2, and stacking
 								-- TG68_PC makes the post-replay resume skip one word.
+								-- KNOWN ISSUES 53: the frames that resume after their instruction
+								-- (an RTE's replay, LASTWRITE): it has ended, and a trace it owes is
+								-- completed after the handler (UM 8.1.12) - the frame's $08 bit 7,
+								-- its length in bits 6-0
+								v_trace_due := '0';
+								IF make_trace = '1' OR (make_trace_t0 = '1' AND v_is_cof = '1') THEN
+									v_trace_due := '1';
+								END IF;
 								IF berr_pmmu_fault_valid = '1' AND berr_pmmu_fault_from_rte_replay = '1' THEN
 									-- RTE restores SR/PC before retrying the saved write. A fault
 									-- during that retry belongs to the restored instruction stream.
 									berr_frame_pc <= TG68_PC;
+									berr_trace_due <= v_trace_due;
 								ELSIF micro_state = rte_mmu_replay AND pmmu_fault = '1' THEN
 									berr_frame_pc <= TG68_PC;
+									berr_trace_due <= v_trace_due;
 								ELSIF pmmu_fault_restart_live = '1' THEN
 									berr_frame_pc <= exe_pc;
 								ELSIF mmu_restart_pending = '1' THEN
@@ -6059,12 +6088,14 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 									-- and NetBSD livelocked forever because pid 1 discards
 									-- SIGSEGV (T33/T34 in tb_mmu_wp_lastwrite_frame).
 									berr_frame_pc <= berr_pmmu_fault_next_pc;
+									berr_trace_due <= v_trace_due;
 								ELSIF pmmu_fault_lastwrite_ok='1' THEN
 									IF opc_buf_valid='1' AND last_opc_pc > insn_next_pc THEN
 										berr_frame_pc <= last_opc_pc;
 									ELSE
 										berr_frame_pc <= insn_next_pc;
 									END IF;
+									berr_trace_due <= v_trace_due;
 								ELSIF state /= "00" AND opc_buf_valid = '0' THEN
 									-- KNOWN ISSUES 29: the next opcode's prefetch faulted and is
 									-- taken in a non-fetch cycle after the instruction's decode cycle
@@ -6909,6 +6940,12 @@ PROCESS (clk, Reset, FlagsSR, last_data_read, OP2out, exec)
 					make_trace <= '1';
 					rmc_trace_v <= '1';
 					rmc_trace_ia <= TG68_PC;
+				ELSIF rte_fmt_a_trace = '1' THEN
+					-- KNOWN ISSUES 53: the frame's instruction owes its trace - named
+					-- in the trace frame, PC the frame's (the next instruction)
+					make_trace <= '1';
+					rmc_trace_v <= '1';
+					rmc_trace_ia <= TG68_PC - (x"000000" & '0' & rte_fmt_a_state1(6 downto 0));
 				ELSIF setopcode = '1' THEN
 					rmc_trace_v <= '0';
 				END IF;

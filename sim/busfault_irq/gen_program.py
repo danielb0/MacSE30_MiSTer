@@ -64,6 +64,7 @@ TRACE = os.environ.get("TRACE", "")
 # the ROM's table (IS=8) ignores the top byte - the Pawn's own $10A02E20.
 FAULT = 0x10A02E20 if MMU else 0xFA002E20
 INV = 0x00203100 if MMU else FAULT
+USPV = 0x00103104 if MMU else FAULT + 4          # w_jsr_wp's user stack: its push faults
 
 # shape: (family, prelude words, instruction words, A0 override)
 #   family: r read, w write, m read-modify-write, f fetch, t trap
@@ -118,6 +119,12 @@ SHAPES = {
     "w_st_inv":   ("w", [], [0x50D0], INV),                          # st (a0)
     "w_pack_inv": ("w", [[0x227C, (INV + 1) >> 16, (INV + 1) & 0xFFFF]],
                    [0x8348, 0x0000], 0x3106),                        # movea.l #INV+1,a1 ; pack -(a0),-(a1),#0
+    # KNOWN ISSUES 53's class: a change of flow whose own write faults - JSR
+    # in user mode, its return address to the user stack (MMU=1: the WP
+    # megabyte, a write-back fault; MMU=0: the empty slot); traced under T0
+    # as well as T1.  The target is the next word (FN)
+    "w_jsr_wp":   ("w", [[0x227C, (USPV >> 16) & 0xFFFF, USPV & 0xFFFF], [0x4E61]],
+                   [0x4EB8, 0x0000], None),                          # movea.l #USP,a1 ; move a1,usp ; (user) jsr FN.w
     # class 12, MMU=1 only: the Nth access faults - logical $800000-$8FFFFF is
     # RAM (CI) right below empty slot 9 at $900000 (ZONE: $8FFFF0-$8FFFFF)
     "c_cmpm":     ("r", [[0x227C, 0x0090, 0x0000]], [0xB388], 0x8FFFF0),   # cmpm.l (a0)+,(a1)+: the second read
@@ -196,7 +203,8 @@ if TRACE:
     put(4 * 9, long(TH))
 # the SR a read's fault must stack (UM 8.2.2: the CCR before the instruction -
 # moveq #0,d2's Z, and X where the prelude sets it); the bench reads $3018
-put(0x3018, long((0x2014 if 0x003C in pre else 0x2004) | {"1": 0x8000, "0": 0x4000}.get(TRACE, 0)))
+put(0x3018, long((0x0004 if SHAPE == "w_jsr_wp" else 0x2014 if 0x003C in pre else 0x2004) |   # (w_jsr_wp: user mode)
+                 {"1": 0x8000, "0": 0x4000}.get(TRACE, 0)))
 # HMODE complete: D0 and D1 as the UM fixes them - a completed read's data is
 # the DIB ($C0DE5EED, right-justified, sign-extended by the instruction); a
 # completed write moves nothing.  The bench checks $301C/$3020 when $3024 is 1
@@ -212,6 +220,7 @@ EXPECT = {"r_move_b": (0x111111ED, 0xBF96), "r_move_w": (0x11115EED, 0xBF96),
           "m_cas2": (0x11111111, 0xBF96), "m_cas2a": (0x11111111, 0xBF96),
           "m_cas_wp": (0x11111111, 0xBF96), "m_tas_wp": (0x11111111, 0xBF96), "m_add_wp": (0x11111111, 0xBF96),
           "w_clr_inv": (0x11111111, 0xBF96), "w_st_inv": (0x11111111, 0xBF96), "w_pack_inv": (0x11111111, 0xBF96),
+          "w_jsr_wp": (0x11111111, 0xBF96),
           # class 12: the zone's values before the fault, the DIB after it
           "c_cmpm": (0x11111111, 0xBF96), "c_movem": (0x55556666, 0x77778888),
           "c_movem_w": (0x11111111, 0xBF96), "c_move_mm": (0x11111111, 0xBF96),
@@ -244,7 +253,7 @@ SSWX = {"r_movea_l": (1, L), "r_cmp_w": (1, W), "r_move_b": (1, B), "r_move_w": 
         "r_movem_w": (1, W), "r_add": (1, L), "r_tst": (1, W), "r_addx": (1, L), "r_abcd": (1, B),
         "w_move_b": (0, B), "w_move_w": (0, W), "w_move_l": (0, L), "w_move_l2": (0, L),
         "w_d16": (0, L), "w_clr": (0, L), "w_movem": (0, L),
-        "w_clr_inv": (0, L), "w_st_inv": (0, B), "w_pack_inv": (0, B),
+        "w_clr_inv": (0, L), "w_st_inv": (0, B), "w_pack_inv": (0, B), "w_jsr_wp": (0, L),
         "m_tas": (1, B), "m_cas": (1, L), "m_add": (1, L), "m_negx": (1, L), "m_roxl": (1, W),
         "m_move": (1, L), "m_cas2": (1, L), "m_cas2a": (1, L), "m_cas_wp": (1, L), "m_tas_wp": (1, B), "m_add_wp": (0 if MMU else 1, L),   # MMU off: the empty slot faults ADD's read
         "c_cmpm": (1, L), "c_movem": (1, L), "c_movem_w": (0, L), "c_move_mm": (0, L),
@@ -254,9 +263,9 @@ SSWX = {"r_movea_l": (1, L), "r_cmp_w": (1, W), "r_move_b": (1, B), "r_move_w": 
 LOCKED = ("m_tas", "m_cas", "m_cas2", "m_cas2a", "m_cas_wp", "m_tas_wp")
 if SHAPE in SSWX:
     rw, sz = SSWX[SHAPE]
-    ssw = 0x100 | (0x80 if SHAPE in LOCKED else 0) | (rw << 6) | (sz << 4) | 5
+    ssw = 0x100 | (0x80 if SHAPE in LOCKED else 0) | (rw << 6) | (sz << 4) | (1 if SHAPE == "w_jsr_wp" else 5)   # (user data)
     faddr = {"r_move_l1": FAULT + 1, "r_move_l2": FAULT + 2, "w_move_l2": FAULT + 2}.get(SHAPE, FAULT)
-    if SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp") and MMU:
+    if SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp", "w_jsr_wp") and MMU:
         faddr = 0x00103100
     if SHAPE.endswith("_inv"):
         faddr = INV
@@ -286,7 +295,7 @@ if MMU:
     # TIB 5 - its sixteen descriptors terminate early); the descriptors of
     # $40800050 copied to RAM ($0-$7: RAM, $8: ROM, $9-$E: slots CI, $F: I/O CI)
     TABLE = 0x4000
-    desc = [0x19 | (n << 20) | (0x04 if SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp") and n == 1 else 0) for n in range(8)] + [0x00800059 if C12 else 0x40800019] + \
+    desc = [0x19 | (n << 20) | (0x04 if SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp", "w_jsr_wp") and n == 1 else 0) for n in range(8)] + [0x00800059 if C12 else 0x40800019] + \
            [0x59 | ((0xF0 | s) << 24) for s in range(9, 15)] + [0x50F00059]
     if SHAPE.endswith("_inv"):
         desc[2] = 0                              # the third megabyte invalid (DT 0)
@@ -322,9 +331,13 @@ if pre and isinstance(pre[0], list):              # whole instructions
 else:                                            # two-word instructions
     for k in range(0, len(pre), 2):
         p.i(*pre[k:k + 2])
-if TRACE and SHAPE != "t_priv":
+if SHAPE == "w_jsr_wp":
+    p.i(0x46FC, TBIT | 0x0004)                   # move #(T|Z),sr: user mode, the next instruction traced
+elif TRACE and SHAPE != "t_priv":
     p.i(0x007C, TBIT)                            # ori.w #T,sr: the next instruction traced
 F = p.pc()
+if SHAPE == "w_jsr_wp":
+    ins = [0x4EB8, F + 4]                        # jsr FN.w
 if SHAPE == "o_rts":                             # pea Fn.w: Fn is the rts's next word
     p.w[(F - 0x1000) // 2 - 3] = F + 2           # (the pea's operand, before the ori)
 if SHAPE == "o_movesr":
@@ -358,7 +371,7 @@ put(p.base, p.w)
 # initiated the bus cycle").  The bench takes either pair: (F, $3018's SR) or
 # ($3074, $3078) when $307C is 1
 POST_SR = {"w_clr_inv": 0x2004, "w_st_inv": 0x2004, "w_pack_inv": 0x2004,
-           "m_add_wp": 0x2000}                   # CLR: Z; ST, PACK: none; ADD $11111111 + 0: none
+           "m_add_wp": 0x2000, "w_jsr_wp": 0x0004}   # CLR: Z; ST, PACK: none; ADD $11111111 + 0: none; JSR: user, Z kept
 if MMU and SHAPE in POST_SR:
     put(0x3074, long(FN) + long(POST_SR[SHAPE] | TBIT) + long(1))
 
@@ -398,6 +411,8 @@ ABORT = None
 if HMODE == "complete":
     x.i(0x026F, 0xFEFF, 0x000A)                  # andi.w #$FEFF,$A(a7)   DF := 0
     x.i(0x2F7C, *long(0xC0DE5EED), 0x002C)       # move.l #$C0DE5EED,$2C(a7)  the DIB
+    if SHAPE == "w_jsr_wp":
+        x.i(0x0057, 0x2000)                      # ori.w #$2000,(a7)      resume supervisor (the loop's move #$2700,sr)
     x.i(0x4E73)                                  # rte
 else:
     if HMODE == "rerun":
@@ -457,7 +472,8 @@ if TRACE:
     # $24, the next instruction's PC, the traced instruction's address.
     # The bench reads $3060 count, PC, address, the SR copy's T bits, $3070 = 1
     if fam in "rwmc":
-        exp = (1, FN, F, TBIT) if (TRACE == "1" and HMODE == "complete") else (0, 0, 0, 0)
+        # (w_jsr_wp: a change of flow, traced under T0 too)
+        exp = (1, FN, F, TBIT) if ((TRACE == "1" or SHAPE == "w_jsr_wp") and HMODE == "complete") else (0, 0, 0, 0)
     elif fam == "f":
         exp = (1, A0, F, TBIT)
     elif SHAPE in ("t_trap", "t_trapv", "t_chk", "t_div0"):

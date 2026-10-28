@@ -36,7 +36,7 @@ development history.
 - **Optional, SE/30-specific:** a write pending buffer, and a pace that holds each instruction
   to the UM's section 11 times (so software timing loops run at the real machine's speed).
 
-## Bug fixes (44)
+## Bug fixes (45)
 
 ### Bus and bus errors
 
@@ -141,6 +141,12 @@ development history.
     handler skipped it and traced the next; a CAS/TAS the handler completed was not traced; and
     a traced JMP/JSR into an empty slot let the target's fetch fault win over the trace. A
     prefetch fault is now taken only when the word is used (UM 8.1.2), after the trace.
+45. A traced instruction whose last write faulted from the write pending buffer, after the
+    instruction had ended, lost its trace: the bus error won at the boundary, cleared the
+    pending trace, and after the handler's RTE the next instruction was traced instead
+    (UM 8.1.12: the trace completes after the bus error's handler). The format $A frame's
+    internal word now carries the owed trace and the instruction's length, and the RTE of a
+    completed write ends with that trace, naming the instruction.
 
 ## Known open (deferred)
 

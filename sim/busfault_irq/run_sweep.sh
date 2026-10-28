@@ -8,7 +8,7 @@
 # after it (traps: the whole iteration), every 16th clock elsewhere; then
 # one run takes them all, one iteration each.  HSYNC* at HPER clocks (64:
 # UI6's wait ~150 clocks).  8 cases at a time.
-#   ./run_sweep.sh [SET=all|bus|trap|pawn|c13|c12|flow] [ONLY=shape] [MODES="..."] [TRACE=1|0] [LEVELS="2"] [CTX="00 11"] [HPER=64]
+#   ./run_sweep.sh [SET=all|bus|trap|pawn|c13|c12|flow] [ONLY="shape ..."] [KRTL=dir] [MODES="..."] [TRACE=1|0] [LEVELS="2"] [CTX="00 11"] [HPER=64]
 #   CTX: MMU and CACHE per context (00 = both off, 11 = the board's 24-bit
 #   row with CACR $2101; i11 = 11 on the IIcx, an empty slot the NuChip's
 #   timeout - bus shapes only).  The log is sweep_<SET>.log.
@@ -21,7 +21,7 @@ CASES=()
 export TRACE=${TRACE:-}                                       # class 7: 1 (T1) or 0 (T0)
 for s in $(SHAPELIST=1 python gen_program.py | awk '{print $1":"$2}'); do
   shape=${s%%:*}; fam=${s##*:}
-  [ -n "${ONLY:-}" ] && [ "$shape" != "$ONLY" ] && continue    # ONLY=shape: one shape
+  [ -n "${ONLY:-}" ] && [[ " $ONLY " != *" $shape "* ]] && continue   # ONLY="shape ...": those shapes
   case "$SET" in
     bus)  [ "$fam" = t ] && continue ;;
     trap) [ "$fam" != t ] && continue ;;
@@ -53,7 +53,7 @@ run1() {   # shape hmode mmu cache level iicx
   cp "$HERE/gen_program.py" "$HERE/tb_busfault_irq.v" "$HERE/run.sh" "$d/"
   cd "$d"
   export SHAPE=$1 HMODE=$2 MMU=$3 CACHE=$4 IICX=$6
-  PLUSARGS="+EVT +LEVEL=$5 +HPER=$HPER" RTL=$HERE/../../rtl timeout 3600 ./run.sh > evt.out 2>&1
+  PLUSARGS="+EVT +LEVEL=$5 +HPER=$HPER" RTL=$KRTL timeout 3600 ./run.sh > evt.out 2>&1
   python - <<'EOF' > offsets.txt
 ev = [l.split() for l in open("evt.out") if l.startswith("EVT ")]
 berr = [int(e[2]) for e in ev if e[1] == "berr"]
@@ -78,7 +78,7 @@ EOF
   r=""
   for f in part_*; do
     cp "$f" offsets.txt
-    o=$(PLUSARGS="+OFFS +LEVEL=$5 +HPER=$HPER" NOCOMPILE=1 RTL=$HERE/../../rtl timeout 43200 ./run.sh 2>&1 |
+    o=$(PLUSARGS="+OFFS +LEVEL=$5 +HPER=$HPER" NOCOMPILE=1 RTL=$KRTL timeout 43200 ./run.sh 2>&1 |
         grep -E "^(==== |FAIL)" | head -4 | tr '\n' ' ')
     case "$o" in "==== PASS"*) ;; *) r="$r[$f] ${o:-FAIL no result (the 12 h timeout?)} " ;; esac
   done
@@ -86,7 +86,8 @@ EOF
   cd "$HERE"; rm -rf "$d"
   echo "$1 $2 mmu$3 cache$4 L$5 $([ "$6" = 1 ] && echo IIcx || echo SE30) ($n offsets): $r"
 }
-export -f run1; export HERE HPER
+KRTL=${KRTL:-$HERE/../../rtl}                                # KRTL: a kernel tree (a private copy)
+export -f run1; export HERE HPER KRTL
 LOG=sweep_$SET${TRACE:+_t$TRACE}.log
 echo "==== $(date '+%F %T') SET=$SET LEVELS=$LEVELS CTX=$CTX: ${#CASES[@]} cases" > "$LOG"
 printf '%s\n' "${CASES[@]}" | xargs -P 8 -I{} bash -c 'run1 {}' >> "$LOG"

@@ -21431,7 +21431,25 @@ Daniel - add to it, move items out when fixed).**
     - A wrong POST_SR FAILS.
     - predec_fault's dsweep write-only cases (CLR, Scc, MOVE from SR/CCR,
       PACK/UNPK; 36) PASS invalid and PASS with DSW_WP=1.
-53. **OPEN (2026-10-28 ~00:20, found by the trimmed sweep (b), TRACE=1
+53. **FIXED 2026-10-28 (sim/ki53_tests.sh, 11:15-16:19, 90 cases, all
+    PASS; Daniel: "Go ahead with the merge").** The fix: the format $A
+    frame's internal word at $08 carries the owed trace - bit 8 LASTWRITE
+    as before, bit 7 a trace due when the late write faulted, bits 6-0
+    the instruction's length (frame PC minus its address); the RTE ends
+    with the trace (rte5, rot_cnt 2), its frame naming the instruction
+    (rmc_trace_ia = PC - length), PC FN - 50 (b)'s path. Abort and rerun
+    keep no trace (the bench's rule, the UM's: the handler that discards
+    the frame discards the trace with it). Results on the fixed kernel:
+    the five late-write shapes (m_add_wp, w_clr_inv, w_st_inv,
+    w_pack_inv, w_jsr_wp) TRACE=1 15/15 and TRACE=0 15/15 at CTX 11, no
+    trace 30/30 at CTX 00 and 11, w_jsr_wp at CTX 00 6/6 - the four
+    shapes that failed sweep (b) now trace F. NOT REACHED: the new
+    w_jsr_wp (a user JSR whose return-address push faults late) was to
+    plant the T0 change-of-flow path (v_is_cof at the boundary), but it
+    PASSED on the unfixed kernel too (6/6) - it never puts the trace and
+    the late fault together, so the T0 path of the fix is untested; it
+    stays as a no-false-trace check. Changelog fix 45.
+    Was: **OPEN (2026-10-28 ~00:20, found by the trimmed sweep (b), TRACE=1
     on k52: busfault_irq m_add_wp, w_clr_inv, w_st_inv and w_pack_inv,
     complete, MMU and cache on, from iteration 0 - not the interrupt):
     a write-back fault taken after the instruction ended loses the
