@@ -21431,6 +21431,32 @@ Daniel - add to it, move items out when fixed).**
     - A wrong POST_SR FAILS.
     - predec_fault's dsweep write-only cases (CLR, Scc, MOVE from SR/CCR,
       PACK/UNPK; 36) PASS invalid and PASS with DSW_WP=1.
+53. **OPEN (2026-10-28 ~00:20, found by the trimmed sweep (b), TRACE=1
+    on k52: busfault_irq m_add_wp, w_clr_inv, w_st_inv and w_pack_inv,
+    complete, MMU and cache on, from iteration 0 - not the interrupt):
+    a write-back fault taken after the instruction ended loses the
+    instruction's trace.** The instruction at F ends with its write in
+    the write pending buffer and its T1 trace pending; the write faults
+    during the trace's exception processing; the frame names FN (52's
+    pair, accepted). The handler completes the write and the RTE resumes
+    at FN - and the NEXT instruction is traced (frame PC FN+2, address
+    FN): F's trace is gone. UM 8.1.12: "if a bus error occurs during the
+    exception processing for a trace condition, the system processes the
+    bus error and executes its handler before completing the trace
+    exception processing"; UM 8.1.7: a traced instruction is not complete
+    until its trace is. The bench's expectation (PC FN, address F) is the
+    UM's. The frame's internal registers are undocumented (8.1.2: enough
+    to recover), so the pending trace travels there. The fix's shape is
+    50 (b)'s: the RTE ends with the trace, its frame naming F
+    (rmc_trace_ia), PC FN. Open question before the fix, from the UM:
+    the bench expects NO trace for these late-write shapes in abort and
+    rerun (its rule for faults inside an instruction, which never
+    completes) - here the instruction completed before the fault, so 8.1.12
+    may want the trace there too. Next: one case alone with +EVT after the
+    chain (20-30 min) to place the kernel's drop. (The same night's sweep
+    (a) failed m_add_wp with the MMU off on the SSW: the bench's, not the
+    core's - the empty slot faults ADD's read, $145; staged in
+    sim/_stage14, rerun by sim/after_k46c.sh.)
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
