@@ -21475,7 +21475,7 @@ Daniel - add to it, move items out when fixed).**
     (a) failed m_add_wp with the MMU off on the SSW: the bench's, not the
     core's - the empty slot faults ADD's read, $145; staged in
     sim/_stage14, rerun by sim/after_k46c.sh.)
-54. **CLOSED, NOT REPRODUCED (2026-10-29, Daniel, board): HyperCard quits silently at launch
+54. **OPEN, INTERMITTENT? - seen twice, not reproduced since (2026-10-29, Daniel, board): HyperCard quits silently at launch
     under System 7.5.5 with virtual memory on** (64 MB total, 16 MB built
     in, the swap file on the second disk `MacPack`): no bomb, no
     "unexpectedly quit" message, the system stays up. With VM off it runs,
@@ -21516,7 +21516,12 @@ Daniel - add to it, move items out when fixed).**
     **RECHECK, 16 MB + VM 64 MB, 32-bit: WORKS** (Daniel, 2026-10-29) -
     not reproduced; the earlier quits were transient (a damaged
     preferences file or other state, Daniel: "just the Mac being a
-    Mac"). CLOSED, not reproduced; reopen if it recurs.
+    Mac"). **But it failed TWICE before** (nine apps open, then alone;
+    the same extensions), so an intermittent fault is not excluded: kept
+    OPEN as a known issue, not reproducible on demand. Every later run
+    followed a Memory control panel change and a restart (a new VM
+    storage file). On a recurrence: what was open, the uptime, whether
+    a restart came between, the VM file's history.
     Triage if reopened:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
@@ -21913,7 +21918,7 @@ suspect until shown otherwise:
 | HyperCard 2.1 | 53 | 24-bit | stacks load, buttons work; `beep`, `play "boing"` and the audio-player stack sound; `put 2^32` = 4294967296 | Daniel, 2026-10-07 (a silent `play` was the PC speaker switched off, not the core) |
 | HyperCard Player 2.4.1 | 53 | 24-bit | works, sound included | Daniel, 2026-10-07 |
 | System 7.5.5 virtual memory, 64 MB (16 MB built in, swap file on the second disk `MacPack`) | not recorded | 32-bit | **works**: Photoshop, ClarisWorks 3.0, Cubase 2.5, Excel, Word, PowerPoint, QuarkXPress, TeachText and WordPerfect open together (~18 MB of partitions + 5.4 MB System in 16 MB physical, so paging really ran), switched between, quit, clean restart and shutdown (Daniel, 2026-10-28/29; screenshot `C:\temp\Mac\Screenshots\20261029_134238-screen.png`) | the Mac OS's own page faults: bus errors restarted by the VM handler, the mechanism the fault sweeps cover |
-| HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29) - **not reproduced: works on a recheck at the same settings; KNOWN ISSUES 54 closed** | alone too; runs in 32-bit and 24-bit with VM off (Daniel, 2026-10-29) |
+| HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29) - **quit twice, then works on a recheck at the same settings; KNOWN ISSUES 54 open (intermittent?)** | alone too; runs in 32-bit and 24-bit with VM off (Daniel, 2026-10-29) |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
