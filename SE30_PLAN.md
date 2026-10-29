@@ -21481,10 +21481,11 @@ Daniel - add to it, move items out when fixed).**
     "unexpectedly quit" message, the system stays up. With VM off it runs,
     in 32-bit mode and in 24-bit (compile 53). Fails alone and with nine
     other apps open; those nine apps page and run fine under the same VM.
-    Build and HyperCard version to record. A core suspect until shown
-    otherwise: VM means page faults (bus errors, restarted) under live
-    interrupts, the classes the post-20261024 fixes 46-53 cover - the
-    k52release build has 46-52, the release none. Triage: which build;
+    Build: MacSE30_2804832a_k52release (fixes 46-52 in; 53 not). HyperCard
+    version to record. A core suspect until shown otherwise: VM means page
+    faults (bus errors, restarted) under live interrupts, the classes
+    46-53 cover - so a shape those fixes and the sweeps missed, or 53
+    (a late write-back fault under trace: unlikely, no trace). Triage:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
     (cross-check only).
