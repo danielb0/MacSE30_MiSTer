@@ -21503,8 +21503,9 @@ Daniel - add to it, move items out when fixed).**
     with a total over 16 MB the Process Manager can place HyperCard's
     partition above $01000000, where code that keeps flags in a
     pointer's high byte (32-bit dirty below that line only) breaks - the
-    app, its Home stack or an XCMD. Next: VM OFF, 32-bit, 32 or 64 MB
-    physical (no paging at all); and 8 MB + VM 20 MB.
+    app, its Home stack or an XCMD. Next (the core offers 8 or 16 MB
+    only): 8 MB + VM 20 MB and 8 MB + VM 64 MB - a line at 16 MB of
+    total, not the physical size, would point at the address.
     Triage if reopened:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
