@@ -21475,7 +21475,7 @@ Daniel - add to it, move items out when fixed).**
     (a) failed m_add_wp with the MMU off on the SSW: the bench's, not the
     core's - the empty slot faults ADD's read, $145; staged in
     sim/_stage14, rerun by sim/after_k46c.sh.)
-54. **OPEN (2026-10-29, Daniel, board): HyperCard quits silently at launch
+54. **OPEN, PARKED (2026-10-29, Daniel, board): HyperCard quits silently at launch
     under System 7.5.5 with virtual memory on** (64 MB total, 16 MB built
     in, the swap file on the second disk `MacPack`): no bomb, no
     "unexpectedly quit" message, the system stays up. With VM off it runs,
@@ -21488,8 +21488,14 @@ Daniel - add to it, move items out when fixed).**
     (a late write-back fault under trace: unlikely, no trace). MAME `macse30`
     cross-check (`C:\temp\Mac\mame\hc\run.bat`: 16 MB, SCSI 0 = the
     16.10 backup `mac_80mb-restored.vhd`, SCSI 1 = MacPack): HyperCard runs
-    in 24-bit mode with VM off (Daniel, 2026-10-29) - the baseline; VM in
-    32-bit to follow. Triage:
+    in 24-bit mode with VM off (Daniel, 2026-10-29) - the baseline. **MAME
+    cannot run the VM case**: in 32-bit mode it Sad-Macs at 16 MB and hangs
+    at 8 MB (not investigated). Web search (2026-10-29): no report of
+    HyperCard 2.x failing under VM or 32-bit mode (only 1.2.5 refusing
+    32-bit); TidBITS 1993-03-08: Connectix could not reproduce a suspected
+    VM + MODE32 conflict under 7.1. **PARKED as a known issue (Daniel,
+    2026-10-29: "note it as a known issue until we find out more")**; not
+    a release blocker. Triage if reopened:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
     (cross-check only).
