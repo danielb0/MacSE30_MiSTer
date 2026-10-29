@@ -21485,9 +21485,11 @@ Daniel - add to it, move items out when fixed).**
     version to record. A core suspect until shown otherwise: VM means page
     faults (bus errors, restarted) under live interrupts, the classes
     46-53 cover - so a shape those fixes and the sweeps missed, or 53
-    (a late write-back fault under trace: unlikely, no trace). **With VM
-    on in 24-bit mode HyperCard runs** (Daniel, 2026-10-29, the IIcx
-    board): the failure needs VM AND 32-bit mode. Triage:
+    (a late write-back fault under trace: unlikely, no trace). MAME `macse30`
+    cross-check (`C:	emp\Mac\mame\hcun.bat`: 16 MB, SCSI 0 = the
+    16.10 backup `mac_80mb-restored.vhd`, SCSI 1 = MacPack): HyperCard runs
+    in 24-bit mode with VM off (Daniel, 2026-10-29) - the baseline; VM in
+    32-bit to follow. Triage:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
     (cross-check only).
