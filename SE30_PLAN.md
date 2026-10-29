@@ -21475,6 +21475,19 @@ Daniel - add to it, move items out when fixed).**
     (a) failed m_add_wp with the MMU off on the SSW: the bench's, not the
     core's - the empty slot faults ADD's read, $145; staged in
     sim/_stage14, rerun by sim/after_k46c.sh.)
+54. **OPEN (2026-10-29, Daniel, board): HyperCard quits silently at launch
+    under System 7.5.5 with virtual memory on** (64 MB total, 16 MB built
+    in, the swap file on the second disk `MacPack`): no bomb, no
+    "unexpectedly quit" message, the system stays up. With VM off it runs,
+    in 32-bit mode and in 24-bit (compile 53). Fails alone and with nine
+    other apps open; those nine apps page and run fine under the same VM.
+    Build and HyperCard version to record. A core suspect until shown
+    otherwise: VM means page faults (bus errors, restarted) under live
+    interrupts, the classes the post-20261024 fixes 46-53 cover - the
+    k52release build has 46-52, the release none. Triage: which build;
+    VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
+    file on the boot disk; MAME `macse30` with the same image and VM on
+    (cross-check only).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -21867,7 +21880,7 @@ suspect until shown otherwise:
 | HyperCard 2.1 | 53 | 24-bit | stacks load, buttons work; `beep`, `play "boing"` and the audio-player stack sound; `put 2^32` = 4294967296 | Daniel, 2026-10-07 (a silent `play` was the PC speaker switched off, not the core) |
 | HyperCard Player 2.4.1 | 53 | 24-bit | works, sound included | Daniel, 2026-10-07 |
 | System 7.5.5 virtual memory, 64 MB (16 MB built in, swap file on the second disk `MacPack`) | not recorded | 32-bit | **works**: Photoshop, ClarisWorks 3.0, Cubase 2.5, Excel, Word, PowerPoint, QuarkXPress, TeachText and WordPerfect open together (~18 MB of partitions + 5.4 MB System in 16 MB physical, so paging really ran), switched between, quit, clean restart and shutdown (Daniel, 2026-10-28/29; screenshot `C:\temp\Mac\Screenshots\20261029_134238-screen.png`) | the Mac OS's own page faults: bus errors restarted by the VM handler, the mechanism the fault sweeps cover |
-| HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29; to retest with HyperCard alone) - **open, triage pending** | worked in 24-bit with VM off (rows above); to separate VM, 32-bit mode and the other open apps |
+| HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29) - **open, KNOWN ISSUES 54** | alone too; runs in 32-bit and 24-bit with VM off (Daniel, 2026-10-29) |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
