@@ -21486,7 +21486,7 @@ Daniel - add to it, move items out when fixed).**
     faults (bus errors, restarted) under live interrupts, the classes
     46-53 cover - so a shape those fixes and the sweeps missed, or 53
     (a late write-back fault under trace: unlikely, no trace). MAME `macse30`
-    cross-check (`C:	emp\Mac\mame\hcun.bat`: 16 MB, SCSI 0 = the
+    cross-check (`C:\temp\Mac\mame\hc\run.bat`: 16 MB, SCSI 0 = the
     16.10 backup `mac_80mb-restored.vhd`, SCSI 1 = MacPack): HyperCard runs
     in 24-bit mode with VM off (Daniel, 2026-10-29) - the baseline; VM in
     32-bit to follow. Triage:
