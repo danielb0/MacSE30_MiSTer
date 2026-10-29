@@ -21520,7 +21520,11 @@ Daniel - add to it, move items out when fixed).**
     the same extensions), so an intermittent fault is not excluded: kept
     OPEN as a known issue, not reproducible on demand. Every later run
     followed a Memory control panel change and a restart (a new VM
-    storage file). On a recurrence: what was open, the uptime, whether
+    storage file). The two failures had a shutdown between them (Daniel,
+    2026-10-29): it survived a restart, so not session state; what
+    cleared it came with the later Memory changes (the VM file rebuilt at
+    other sizes, then at 64 MB again) or HyperCard's own files. On a
+    recurrence: what was open, the uptime, whether
     a restart came between, the VM file's history.
     Triage if reopened:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
