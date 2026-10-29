@@ -21495,7 +21495,11 @@ Daniel - add to it, move items out when fixed).**
     32-bit); TidBITS 1993-03-08: Connectix could not reproduce a suspected
     VM + MODE32 conflict under 7.1. **PARKED as a known issue (Daniel,
     2026-10-29: "note it as a known issue until we find out more")**; not
-    a release blocker. Triage if reopened:
+    a release blocker. **Board, 8 MB, VM on in 24-bit mode: HyperCard
+    works** (Daniel, 2026-10-29): the failure needs VM with 32-bit mode -
+    or the larger physical/VM sizes only 32-bit allows (16 MB, 64 MB);
+    next split: 32-bit, 8 MB physical, a small VM total (e.g. 12 MB).
+    Triage if reopened:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
     (cross-check only).
