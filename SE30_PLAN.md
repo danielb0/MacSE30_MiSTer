@@ -21498,7 +21498,13 @@ Daniel - add to it, move items out when fixed).**
     a release blocker. **Board, 8 MB, VM on in 24-bit mode: HyperCard
     works** (Daniel, 2026-10-29): the failure needs VM with 32-bit mode -
     or the larger physical/VM sizes only 32-bit allows (16 MB, 64 MB);
-    next split: 32-bit, 8 MB physical, a small VM total (e.g. 12 MB).
+    **32-bit, 8 MB physical, VM 12 MB total: works** (Daniel,
+    2026-10-29). So not 32-bit mode or paging as such: the size. Lead:
+    with a total over 16 MB the Process Manager can place HyperCard's
+    partition above $01000000, where code that keeps flags in a
+    pointer's high byte (32-bit dirty below that line only) breaks - the
+    app, its Home stack or an XCMD. Next: VM OFF, 32-bit, 32 or 64 MB
+    physical (no paging at all); and 8 MB + VM 20 MB.
     Triage if reopened:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
