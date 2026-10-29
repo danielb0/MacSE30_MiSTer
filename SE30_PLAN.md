@@ -21508,7 +21508,12 @@ Daniel - add to it, move items out when fixed).**
     total, not the physical size, would point at the address. **8 MB +
     VM 20 MB, 32-bit: works** (Daniel, 2026-10-29) - no line at 16 MB of
     total; the address lead weakens. Next: 8 MB + VM 64 MB (the total)
-    against 16 MB + a small VM (the physical 16 MB).
+    against 16 MB + a small VM (the physical 16 MB). **8 MB + VM 64 MB,
+    32-bit: works** (Daniel, 2026-10-29): the total is not it - the
+    failing ingredient is 16 MB PHYSICAL with VM on (16 MB, VM off,
+    32-bit runs). A core suspect again: the VM Manager's own page tables
+    over physical $00800000-$00FFFFFF (KNOWN ISSUES 13's region).
+    Daniel re-checking 16 MB + VM 64 MB.
     Triage if reopened:
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
