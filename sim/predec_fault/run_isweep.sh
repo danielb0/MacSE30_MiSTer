@@ -5,6 +5,7 @@
 # environment, e.g. CACR=0x2101.  Exit status 0 when every case passes.
 #   ./run_isweep.sh [CACR=0x2101]
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
@@ -18,7 +19,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > isweep.log
+seq 0 $((N-1)) | sweep_xargs isweep.log 'one {}' "$*"
 P=$(grep -c '==== PASS' isweep.log)
 CASESET=isweep ISWLIST=1 python gen_program.py | paste -d'|' - <(cut -d' ' -f2- isweep.log) | grep -v "==== PASS" | sed 's/|/ : /'
 echo "==== isweep: $P / $N PASS"

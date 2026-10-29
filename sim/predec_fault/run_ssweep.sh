@@ -11,6 +11,7 @@
 # fault (gen_program.py's DSW_PTR); the log is then ssweep_ptr_<v>[_c<CACR>].log.
 #   ./run_ssweep.sh [SSW_WP=1] [CACR=0x2101] [DSW_PTR=b]      the log is ssweep[_wp].log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
@@ -27,7 +28,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > $LOG
+seq 0 $((N-1)) | sweep_xargs $LOG 'one {}' "$*"
 P=$(grep -c '==== PASS' $LOG)
 env $EXTRA TCMODE=aux CASESET=ssweep SSWLIST=1 python gen_program.py | paste -d'|' - <(cut -d' ' -f2- $LOG) | grep -v "==== PASS" | sed 's/|/ : /'
 echo "==== ssweep${EXTRA:+ ($EXTRA)}: $P / $N PASS"

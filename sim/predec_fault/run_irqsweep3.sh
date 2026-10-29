@@ -11,6 +11,7 @@
 # walks every n-th clock).
 #   ./run_irqsweep3.sh [STEP=2] [SSW_WP=1]        the log is irqsweep3.log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 STEP=${STEP:-2}
@@ -43,7 +44,7 @@ for c in "${CASES[@]}"; do
   V=$(echo "$line" | sed -n 's/.*vector fetch at clock \([0-9-]*\).*/\1/p')
   if [ -z "$V" ] || [ "$V" -lt 0 ]; then echo "$n: no baseline window ($line)" >&2; continue; fi
   for t in $(seq $((V-80)) $STEP $((V+600))); do echo "$n|$e|+IRQAT=$t"; done
-done | xargs -P 8 -I{} bash -c 'IFS="|" read -r n e p <<< "{}"; run1 "$n" "$e" "$p"' | sort > irqsweep3.log
+done | SORTOPT= sweep_xargs irqsweep3.log 'IFS="|" read -r n e p <<< "{}"; run1 "$n" "$e" "$p"' "$*"
 T=$(wc -l < irqsweep3.log); P=$(grep -c '==== PASS' irqsweep3.log)
 grep -v '==== PASS' irqsweep3.log | head -40
 echo "==== irqsweep3: $P / $T PASS ($(grep -c '==== PASS' irqsweep3_base.log) / ${#CASES[@]} baselines)"

@@ -20,6 +20,7 @@
 #           seed's pages; ptrsuper the same in supervisor mode (RSW_SUPER=1)
 #   ./run_rsweep3.sh sdram|jit|super|ptr|ptrsuper FIRST COUNT [CACR=0x2101]
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 MODE=${1:?sdram, jit, super, ptr or ptrsuper}; FIRST=${2:-0}; COUNT=${3:-16}; shift 3 2>/dev/null
@@ -44,7 +45,7 @@ one() {
 }
 export -f one; export HERE EXTRA MODE PFX RUNENV PLUS
 LOG=rsweep_$MODE.log
-seq $FIRST $((FIRST+COUNT-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > $LOG
+seq $FIRST $((FIRST+COUNT-1)) | sweep_xargs $LOG 'one {}' "$*"
 P=$(grep -c '==== PASS' $LOG)
 grep -v '==== PASS' $LOG
 echo "==== rsweep $MODE: $P / $COUNT PASS (seeds $FIRST-$((FIRST+COUNT-1)))"

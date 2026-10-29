@@ -7,6 +7,7 @@
 # every line passed.
 #   ./run_regression.sh [phase1|phase2]
 set -u
+. "$(dirname "$0")/sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 SIM=$(pwd)
 LOG=$SIM/regression.log
@@ -33,7 +34,7 @@ if [ "$WHAT" != phase2 ]; then
     for p in b3r b5u; do echo "cpjob ${p}_2101 $p B3_CACR=0x2101"; done
     # (KNOWN ISSUES 38: xeyes's shapes under A/UX's context switch - random, and at every suspended dialog)
     echo "cpjob b3x b3x B3R_N=8"; echo "cpjob b3x_dlg b3x B3R_N=8 B3X_DLG=1"
-  } | xargs -d '\n' -P 8 -I{} bash -c '{}' | sort > "$LOG.1"
+  } | SORTOPT= sweep_xargs "$LOG.1" '{}' "$*"
   cat "$LOG.1"
 fi
 if [ "$WHAT" != phase1 ]; then

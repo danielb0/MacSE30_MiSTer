@@ -10,6 +10,7 @@
 # 5 minutes a case, 2 hours for the list.  STEP=n walks every n-th clock.
 #   ./run_irqsweep.sh [STEP=1]        the log is irqsweep.log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 STEP=${STEP:-1}
@@ -46,7 +47,7 @@ for c in "${CASES[@]}"; do
   U=$(echo "$line" | sed -n 's/.*after it at \([0-9-]*\).*/\1/p')
   if [ -z "$V" ] || [ "$V" -lt 0 ]; then echo "$n: no baseline window ($line)" >&2; continue; fi
   for t in $(seq $((V-80)) $STEP $((V+20))) $(seq $((U-40)) $STEP $((U+60))); do echo "$n|$e|+IRQAT=$t"; done
-done | xargs -P 8 -I{} bash -c 'IFS="|" read -r n e p <<< "{}"; run1 "$n" "$e" "$p"' | sort > irqsweep.log
+done | SORTOPT= sweep_xargs irqsweep.log 'IFS="|" read -r n e p <<< "{}"; run1 "$n" "$e" "$p"' "$*"
 T=$(wc -l < irqsweep.log); P=$(grep -c '==== PASS' irqsweep.log)
 grep -v '==== PASS' irqsweep.log | head -40
 echo "==== irqsweep: $P / $T PASS ($(grep -c '==== PASS' irqsweep_base.log) / ${#CASES[@]} baselines)"

@@ -8,6 +8,7 @@
 # runners, which check always.
 #   ./run_uok_all.sh            the log is uok_all.log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 JOBS=(
@@ -40,7 +41,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE
-printf '%s\n' "${JOBS[@]}" | xargs -P 8 -I{} bash -c 'one "{}"' | sort > uok_all.log
+printf '%s\n' "${JOBS[@]}" | SORTOPT= sweep_xargs uok_all.log 'one "{}"' "$*"
 P=$(grep -c '==== PASS' uok_all.log)
 grep -v '==== PASS' uok_all.log
 echo "==== uok_all: $P / ${#JOBS[@]} PASS"

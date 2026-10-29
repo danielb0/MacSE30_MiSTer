@@ -11,6 +11,7 @@
 # every other case passes.
 #   ./run_fifsweep.sh [FIF_IRQ=1] [B3_CACR=0x2101] [FIF_SUPER=1]   the log is fifsweep[_super].log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
@@ -27,7 +28,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq $FIRST $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > $LOG
+seq $FIRST $((N-1)) | sweep_xargs $LOG 'one {}' "$*"
 LIST=$(env $EXTRA FIFLIST=1 python gen_program.py fif | sed -n "$((FIRST+1)),\$p" | paste -d'|' - <(cut -d' ' -f2- $LOG))
 echo "$LIST" | grep -v "==== PASS" | sed 's/|/ : /'
 P=$(echo "$LIST" | grep -v "\[deferred" | grep -c '==== PASS')

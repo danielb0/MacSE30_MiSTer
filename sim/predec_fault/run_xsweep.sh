@@ -6,6 +6,7 @@
 # environment, e.g. CACR=0x2101.  Exit status 0 when every case passes.
 #   ./run_xsweep.sh [CACR=0x2101]
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
@@ -19,7 +20,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > xsweep.log
+seq 0 $((N-1)) | sweep_xargs xsweep.log 'one {}' "$*"
 P=$(grep -c '==== PASS' xsweep.log)
 CASESET=xsweep XSWLIST=1 python gen_program.py | paste -d'|' - <(cut -d' ' -f2- xsweep.log) | grep -v "==== PASS" | sed 's/|/ : /'
 echo "==== xsweep: $P / $N PASS"

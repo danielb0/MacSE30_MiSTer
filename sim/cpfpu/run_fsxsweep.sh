@@ -9,6 +9,7 @@
 # B3_CACR the cache control register.  Exit status 0 when every case passes.
 #   ./run_fsxsweep.sh [FSX_WP=1] [B3_CACR=0x2101]      the log is fsxsweep[_wp].log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
@@ -24,7 +25,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > $LOG
+seq 0 $((N-1)) | sweep_xargs $LOG 'one {}' "$*"
 P=$(grep -c '==== PASS' $LOG)
 env $EXTRA FSXLIST=1 python gen_program.py fsx | paste -d'|' - <(cut -d' ' -f2- $LOG) | grep -v "==== PASS" | sed 's/|/ : /'
 echo "==== fsxsweep${EXTRA:+ ($EXTRA)}: $P / $N PASS"

@@ -12,6 +12,7 @@
 # with 2 sims, longer 8-wide): the timeout is an hour (25 min cut 11 of 50).
 #   ./run_frssweep.sh N [FIRST] [env...]       the log is frssweep.log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 N=${1:-50}; FIRST=${2:-0}; shift; [ $# -gt 0 ] && shift
@@ -25,7 +26,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq $FIRST $((FIRST + N - 1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > frssweep.log
+seq $FIRST $((FIRST + N - 1)) | sweep_xargs frssweep.log 'one {}' "$*"
 P=$(grep -c '==== PASS' frssweep.log)
 grep -v "==== PASS" frssweep.log
 echo "==== frssweep${EXTRA:+ ($EXTRA)}: $P / $N PASS (seeds $FIRST-$((FIRST + N - 1)))"

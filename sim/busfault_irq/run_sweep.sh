@@ -89,7 +89,20 @@ EOF
 KRTL=${KRTL:-$HERE/../../rtl}                                # KRTL: a kernel tree (a private copy)
 export -f run1; export HERE HPER KRTL
 LOG=sweep_$SET${TRACE:+_t$TRACE}.log
-echo "==== $(date '+%F %T') SET=$SET LEVELS=$LEVELS CTX=$CTX: ${#CASES[@]} cases" > "$LOG"
-printf '%s\n' "${CASES[@]}" | xargs -P 8 -I{} bash -c 'run1 {}' >> "$LOG"
+# each case's line goes to the log as it ends; RESUME=1 keeps a log of the same
+# configuration and runs only the cases missing from it (a restart, 2026-10-29)
+CFG="SET=$SET LEVELS=$LEVELS CTX=$CTX HPER=$HPER ONLY=${ONLY:-} MODES=${MODES:-} KRTL=$KRTL: ${#CASES[@]} cases"
+TODO=("${CASES[@]}")
+if [ "${RESUME:-0}" = 1 ] && [ "$(head -1 "$LOG" 2>/dev/null | cut -d' ' -f4-)" = "$CFG" ]; then
+  TODO=()
+  for c in "${CASES[@]}"; do
+    set -- $c; k="$1 $2 mmu$3 cache$4 L$5 $([ "$6" = 1 ] && echo IIcx || echo SE30) ("
+    grep -qF "$k" "$LOG" || TODO+=("$c")
+  done
+  echo "==== $(date '+%F %T') resumed: ${#TODO[@]} of ${#CASES[@]} cases to run" >> "$LOG"
+else
+  echo "==== $(date '+%F %T') $CFG" > "$LOG"
+fi
+[ ${#TODO[@]} -gt 0 ] && printf '%s\n' "${TODO[@]}" | xargs -P 8 -I{} bash -c 'run1 {}' >> "$LOG"
 echo "==== $(date '+%F %T') SET=$SET CTX=$CTX done: $(grep -c '==== PASS' "$LOG") / ${#CASES[@]} PASS" >> "$LOG"
 tail -1 "$LOG"

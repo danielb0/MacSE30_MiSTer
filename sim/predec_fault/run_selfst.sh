@@ -8,6 +8,7 @@
 # SELFST_SANITY=1 plants a difference in every part (each must FAIL).
 #   ./run_selfst.sh [CACR=0x2101] [SELFST_SANITY=1]      the log is selfst.log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
@@ -23,7 +24,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq 0 $((P-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > selfst.log
+seq 0 $((P-1)) | sweep_xargs selfst.log 'one {}' "$*"
 G=$(grep -c '==== PASS' selfst.log)
 cat selfst.log | cut -c1-400
 echo "==== selfst${EXTRA:+ ($EXTRA)}: $G / $P parts PASS ($N cases)"

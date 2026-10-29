@@ -7,6 +7,7 @@
 # per 8 seeds.
 #   ./run_rsweep.sh FIRST COUNT [CACR=0x2101]      the log is rsweep.log
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 FIRST=${1:-0}; COUNT=${2:-16}; shift 2 2>/dev/null
@@ -21,7 +22,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA IRQ
-seq $FIRST $((FIRST+COUNT-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > rsweep.log
+seq $FIRST $((FIRST+COUNT-1)) | sweep_xargs rsweep.log 'one {}' "$*"
 P=$(grep -c '==== PASS' rsweep.log)
 grep -v '==== PASS' rsweep.log
 echo "==== rsweep: $P / $COUNT PASS (seeds $FIRST-$((FIRST+COUNT-1)))"

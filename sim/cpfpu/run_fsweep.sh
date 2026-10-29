@@ -7,6 +7,7 @@
 # instead of invalid.  Exit status 0 when every case passes.
 #   ./run_fsweep.sh [FSW_WP=1]
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 EXTRA="$*"
@@ -20,7 +21,7 @@ one() {
   rm -rf "$d"
 }
 export -f one; export HERE EXTRA
-seq 0 $((N-1)) | xargs -P 8 -I{} bash -c 'one {}' | sort -n > fsweep.log
+seq 0 $((N-1)) | sweep_xargs fsweep.log 'one {}' "$*"
 P=$(grep -c '==== PASS' fsweep.log)
 env $EXTRA FSWLIST=1 python gen_program.py fsw | paste -d'|' - <(cut -d' ' -f2- fsweep.log) | grep -v "==== PASS" | sed 's/|/ : /'
 echo "==== fsweep: $P / $N PASS"
