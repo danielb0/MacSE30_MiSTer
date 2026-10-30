@@ -21552,6 +21552,22 @@ Daniel - add to it, move items out when fixed).**
     Imperia's 30 seconds at the start fit two things: a skew from (c)
     that the next sound's FIFO clear removes, or refills starved while
     the game loads (underruns: a hold of the last sample).
+    **The sound (Daniel, 2026-10-30): "as if played through a bit
+    crusher"; in Star Stormer it lasted until he quit the game.** A
+    bit crusher is a sample-and-hold at a low rate. That is what a FIFO
+    running empty again and again makes: each underrun holds the last
+    sample, so the sample rate falls in effect. A left/right skew from
+    (c) would sound phasey, not crushed, so (c) moves down the list.
+    "Until quit" says the state lasts as long as the game's sound
+    channel does. The lead is now (a): a lost half-empty event breaks the
+    refill rhythm, the FIFO never crosses 511 to 510 from above again,
+    and the Sound Manager feeds it only in bursts from whatever else
+    wakes it. That settles into steady starvation and clears when the
+    channel is disposed of (quit) or a clear starts afresh (Pax Imperia's
+    30 seconds). The bench case: sim/asc's replay of 7.5.5's refill with
+    one half-empty event dropped, checking whether it starves for good.
+    A probe build's PASC would show count A stuck near 0, and the event
+    counter slow.
     **On a recurrence, note:**
     - whether it lasts to the next sound or until the game quits;
     - what it sounds like: crackle or buzz (underruns), hollow or phasey
@@ -21956,7 +21972,7 @@ suspect until shown otherwise:
 | HyperCard Player 2.4.1 | 53 | 24-bit | works, sound included | Daniel, 2026-10-07 |
 | System 7.5.5 virtual memory, 64 MB (16 MB built in, swap file on the second disk `MacPack`) | not recorded | 32-bit | **works**: Photoshop, ClarisWorks 3.0, Cubase 2.5, Excel, Word, PowerPoint, QuarkXPress, TeachText and WordPerfect open together (~18 MB of partitions + 5.4 MB System in 16 MB physical, so paging really ran), switched between, quit, clean restart and shutdown (Daniel, 2026-10-28/29; screenshot `C:\temp\Mac\Screenshots\20261029_134238-screen.png`) | the Mac OS's own page faults: bus errors restarted by the VM handler, the mechanism the fault sweeps cover |
 | HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29) - **quit twice, then works on a recheck at the same settings; KNOWN ISSUES 54 open (intermittent?)** | alone too; runs in 32-bit and 24-bit with VM off (Daniel, 2026-10-29) |
-| Star Stormer (game) | k52release, IIcx | 24-bit; 32-bit + VM 64 MB | **24-bit: runs**, but the sound distorts after a while (KNOWN ISSUES 55). **32-bit: a MacsBug bus error** at $000E81EC, `MOVE.L $0004(A4),D0`, with A4 = $53555757 ("SUWW", text used as a pointer), at interrupt level 2 (VIA2): **not 32-bit clean, authentic**, because 24-bit drops the top byte and reads RAM | Daniel, 2026-10-30; `C:\temp\Mac\Screenshots\20261030_134926-screen.png` |
+| Star Stormer (game) | k52release, IIcx | 24-bit; 32-bit + VM 64 MB | **24-bit: runs**, but the sound distorts after a while, "like a bit crusher", until the game quits (KNOWN ISSUES 55). **32-bit: a MacsBug bus error** at $000E81EC, `MOVE.L $0004(A4),D0`, with A4 = $53555757 ("SUWW", text used as a pointer), at interrupt level 2 (VIA2): **not 32-bit clean, authentic**, because 24-bit drops the top byte and reads RAM | Daniel, 2026-10-30; `C:\temp\Mac\Screenshots\20261030_134926-screen.png` |
 | Pax Imperia | not recorded, IIcx | 32-bit | the sound distorted once, the same as Star Stormer's, at the very start of the game, and cleared by itself after about 30 seconds; not reproduced since (KNOWN ISSUES 55) | Daniel, 2026-10-30 |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
