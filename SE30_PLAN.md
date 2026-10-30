@@ -21600,6 +21600,15 @@ Daniel - add to it, move items out when fixed).**
       refills. Whether 7.1.2's install has the Sound Manager 3
       extension is not recorded. MAME on 7.5.5 tells authentic
       clipping from late refills on our core.
+    **A second 7.5.5 install (Daniel, 2026-10-30, board): the same
+    distortion, and other glitches that show only next to 7.1.2's
+    clean run.** Daniel: "The game simply doesn't run well on System
+    7.5.5". **Status: probably the game on 7.5.5, not the core.** Kept
+    open until MAME on 7.5.5 confirms it
+    (`C:\temp\Mac\mame\snd\run.bat`, optional; the same distortion there
+    closes it). Suspect (a) is a real defect either way: a status read
+    can drop a half-empty event. It goes with the batched low-priority
+    fixes, after a sim/asc bench shows it.
     **On a recurrence, note:**
     - whether it lasts to the next sound or until the game quits;
     - what it sounds like: crackle or buzz (underruns), hollow or phasey
@@ -22004,7 +22013,7 @@ suspect until shown otherwise:
 | HyperCard Player 2.4.1 | 53 | 24-bit | works, sound included | Daniel, 2026-10-07 |
 | System 7.5.5 virtual memory, 64 MB (16 MB built in, swap file on the second disk `MacPack`) | not recorded | 32-bit | **works**: Photoshop, ClarisWorks 3.0, Cubase 2.5, Excel, Word, PowerPoint, QuarkXPress, TeachText and WordPerfect open together (~18 MB of partitions + 5.4 MB System in 16 MB physical, so paging really ran), switched between, quit, clean restart and shutdown (Daniel, 2026-10-28/29; screenshot `C:\temp\Mac\Screenshots\20261029_134238-screen.png`) | the Mac OS's own page faults: bus errors restarted by the VM handler, the mechanism the fault sweeps cover |
 | HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29) - **quit twice, then works on a recheck at the same settings; KNOWN ISSUES 54 open (intermittent?)** | alone too; runs in 32-bit and 24-bit with VM off (Daniel, 2026-10-29) |
-| Star Stormer (game) | k52release, IIcx | 24-bit; 32-bit + VM 64 MB | **24-bit: runs**, but the sound distorts after a while, "like a bit crusher", until the game quits (KNOWN ISSUES 55). **32-bit: a MacsBug bus error** at $000E81EC, `MOVE.L $0004(A4),D0`, with A4 = $53555757 ("SUWW", text used as a pointer), at interrupt level 2 (VIA2): **not 32-bit clean, authentic**, because 24-bit drops the top byte and reads RAM | Daniel, 2026-10-30; `C:\temp\Mac\Screenshots\20261030_134926-screen.png` |
+| Star Stormer (game) | k52release, IIcx | 24-bit; 32-bit + VM 64 MB | **24-bit: runs**, but the sound distorts after a while, "like a bit crusher", until the game quits (KNOWN ISSUES 55). On a second 7.5.5 install it does the same, with other glitches. **System 7.1.2: runs cleanly**, so the game doesn't run well on 7.5.5. **32-bit: a MacsBug bus error** at $000E81EC, `MOVE.L $0004(A4),D0`, with A4 = $53555757 ("SUWW", text used as a pointer), at interrupt level 2 (VIA2): **not 32-bit clean, authentic**, because 24-bit drops the top byte and reads RAM | Daniel, 2026-10-30; `C:\temp\Mac\Screenshots\20261030_134926-screen.png` |
 | Pax Imperia | not recorded, IIcx | 32-bit | the sound distorted once, the same as Star Stormer's, at the very start of the game, and cleared by itself after about 30 seconds; not reproduced since (KNOWN ISSUES 55) | Daniel, 2026-10-30 |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
