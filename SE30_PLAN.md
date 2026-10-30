@@ -21590,6 +21590,11 @@ Daniel - add to it, move items out when fixed).**
       means the mixer clips (authentic).
     - A probe build: PASC's count A at 0 during the crush proves
       underruns.
+    - An earlier System on the board (6.0.x, 7.0/7.1 without Sound
+      Manager 3): a different mixer and refill path (MAME runner
+      `C:\temp\Mac\mame\snd\run.bat`, the 7.5.5 disk). Clean there
+      puts the trigger in 7.5.5's software mix; crushed there too
+      points at the chip.
     **On a recurrence, note:**
     - whether it lasts to the next sound or until the game quits;
     - what it sounds like: crackle or buzz (underruns), hollow or phasey
