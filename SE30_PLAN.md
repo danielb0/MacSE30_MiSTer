@@ -21594,7 +21594,12 @@ Daniel - add to it, move items out when fixed).**
       Manager 3): a different mixer and refill path. (The MAME runner
       above is `C:\temp\Mac\mame\snd\run.bat`, the 7.5.5 disk.) Clean there
       puts the trigger in 7.5.5's software mix; crushed there too
-      points at the chip.
+      points at the chip. **RESULT (Daniel, 2026-10-30): System 7.1.2
+      plays Star Stormer's music plus effects cleanly.** So the trigger
+      is in 7.5.5's path, whether Sound Manager 3's mixing or its
+      refills. Whether 7.1.2's install has the Sound Manager 3
+      extension is not recorded. MAME on 7.5.5 tells authentic
+      clipping from late refills on our core.
     **On a recurrence, note:**
     - whether it lasts to the next sound or until the game quits;
     - what it sounds like: crackle or buzz (underruns), hollow or phasey
