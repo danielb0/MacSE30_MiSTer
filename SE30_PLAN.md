@@ -21530,6 +21530,34 @@ Daniel - add to it, move items out when fixed).**
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
     (cross-check only).
+55. **OPEN, NOT REPRODUCED ON DEMAND (2026-10-30, Daniel, board, IIcx,
+    k52release): game sound becomes distorted after a while.** Star
+    Stormer in 24-bit mode, after playing for a while; earlier the same
+    distortion in Pax Imperia, not reproduced since. It could be the core.
+    A read of `rtl/se30_asc.v` (no fix yet: benches first) finds:
+    (a) a read of $804 in the clock in which a pop sets a half-empty bit
+    clears that bit unseen (rdata is the state before the clock; the read
+    clears all four), so the event is lost and SNDINT* never falls for it;
+    the fix clears only the bits handed over;
+    (b) a push into an empty FIFO between a tick and its step 2 is counted
+    at step 2, but b_q holds the byte from before the write, so one stale
+    sample plays (1,024 bytes old);
+    (c) a stereo frame is a misaligned word write at $3FF (A's last byte,
+    B's first; 11.2), so anything that lands one byte of a pair and not the
+    other, or a drop on full in one FIFO only, leaves left and right a
+    sample apart until a clear or a change of mode, and the skew adds up.
+    (a) and (b) are single glitches; only (c) grows "after a while".
+    **On a recurrence, note:**
+    - whether it lasts to the next sound or until the game quits;
+    - what it sounds like: crackle or buzz (underruns), hollow or phasey
+      (left and right apart), or harsh (clipping);
+    - whether both ears sound the same on headphones.
+    **Next:** a sim/asc sweep over the class:
+    - an $804 read at every clock around the pops;
+    - a push at every clock around a tick;
+    - unequal A/B traffic and drops on full.
+    Then the fixes. A probe build's PASC (the mode, $804, both counts)
+    shows a count skew directly.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -21923,6 +21951,8 @@ suspect until shown otherwise:
 | HyperCard Player 2.4.1 | 53 | 24-bit | works, sound included | Daniel, 2026-10-07 |
 | System 7.5.5 virtual memory, 64 MB (16 MB built in, swap file on the second disk `MacPack`) | not recorded | 32-bit | **works**: Photoshop, ClarisWorks 3.0, Cubase 2.5, Excel, Word, PowerPoint, QuarkXPress, TeachText and WordPerfect open together (~18 MB of partitions + 5.4 MB System in 16 MB physical, so paging really ran), switched between, quit, clean restart and shutdown (Daniel, 2026-10-28/29; screenshot `C:\temp\Mac\Screenshots\20261029_134238-screen.png`) | the Mac OS's own page faults: bus errors restarted by the VM handler, the mechanism the fault sweeps cover |
 | HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29) - **quit twice, then works on a recheck at the same settings; KNOWN ISSUES 54 open (intermittent?)** | alone too; runs in 32-bit and 24-bit with VM off (Daniel, 2026-10-29) |
+| Star Stormer (game) | k52release, IIcx | 24-bit; 32-bit + VM 64 MB | **24-bit: runs**, but the sound distorts after a while (KNOWN ISSUES 55). **32-bit: a MacsBug bus error** at $000E81EC, `MOVE.L $0004(A4),D0`, with A4 = $53555757 ("SUWW", text used as a pointer), at interrupt level 2 (VIA2): **not 32-bit clean, authentic**, because 24-bit drops the top byte and reads RAM | Daniel, 2026-10-30; `C:\temp\Mac\Screenshots\20261030_134926-screen.png` |
+| Pax Imperia | not recorded, IIcx | not recorded | the sound distorted once, the same as Star Stormer's; not reproduced since (KNOWN ISSUES 55) | Daniel, 2026-10-30 |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
