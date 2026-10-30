@@ -21530,7 +21530,7 @@ Daniel - add to it, move items out when fixed).**
     VM in 24-bit mode (up to 14 MB total) and a small 32-bit VM; the swap
     file on the boot disk; MAME `macse30` with the same image and VM on
     (cross-check only).
-55. **OPEN, NOT REPRODUCED ON DEMAND (2026-10-30, Daniel, board, IIcx,
+55. **CLOSED - THE GAME ON SYSTEM 7.5.5, NOT THE CORE (MAME distorts too). Opened (2026-10-30, Daniel, board, IIcx,
     k52release): game sound becomes distorted after a while.** Star
     Stormer in 24-bit mode, after playing for a while. Earlier the same
     distortion in Pax Imperia, in 32-bit mode, only at the very start of
@@ -21603,10 +21603,14 @@ Daniel - add to it, move items out when fixed).**
     **A second 7.5.5 install (Daniel, 2026-10-30, board): the same
     distortion, and other glitches that show only next to 7.1.2's
     clean run.** Daniel: "The game simply doesn't run well on System
-    7.5.5". **Status: probably the game on 7.5.5, not the core.** Kept
-    open until MAME on 7.5.5 confirms it
-    (`C:\temp\Mac\mame\snd\run.bat`, optional; the same distortion there
-    closes it). Suspect (a) is a real defect either way: a status read
+    7.5.5". **MAME `maciicx` on 7.5.5 (Daniel, 2026-10-30): distorted
+    too, differently.** The music plays on, and every effect becomes a
+    high-pitched buzz. **CLOSED: the game does not run well on System
+    7.5.5; not the core.** The evidence: clean on 7.1.2 on the board,
+    broken on two 7.5.5 installs, and broken on MAME's 7.5.5. The
+    difference in the distortion is the two machines' mixing timing.
+    Runner: `C:\temp\Mac\mame\snd\run.bat` (`-nb9 m2video`: the default
+    8*24 card's ROM is not here). Suspect (a) is a real defect either way: a status read
     can drop a half-empty event. It goes with the batched low-priority
     fixes, after a sim/asc bench shows it.
     **On a recurrence, note:**
@@ -22013,7 +22017,7 @@ suspect until shown otherwise:
 | HyperCard Player 2.4.1 | 53 | 24-bit | works, sound included | Daniel, 2026-10-07 |
 | System 7.5.5 virtual memory, 64 MB (16 MB built in, swap file on the second disk `MacPack`) | not recorded | 32-bit | **works**: Photoshop, ClarisWorks 3.0, Cubase 2.5, Excel, Word, PowerPoint, QuarkXPress, TeachText and WordPerfect open together (~18 MB of partitions + 5.4 MB System in 16 MB physical, so paging really ran), switched between, quit, clean restart and shutdown (Daniel, 2026-10-28/29; screenshot `C:\temp\Mac\Screenshots\20261029_134238-screen.png`) | the Mac OS's own page faults: bus errors restarted by the VM handler, the mechanism the fault sweeps cover |
 | HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29) - **quit twice, then works on a recheck at the same settings; KNOWN ISSUES 54 open (intermittent?)** | alone too; runs in 32-bit and 24-bit with VM off (Daniel, 2026-10-29) |
-| Star Stormer (game) | k52release, IIcx | 24-bit; 32-bit + VM 64 MB | **24-bit: runs**, but the sound distorts after a while, "like a bit crusher", until the game quits (KNOWN ISSUES 55). On a second 7.5.5 install it does the same, with other glitches. **System 7.1.2: runs cleanly**, so the game doesn't run well on 7.5.5. **32-bit: a MacsBug bus error** at $000E81EC, `MOVE.L $0004(A4),D0`, with A4 = $53555757 ("SUWW", text used as a pointer), at interrupt level 2 (VIA2): **not 32-bit clean, authentic**, because 24-bit drops the top byte and reads RAM | Daniel, 2026-10-30; `C:\temp\Mac\Screenshots\20261030_134926-screen.png` |
+| Star Stormer (game) | k52release, IIcx | 24-bit; 32-bit + VM 64 MB | **24-bit: runs**, but the sound distorts after a while, "like a bit crusher", until the game quits (KNOWN ISSUES 55). On a second 7.5.5 install it does the same, with other glitches. **System 7.1.2: runs cleanly**; MAME on 7.5.5 distorts too (effects a high buzz): the game does not run well on 7.5.5, KNOWN ISSUES 55 closed. **32-bit: a MacsBug bus error** at $000E81EC, `MOVE.L $0004(A4),D0`, with A4 = $53555757 ("SUWW", text used as a pointer), at interrupt level 2 (VIA2): **not 32-bit clean, authentic**, because 24-bit drops the top byte and reads RAM | Daniel, 2026-10-30; `C:\temp\Mac\Screenshots\20261030_134926-screen.png` |
 | Pax Imperia | not recorded, IIcx | 32-bit | the sound distorted once, the same as Star Stormer's, at the very start of the game, and cleared by itself after about 30 seconds; not reproduced since (KNOWN ISSUES 55) | Daniel, 2026-10-30 |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
