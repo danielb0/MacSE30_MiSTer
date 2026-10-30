@@ -21532,8 +21532,10 @@ Daniel - add to it, move items out when fixed).**
     (cross-check only).
 55. **OPEN, NOT REPRODUCED ON DEMAND (2026-10-30, Daniel, board, IIcx,
     k52release): game sound becomes distorted after a while.** Star
-    Stormer in 24-bit mode, after playing for a while; earlier the same
-    distortion in Pax Imperia, not reproduced since. It could be the core.
+    Stormer in 24-bit mode, after playing for a while. Earlier the same
+    distortion in Pax Imperia, in 32-bit mode, only at the very start of
+    the game, clearing by itself after about 30 seconds; not reproduced
+    since. It could be the core.
     A read of `rtl/se30_asc.v` (no fix yet: benches first) finds:
     (a) a read of $804 in the clock in which a pop sets a half-empty bit
     clears that bit unseen (rdata is the state before the clock; the read
@@ -21546,7 +21548,10 @@ Daniel - add to it, move items out when fixed).**
     B's first; 11.2), so anything that lands one byte of a pair and not the
     other, or a drop on full in one FIFO only, leaves left and right a
     sample apart until a clear or a change of mode, and the skew adds up.
-    (a) and (b) are single glitches; only (c) grows "after a while".
+    (a) and (b) are single glitches; only (c) grows "after a while". Pax
+    Imperia's 30 seconds at the start fit two things: a skew from (c)
+    that the next sound's FIFO clear removes, or refills starved while
+    the game loads (underruns: a hold of the last sample).
     **On a recurrence, note:**
     - whether it lasts to the next sound or until the game quits;
     - what it sounds like: crackle or buzz (underruns), hollow or phasey
@@ -21952,7 +21957,7 @@ suspect until shown otherwise:
 | System 7.5.5 virtual memory, 64 MB (16 MB built in, swap file on the second disk `MacPack`) | not recorded | 32-bit | **works**: Photoshop, ClarisWorks 3.0, Cubase 2.5, Excel, Word, PowerPoint, QuarkXPress, TeachText and WordPerfect open together (~18 MB of partitions + 5.4 MB System in 16 MB physical, so paging really ran), switched between, quit, clean restart and shutdown (Daniel, 2026-10-28/29; screenshot `C:\temp\Mac\Screenshots\20261029_134238-screen.png`) | the Mac OS's own page faults: bus errors restarted by the VM handler, the mechanism the fault sweeps cover |
 | HyperCard (version not recorded), under the VM row above | not recorded | 32-bit, VM 64 MB | **vanishes at launch: no bomb, no "unexpectedly quit" message; the system stays stable** (Daniel, 2026-10-29) - **quit twice, then works on a recheck at the same settings; KNOWN ISSUES 54 open (intermittent?)** | alone too; runs in 32-bit and 24-bit with VM off (Daniel, 2026-10-29) |
 | Star Stormer (game) | k52release, IIcx | 24-bit; 32-bit + VM 64 MB | **24-bit: runs**, but the sound distorts after a while (KNOWN ISSUES 55). **32-bit: a MacsBug bus error** at $000E81EC, `MOVE.L $0004(A4),D0`, with A4 = $53555757 ("SUWW", text used as a pointer), at interrupt level 2 (VIA2): **not 32-bit clean, authentic**, because 24-bit drops the top byte and reads RAM | Daniel, 2026-10-30; `C:\temp\Mac\Screenshots\20261030_134926-screen.png` |
-| Pax Imperia | not recorded, IIcx | not recorded | the sound distorted once, the same as Star Stormer's; not reproduced since (KNOWN ISSUES 55) | Daniel, 2026-10-30 |
+| Pax Imperia | not recorded, IIcx | 32-bit | the sound distorted once, the same as Star Stormer's, at the very start of the game, and cleared by itself after about 30 seconds; not reproduced since (KNOWN ISSUES 55) | Daniel, 2026-10-30 |
 | Mathematica 1.2.2 Enhanced (the 68881/68882 build: ~3,300 FPU instructions in its kernel, `vers` "1.2.2f33 Enhanced") | 52 | 24-bit | runs; `Plot[Sin[x]/x, {x, -10, 10}]` correct (zeros at +-pi, 2pi, 3pi; dips -0.21 at +-4.5; humps 0.13 at +-7.7) | the 68882 (`C:\temp\Mac\Screenshots\20261007_134619-screen.png`) |
 | Prince of Persia | 31; recent | 24-bit | runs, music plays | ASC (Section 11) |
 | Speedometer 4.02 | 49, 50 | 24 and 32-bit | runs | figures in 12.7 |
