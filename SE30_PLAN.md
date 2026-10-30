@@ -21568,6 +21568,28 @@ Daniel - add to it, move items out when fixed).**
     one half-empty event dropped, checking whether it starves for good.
     A probe build's PASC would show count A stuck near 0, and the event
     counter slow.
+    **The trigger (Daniel, 2026-10-30): two sounds at once.** Music alone
+    is clean; it distorts when an effect starts over the music. It also
+    happens with extensions off. That revises the reading. System 7.5.5's
+    Sound Manager mixes its channels in software (the sdev asks the mixer
+    for `raw ` 8-bit, SW 2.2), so the ASC sees one stream either way.
+    Overlap changes only:
+    1. the sample values, since the mixed sum can clip in the mixer
+       (authentic, if so);
+    2. the CPU time per refill, since the mixer's work doubles (rate
+       conversion per channel), so a late refill underruns. That would
+       be ours if the core's interrupt or CPU timing runs slower than
+       the machine's.
+    The content explains how long it lasts: Star Stormer's effects keep
+    coming until quit, and Pax Imperia's opening has effects for ~30 s.
+    No state lock-in is needed, so (a) stays a defect to fix but no
+    longer explains this.
+    **Next:**
+    - MAME `maciicx` (ROM present), 24-bit, extensions off, Star
+      Stormer: listen to music plus effects there. The same crush there
+      means the mixer clips (authentic).
+    - A probe build: PASC's count A at 0 during the crush proves
+      underruns.
     **On a recurrence, note:**
     - whether it lasts to the next sound or until the game quits;
     - what it sounds like: crackle or buzz (underruns), hollow or phasey
