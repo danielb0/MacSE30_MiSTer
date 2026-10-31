@@ -21982,7 +21982,13 @@ o_rte and w_bsr_wp x4 modes 5/5 PASS (42.7 min; rerunc 893 offsets).
 FINDING: KNOWN ISSUES 53's T0 term is unreachable here - JSR (xxx).W,
 JSR (An) and BSR fault early (format $B, the instruction's PC, internal
 word 0), never late; its RTE-replay site needs a handler running under T0.
-Harmless, left in.
+Harmless. BATCHED (Daniel 2026-10-31, "Remove it at the appropriate time"):
+remove the T0 term (make_trace_t0 AND v_is_cof) from v_trace_due at the
+fault sites (~6063), with a comment why - after the class 7 queue ends (no
+rtl/ edits while a sweep compiles it), with the other kernel fixes the
+remaining classes find, before the full chain on the frozen kernel. Check:
+c7 T1/T0 shapes, rerunc, sim/ki53_logs' tests unchanged; the chain covers
+the rest.
 RUNNING: sim/class7_queue.sh - (1) SET=c7 TRACE=1 CTX="00 11", 138 cases
 ~9 h; (2) TRACE=0, the flow and push shapes, 62 cases ~3 h. Log
 sim/class7_queue.log. Not run (trimmed): no-trace and T0 rerunc.
