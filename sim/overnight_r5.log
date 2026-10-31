@@ -1,0 +1,6 @@
+[10-22 16:55] overnight_r5: start (kernel 483933d)
+[10-22 17:53] frs, the cut seeds: 9 / 9 PASS (57 min); with seeds 0-49's 39 + 4 and 10: 50 / 50
+[10-23 00:31] regression: ==== regression: 62 / 64 lines pass (398 min)
+==== selfst (CACR=0): 9 / 9 parts PASS (132 cases)
+==== selfst (CACR=0x2101): 9 / 9 parts PASS (132 cases)
+[10-23 00:31] overnight_r5: done

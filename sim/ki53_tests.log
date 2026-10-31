@@ -1,0 +1,11 @@
+[10-28 07:50] ki53_tests: waiting for after_k46c
+[10-28 11:15] ki53_tests: start on 466469a sim busfault_irq: m_add_wp with the MMU off expects 
+[10-28 11:42] (B1) SET=all ONLY=w_jsr_wp TRACE=1 CTX=00 11: ==== 2026-10-28 11:42:35 SET=all CTX=00 11 done: 6 / 6 PASS (27 min)
+[10-28 12:11] (B0) SET=all ONLY=w_jsr_wp TRACE=0 CTX=00 11: ==== 2026-10-28 12:11:49 SET=all CTX=00 11 done: 6 / 6 PASS (29 min)
+[10-28 12:59] (C1) SET=all ONLY=m_add_wp w_clr_inv w_st_inv w_pack_inv w_jsr_wp TRACE=1 CTX=11 KRTL=/c/Git/MacSE30_MiSTer/sim/_rtl_c13: ==== 2026-10-28 12:59:29 SET=all CTX=11 done: 15 / 15 PASS (47 min)
+[10-28 13:48] (C0) SET=all ONLY=m_add_wp w_clr_inv w_st_inv w_pack_inv w_jsr_wp TRACE=0 CTX=11 KRTL=/c/Git/MacSE30_MiSTer/sim/_rtl_c13: ==== 2026-10-28 13:48:53 SET=all CTX=11 done: 15 / 15 PASS (49 min)
+[10-28 14:11] (E1) SET=all ONLY=w_jsr_wp TRACE=1 CTX=00 KRTL=/c/Git/MacSE30_MiSTer/sim/_rtl_c13: ==== 2026-10-28 14:11:31 SET=all CTX=00 done: 3 / 3 PASS (22 min)
+[10-28 14:37] (E0) SET=all ONLY=w_jsr_wp TRACE=0 CTX=00 KRTL=/c/Git/MacSE30_MiSTer/sim/_rtl_c13: ==== 2026-10-28 14:37:18 SET=all CTX=00 done: 3 / 3 PASS (25 min)
+[10-28 15:49] (D) SET=all ONLY=m_add_wp w_clr_inv w_st_inv w_pack_inv w_jsr_wp CTX=00 11 KRTL=/c/Git/MacSE30_MiSTer/sim/_rtl_c13: ==== 2026-10-28 15:49:52 SET=all CTX=00 11 done: 30 / 30 PASS (72 min)
+[10-28 16:19] (A) SET=all ONLY=w_jsr_wp CTX=00 11 i11: ==== 2026-10-28 16:19:42 SET=all CTX=00 11 i11 done: 9 / 9 PASS (29 min)
+[10-28 16:19] ki53_tests: done

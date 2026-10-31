@@ -1,0 +1,8 @@
+==== 2026-10-28 11:15:18 SET=all LEVELS=2 CTX=00 11: 6 cases
+w_jsr_wp abort mmu0 cache0 L2 SE30 (276 offsets): ==== PASS: 276 iterations, every one as the reference
+w_jsr_wp abort mmu1 cache1 L2 SE30 (412 offsets): ==== PASS: 412 iterations, every one as the reference
+w_jsr_wp complete mmu0 cache0 L2 SE30 (442 offsets): ==== PASS: 442 iterations, every one as the reference
+w_jsr_wp rerun mmu0 cache0 L2 SE30 (492 offsets): ==== PASS: 492 iterations, every one as the reference
+w_jsr_wp rerun mmu1 cache1 L2 SE30 (643 offsets): ==== PASS: 643 iterations, every one as the reference
+w_jsr_wp complete mmu1 cache1 L2 SE30 (665 offsets): ==== PASS: 665 iterations, every one as the reference
+==== 2026-10-28 11:42:35 SET=all CTX=00 11 done: 6 / 6 PASS

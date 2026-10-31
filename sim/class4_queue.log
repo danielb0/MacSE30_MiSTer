@@ -1,0 +1,4 @@
+[10-28 18:16] class4_queue: start on daf1b20 run_fswisweep: a 12 h timeout a case (the largest ne
+[10-28 22:53] (1) SET=bus LEVELS=1 CTX=11: ==== 2026-10-28 22:53:40 SET=bus CTX=11 done: 160 / 160 PASS (277 min)
+[10-31 01:47] (2) class 4b: ==== fswisweep: 236 / 236 PASS (3054 min)
+[10-31 01:47] class4_queue: done

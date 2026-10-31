@@ -1,0 +1,7 @@
+[10-27 13:25] after_k46c: waiting for overnight_k46c
+[10-28 10:51] after_k46c: m_add_wp fix installed; rerun start
+[10-28 11:12] m_add_wp mmu0: ==== 2026-10-28 11:12:40 SET=all CTX=00 done: 3 / 3 PASS (21 min)
+m_add_wp abort mmu0 cache0 L2 SE30 (276 offsets): ==== PASS: 276 iterations, every one as the reference
+m_add_wp rerun mmu0 cache0 L2 SE30 (493 offsets): ==== PASS: 493 iterations, every one as the reference
+m_add_wp complete mmu0 cache0 L2 SE30 (509 offsets): ==== PASS: 509 iterations, every one as the reference
+[10-28 11:12] after_k46c: done

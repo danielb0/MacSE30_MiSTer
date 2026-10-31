@@ -1,0 +1,32 @@
+==== 2026-10-28 14:37:19 SET=all LEVELS=2 CTX=00 11: 30 cases
+m_add_wp abort mmu0 cache0 L2 SE30 (276 offsets): ==== PASS: 276 iterations, every one as the reference
+w_clr_inv abort mmu1 cache1 L2 SE30 (314 offsets): ==== PASS: 314 iterations, every one as the reference
+m_add_wp abort mmu1 cache1 L2 SE30 (315 offsets): ==== PASS: 315 iterations, every one as the reference
+w_clr_inv abort mmu0 cache0 L2 SE30 (276 offsets): ==== PASS: 276 iterations, every one as the reference
+m_add_wp complete mmu1 cache1 L2 SE30 (339 offsets): ==== PASS: 339 iterations, every one as the reference
+m_add_wp rerun mmu1 cache1 L2 SE30 (448 offsets): ==== PASS: 448 iterations, every one as the reference
+w_clr_inv complete mmu1 cache1 L2 SE30 (335 offsets): ==== PASS: 335 iterations, every one as the reference
+w_clr_inv complete mmu0 cache0 L2 SE30 (292 offsets): ==== PASS: 292 iterations, every one as the reference
+w_st_inv abort mmu0 cache0 L2 SE30 (276 offsets): ==== PASS: 276 iterations, every one as the reference
+m_add_wp rerun mmu0 cache0 L2 SE30 (493 offsets): ==== PASS: 493 iterations, every one as the reference
+m_add_wp complete mmu0 cache0 L2 SE30 (509 offsets): ==== PASS: 509 iterations, every one as the reference
+w_clr_inv rerun mmu1 cache1 L2 SE30 (450 offsets): ==== PASS: 450 iterations, every one as the reference
+w_st_inv abort mmu1 cache1 L2 SE30 (314 offsets): ==== PASS: 314 iterations, every one as the reference
+w_st_inv complete mmu0 cache0 L2 SE30 (292 offsets): ==== PASS: 292 iterations, every one as the reference
+w_clr_inv rerun mmu0 cache0 L2 SE30 (494 offsets): ==== PASS: 494 iterations, every one as the reference
+w_st_inv complete mmu1 cache1 L2 SE30 (335 offsets): ==== PASS: 335 iterations, every one as the reference
+w_pack_inv abort mmu0 cache0 L2 SE30 (276 offsets): ==== PASS: 276 iterations, every one as the reference
+w_pack_inv abort mmu1 cache1 L2 SE30 (329 offsets): ==== PASS: 329 iterations, every one as the reference
+w_st_inv rerun mmu1 cache1 L2 SE30 (450 offsets): ==== PASS: 450 iterations, every one as the reference
+w_st_inv rerun mmu0 cache0 L2 SE30 (494 offsets): ==== PASS: 494 iterations, every one as the reference
+w_pack_inv complete mmu0 cache0 L2 SE30 (291 offsets): ==== PASS: 291 iterations, every one as the reference
+w_jsr_wp abort mmu0 cache0 L2 SE30 (277 offsets): ==== PASS: 277 iterations, every one as the reference
+w_pack_inv complete mmu1 cache1 L2 SE30 (351 offsets): ==== PASS: 351 iterations, every one as the reference
+w_pack_inv rerun mmu1 cache1 L2 SE30 (471 offsets): ==== PASS: 471 iterations, every one as the reference
+w_pack_inv rerun mmu0 cache0 L2 SE30 (494 offsets): ==== PASS: 494 iterations, every one as the reference
+w_jsr_wp abort mmu1 cache1 L2 SE30 (414 offsets): ==== PASS: 414 iterations, every one as the reference
+w_jsr_wp complete mmu0 cache0 L2 SE30 (293 offsets): ==== PASS: 293 iterations, every one as the reference
+w_jsr_wp rerun mmu0 cache0 L2 SE30 (494 offsets): ==== PASS: 494 iterations, every one as the reference
+w_jsr_wp complete mmu1 cache1 L2 SE30 (462 offsets): ==== PASS: 462 iterations, every one as the reference
+w_jsr_wp rerun mmu1 cache1 L2 SE30 (633 offsets): ==== PASS: 633 iterations, every one as the reference
+==== 2026-10-28 15:49:52 SET=all CTX=00 11 done: 30 / 30 PASS

@@ -21934,6 +21934,32 @@ In full ~56 h without (e). Trimmed (b, c and d on CTX=11, d level 4 only):
 NEXT ORDER, revised: 13 and
 11's bus-error part first (they share busfault_irq's harness and found
 bugs this week), then 7, 4 with 4b, 12, 2's directed part, 8; 9 in between.
+**CLASSES 4 AND 4b DONE (2026-10-31 01:47; sim/class4_queue.sh on daf1b20,
+the kernel with KNOWN ISSUES 53's fix; log sim/class4_queue.log).**
+- Class 4, the interrupt levels on every external-bus-error shape:
+  - level 1: SET=bus LEVELS=1 CTX=11, **160/160 PASS** (277 min,
+    10-28 22:53);
+  - level 2: KNOWN ISSUES 46's sweeps;
+  - level 4: trimmed sweep (d), 157/157.
+- Class 4b, an FPU memory operand page-faulting mid-dialog with IRQ 1 at
+  every 2nd clock around the decode, the pager and the end (every 16th
+  between): run_fswisweep.sh, **236/236 PASS** (3,054 min, ~51 h;
+  sim/cpfpu/fswisweep.log). The late cases ran ~3 h each, 8-wide.
+- Its runner buffered every result until the end (`| sort`). The staged
+  per-case version (sweep_lib.sh, RESUME=1) was installed after it ended.
+**LEFT before the release freeze lifts:**
+- 2's directed part (a supervisor MOVEM set, an interrupt at a MOVEM
+  restart);
+- 8, an OS-shaped random program;
+- 9, random benches of the devices: VIA, SCC, SCSI, SWIM, ASC (with
+  KNOWN ISSUES 55's (a), a status read that drops a half-empty event),
+  SDRAM;
+- 10's rest: a bus error on an FPU operand, mid-MOVEM, on a misaligned
+  access's second cycle, during RTE's frame reads, during stacking;
+- 12's rest: LINK/PEA/JSR stack writes, MOVEM of 16, the FPU's operands;
+- 7's T0 change of flow with an interrupt at every clock;
+- then the full chain on the frozen kernel (with Daniel's OK; it runs
+  over 30 min).
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
 touch faults at level B (or A) and the handler writes a whole table; every
 sweep so far invalidated level C only. BUILT in `sim/predec_fault`

@@ -1,0 +1,13 @@
+[10-24 11:45:28] rc_chain start: dev 54bc7ad, release 7281c21
+[10-24 11:45:28] regression start
+[10-24 16:57:52] regression end rc=0: ==== regression: 64 / 64 lines pass
+[10-24 16:57:52] compile MacSE30 start
+[10-24 17:58:05] compile MacSE30 end rc=0: Info (293000): Quartus Prime Full Compilation was successful. 0 errors, 7563 warnings
+[10-24 17:59:02] sta MacSE30: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): -0.243 ns  *** TIMING NOT MET ***
+[10-24 17:59:02] md5 MacSE30: 5ceaa4c6f9113f1fb2517569618a4f29
+[10-24 17:59:02] compile MacIIcx start
+[10-24 18:36:33] compile MacIIcx end rc=0: Info (293000): Quartus Prime Full Compilation was successful. 0 errors, 7570 warnings
+[10-24 18:37:31] sta MacIIcx: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): 0.059 ns  (met at every corner)
+[10-24 18:37:31] md5 MacIIcx: bee56738fbb6d44e3620240e35e7fbcb
+[10-24 18:37:31] release tree: 
+[10-24 18:37:31] rc_chain finished

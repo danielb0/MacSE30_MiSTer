@@ -1,0 +1,29 @@
+[10-26 16:44] overnight_k46c: start on 2804832 sim: run_sweep runs of ~2 h under a 12 h timeout (r_
+[10-26 22:30] regression rc=0 after 345 min: ==== regression: 65 / 65 lines pass
+[10-26 23:46] r_movem9 complete IIcx: ==== 2026-10-26 23:46:24 SET=all CTX=i11 done: 1 / 1 PASS (422 min)
+r_movem9 complete mmu1 cache1 L2 IIcx (2211 offsets): ==== PASS: 2211 iterations, every one as the reference
+[10-26 23:46] builds started on 2804832a
+rtl/build_tag.v stamped 2804832a
+[10-27 00:22] MacSE30: build_only rc=0 after 36 min: Warning (10492): VHDL Process Statement warning at TG68KdotC_Kernel.vhd(7245): signal "trap_addr_error" is read inside the Process Statement but isn't in the Process Statement's sensitivity list File: C:/Git/MacSE30_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 7245 Critical Warning (332148): Timing r
+[10-27 00:23] MacSE30: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): -0.284 ns  *** TIMING NOT MET *** the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacSE30_2804832a_k52release.rbf
+[10-27 00:23] MacSE30: archived output_files/MacSE30_2804832a_k52release.rbf md5 fedeb704
+rtl/build_tag.v stamped 2804832a
+[10-27 01:12] MacIIcx: build_only rc=0 after 49 min: Warning (10492): VHDL Process Statement warning at TG68KdotC_Kernel.vhd(7245): signal "trap_addr_error" is read inside the Process Statement but isn't in the Process Statement's sensitivity list File: C:/Git/MacSE30_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 7245 Warning (16684): The router is tryi
+[10-27 01:13] MacIIcx: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): 0.065 ns  (met at every corner) the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacIIcx_2804832a_k52release.rbf
+[10-27 01:13] MacIIcx: archived output_files/MacIIcx_2804832a_k52release.rbf md5 3dee6e96
+[10-27 01:13] overnight_k46c: both release-form builds archived
+[10-27 01:13] trimmed sweeps: start
+[10-27 18:33] (a) SET=all CTX=00 11 i11: ==== 2026-10-27 18:33:39 SET=all CTX=00 11 i11 done: 469 / 472 PASS (1040 min, sweep_all.log)
+m_add_wp abort mmu0 cache0 L2 SE30 (276 offsets): [part_000] FAIL it 0: the frame's SSW 145 fault address fa002e20, not 105 fa002e20 (UM 8.2.1) FAIL it 1: the frame's SSW 145 fault address fa002e20, not 105 fa002e20 (UM 8.2.1) FAIL it 2: the frame's SSW 145 fault address fa002e20, not 105 fa002e20 (
+m_add_wp rerun mmu0 cache0 L2 SE30 (493 offsets): [part_000] FAIL it 0: the frame's SSW 145 fault address fa002e20, not 105 fa002e20 (UM 8.2.1) FAIL it 1: the frame's SSW 145 fault address fa002e20, not 105 fa002e20 (UM 8.2.1) FAIL it 2: the frame's SSW 145 fault address fa002e20, not 105 fa002e20 (
+m_add_wp complete mmu0 cache0 L2 SE30 (509 offsets): [part_000] FAIL it 0: the frame's SSW 145 fault address fa002e20, not 105 fa002e20 (UM 8.2.1) FAIL it 1: the frame's SSW 145 fault address fa002e20, not 105 fa002e20 (UM 8.2.1) FAIL it 2: the frame's SSW 145 fault address fa002e20, not 105 fa002e2
+[10-28 01:07] (b) TRACE=1 SET=all CTX=11: ==== 2026-10-28 01:07:59 SET=all CTX=11 done: 176 / 180 PASS (394 min, sweep_all_t1.log)
+m_add_wp complete mmu1 cache1 L2 SE30 (556 offsets): [part_000] FAIL it 0: the trace frame PC 00001068 address 00001066 format/vector 2024 SR a000, not 00001066 00001064 2024 T 8000 FAIL it 1: the trace frame PC 00001068 address 00001066 format/vector 2024 SR a000, not 00001066 00001064 2024 T 8000 
+w_clr_inv complete mmu1 cache1 L2 SE30 (557 offsets): [part_000] FAIL it 0: the trace frame PC 00001068 address 00001066 format/vector 2024 SR a004, not 00001066 00001064 2024 T 8000 FAIL it 1: the trace frame PC 00001068 address 00001066 format/vector 2024 SR a004, not 00001066 00001064 2024 T 8000
+w_st_inv complete mmu1 cache1 L2 SE30 (557 offsets): [part_000] FAIL it 0: the trace frame PC 00001068 address 00001066 format/vector 2024 SR a004, not 00001066 00001064 2024 T 8000 FAIL it 1: the trace frame PC 00001068 address 00001066 format/vector 2024 SR a004, not 00001066 00001064 2024 T 8000 
+w_pack_inv complete mmu1 cache1 L2 SE30 (572 offsets): [part_000] FAIL it 0: the trace frame PC 00001070 address 0000106e format/vector 2024 SR a004, not 0000106e 0000106a 2024 T 8000 FAIL it 1: the trace frame PC 00001070 address 0000106e format/vector 2024 SR a004, not 0000106e 0000106a 2024 T 800
+[10-28 06:10] (c) TRACE=0 SET=all CTX=11: ==== 2026-10-28 06:10:42 SET=all CTX=11 done: 176 / 176 PASS (302 min, sweep_all_t0.log)
+[10-28 10:46] (d) SET=bus LEVELS=4 CTX=11: ==== 2026-10-28 10:46:57 SET=bus CTX=11 done: 157 / 157 PASS (276 min, sweep_bus.log)
+[10-28 10:46] overnight_k46c: done

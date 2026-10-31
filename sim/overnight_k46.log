@@ -1,0 +1,6 @@
+[10-25 23:32] overnight_k46: start on ad0076f KNOWN ISSUES 48: a locked cycle's bus error (CAS, CA
+[10-26 10:33] class sweep: ==== 2026-10-26 10:33:52 SET=all CTX=00 11 i11 done: 319 / 322 PASS (661 min)
+r_movem9 complete mmu1 cache1 L2 SE30 (1868 offsets): FAIL iteration 1665 hung: 400000 clocks without its end FAIL the run did not end on the loop's path: end 00000000, halted 0 FAIL it 1664 (offset 4533): the interrupt's PC xxxxxxxx is no instruction's FAIL it 1665 (offset 4535): the interrupt's PC
+r_movem9 complete mmu0 cache0 L2 SE30 (2036 offsets): FAIL iteration 1728 hung: 400000 clocks without its end FAIL the run did not end on the loop's path: end 00000000, halted 0 FAIL it 1664 (offset 6200): the interrupt's PC xxxxxxxx is no instruction's FAIL it 1665 (offset 6202): the interrupt's PC
+r_movem9 complete mmu1 cache1 L2 IIcx (2211 offsets): 
+[10-26 10:33] overnight_k46: the class sweep did not pass in full - no regression, no builds

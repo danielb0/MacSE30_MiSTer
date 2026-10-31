@@ -1,0 +1,6 @@
+[10-26 10:38] overnight_k46b: start on 8d1d4a4 sim: run_sweep ONLY=/MODES= filters; overnight_k46b.
+[10-26 16:29] r_movem9 complete: ==== 2026-10-26 16:29:14 SET=all CTX=00 11 i11 done: 2 / 3 PASS (350 min)
+r_movem9 complete mmu1 cache1 L2 SE30 (1868 offsets): ==== PASS: 1868 iterations, every one as the reference
+r_movem9 complete mmu0 cache0 L2 SE30 (2036 offsets): ==== PASS: 2036 iterations, every one as the reference
+r_movem9 complete mmu1 cache1 L2 IIcx (2211 offsets): [part_00] FAIL no result (timeout?) 
+[10-26 16:29] overnight_k46b: the r_movem9 cases did not pass - no regression, no builds
