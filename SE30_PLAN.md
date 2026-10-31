@@ -25363,6 +25363,59 @@ runs A/UX on the board; releases/MacSE30_20261024.rbf + MacIIcx_20261024.rbf
 (the prerelease rbf stays on release only). README: the intro without names
 (Credits holds them), A/UX from SCSI-0 or SCSI-1 (SCSI-1 board-checked, Daniel).
 
+**END OF SESSION 2026-10-31 (~02:30; an account change: the work continues
+in a new Claude account on the same PC) - READ THIS TO RESUME, then HANDOFF.md
+in the repo root.**
+
+**The release.**
+- 20261024 is the public release.
+- A RELEASE FREEZE holds (Daniel, 2026-10-25): no release until every open
+  sweep class is done.
+
+**The kernel on dev.**
+- Fixes for KNOWN ISSUES 46-53 (the bus-error/interrupt race, junk CCR,
+  RMC, the split-operand completion, trace across bus errors, PACK/UNPK,
+  write-only reads, the late write-back trace).
+- The board builds k52release, fixes 46-52 (53 came after, in no build
+  yet):
+  - SE/30 `output_files/MacSE30_2804832a_k52release.rbf`;
+  - IIcx `output_files/MacIIcx_2804832a_k52release.rbf`.
+  Both run The Pawn's authentic report.
+- The trimmed chain:
+  - (a) 469/472, the 3 a bench bug, rerun 3/3;
+  - (b) 176/180, the 4 = KNOWN ISSUES 53, fixed;
+  - (c) 176/176;
+  - (d) 157/157.
+- Classes 4 and 4b are done (above, "CLASSES 4 AND 4b DONE").
+
+**Sweep classes left.** The list follows that block: 2's directed part,
+7's T0 flow x interrupt, 8, 9, 10's rest, 12's rest. Then the full chain
+on the frozen kernel (Daniel's OK).
+
+**Board testing since the release.**
+- System 7.5.5 VM (64 MB on 16 MB) works.
+- KNOWN ISSUES 54 (HyperCard under VM, quit twice, then fine) open as
+  possibly intermittent.
+- KNOWN ISSUES 55 closed (Star Stormer on 7.5.5: the game, MAME agrees).
+- MacPack's black Apple logo deferred (app table).
+
+**Roadmap.** FUTURE ADDITIONS 3 (128 MB) and 5 (the OSD offers only what
+the SDRAM module holds).
+
+**Headers to tidy.** KNOWN ISSUES 15 and 46 still read OPEN in their
+headers, though their outcomes are recorded (15 authentic: the early Apple
+CD-ROM drivers; 46 fixed and board-checked).
+
+**Runners.**
+- Every sweep runner now writes each case's result as it ends and resumes
+  with RESUME=1 (sim/sweep_lib.sh, 89794c0).
+- run_fswisweep.sh got the same after 4b.
+
+**The working rules** (one sweep at a time, never kill a simulator, the
+estimate-and-consult rule, the release comment policy) are in the local
+notes of the Claude installation on this PC, not in the repo. HANDOFF.md
+says where.
+
 **END OF SESSION 2026-10-24 (~20:30, Daniel closed it) - READ THIS TO RESUME.**
 Released (above); dev pushed (3de0e32). Forum: Daniel posts the short "new
 release, update_all soon" notes to the SE/30 and IIcx threads (drafted this

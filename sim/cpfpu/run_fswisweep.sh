@@ -10,6 +10,7 @@
 # environment (FSW_WP=1, RTL=...).  Log: fswisweep.log.
 #   ./run_fswisweep.sh [FSW_WP=1] [CASES="0 1 2"] [PAR=8]
 set -u
+. "$(dirname "$0")/../sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
 cd "$(dirname "$0")"
 HERE=$(pwd)
 CASES=""; PAR=8
@@ -36,7 +37,7 @@ PY
   echo "$k ($n offsets) $r"
 }
 export -f one; export HERE EXTRA
-if [ -n "$CASES" ]; then printf '%s\n' $CASES; else seq 0 $((N-1)); fi | xargs -P $PAR -I{} bash -c 'one {}' | sort -n > fswisweep.log
+if [ -n "$CASES" ]; then printf '%s\n' $CASES; else seq 0 $((N-1)); fi | PAR=$PAR sweep_xargs fswisweep.log 'one {}' "$*"
 P=$(grep -c '==== PASS' fswisweep.log); T=$(wc -l < fswisweep.log)
 grep -v '==== PASS' fswisweep.log
 echo "==== fswisweep: $P / $T PASS"
