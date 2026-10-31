@@ -21960,6 +21960,32 @@ the kernel with KNOWN ISSUES 53's fix; log sim/class4_queue.log).**
 - 7's T0 change of flow with an interrupt at every clock;
 - then the full chain on the frozen kernel (with Daniel's OK; it runs
   over 30 min).
+**CLASS 7'S REST BUILT (2026-10-31; Daniel: "Trimmed, ~12 h").** In
+sim/busfault_irq (gen_program.py, run_sweep.sh SET=c7):
+- 15 new flow shapes (family o, trace only): BRA.S/.L, BEQ.S, BNE.L (not
+  taken), BSR, JMP, JSR, RTR, RTD, RTE (a format $0 frame), ANDI/EORI/ORI to
+  SR, MOVE Dn to SR, STOP (traced, never stops: UM 8.1.7).
+- w_bsr_wp, w_jsr_a_wp: user BSR and JSR (An) whose push faults, beside
+  w_jsr_wp.
+- HMODE rerunc: the handler's first RTE reruns the faulted cycle, which
+  faults again (UM 8.2.3); the second is completed. The trace a late write
+  owes must still come once, naming the instruction (UM 8.1.7). Class 12's
+  shapes excluded (a rerun repeats their accesses, KNOWN ISSUES 47).
+- SET=c7: every flow shape (abort), the two new pushes (all four modes),
+  every other r/w/m shape (rerunc). 370 cases in full.
+Checks: the old shapes' programs byte-identical (995/995); every new
+shape's reference PASS under T0/T1 and both contexts (264 runs); plant - a
+kernel copy whose RTE-replay refault drops the owed trace (berr_trace_due
+'0') FAILS rerunc T1 on w_clr_inv and m_add_wp with KNOWN ISSUES 53's
+symptom (the next instruction traced); smoke with interrupts at T0 CTX 11:
+o_rte and w_bsr_wp x4 modes 5/5 PASS (42.7 min; rerunc 893 offsets).
+FINDING: KNOWN ISSUES 53's T0 term is unreachable here - JSR (xxx).W,
+JSR (An) and BSR fault early (format $B, the instruction's PC, internal
+word 0), never late; its RTE-replay site needs a handler running under T0.
+Harmless, left in.
+RUNNING: sim/class7_queue.sh - (1) SET=c7 TRACE=1 CTX="00 11", 138 cases
+~9 h; (2) TRACE=0, the flow and push shapes, 62 cases ~3 h. Log
+sim/class7_queue.log. Not run (trimmed): no-trace and T0 rerunc.
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
 touch faults at level B (or A) and the handler writes a whole table; every
 sweep so far invalidated level C only. BUILT in `sim/predec_fault`

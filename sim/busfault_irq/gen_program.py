@@ -43,7 +43,8 @@ XH, per HMODE: abort (discard the frame: the SP of the loop, jmp C - what
 MacsBug's or a Slot Manager probe's unwinding leaves); rerun (RTE once, then
 abort at the second exception: a bus error's DF-set rerun, a trap's return);
 complete (bus errors: DF cleared, the DIB $C0DE5EED, RTE - the handler
-finishes the access, UM 8.2.2).
+finishes the access, UM 8.2.2); rerunc (class 7: RTE once - the rerun
+faults again, UM 8.2.3 - then complete at the second).
 
 Writes program.hex and layout.txt.  Environment: SHAPE, HMODE, MMU, CACHE,
 PAD; SHAPELIST=1 prints the shapes.
@@ -59,6 +60,8 @@ PAD = int(os.environ.get("PAD", "40"))
 # the shape's instruction alone (ori.w to SR, the prelude's last), a trace
 # handler on vector 9 (TH) recording each iteration's first trace
 TRACE = os.environ.get("TRACE", "")
+TBIT = {"1": 0x8000, "0": 0x4000}.get(TRACE, 0)
+PFN = 0xF00D                                     # a prelude word patched to Fn's address
 
 # the faulting address: empty slot $A.  MMU=1 is the SE/30 in 24-bit mode:
 # the ROM's table (IS=8) ignores the top byte - the Pawn's own $10A02E20.
@@ -125,6 +128,12 @@ SHAPES = {
     # as well as T1.  The target is the next word (FN)
     "w_jsr_wp":   ("w", [[0x227C, (USPV >> 16) & 0xFFFF, USPV & 0xFFFF], [0x4E61]],
                    [0x4EB8, 0x0000], None),                          # movea.l #USP,a1 ; move a1,usp ; (user) jsr FN.w
+    # the same class, the other forms that push (class 7, KNOWN ISSUES 53's
+    # T0 path: a change of flow whose push is its last access)
+    "w_bsr_wp":   ("w", [[0x227C, (USPV >> 16) & 0xFFFF, USPV & 0xFFFF], [0x4E61]],
+                   [0x6100, 0x0002], None),                          # ... ; (user) bsr.w FN
+    "w_jsr_a_wp": ("w", [[0x227C, (USPV >> 16) & 0xFFFF, USPV & 0xFFFF], [0x4E61], [0x45F8, PFN]],
+                   [0x4E92], None),                                  # ... ; lea FN.w,a2 ; (user) jsr (a2)
     # class 12, MMU=1 only: the Nth access faults - logical $800000-$8FFFFF is
     # RAM (CI) right below empty slot 9 at $900000 (ZONE: $8FFFF0-$8FFFFF)
     "c_cmpm":     ("r", [[0x227C, 0x0090, 0x0000]], [0xB388], 0x8FFFF0),   # cmpm.l (a0)+,(a1)+: the second read
@@ -162,7 +171,28 @@ SHAPES = {
     "o_dbf_nt":   ("o", [], [0x51CA, 0x0002], None),              # dbf d2,Fn (d2.w 0: expires, falls through)
     "o_rts":      ("o", [[0x4878, 0x0000]], [0x4E75], None),      # pea Fn.w ; rts
     "o_movesr":   ("o", [], [0x46FC, 0x0000], None),              # move #(T|$2000),sr: an SR write
+    # class 7's rest (2026-10-31): every other change of flow the UM's T0
+    # list names (8.1.7: branches, jumps, returns, SR manipulations)
+    "o_bra_s":    ("o", [], [0x6002, 0x4E71], None),              # bra.s Fn (over a filler word)
+    "o_beq_s":    ("o", [], [0x6702, 0x4E71], None),              # beq.s Fn: taken
+    "o_bra_l":    ("o", [], [0x60FF, 0x0000, 0x0004], None),      # bra.l Fn
+    "o_bne_l":    ("o", [], [0x66FF, 0x0000, 0x0004], None),      # bne.l: not taken
+    "o_bsr":      ("o", [], [0x6100, 0x0002], None),              # bsr.w Fn (C restores A7)
+    "o_jmp":      ("o", [], [0x4EF8, PFN], None),                 # jmp Fn.w
+    "o_jsr":      ("o", [], [0x4EB8, PFN], None),                 # jsr Fn.w (C restores A7)
+    "o_rtr":      ("o", [[0x4878, PFN], [0x3F3C, 0x0004]], [0x4E77], None),   # pea Fn.w ; move.w #Z,-(a7) ; rtr
+    "o_rtd":      ("o", [[0x4878, PFN]], [0x4E74, 0x0000], None),  # pea Fn.w ; rtd #0
+    "o_rte":      ("o", [[0x3F3C, 0x0000], [0x4878, PFN], [0x3F3C, TBIT | 0x2004]],
+                   [0x4E73], None),                               # a format $0 frame to Fn, SR T|Z ; rte
+    "o_andisr":   ("o", [], [0x027C, 0xFFFF], None),              # andi #$FFFF,sr
+    "o_eorisr":   ("o", [], [0x0A7C, 0x0000], None),              # eori #0,sr
+    "o_orisr":    ("o", [], [0x007C, 0x0000], None),              # ori #0,sr
+    "o_movesr_d": ("o", [[0x363C, TBIT | 0x2004]], [0x46C3], None),   # move.w #(T|Z),d3 ; move d3,sr
+    "o_stop":     ("o", [], [0x4E72, TBIT | 0x2004], None),       # stop #(T|Z): traced, it never stops (UM 8.1.7)
 }
+# a user-mode change of flow whose return-address push faults (w_jsr_wp's
+# class): user stack USPV, the WP megabyte under the MMU
+USERCOF = ("w_jsr_wp", "w_bsr_wp", "w_jsr_a_wp")
 # under trace: t_trace sets T1 itself; an address error's JMP (t_adderr) is
 # not one the UM says completes; T0's traps are TRAP and TRAPV ("instruction
 # traps" - CHK's and DIVU's are left to T1)
@@ -179,8 +209,10 @@ fam, pre, ins, a0o = SHAPES[SHAPE]
 C12 = SHAPE.startswith("c_")
 assert MMU or not C12, "class 12's shapes need MMU=1 (the RAM below slot 9)"
 A0 = FAULT if a0o is None else a0o
-assert HMODE in ("abort", "rerun", "complete")
-assert not (HMODE == "complete" and fam in "fto"), "complete is a bus error's"
+assert HMODE in ("abort", "rerun", "complete", "rerunc")
+assert not (HMODE in ("complete", "rerunc") and fam in "fto"), "complete is a bus error's"
+assert not (HMODE == "rerunc" and C12), "a rerun repeats the zone's accesses (KNOWN ISSUES 47)"
+COMPLETES = HMODE in ("complete", "rerunc")      # the handler completes the access in the end
 
 img = [0] * 65536
 def put(addr, words):
@@ -203,7 +235,7 @@ if TRACE:
     put(4 * 9, long(TH))
 # the SR a read's fault must stack (UM 8.2.2: the CCR before the instruction -
 # moveq #0,d2's Z, and X where the prelude sets it); the bench reads $3018
-put(0x3018, long((0x0004 if SHAPE == "w_jsr_wp" else 0x2014 if 0x003C in pre else 0x2004) |   # (w_jsr_wp: user mode)
+put(0x3018, long((0x0004 if SHAPE in USERCOF else 0x2014 if 0x003C in pre else 0x2004) |   # (w_jsr_wp: user mode)
                  {"1": 0x8000, "0": 0x4000}.get(TRACE, 0)))
 # HMODE complete: D0 and D1 as the UM fixes them - a completed read's data is
 # the DIB ($C0DE5EED, right-justified, sign-extended by the instruction); a
@@ -220,7 +252,7 @@ EXPECT = {"r_move_b": (0x111111ED, 0xBF96), "r_move_w": (0x11115EED, 0xBF96),
           "m_cas2": (0x11111111, 0xBF96), "m_cas2a": (0x11111111, 0xBF96),
           "m_cas_wp": (0x11111111, 0xBF96), "m_tas_wp": (0x11111111, 0xBF96), "m_add_wp": (0x11111111, 0xBF96),
           "w_clr_inv": (0x11111111, 0xBF96), "w_st_inv": (0x11111111, 0xBF96), "w_pack_inv": (0x11111111, 0xBF96),
-          "w_jsr_wp": (0x11111111, 0xBF96),
+          "w_jsr_wp": (0x11111111, 0xBF96), "w_bsr_wp": (0x11111111, 0xBF96), "w_jsr_a_wp": (0x11111111, 0xBF96),
           # class 12: the zone's values before the fault, the DIB after it
           "c_cmpm": (0x11111111, 0xBF96), "c_movem": (0x55556666, 0x77778888),
           "c_movem_w": (0x11111111, 0xBF96), "c_move_mm": (0x11111111, 0xBF96),
@@ -239,7 +271,7 @@ ZN = {"c_cmpm": 1, "c_movem": 2, "c_movem_w": 2, "c_move_mm": 1, "c_movep": 2,
       "c_unpk": 1, "c_pack": 1, "c_moves": 1}
 if C12:
     put(0x1FFF0, long(0x11112222) + long(0x33334444) + long(0x55556666) + long(0x77778888))
-    if HMODE != "rerun":
+    if HMODE not in ("rerun", "rerunc"):
         put(0x3034, long(ZN[SHAPE]) + long(1))
 # class 11: the first frame's SSW (DF, RM, RW, SIZE, FC - bits 8-0) and fault
 # address as the UM fixes them (8.2.1, Table 8-7): DF set, RM for a locked
@@ -254,6 +286,7 @@ SSWX = {"r_movea_l": (1, L), "r_cmp_w": (1, W), "r_move_b": (1, B), "r_move_w": 
         "w_move_b": (0, B), "w_move_w": (0, W), "w_move_l": (0, L), "w_move_l2": (0, L),
         "w_d16": (0, L), "w_clr": (0, L), "w_movem": (0, L),
         "w_clr_inv": (0, L), "w_st_inv": (0, B), "w_pack_inv": (0, B), "w_jsr_wp": (0, L),
+        "w_bsr_wp": (0, L), "w_jsr_a_wp": (0, L),
         "m_tas": (1, B), "m_cas": (1, L), "m_add": (1, L), "m_negx": (1, L), "m_roxl": (1, W),
         "m_move": (1, L), "m_cas2": (1, L), "m_cas2a": (1, L), "m_cas_wp": (1, L), "m_tas_wp": (1, B), "m_add_wp": (0 if MMU else 1, L),   # MMU off: the empty slot faults ADD's read
         "c_cmpm": (1, L), "c_movem": (1, L), "c_movem_w": (0, L), "c_move_mm": (0, L),
@@ -263,9 +296,9 @@ SSWX = {"r_movea_l": (1, L), "r_cmp_w": (1, W), "r_move_b": (1, B), "r_move_w": 
 LOCKED = ("m_tas", "m_cas", "m_cas2", "m_cas2a", "m_cas_wp", "m_tas_wp")
 if SHAPE in SSWX:
     rw, sz = SSWX[SHAPE]
-    ssw = 0x100 | (0x80 if SHAPE in LOCKED else 0) | (rw << 6) | (sz << 4) | (1 if SHAPE == "w_jsr_wp" else 5)   # (user data)
+    ssw = 0x100 | (0x80 if SHAPE in LOCKED else 0) | (rw << 6) | (sz << 4) | (1 if SHAPE in USERCOF else 5)   # (user data)
     faddr = {"r_move_l1": FAULT + 1, "r_move_l2": FAULT + 2, "w_move_l2": FAULT + 2}.get(SHAPE, FAULT)
-    if SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp", "w_jsr_wp") and MMU:
+    if (SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp") or SHAPE in USERCOF) and MMU:
         faddr = 0x00103100
     if SHAPE.endswith("_inv"):
         faddr = INV
@@ -274,7 +307,7 @@ if SHAPE in SSWX:
     put(0x3028, long(ssw) + long(faddr) + long(1))
 if SHAPE == "m_cas_wp":
     put(0x3100, long(0x11111111))                # CAS's compare equal: the write goes out
-if HMODE == "complete" and SHAPE in EXPECT:
+if COMPLETES and SHAPE in EXPECT:
     put(0x301C, long(EXPECT[SHAPE][0]) + long(EXPECT[SHAPE][1]) + long(1))
 put(STUB, [0x21FC] + long(0xDEADFFFF) + [0x3FF0, 0x4E72, 0x2700])
 
@@ -295,7 +328,7 @@ if MMU:
     # TIB 5 - its sixteen descriptors terminate early); the descriptors of
     # $40800050 copied to RAM ($0-$7: RAM, $8: ROM, $9-$E: slots CI, $F: I/O CI)
     TABLE = 0x4000
-    desc = [0x19 | (n << 20) | (0x04 if SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp", "w_jsr_wp") and n == 1 else 0) for n in range(8)] + [0x00800059 if C12 else 0x40800019] + \
+    desc = [0x19 | (n << 20) | (0x04 if (SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp") or SHAPE in USERCOF) and n == 1 else 0) for n in range(8)] + [0x00800059 if C12 else 0x40800019] + \
            [0x59 | ((0xF0 | s) << 24) for s in range(9, 15)] + [0x50F00059]
     if SHAPE.endswith("_inv"):
         desc[2] = 0                              # the third megabyte invalid (DT 0)
@@ -322,31 +355,36 @@ p.i(0x207C, *long(A0))                           # movea.l #A0,a0
 p.i(0x203C, *long(0x11111111))                   # move.l #$11111111,d0
 p.i(0x223C, *long(0x0000BF96))                   # move.l #$BF96,d1
 p.i(0x7400)                                      # moveq #0,d2
-TBIT = {"1": 0x8000, "0": 0x4000}.get(TRACE, 0)
 if TRACE and SHAPE == "t_priv":
     pre = [0x46FC, TBIT]                         # move #T,sr: user mode, traced
+PRE_AT = len(p.w)                                # the prelude's first word
 if pre and isinstance(pre[0], list):              # whole instructions
     for w in pre:
         p.i(*w)
 else:                                            # two-word instructions
     for k in range(0, len(pre), 2):
         p.i(*pre[k:k + 2])
-if SHAPE == "w_jsr_wp":
+PRE0 = len(p.w)
+if SHAPE in USERCOF:
     p.i(0x46FC, TBIT | 0x0004)                   # move #(T|Z),sr: user mode, the next instruction traced
 elif TRACE and SHAPE != "t_priv":
     p.i(0x007C, TBIT)                            # ori.w #T,sr: the next instruction traced
 F = p.pc()
 if SHAPE == "w_jsr_wp":
     ins = [0x4EB8, F + 4]                        # jsr FN.w
+ins = [F + 2 * len(ins) if w == PFN else w for w in ins]   # (jmp/jsr Fn.w)
 if SHAPE == "o_rts":                             # pea Fn.w: Fn is the rts's next word
     p.w[(F - 0x1000) // 2 - 3] = F + 2           # (the pea's operand, before the ori)
 if SHAPE == "o_movesr":
     ins = [0x46FC, TBIT | 0x2004]                # the SR it has (Z from moveq #0,d2)
 p.i(*ins)
 FN = p.pc()
+p.w[PRE_AT:PRE0] = [FN if w == PFN else w for w in p.w[PRE_AT:PRE0]]   # the prelude's Fn
 p.i(0x4E71)                                      # nop
 C = p.pc()
 p.i(0x21C7, 0x3F94)                              # move.l d7,$3F94.w     the continuation
+if SHAPE in ("o_bsr", "o_jsr"):
+    p.i(0x2E78, 0x3004)                          # movea.l $3004.w,a7    (the return address pushed)
 for _ in range(PAD):
     p.i(0x4E71)                                  # nop: late interrupts land here
 p.i(0x46FC, 0x2700)                              # move #$2700,sr
@@ -371,7 +409,7 @@ put(p.base, p.w)
 # initiated the bus cycle").  The bench takes either pair: (F, $3018's SR) or
 # ($3074, $3078) when $307C is 1
 POST_SR = {"w_clr_inv": 0x2004, "w_st_inv": 0x2004, "w_pack_inv": 0x2004,
-           "m_add_wp": 0x2000, "w_jsr_wp": 0x0004}   # CLR: Z; ST, PACK: none; ADD $11111111 + 0: none; JSR: user, Z kept
+           "m_add_wp": 0x2000, "w_jsr_wp": 0x0004, "w_bsr_wp": 0x0004, "w_jsr_a_wp": 0x0004}   # CLR: Z; ST, PACK: none; ADD $11111111 + 0: none; JSR: user, Z kept
 if MMU and SHAPE in POST_SR:
     put(0x3074, long(FN) + long(POST_SR[SHAPE] | TBIT) + long(1))
 
@@ -408,10 +446,14 @@ for at in (SK1, SK3, SK4, SK5):
     x.w[(at - XH) // 2 + 1] = (OUT - (at + 2)) & 0xFFFF
 x.w[(SK2 - XH) // 2 + 1] = (NF2 - (SK2 + 2)) & 0xFFFF
 ABORT = None
-if HMODE == "complete":
+if COMPLETES:
+    if HMODE == "rerunc":
+        x.i(0x0CB8, 0, 2, 0x3008)                # cmpi.l #2,$3008.w
+        x.i(0x6402)                              # bhs.s complete
+        x.i(0x4E73)                              # rte                    the first: rerun (DF set)
     x.i(0x026F, 0xFEFF, 0x000A)                  # andi.w #$FEFF,$A(a7)   DF := 0
     x.i(0x2F7C, *long(0xC0DE5EED), 0x002C)       # move.l #$C0DE5EED,$2C(a7)  the DIB
-    if SHAPE == "w_jsr_wp":
+    if SHAPE in USERCOF:
         x.i(0x0057, 0x2000)                      # ori.w #$2000,(a7)      resume supervisor (the loop's move #$2700,sr)
     x.i(0x4E73)                                  # rte
 else:
@@ -472,8 +514,10 @@ if TRACE:
     # $24, the next instruction's PC, the traced instruction's address.
     # The bench reads $3060 count, PC, address, the SR copy's T bits, $3070 = 1
     if fam in "rwmc":
-        # (w_jsr_wp: a change of flow, traced under T0 too)
-        exp = (1, FN, F, TBIT) if ((TRACE == "1" or SHAPE == "w_jsr_wp") and HMODE == "complete") else (0, 0, 0, 0)
+        # (USERCOF: a change of flow, traced under T0 too; rerunc: the RTE's
+        # rerun faults again, the access is completed after the second -
+        # the trace still comes once, when the instruction completes)
+        exp = (1, FN, F, TBIT) if ((TRACE == "1" or SHAPE in USERCOF) and COMPLETES) else (0, 0, 0, 0)
     elif fam == "f":
         exp = (1, A0, F, TBIT)
     elif SHAPE in ("t_trap", "t_trapv", "t_chk", "t_div0"):
@@ -481,7 +525,7 @@ if TRACE:
     elif fam == "o":
         # T1 traces each; T0 the changes of flow - a branch taken, DBcc's
         # branch, RTS, an SR write - not a branch or DBcc falling through
-        taken = SHAPE not in ("o_bne", "o_dbf_nt")
+        taken = SHAPE not in ("o_bne", "o_dbf_nt", "o_bne_l")
         exp = (1, FN, F, TBIT) if (TRACE == "1" or taken) else (0, 0, 0, 0)
     else:
         exp = (0, 0, 0, 0)
