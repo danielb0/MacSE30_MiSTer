@@ -21718,6 +21718,21 @@ Daniel - add to it, move items out when fixed).**
     first: the damaged words (dm $5F98B8, dm $5FAD00) against
     Speedometer's test data; the same disk on MAME macse30 (quit after
     the same tests, several times); Daniel's real Mac.
+    THE DUMP (screenshot _202102): the list block at $5F98B8 holds a
+    12-byte-record table - 00AD0000 093A0000 000003EC, 00BE0000 095E0000
+    000003ED, ... (Fixed 173, 190, 208, 229, 250; 2362 + 36 each; IDs
+    1004-1007, then 5000) - someone else's data, not a count and a list.
+    $5FAD00 on: one array of 20-byte records repeating unbroken (0200
+    0000 00000014 0000E8D0/E8C4 000A0000 00000140/0142); 'block' $5FAD70
+    is INSIDE it - the record at $5FAD64 has 001D3735 for 000A0000.
+    Structured program data, no bit-flip pattern. AND A MISMATCH: the
+    registers say the count read at $5F98B8 was $00A7D9D1 (D7 = count*4
+    = $029F6744; A3 = $5F98B8 + count*4 + 4 = $02FF0000, A0 = $5F98B8
+    unchanged), but the memory there now reads $00AD0000. So between
+    the read (+$918C) and the dump, either something wrote $5F98B8 (an
+    interrupt-time task - e.g. one Speedometer left installed - in the
+    ~8 instructions to the fault), or the read returned a value memory
+    does not hold (a core read path or a stale data-cache line).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
