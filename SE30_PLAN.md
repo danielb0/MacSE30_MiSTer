@@ -21777,6 +21777,8 @@ Daniel - add to it, move items out when fixed).**
     PowerPlug (the latter is the PowerPC glue library for QuickTime -
     inert on a 68k Mac). Both are system software, no driver for any
     hardware the core models, so nothing for the core: closed for good.
+    CONFIRMED (Daniel): QuickTime itself - PowerPlug back on, QuickTime
+    off, Speedometer quits cleanly.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
