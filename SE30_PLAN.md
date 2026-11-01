@@ -21696,6 +21696,29 @@ Daniel - add to it, move items out when fixed).**
     The check: sim/cpfpu PROG=c10 C10_STRICT=1 (cases 5 and 6 to the UM;
     by default they only report, a NOTE).
 
+58. **OPEN (Daniel, 2026-11-01 20:10, the latest build, System 7, 24-bit,
+    MacsBug): a bus error QUITTING SPEEDOMETER 4.02 - the application heap
+    damaged.** Screenshots C:	emp\Mac\Screenshots‚61101_201037 and
+    _201457-_201615. Bus error at $4002C 'scod BFB1 0002'+$919C (the
+    Process Manager), MOVE.L -(A3),D0 reading $02FEFFFC (24-bit $FEFFFC ->
+    $50FEFFFC, I/O window 7, undecoded). The routine (+$916C) removes a
+    long from a handle-based list: handle $8(A6) = $005D56A8, value
+    $C(A6) = $005C6CA0; A0 = *h = $005F98B8; the list's count (first
+    long) read as $00A7D9D1, so the end pointer = $005F98B8 + count*4 + 4
+    = $02FF0000 - the count is garbage. hc: "The Application heap at
+    005C6BE0 is bad", block $005FAD70's length bad (header 001D3735
+    00000140 02000000 00000014). A6 chain coherent: CODE 0001 __%Main ->
+    main+$E4 -> scod BFB1 +$990/+$CDD2/+$A174. So the bus error is the
+    symptom; the cause is heap damage in Speedometer's partition before
+    the quit. Daniel: intermittent quit errors with Speedometer seen
+    before (not on record here). Related: the MacLC core's
+    restart-after-speedometer-hang (a heap header overwritten after a
+    Speedometer 4.02 run; open there) - two cores, one application.
+    No sweep has a heap-damage fingerprint. Discriminators, cheapest
+    first: the damaged words (dm $5F98B8, dm $5FAD00) against
+    Speedometer's test data; the same disk on MAME macse30 (quit after
+    the same tests, several times); Daniel's real Mac.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
