@@ -21773,6 +21773,10 @@ Daniel - add to it, move items out when fixed).**
     to name the extension (optional): halve the set with Extensions
     Manager, a few boots. Worth it only if the culprit touches hardware
     the core models (sound, video, SCSI, serial).
+    BISECTED (Daniel, 2026-11-01): the culprit is QuickTime or QuickTime
+    PowerPlug (the latter is the PowerPC glue library for QuickTime -
+    inert on a 68k Mac). Both are system software, no driver for any
+    hardware the core models, so nothing for the core: closed for good.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
