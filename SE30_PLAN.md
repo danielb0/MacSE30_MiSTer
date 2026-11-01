@@ -22075,6 +22075,11 @@ widens the RERUN list by the same rule.
   SR: the bench's (its prelude's move.l a5 clears Z), fixed.
 - Plant: iteration 3 counting each zone access twice FAILS check 9 on
   c_movem16 (34, not 17) and c_pea_u (2, not 1).
+- **SWEEP: 15/15 PASS** (2026-11-01 11:10-11:51, 41 min; SE/30 CTX=11
+  only - Daniel: the IIcx only where its different behaviour could reveal
+  a bug; the replay logic is shared). 272-450 offsets a case.
+  sim/busfault_irq/sweep_c12r.log. Left for class 12: the FPU operands
+  (sim/cpfpu).
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
 touch faults at level B (or A) and the handler writes a whole table; every
 sweep so far invalidated level C only. BUILT in `sim/predec_fault`
