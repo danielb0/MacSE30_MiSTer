@@ -21743,6 +21743,21 @@ Daniel - add to it, move items out when fixed).**
     seconds apart - a change while MacsBug sits = a task still writing.
     Then which test group precedes it (one group per launch), and the
     rate (one crash in how many quits).
+    ON THE WEB (2026-11-01, Daniel asked): KNOWN AS SPEEDOMETER'S OWN.
+    68kmla 'Speed-O-Meter crashing' (2025-07-08): a 4400 and a 7100 lock
+    loading the machine records after a benchmark, 100 % repeatable; a
+    IIsi the same under 6.0.8; max1zzz: 'very crash happy on faster
+    macs' - fine on 68020s and slower 68030s, crashes ON EXIT on faster
+    68030s, occasional on 68040s; it 'frequently corrupts the machine
+    records file'. Macintosh Garden (Speedometer 4.x): Mini vMac II -
+    on Quit it 'can empty its open Machine Records file and crash the
+    emulator'; QEMU-68k + 7.5.5 'frequently quits with a type 16 error'.
+    Real hardware and three emulators, so the quit crash is not ours to
+    find. The foreign structured records in the heap may well be the
+    machine records' (Fixed ratings, IDs). Cf. compile 32's damaged
+    Speedometer resource fork written when it saved results (above).
+    Proposed: CLOSE AS AUTHENTIC (Daniel's call); the extension test is
+    then optional.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
