@@ -22176,6 +22176,16 @@ is $0100 as before). So, as of now:
 - ALWAYS: the regression (~7 h) and the release-form builds (~1.5 h).
 About 16 h instead of ~56 h. Any kernel fix from the remaining classes
 widens the RERUN list by the same rule.
+**FINAL CHAIN STARTED (2026-11-01, Daniel: "Please start the trimmed final
+chain"): sim/final_chain.sh, log sim/final_chain.log.** Counted exactly
+(run_sweep.sh SKIPLOG= drops the cases class 7 PASSed): (c) T0 196 cases
+(~5.6 h at k52's 302 min / 176), (b) T1 200 (~7.3 h at 394 min / 180) -
+class 7 ran its r/w/m shapes in rerunc only, so SET=all's abort/rerun/
+complete under T1 are still owed; class 12's shapes add 48 to each. Then
+the regression (345 min last time) and, if it passes, both builds (~1.5
+h, archived "frozen"). ~20 h, not 16. A later trim of (b): list shapes
+in sim/final_chain_b_only.txt before (c) ends. No tracked edits until the
+builds are done (the stamp refuses a dirty tree).
 **CLASS 12'S REST BUILT (2026-11-01; sim/busfault_irq SET=c12r).**
 - Shapes, MMU=1, the zone at $8FFFC0-$8FFFFF below empty slot 9:
   - c_movem16: movem.l (a0),d0-d7/a0-a7, a0 = $8FFFC4; the 16th long

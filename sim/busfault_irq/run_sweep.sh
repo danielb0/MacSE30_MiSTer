@@ -8,7 +8,7 @@
 # after it (traps: the whole iteration), every 16th clock elsewhere; then
 # one run takes them all, one iteration each.  HSYNC* at HPER clocks (64:
 # UI6's wait ~150 clocks).  8 cases at a time.
-#   ./run_sweep.sh [SET=all|bus|trap|pawn|c13|c12|c12r|flow|c7] [ONLY="shape ..."] [KRTL=dir] [MODES="..."] [TRACE=1|0] [LEVELS="2"] [CTX="00 11"] [HPER=64]
+#   ./run_sweep.sh [SET=all|bus|trap|pawn|c13|c12|c12r|flow|c7] [ONLY="shape ..."] [KRTL=dir] [MODES="..."] [SKIPLOG="log ..."] [TRACE=1|0] [LEVELS="2"] [CTX="00 11"] [HPER=64]
 #   CTX: MMU and CACHE per context (00 = both off, 11 = the board's 24-bit
 #   row with CACR $2101; i11 = 11 on the IIcx, an empty slot the NuChip's
 #   timeout - bus shapes only).  The log is sweep_<SET>.log.
@@ -52,6 +52,14 @@ for s in $(SHAPELIST=1 python gen_program.py | awk '{print $1":"$2}'); do
     fi
   done; done; done
 done
+if [ -n "${SKIPLOG:-}" ]; then   # SKIPLOG="log ...": skip the cases those logs PASS (the final chain's trim)
+  KEEP=()
+  for c in "${CASES[@]}"; do
+    set -- $c; k="$1 $2 mmu$3 cache$4 L$5 $([ "$6" = 1 ] && echo IIcx || echo SE30) ("
+    cat $SKIPLOG | grep -F "$k" | grep -q "==== PASS" || KEEP+=("$c")
+  done
+  CASES=("${KEEP[@]}")
+fi
 if [ "${DRY:-0}" = 1 ]; then echo "${#CASES[@]} cases"; exit 0; fi   # DRY=1: the count only
 run1() {   # shape hmode mmu cache level iicx
   d=$HERE/../_bfi_$1_$2_$3$4_$5_$6${TRACE:+_t$TRACE}
@@ -97,7 +105,7 @@ export -f run1; export HERE HPER KRTL
 LOG=sweep_$SET${TRACE:+_t$TRACE}.log
 # each case's line goes to the log as it ends; RESUME=1 keeps a log of the same
 # configuration and runs only the cases missing from it (a restart, 2026-10-29)
-CFG="SET=$SET LEVELS=$LEVELS CTX=$CTX HPER=$HPER ONLY=${ONLY:-} MODES=${MODES:-} KRTL=$KRTL: ${#CASES[@]} cases"
+CFG="SET=$SET LEVELS=$LEVELS CTX=$CTX HPER=$HPER ONLY=${ONLY:-} MODES=${MODES:-} KRTL=$KRTL SKIPLOG=${SKIPLOG:-}: ${#CASES[@]} cases"
 TODO=("${CASES[@]}")
 if [ "${RESUME:-0}" = 1 ] && [ "$(head -1 "$LOG" 2>/dev/null | cut -d' ' -f4-)" = "$CFG" ]; then
   TODO=()
