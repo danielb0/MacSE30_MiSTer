@@ -21696,7 +21696,9 @@ Daniel - add to it, move items out when fixed).**
     The check: sim/cpfpu PROG=c10 C10_STRICT=1 (cases 5 and 6 to the UM;
     by default they only report, a NOTE).
 
-58. **OPEN (Daniel, 2026-11-01 20:10, the latest build, System 7, 24-bit,
+58. **CLOSED AS AUTHENTIC (Daniel, 2026-11-01: "It sounds like Speedometer
+    is prone to crashes. Please close the KI.") - Speedometer's own bug.**
+    **Was OPEN (Daniel, 2026-11-01 20:10, the latest build, System 7, 24-bit,
     MacsBug): a bus error QUITTING SPEEDOMETER 4.02 - the application heap
     damaged.** Screenshots C:\temp\Mac\Screenshots\20261101_201037 and
     _201457-_201615. Bus error at $4002C 'scod BFB1 0002'+$919C (the
@@ -21762,6 +21764,7 @@ Daniel - add to it, move items out when fixed).**
     before quitting - the very path the reports name (Machine Records
     corrupted, emptied or crashing on Quit). Repro recipe if ever
     needed: full benchmark run, save the machine record, quit.
+    CLOSED: no core lead; never chase Speedometer quit crashes again.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
