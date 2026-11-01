@@ -21758,6 +21758,10 @@ Daniel - add to it, move items out when fixed).**
     Speedometer resource fork written when it saved results (above).
     Proposed: CLOSE AS AUTHENTIC (Daniel's call); the extension test is
     then optional.
+    CONTEXT (Daniel, 20:45): he SAVED THE MACHINE RECORD in that session
+    before quitting - the very path the reports name (Machine Records
+    corrupted, emptied or crashing on Quit). Repro recipe if ever
+    needed: full benchmark run, save the machine record, quit.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
