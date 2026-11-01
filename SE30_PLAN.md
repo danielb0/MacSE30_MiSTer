@@ -21767,7 +21767,7 @@ Daniel - add to it, move items out when fixed).**
     CLOSED: no core lead; never chase Speedometer quit crashes again.
     UPDATE (Daniel, 2026-11-01 later): on the IIcx under System 7.5.5
     Speedometer ALWAYS crashes on Quit, tests run or not; with
-    Extensions Off it quit cleanly (one try - but against a 100 % crash
+    Extensions Off it quit cleanly (twice - and against a 100 % crash
     rate one clean quit is telling). So an extension clash with
     Speedometer (cf. 68kmla's '100 % repeatable' 4400). Stays closed;
     to name the extension (optional): halve the set with Extensions
