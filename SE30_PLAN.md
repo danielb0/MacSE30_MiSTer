@@ -17109,6 +17109,7 @@ status and where each was decided. Test tooling is not listed here.
 | 10 | **The IIcx card's extended resolutions (704 x 512, 672-pixel mode)**: Low End Mac reports the Macintosh II Video Card reached 704 x 512 on certain Apple 640 x 480 displays with the shareware MaxAppleZoom control panel (last updated June 1993, expired), and a 672-pixel mode for the 12" Monochrome Display. How MaxAppleZoom does it is unread (believed: it rewrites the card's timing registers to shrink the blanking within the same 30.24 MHz frame, and reports the larger bounds). Our card cannot follow: (a) the timing registers are stored but not modelled - the scan-out is the book's fixed 640 x 480 (`rtl/nubus_tfb.v`, scan-out; header "The timing registers are not modelled"); (b) the compaction keeps only the first 640 pixels and 480 rows of each page in block RAM, the rest goes to SDRAM unseen; (c) 704 x 512 x 8 = ~360 KB visible against 300 KB, ~53 M10K more with 15 free (IIcx 538/553). Needs: the timing registers' meaning from *Designing Cards and Drivers* ch. 11 (documentation, not MAME), a scan-out that follows them, and the pixels beyond 640 x 480 streamed from SDRAM; MaxAppleZoom itself to test (its expiry may need the Mac's clock set back) | **interesting, NOT a priority** (Daniel, 2026-10-13) | here |
 | 11 | **The IIcx card's exact 30.24 MHz dot clock** (since 2026-10-23 it is 30.2153 MHz, the main PLL's sixth output, -0.082 %: KNOWN ISSUES 24, E2) | some day (Daniel, 2026-10-23: "maybe we'll be able to do something else"); needs the SDRAM read-capture select redesigned so the main PLL can leave the chip's bottom edge, or an upstream pll_cfg_hdmi that follows the HDMI PLL's counter - KNOWN ISSUES 24's options (c) and (d) | KNOWN ISSUES 24 |
 | 12 | **Offer the CPU, MMU and FPU to other cores** (the Amiga - Minimig-AGA, apolkosnik's `030_mmu2` the kernel came from - and the Falcon): the kernel's 32-bit bus, caches and coprocessor interface, the 36 fixes, the 68882. Changelog drafted outside the repo: `C:\temp\Mac\TG68K_030_changelog.md` (2026-10-24). The Minimig's shared-memory window we removed (`$00DD4000-$00DD5FFF`, ea3066d) must come back for the Amiga as a generic option; the benches to go with it | AFTER THE RELEASE (Daniel, 2026-10-24) | here |
+| 13 | **Explain the 68882 benchmarks' ~6-10 % slowness** (Speedometer 4.02, compile 41: KWhet 0.90, Matrix 0.93, FFT 0.83, FPU average 0.94 of the built-in record; KNOWN ISSUES 1). The profile puts it in the CPU's side of the coprocessor dialog (46.4 clocks an FPU instruction, ~6 CIR cycles; the 68882 busy 4.3 %). FIRST (Daniel, 2026-11-01): rerun Speedometer 4.02's FPU set on the current core - compile 41 came before the A/UX fixes (KNOWN ISSUES 25-53), several in the FPU dialog and its fault paths; the gap may have moved. Then, if still there: a sim/cpfpu bench timing FADD/FMUL/FMOVE loops clock by clock, the dialog split from the arithmetic, the CIR cycles held to the 68030's documented bus-cycle times; any clocks between them are the kernel's. ~1 h of bench work, no long runs | **after the bug sweeps** (Daniel, 2026-11-01: "Let's finish our bug sweeps, and worry about it then") | 2026-11-01 |
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
@@ -21624,6 +21625,32 @@ Daniel - add to it, move items out when fixed).**
     - unequal A/B traffic and drops on full.
     Then the fixes. A probe build's PASC (the mode, $804, both counts)
     shows a count skew directly.
+
+56. **OPEN (2026-11-01, found by class 12's FPU-operand check): an FPU
+    operand's split long, faulted on its second bus cycle, runs its FIRST
+    cycle again after the handler.** sim/cpfpu PROG=fsx with the new
+    exactly-once count (staged in sim/_stage_c12f: the tb counts each run's
+    bus cycles to its operand and pointer windows; the faulting run must
+    match the reference). FMOVE.L FP1,-$20(A6) at $DFFD: the reference
+    writes $C7FD (3 bytes), $C800 (1); the faulting run $DFFD, the PMMU
+    fault at $E000, then after the pager $DFFD AGAIN and $E000. Loads the
+    same (FMOVE.L at $DFFE: $DFFE read twice). UM 8.2.3: the RTE "reruns
+    the faulted data cycle" - only a read-modify-write reruns the whole
+    instruction. The class (all 435 fsx cases): 300 FAIL, exactly the
+    cases whose fault SPLITS a long (offsets -1, -2, -3, -6, -10, -11,
+    -46, -47: one extra cycle; the memory-indirect pointer forms two);
+    every fault on a long boundary (+0, -4, -8, -24, -44) PASSES. Every
+    size, every EA form, loads and stores, FMOVEM.X both ways, FMOVEM.L.
+    No other check fails: the data and registers come out right (RAM
+    returns the same bytes), so the deviation is invisible unless the
+    first part is I/O - never an FPU operand on these machines.
+    Cause: the coprocessor's memory transfer (cp_mrdw / cp_mww, kernel
+    ~11282-11320) resumes the part from its start; the integer path has
+    KNOWN ISSUES 49's dacc_part / dacc_rem machinery (keep the bytes
+    already moved, run only the faulted cycle), the dialog's path never got
+    it. Fix: not started - Daniel's call (spec vs. no practical effect);
+    if fixed, batched with KNOWN ISSUES 53's dead T0 term, and class 4b's
+    split-operand cases (fswi) rerun by the trim rule.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
