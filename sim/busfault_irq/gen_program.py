@@ -15,7 +15,8 @@ it, and the interrupt is taken once, at a boundary.
                  exception handler); 25-31 (autovectors) -> IH; the rest -> a stub
     $1000        the loop (below); $3000 variables; $3F80 the interrupt's
                  acknowledge, $3F90 the iteration marker, $3F94 the
-                 continuation marker (all watched by the bench); $3FF0 end
+                 continuation marker, $3F98 the mask marker (all watched by
+                 the bench); $3FF0 end
     $3018        the SR a read's fault stacks (the bench's check)
     $301C        HMODE complete: D0, D1 at the continuation, $3024 = 1 (checked)
     $4000        MMU=1: the ROM's 24-bit table ($40800050, 16 descriptors)
@@ -37,7 +38,8 @@ The loop, per iteration:
             [the shape's prelude]          (X-readers: ori #$10,ccr)
       F:    the shape's instruction       raises the exception
       Fn:   nop
-      C:    move.l d7,$3F94.w ; nop x PAD ; move.w #$2700,sr ; the record
+      C:    move.l d7,$3F94.w ; nop x PAD ; move.l d7,$3F98.w
+            move.w #$2700,sr ; the record
             addq.l #1,d7 ; cmp.l $3014.w,d7 ; bne loop
 XH, per HMODE: abort (discard the frame: the SP of the loop, jmp C - what
 MacsBug's or a Slot Manager probe's unwinding leaves); rerun (RTE once, then
@@ -149,6 +151,15 @@ SHAPES = {
     "c_unpk":     ("w", [[0x227C, 0x0090, 0x0002]], [0x8388, 0x0000], 0x8FFFF4),   # unpk -(a0),-(a1),#0: the word write
     "c_pack":     ("w", [[0x227C, 0x0090, 0x0001]], [0x8348, 0x0000], 0x8FFFF6),   # pack -(a0),-(a1),#0: the byte write
     "c_moves":    ("r", [[0x45F8, 0x0005], [0x4E7B, 0xA000]], [0x0E90, 0x0000], 0x8FFFFE),   # lea 5.w,a2 ; movec a2,sfc ; moves.l (a0),d0: split
+    # class 12's rest (2026-11-01): MOVEM of all sixteen, the last (A7) faults -
+    # the read's zone holds the loop's own D7 and A5 (the prelude's writes);
+    # user pushes whose long straddles the slot (USP $900002: the second word)
+    "c_movem16":  ("r", [[0x23C7, 0x008F, 0xFFE0], [0x23CD, 0x008F, 0xFFF8]],
+                   [0x4CD0, 0xFFFF], 0x8FFFC4),                    # move.l d7/a5 to their slots ; movem.l (a0),d0-d7/a0-a7
+    "c_movem16_w": ("w", [], [0x48D0, 0xFFFF], 0x8FFFC4),         # movem.l d0-d7/a0-a7,(a0)
+    "c_pea_u":    ("w", [[0x227C, 0x0090, 0x0002], [0x4E61]], [0x4878, 0x1234], 0x8FFFF0),   # movea.l #$900002,a1 ; move a1,usp ; (user) pea $1234.w
+    "c_link_u":   ("w", [[0x227C, 0x0090, 0x0002], [0x4E61]], [0x4E56, 0x0000], 0x8FFFF0),   # ... ; (user) link a6,#0
+    "c_jsr_u":    ("w", [[0x227C, 0x0090, 0x0002], [0x4E61]], [0x4EB8, PFN], 0x8FFFF0),      # ... ; (user) jsr Fn.w
     # instruction fetch from empty slot space
     "f_jmp":      ("f", [], [0x4ED0], None),                      # jmp (a0)
     "f_jsr":      ("f", [], [0x4E90], None),                      # jsr (a0)
@@ -193,6 +204,9 @@ SHAPES = {
 # a user-mode change of flow whose return-address push faults (w_jsr_wp's
 # class): user stack USPV, the WP megabyte under the MMU
 USERCOF = ("w_jsr_wp", "w_bsr_wp", "w_jsr_a_wp")
+# class 12's user pushes: user mode like USERCOF; c_jsr_u a change of flow
+USER = USERCOF + ("c_pea_u", "c_link_u", "c_jsr_u")
+COF = USERCOF + ("c_jsr_u",)
 # under trace: t_trace sets T1 itself; an address error's JMP (t_adderr) is
 # not one the UM says completes; T0's traps are TRAP and TRAPV ("instruction
 # traps" - CHK's and DIVU's are left to T1)
@@ -235,7 +249,8 @@ if TRACE:
     put(4 * 9, long(TH))
 # the SR a read's fault must stack (UM 8.2.2: the CCR before the instruction -
 # moveq #0,d2's Z, and X where the prelude sets it); the bench reads $3018
-put(0x3018, long((0x0004 if SHAPE in USERCOF else 0x2014 if 0x003C in pre else 0x2004) |   # (w_jsr_wp: user mode)
+put(0x3018, long((0x0004 if SHAPE in USER else 0x2014 if 0x003C in pre else
+                  0x2000 if SHAPE == "c_movem16" else 0x2004) |   # (w_jsr_wp: user mode; c_movem16: its prelude's move.l a5 clears Z)
                  {"1": 0x8000, "0": 0x4000}.get(TRACE, 0)))
 # HMODE complete: D0 and D1 as the UM fixes them - a completed read's data is
 # the DIB ($C0DE5EED, right-justified, sign-extended by the instruction); a
@@ -261,16 +276,22 @@ EXPECT = {"r_move_b": (0x111111ED, 0xBF96), "r_move_w": (0x11115EED, 0xBF96),
           # a split operand: the first word from the zone, the rest the DIB's
           # (right-justified, UM 8.2.2)
           "c_split": (0x88885EED, 0xBF96), "c_split_w": (0x11111111, 0xBF96),
-          "c_unpk": (0x11111111, 0xBF96), "c_pack": (0x11111111, 0xBF96), "c_moves": (0x88885EED, 0xBF96)}
+          "c_unpk": (0x11111111, 0xBF96), "c_pack": (0x11111111, 0xBF96), "c_moves": (0x88885EED, 0xBF96),
+          "c_movem16": (0xD0D0D0D0, 0xD1D1D1D1), "c_movem16_w": (0x11111111, 0xBF96),
+          "c_pea_u": (0x11111111, 0xBF96), "c_link_u": (0x11111111, 0xBF96), "c_jsr_u": (0x11111111, 0xBF96)}
 # class 12: the zone (tb RAM $1FFF0, the CI megabyte's last 16 bytes) and the
 # bus accesses each iteration makes to it - each once, the replay's point (an
 # I/O access must not repeat); HMODE rerun re-runs them (KNOWN ISSUES 47's
 # limit) and is not checked.  The bench reads $3034 when $3038 is 1
 ZN = {"c_cmpm": 1, "c_movem": 2, "c_movem_w": 2, "c_move_mm": 1, "c_movep": 2,
       "c_cmp2": 1, "c_bfext": 1, "c_addx": 1, "c_split": 1, "c_split_w": 1,
-      "c_unpk": 1, "c_pack": 1, "c_moves": 1}
+      "c_unpk": 1, "c_pack": 1, "c_moves": 1,
+      "c_movem16": 17, "c_movem16_w": 15, "c_pea_u": 1, "c_link_u": 1, "c_jsr_u": 1}   # (c_movem16: the prelude's two writes)
 if C12:
     put(0x1FFF0, long(0x11112222) + long(0x33334444) + long(0x55556666) + long(0x77778888))
+    if SHAPE == "c_movem16":                     # D0-D6, D7 (the prelude's), A0, A1-A4, A5 (the prelude's), A6
+        put(0x1FFC4, sum((long(v) for v in [0xD0D0D0D0 + 0x01010101 * n for n in range(7)] + [0, 0x8FFFC4] +
+                          [0xA1A1A1A1 + 0x01010101 * n for n in range(4)] + [0, 0xA6A6A6A6]), []))
     if HMODE not in ("rerun", "rerunc"):
         put(0x3034, long(ZN[SHAPE]) + long(1))
 # class 11: the first frame's SSW (DF, RM, RW, SIZE, FC - bits 8-0) and fault
@@ -292,11 +313,12 @@ SSWX = {"r_movea_l": (1, L), "r_cmp_w": (1, W), "r_move_b": (1, B), "r_move_w": 
         "c_cmpm": (1, L), "c_movem": (1, L), "c_movem_w": (0, L), "c_move_mm": (0, L),
         "c_movep": (1, B), "c_cmp2": (1, L), "c_bfext": (1, B), "c_addx": (1, L),
         "c_split": (1, W), "c_split_w": (0, W),
-        "c_unpk": (0, W), "c_pack": (0, B), "c_moves": (1, W)}
+        "c_unpk": (0, W), "c_pack": (0, B), "c_moves": (1, W),
+        "c_movem16": (1, L), "c_movem16_w": (0, L), "c_pea_u": (0, W), "c_link_u": (0, W), "c_jsr_u": (0, W)}
 LOCKED = ("m_tas", "m_cas", "m_cas2", "m_cas2a", "m_cas_wp", "m_tas_wp")
 if SHAPE in SSWX:
     rw, sz = SSWX[SHAPE]
-    ssw = 0x100 | (0x80 if SHAPE in LOCKED else 0) | (rw << 6) | (sz << 4) | (1 if SHAPE in USERCOF else 5)   # (user data)
+    ssw = 0x100 | (0x80 if SHAPE in LOCKED else 0) | (rw << 6) | (sz << 4) | (1 if SHAPE in USER else 5)   # (user data)
     faddr = {"r_move_l1": FAULT + 1, "r_move_l2": FAULT + 2, "w_move_l2": FAULT + 2}.get(SHAPE, FAULT)
     if (SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp") or SHAPE in USERCOF) and MMU:
         faddr = 0x00103100
@@ -365,7 +387,7 @@ else:                                            # two-word instructions
     for k in range(0, len(pre), 2):
         p.i(*pre[k:k + 2])
 PRE0 = len(p.w)
-if SHAPE in USERCOF:
+if SHAPE in USER:
     p.i(0x46FC, TBIT | 0x0004)                   # move #(T|Z),sr: user mode, the next instruction traced
 elif TRACE and SHAPE != "t_priv":
     p.i(0x007C, TBIT)                            # ori.w #T,sr: the next instruction traced
@@ -387,6 +409,7 @@ if SHAPE in ("o_bsr", "o_jsr"):
     p.i(0x2E78, 0x3004)                          # movea.l $3004.w,a7    (the return address pushed)
 for _ in range(PAD):
     p.i(0x4E71)                                  # nop: late interrupts land here
+p.i(0x21C7, 0x3F98)                              # move.l d7,$3F98.w     the mask marker (the bench)
 p.i(0x46FC, 0x2700)                              # move #$2700,sr
 p.i(0x2B48, 48)                                  # move.l a0,48(a5)
 p.i(0x2B40, 52)                                  # move.l d0,52(a5)
@@ -452,8 +475,11 @@ if COMPLETES:
         x.i(0x6402)                              # bhs.s complete
         x.i(0x4E73)                              # rte                    the first: rerun (DF set)
     x.i(0x026F, 0xFEFF, 0x000A)                  # andi.w #$FEFF,$A(a7)   DF := 0
-    x.i(0x2F7C, *long(0xC0DE5EED), 0x002C)       # move.l #$C0DE5EED,$2C(a7)  the DIB
-    if SHAPE in USERCOF:
+    if SHAPE == "c_movem16":
+        x.i(0x2F78, 0x3004, 0x002C)              # move.l $3004.w,$2C(a7)  the DIB: A7 as the RTE leaves it
+    else:
+        x.i(0x2F7C, *long(0xC0DE5EED), 0x002C)   # move.l #$C0DE5EED,$2C(a7)  the DIB
+    if SHAPE in USER:
         x.i(0x0057, 0x2000)                      # ori.w #$2000,(a7)      resume supervisor (the loop's move #$2700,sr)
     x.i(0x4E73)                                  # rte
 else:
@@ -517,7 +543,7 @@ if TRACE:
         # (USERCOF: a change of flow, traced under T0 too; rerunc: the RTE's
         # rerun faults again, the access is completed after the second -
         # the trace still comes once, when the instruction completes)
-        exp = (1, FN, F, TBIT) if ((TRACE == "1" or SHAPE in USERCOF) and COMPLETES) else (0, 0, 0, 0)
+        exp = (1, FN, F, TBIT) if ((TRACE == "1" or SHAPE in COF) and COMPLETES) else (0, 0, 0, 0)
     elif fam == "f":
         exp = (1, A0, F, TBIT)
     elif SHAPE in ("t_trap", "t_trapv", "t_chk", "t_div0"):

@@ -8,7 +8,7 @@
 # after it (traps: the whole iteration), every 16th clock elsewhere; then
 # one run takes them all, one iteration each.  HSYNC* at HPER clocks (64:
 # UI6's wait ~150 clocks).  8 cases at a time.
-#   ./run_sweep.sh [SET=all|bus|trap|pawn|c13|c12|flow|c7] [ONLY="shape ..."] [KRTL=dir] [MODES="..."] [TRACE=1|0] [LEVELS="2"] [CTX="00 11"] [HPER=64]
+#   ./run_sweep.sh [SET=all|bus|trap|pawn|c13|c12|c12r|flow|c7] [ONLY="shape ..."] [KRTL=dir] [MODES="..."] [TRACE=1|0] [LEVELS="2"] [CTX="00 11"] [HPER=64]
 #   CTX: MMU and CACHE per context (00 = both off, 11 = the board's 24-bit
 #   row with CACR $2101; i11 = 11 on the IIcx, an empty slot the NuChip's
 #   timeout - bus shapes only).  The log is sweep_<SET>.log.
@@ -28,6 +28,7 @@ for s in $(SHAPELIST=1 python gen_program.py | awk '{print $1":"$2}'); do
     pawn) [ "$shape" != r_movea_l ] && continue ;;
     c13)  case "$shape" in m_cas2|m_cas2a|m_cas_wp|m_tas_wp) ;; *) continue ;; esac ;;   # class 13's new locked shapes
     c12)  [ "${shape:0:2}" != c_ ] && continue ;;                                         # class 12's Nth-access shapes
+    c12r) case "$shape" in c_movem16|c_movem16_w|c_pea_u|c_link_u|c_jsr_u) ;; *) continue ;; esac ;;   # class 12's rest
     flow) [ "$fam" != o ] && continue ;;                                                  # class 7's changes of flow (TRACE)
     c7)   case "$fam$shape" in o*|[rwm]*) ;; *) continue ;; esac                             # class 7's rest: the flow shapes,
           [ "${shape:0:2}" = c_ ] && continue ;;                                              # the pushes, every RTE rerun's refault

@@ -1,0 +1,5 @@
+[10-31 21:32] class7_queue: start on 21be79a Class 7's rest: flow shapes, BSR/JSR (An) pushes, HM
+[11-01 06:12] (1) SET=c7 TRACE=1 CTX=00 11: ==== 2026-11-01 06:12:38 SET=c7 CTX=00 11 done: 137 / 138 PASS (520 min)
+r_movem9 rerunc mmu1 cache1 L2 SE30 (2269 offsets): [part_001] FAIL it 1075 (offset 6322): 0 interrupts taken FAIL it 1078 (offset 6328): 0 interrupts taken FAIL it 1081 (offset 6334): 0 interrupts taken FAIL it 1090 (offset 6352): 0 interrupts taken  [part_002] FAIL it 3 (offset 6374): 0 interrupts
+[11-01 07:42] (2) SET=c7 TRACE=0 CTX=00 11, flow and push shapes: ==== 2026-11-01 07:42:47 SET=c7 CTX=00 11 done: 62 / 62 PASS (90 min)
+[11-01 07:42] class7_queue: done

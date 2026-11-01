@@ -183,12 +183,18 @@ module tb_busfault_irq;
   reg [31:0] starts [0:1023];
   integer noff = 0, plant = -1, evt = 0, it = -1, t0 = 0, irq_at = -1;
   integer off [0:8191];
+  // an interrupt raised after its iteration's mask marker ($3F98, right
+  // before move #$2700,sr) is legitimately not taken: the bus errors' timing
+  // drifts by GLUE's timeout steps (UI6), so a late offset can land beyond
+  // an iteration that ran shorter than the reference.  Not a test; noted
+  integer tmask = 0, nlate = 0;
+  reg     late [0:8191];
   integer berr_edges = 0;
   reg     glue_berr_q = 0;
-  // class 12: the bus accesses an iteration makes to the zone (tb RAM $1FFF0-
-  // $1FFFF): each once ($3034) unless the handler reruns
+  // class 12: the bus accesses an iteration makes to the zone (tb RAM $1FFC0-
+  // $1FFFF, c_movem16's 64 bytes): each once ($3034) unless the handler reruns
   integer zcount = 0, zfails = 0;
-  wire    zone_now = phi1 && ram_req && !ram_ack && ram_addr[14:0] >= 15'h7FFC;
+  wire    zone_now = phi1 && ram_req && !ram_ack && ram_addr[14:0] >= 15'h7FF0;
   task zcheck;
     if (ram[32'h3038 >> 2] == 1 && it >= 0 && zcount != ram[32'h3034 >> 2]) begin
       zfails = zfails + 1;
@@ -223,6 +229,7 @@ module tb_busfault_irq;
     if (ram_wr_now && ram_addr[14:0] == (32'h3F90 >> 2)) begin
       zcheck; zcount = 0;
       if (irq && it >= 2) $display("NOTE iteration %0d: the interrupt was still pending at its end", it);
+      if (it >= 0) late[it] = irq_at >= tmask;  // (or never raised: past the iteration)
       irq <= 0;
       it = ram_wdata; t0 = cyc; px_restart <= 1;
       irq_at = (it >= 2 && it - 2 < noff) ? t0 + off[it - 2] : -1;
@@ -232,6 +239,7 @@ module tb_busfault_irq;
     end else px_restart <= 0;
     if (irq_at >= 0 && cyc == irq_at) irq <= 1;
     if (ram_wr_now && ram_addr[14:0] == (32'h3F80 >> 2)) irq <= 0;          // the acknowledge
+    if (ram_wr_now && ram_addr[14:0] == (32'h3F98 >> 2)) tmask = cyc;        // the mask marker
     if (evt && it == 1) begin
       if (glue_berr && !glue_berr_q) $display("EVT berr %0d", cyc - t0);
       if (exc[56]) $display("EVT exc %0d vector %0d pc %08x", cyc - t0, exc[55:48], exc[31:0]);
@@ -344,7 +352,7 @@ module tb_busfault_irq;
       $fclose(fd);
     end
     iters = 2 + noff;
-    if (32'h6000 + 64 * iters > 32'h1FFF0) begin   // the records end below the zone's data (128 KB, aliased)
+    if (32'h6000 + 64 * iters > 32'h1FFC0) begin   // the records end below the zone's data (128 KB, aliased)
       $display("FAIL %0d iterations overrun the record table at $6000 (1663 at most): split offsets.txt", iters);
       $finish;
     end
@@ -401,6 +409,7 @@ module tb_busfault_irq;
                    k, rec(k, 28) & 32'h1FF, rec(k, 36), ram[32'h3028 >> 2], ram[32'h302C >> 2]);
         end
     zcheck;                                      // the last iteration's zone
+    late[it] = irq_at >= tmask;                  // ... and its interrupt
     tcheck;                                      // ... and its traces
     fails = fails + zfails + tfails;
     // HMODE complete: D0 and D1 as the UM fixes them ($301C, $3020)
@@ -419,7 +428,8 @@ module tb_busfault_irq;
           bad = 1;
           $display("FAIL it %0d (offset %0d): +%0d %08x, reference %08x", k, off[k - 2], o, rec(k, o), rec(1, o));
         end
-      if (rec(k, 4) != 1) begin
+      if (rec(k, 4) == 0 && late[k]) nlate = nlate + 1;
+      else if (rec(k, 4) != 1) begin
         bad = 1; $display("FAIL it %0d (offset %0d): %0d interrupts taken", k, off[k - 2], rec(k, 4));
       end else begin
         ipc = rec(k, 8);
@@ -434,6 +444,7 @@ module tb_busfault_irq;
       if (bad) bad_its = bad_its + 1; else pass = pass + 1;
     end
     if (plant >= 2) $display("---- the plant at iteration %0d: %0s", plant, (plant < iters) ? "armed" : "out of range");
+    if (nlate) $display("NOTE %0d offsets raised after their iteration's mask marker (not taken, no test)", nlate);
     if (fails == 0 && bad_its == 0) $display("==== PASS: %0d iterations, every one as the reference", pass);
     else $display("==== FAIL: %0d iterations failed, %0d passed, %0d run failures", bad_its, pass, fails);
     $finish;

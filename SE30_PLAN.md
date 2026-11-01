@@ -21992,6 +21992,89 @@ the rest.
 RUNNING: sim/class7_queue.sh - (1) SET=c7 TRACE=1 CTX="00 11", 138 cases
 ~9 h; (2) TRACE=0, the flow and push shapes, 62 cases ~3 h. Log
 sim/class7_queue.log. Not run (trimmed): no-trace and T0 rerunc.
+**CLASS 7 DONE (2026-11-01 07:42, on 21be79a).**
+- (1) TRACE=1, CTX 00 and 11: **137/138 PASS** (520 min).
+- (2) TRACE=0, the flow and push shapes: **62/62 PASS** (90 min).
+- The one FAIL, r_movem9 rerunc mmu1 cache1, was the bench's, not the
+  kernel's. At late offsets (6322-6400; the reference's C at 6498) the
+  bench reported "0 interrupts taken".
+  - Why: the case takes ten bus errors an iteration. GLUE's UI6 timeout
+    ends on a free-running tick (128 clocks at HPER=64), so an
+    iteration's length drifts by whole steps; iteration 3 reached C at
+    6112, ~500 clocks early. A late offset then raised IRQ 2 after the
+    loop's move #$2700,sr, so it stayed pending, correctly.
+  - Measured on r_move_l, MMU 1, cache 1, one clock apart: an interrupt
+    raised up to 181 clocks after C is taken; from 186 on it is not.
+  - Bench fix, staged in sim/_stage_c12r: `move.l d7,$3F98.w`, the mask
+    marker, right before move #$2700,sr. An iteration with no interrupt
+    whose IRQ was due at or after its marker (raised late, or never) is
+    noted "no test", not failed.
+  - Checks: offsets one clock apart across the boundary, 201/201 PASS
+    (31 noted); a plant hiding iteration 5's IRQ from the CPU until its
+    marker still FAILS ("0 interrupts taken"); the failing offsets
+    6300-6560 PASS (28 noted).
+  - Every program changes by one instruction in its tail. Earlier passes
+    stand: the rule only stops counting an interrupt the loop masked.
+  - The failing case's rerun on the fixed bench: part 002 (offsets 6368+)
+    68/68 PASS (18 noted). Part 001 (1100 offsets, 3505-6368) not rerun:
+    its failing offsets are in the 6300-6560 check above, the rest passed
+    on the old bench, and the fix changes nothing but the late-interrupt
+    count (Daniel 2026-11-01: no needless repetition). CLASS 7 CLOSED.
+**THE REMAINING CLASSES, TRIMMED (2026-11-01, Daniel: "Yes. Please trim.
+Keep the full class 12 sweep.").** Classes 4, 4b and 7 (~600 cases) found
+no kernel bug; the full chain's SET=all already carried class 13's shapes
+under interrupt. Each remaining class is sized by what is new in it:
+- **12, IN FULL.** The integer rest (c_movem16, c_movem16_w, c_pea_u,
+  c_link_u, c_jsr_u; SET=c12r) with its interrupt sweep, and the FPU
+  operands in sim/cpfpu (FMOVE.X, FMOVEM: each access faulted in turn,
+  each access before it out once). This also takes 10's FPU-operand item.
+- **10's rest, directed only (no interrupt sweep).** A bus error during an
+  RTE's frame reads, and during exception stacking (the double fault: the
+  halt). MOVEM mid-transfer and the misaligned second cycle are 12's
+  c_movem/c_movem16 and c_split shapes.
+- **2's directed part, references only.** A supervisor MOVEM set on a
+  faulting page; MOVEM restart x interrupt is already swept (class 4's
+  r_movem shapes, class 7's r_movem9).
+- **8, one tier-2 run (<30 min).** A random program mixing the existing
+  generators (user and supervisor, MMU, interrupts); A/UX and 7.5.5 VM on
+  the board stand for the long form.
+- **9, VIA and SCC only (tier 1 each).** Random register traffic against
+  the existing benches - they are the interrupt sources the CPU sweeps
+  depend on. SDRAM had its random runs in round 3; SWIM, SCSI and ASC keep
+  their directed benches and board use.
+Then the batched kernel edit (KNOWN ISSUES 53's dead T0 term) and the
+chain on the frozen kernel (Daniel's OK), TRIMMED TOO (Daniel, 2026-11-01:
+the parts already tested on code unchanged since are not rerun). The rule:
+diff rtl/ from each sweep's PASS to the frozen kernel; rerun only the
+sweeps whose paths the diff touches. Since the trimmed chain (2804832) the
+only kernel change is KNOWN ISSUES 53 (8afce37), which acts only when a
+trace is owed (berr_trace_due, rte_fmt_a_trace; the untraced $A frame word
+is $0100 as before); the batched edit is in the T0 path. So, as of now:
+- STAND: (a) SET=all, no trace, CTX 00 11 i11 (472); (d) class 4's levels;
+  (e) class 4b (236/236 on daf1b20, after 8afce37); class 4 level 1;
+  class 7 (T1 138, T0 62, on 21be79a).
+- RERUN: (c) TRACE=0 SET=all CTX=11 (~176 cases, ~5.2 h - the batched
+  edit is there); (b) TRACE=1 CTX=11, the shapes class 7's T1 did not
+  carry (~2-3 h).
+- ALWAYS: the regression (~7 h) and the release-form builds (~1.5 h).
+About 16 h instead of ~56 h. Any kernel fix from the remaining classes
+widens the RERUN list by the same rule.
+**CLASS 12'S REST BUILT (2026-11-01; sim/busfault_irq SET=c12r).**
+- Shapes, MMU=1, the zone at $8FFFC0-$8FFFFF below empty slot 9:
+  - c_movem16: movem.l (a0),d0-d7/a0-a7, a0 = $8FFFC4; the 16th long
+    (A7) faults. The prelude writes d7/a5 into their zone slots. In
+    complete, the handler's DIB is the A7 after the RTE.
+  - c_movem16_w: movem.l d0-d7/a0-a7,(a0); the 16th long faults.
+  - c_pea_u, c_link_u, c_jsr_u: user mode, USP $900002; the long push's
+    second word faults.
+- The tb's zone window widened to $1FFC0-$1FFFF; the record limit with it.
+- Every existing shape's program byte-identical before the mask marker
+  (2794/2794: every shape x mode x MMU x cache x trace).
+- References, no interrupt (5 shapes x abort/rerun/complete x cache 1/0
+  x no trace/T1/T0): 90/90 PASS. The first run failed c_movem16's frame
+  SR: the bench's (its prelude's move.l a5 clears Z), fixed.
+- Plant: iteration 3 counting each zone access twice FAILS check 9 on
+  c_movem16 (34, not 17) and c_pea_u (2, not 1).
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
 touch faults at level B (or A) and the handler writes a whole table; every
 sweep so far invalidated level C only. BUILT in `sim/predec_fault`
