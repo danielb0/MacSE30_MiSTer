@@ -10413,6 +10413,8 @@ PROCESS (clk, cpu, OP1out, OP2out, opcode, exe_condition, nextpass, micro_state,
 										-- frame format. If the frame format is
 										-- 2 another two words have to be taken
 										-- from the stack
+				-- KNOWN LIMITATION (TG68K_030_changelog.md): the frame is read straight through, its two ends not
+				-- checked first (UM 8.2) - a bus error on its first word halts, on a middle long is a bus error
 				WHEN rte1 =>		-- RTE
 					datatype <= "10";
 					setstate <= "10";

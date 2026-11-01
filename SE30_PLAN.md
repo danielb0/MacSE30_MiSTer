@@ -17108,7 +17108,7 @@ status and where each was decided. Test tooling is not listed here.
 | 9 | **MIDI: an Apple MIDI Interface on the modem port.** The Mac had no MIDI port: an interface on a serial port clocked the SCC itself (1 MHz on HSKi, which the board ties to /TRxC; the SCC's x32 factor gives 31,250 baud). Ours: a 1 MHz clock on channel A's HSKi (0.5 / 2 MHz as options, as Apple's MIDI Driver offers), TxD to MIDI out, MIDI in to RxD (`MacSE30.sv` ties both ports empty today, `scc_port_in`). Out to the **MT32-pi** on the USER port (`sys/mt32pi.sv` is already in our framework; the LC core's measured 123 ALMs) and/or **MidiLink** over the UART (USB MIDI devices, the ARM's software synths), in from MidiLink; an OSD choice as on the LC (`MIDI` in CONF_STR). Est. 150-250 ALMs. Tests: a seam bench (the SCC at x32 on 1 MHz: bytes at 31,250, both ways), then the board | **wanted** (Daniel, 2026-10-09; soon after the release): his ST setup - Cubase to the MT32-pi, a keyboard in over USB MIDI. Test material on `MacPack_minivmac.dsk`: Applications:Music - **Cubase 2.5.1r3** (with Apple MIDI Manager, Apple MIDI Driver, PatchBay, and Roland MT32 / GS instrument sets) and **ConcertWare+MIDI** (MIDI Manager, MIDI Setup, example songs) | here |
 | 10 | **The IIcx card's extended resolutions (704 x 512, 672-pixel mode)**: Low End Mac reports the Macintosh II Video Card reached 704 x 512 on certain Apple 640 x 480 displays with the shareware MaxAppleZoom control panel (last updated June 1993, expired), and a 672-pixel mode for the 12" Monochrome Display. How MaxAppleZoom does it is unread (believed: it rewrites the card's timing registers to shrink the blanking within the same 30.24 MHz frame, and reports the larger bounds). Our card cannot follow: (a) the timing registers are stored but not modelled - the scan-out is the book's fixed 640 x 480 (`rtl/nubus_tfb.v`, scan-out; header "The timing registers are not modelled"); (b) the compaction keeps only the first 640 pixels and 480 rows of each page in block RAM, the rest goes to SDRAM unseen; (c) 704 x 512 x 8 = ~360 KB visible against 300 KB, ~53 M10K more with 15 free (IIcx 538/553). Needs: the timing registers' meaning from *Designing Cards and Drivers* ch. 11 (documentation, not MAME), a scan-out that follows them, and the pixels beyond 640 x 480 streamed from SDRAM; MaxAppleZoom itself to test (its expiry may need the Mac's clock set back) | **interesting, NOT a priority** (Daniel, 2026-10-13) | here |
 | 11 | **The IIcx card's exact 30.24 MHz dot clock** (since 2026-10-23 it is 30.2153 MHz, the main PLL's sixth output, -0.082 %: KNOWN ISSUES 24, E2) | some day (Daniel, 2026-10-23: "maybe we'll be able to do something else"); needs the SDRAM read-capture select redesigned so the main PLL can leave the chip's bottom edge, or an upstream pll_cfg_hdmi that follows the HDMI PLL's counter - KNOWN ISSUES 24's options (c) and (d) | KNOWN ISSUES 24 |
-| 12 | **Offer the CPU, MMU and FPU to other cores** (the Amiga - Minimig-AGA, apolkosnik's `030_mmu2` the kernel came from - and the Falcon): the kernel's 32-bit bus, caches and coprocessor interface, the 36 fixes, the 68882. Changelog drafted outside the repo: `C:\temp\Mac\TG68K_030_changelog.md` (2026-10-24). The Minimig's shared-memory window we removed (`$00DD4000-$00DD5FFF`, ea3066d) must come back for the Amiga as a generic option; the benches to go with it **Precondition: KNOWN ISSUES 56 and 47's DF-set limit fixed** (a rerun repeats earlier accesses - data loss on an Amiga paging memory; Daniel 2026-11-01) | AFTER THE RELEASE (Daniel, 2026-10-24) | here |
+| 12 | **Offer the CPU, MMU and FPU to other cores** (the Amiga - Minimig-AGA, apolkosnik's `030_mmu2` the kernel came from - and the Falcon): the kernel's 32-bit bus, caches and coprocessor interface, the 36 fixes, the 68882. Changelog drafted outside the repo: `C:\temp\Mac\TG68K_030_changelog.md` (2026-10-24). The Minimig's shared-memory window we removed (`$00DD4000-$00DD5FFF`, ea3066d) must come back for the Amiga as a generic option; the benches to go with it **Precondition: KNOWN ISSUES 56 and 47's DF-set limit fixed; with them KNOWN ISSUES 57 (RTE's frame validation)** (a rerun repeats earlier accesses - data loss on an Amiga paging memory; Daniel 2026-11-01) | AFTER THE RELEASE (Daniel, 2026-10-24) | here |
 | 13 | **Explain the 68882 benchmarks' ~6-10 % slowness** (Speedometer 4.02, compile 41: KWhet 0.90, Matrix 0.93, FFT 0.83, FPU average 0.94 of the built-in record; KNOWN ISSUES 1). The profile puts it in the CPU's side of the coprocessor dialog (46.4 clocks an FPU instruction, ~6 CIR cycles; the 68882 busy 4.3 %). FIRST (Daniel, 2026-11-01): rerun Speedometer 4.02's FPU set on the current core - compile 41 came before the A/UX fixes (KNOWN ISSUES 25-53), several in the FPU dialog and its fault paths; the gap may have moved. **DONE (Daniel, 2026-11-01): the full Speedometer 4.02 suite on the current core is identical to the saved set 'Macintosh IIcx v1', made with a much earlier core (compile 9 on the IIcx, 2026-10-10: FPU FFT 0.07, KWhet 0.17, Matrix 0.09) - the A/UX fixes moved no figure; the gap stands.** Then: a sim/cpfpu bench timing FADD/FMUL/FMOVE loops clock by clock, the dialog split from the arithmetic, the CIR cycles held to the 68030's documented bus-cycle times; any clocks between them are the kernel's. ~1 h of bench work, no long runs | **after the bug sweeps** (Daniel, 2026-11-01: "Let's finish our bug sweeps, and worry about it then") | 2026-11-01 |
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
@@ -21664,6 +21664,38 @@ Daniel - add to it, move items out when fixed).**
     sim/cpfpu PROG=fsx FSX_ONCE=1 (all 435 must pass; 300 fail today),
     and busfault_irq's rerun mode added to check 9.
 
+57. **ACCEPTED, DOCUMENTED (Daniel, 2026-11-01: "Accept and document"; the
+    kernel comment at rte1 and TG68K_030_changelog.md's "Known open"; fix
+    with FUTURE ADDITIONS 12; found by class 10's directed cases): RTE does not
+    validate its frame's two ends before loading it (UM 8.2), so a bus
+    error on the frame's reads gets the wrong outcome at either end of the
+    rule.** Staged bench: sim/_stage_c10, sim/cpfpu PROG=c10 (C10=k; the
+    bench's injected external bus error on one address's first access;
+    'HALT' at $3E40 = the run must end halted). The UM: RTE "checks both
+    ends of the stack frame"; a fault there is a bus error whose frame goes
+    below the faulty one, left intact; "once the processor begins to load
+    the frame", BERR halts. Ours reads the long frame straight through,
+    $7FA4 up to $7FFC (the discovery trace), no ends first:
+    - the far end ($7FFC) faults: a bus error, the faulty frame intact -
+      the UM's outcome (PASS);
+    - the FIRST word ($7FA4, SR) faults: the kernel loads on with a junk
+      PC and HALTS by an address error inside exception processing
+      (HALT_CTX_C, TG68_PC odd) - the UM: a clean bus error;
+    - a MIDDLE long ($7FD4) faults: a clean bus error ($B, SSW $0145,
+      fault address $7FD4, stacked at $7F48 right below the frame) - the
+      UM: the halt.
+    The rest of class 10's rest PASSES: a trap whose first stacking write
+    ($7FFE, the format word) faults once takes a bus error (vector 2, a
+    write, that address - not a double fault, UM 7.5.4); a data read's bus
+    error, an address error and a trap with the stack page invalid all
+    halt (the double bus fault). Practical effect: none found - an RTE
+    frame on an inaccessible stack needs a supervisor stack that faults,
+    which no Mac software (nor A/UX, whose kernel stacks are resident)
+    has. Not reachable on a Mac with contiguous RAM except by an external
+    bus error inside RAM, which the SE/30's RAM never gives.
+    The check: sim/cpfpu PROG=c10 C10_STRICT=1 (cases 5 and 6 to the UM;
+    by default they only report, a NOTE).
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -22071,6 +22103,8 @@ under interrupt. Each remaining class is sized by what is new in it:
   RTE's frame reads, and during exception stacking (the double fault: the
   halt). MOVEM mid-transfer and the misaligned second cycle are 12's
   c_movem/c_movem16 and c_split shapes.
+  **DONE (2026-11-01): sim/cpfpu PROG=c10, 7 cases; 5 to the UM, the two
+  RTE-validation cases = KNOWN ISSUES 57 (accepted, documented).**
 - **2's directed part, references only.** A supervisor MOVEM set on a
   faulting page; MOVEM restart x interrupt is already swept (class 4's
   r_movem shapes, class 7's r_movem9).

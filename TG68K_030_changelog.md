@@ -176,6 +176,13 @@ No known software uses these forms.
   39's replay log, only the faulted cycle live, a split operand's bytes kept in the frame).
 - A five-byte bit field whose first (long) cycle is completed by the handler gets its fifth
   byte from the replay instead of a second bus cycle.
+- **RTE does not validate its frame first.** The 68030 checks both ends of the frame before
+  loading it: a bus error there is a bus error exception (its frame stacked below the faulty one,
+  left intact), and a bus error once loading has begun halts (UM 8.2). This kernel reads the frame
+  straight through: a fault on the far end gives the 68030's bus error, but a fault on the first
+  word loads a junk PC and halts by an address error, and a fault on a middle long is a bus error
+  instead of the halt. Only an RTE whose own frame is unreadable (a faulting supervisor stack)
+  sees it; no known system has one.
 
 ## How it was tested
 

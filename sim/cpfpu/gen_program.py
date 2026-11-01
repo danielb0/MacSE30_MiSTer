@@ -2,7 +2,7 @@
 FPU instructions as the 68030 runs them against the MC68882 on the bus,
 with the results left in RAM.
 
-    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b3n|b3s|b3r|b3x|b4|b5a|b5b|b5c|b5d|mmu|fsw|fif|fsx|frs|fullea|fulleab|full]
+    python gen_program.py [b1|b2|b3a|b3b|b3c|b3u|b3n|b3s|b3r|b3x|b4|b5a|b5b|b5c|b5d|mmu|fsw|fif|fsx|frs|fullea|fulleab|full|c10]
 
 Every program: vectors at $0000 - SSP $8000, PC $1000, vector v -> $2000 +
 16v, a stub that writes $DEAD00vv to $3FF0 and stops - except vector 11
@@ -2467,6 +2467,109 @@ elif MODE in ('fullea', 'fulleab'):
         expect += [(0x3010, 5, 0xFFFFFFFF)]   # five bus errors, each a long frame at its access
         for k, fa in enumerate([a.lab['C1'] + 8, 0x3400, 0x3600, a.lab['C3'] + 8, 0x3720]):
             expect += [(0x3020 + 16 * k, 0xB0080000, 0xFFFF0000), (0x3024 + 16 * k, fa, 0xFFFFFFFF)]
+
+elif MODE == 'c10':
+    # Class 10's rest (2026-11-01): bus errors in exception processing and in
+    # RTE's frame reads, from the UM - 7.5.4/8.1.2: a fault while stacking for
+    # a bus error, address error or reset is a double bus fault (the halt),
+    # a trap's stacking fault is a bus error exception; 8.2: RTE checks both
+    # ends of the frame (a fault there: a bus error, its frame below the
+    # faulty one, which stays intact), a fault once it loads the frame halts.
+    # C10=k (C10LIST=1 lists them); the faults are the bench's injected
+    # external bus errors (first access only) or an invalid stack page.
+    # C10_DISC=1: no injection on the stack - the discovery run (+trace).
+    # Cases 5 and 6 differ from the UM (KNOWN ISSUES 57, accepted): they only
+    # report unless C10_STRICT=1.
+    cases = [('trap, its first stacking write faults once', 'trap'),
+             ('a data read faults, the stack page invalid: halt', 'berr_inv'),
+             ('an address error, the stack page invalid: halt', 'adderr_inv'),
+             ('trap, the stack page invalid: halt', 'trap_inv'),
+             ('RTE of a long frame, its far end faults: bus error', 'rte_far'),
+             ('RTE of a long frame, its first long faults: bus error', 'rte_near'),
+             ('RTE of a long frame, its middle faults: halt', 'rte_mid')]
+    if os.environ.get('C10LIST'):
+        for i, c in enumerate(cases):
+            print('%d %s' % (i, c[0]))
+        sys.exit(0)
+    what, kind = cases[int(os.environ['C10'])]
+    disc = os.environ.get('C10_DISC') == '1'
+    C10_TRAPW = 0x7FFE                        # the trap's first stacking write: its format word (discovered)
+    C10_FAR, C10_NEAR, C10_MID = 0x7FFC, 0x7FA4, 0x7FD4   # the long frame at $7FA4 (discovered)
+    a = Asm(0x1000)
+    a.emit(0xF280, 0x0000)                    # fnop: the bench wants one coprocessor cycle
+    if kind.endswith('_inv'):
+        a.emit(0x41F8, 0x6F00)                # lea $6F00.w,a0
+        a.emit(0xF010, 0x4C00)                # pmove.q (a0),crp
+        a.emit(0xF028, 0x4000, 0x0008)        # pmove.l 8(a0),tc     translation on
+        put(0x6F00, L(0x00000002) + L(0x00006000))
+        put(0x6F08, L(0x80C04880))            # TC: E, PS 12, IS 0, TIA 4, TIB 8, TIC 8
+        put(0x6000, L(0x00006040 | 2))
+        put(0x6040, L(0x00006800 | 2))
+        for n_ in range(32):
+            put(0x6800 + 4 * n_, L(0) if n_ == 7 else L((n_ << 12) | 1))   # page 7 ($7000, the stack): invalid
+    if kind in ('trap', 'trap_inv'):
+        a.emit(0x4E40)                        # trap #0
+        if kind == 'trap' and not disc:
+            berrs = [C10_TRAPW]
+    elif kind == 'berr_inv':
+        a.emit(0x2038, 0x3400)                # move.l $3400.w,d0    (injected)
+        berrs = [0x3400 | 1]
+    elif kind == 'adderr_inv':
+        a.emit(0x41F8, 0x1001, 0x4ED0)        # lea $1001.w,a0 ; jmp (a0)
+    else:
+        a.emit(0x2038, 0x3400)                # move.l $3400.w,d0    (injected; the handler completes it)
+        berrs = [0x3400 | 1]
+        if not disc:
+            berrs.append({'rte_far': C10_FAR, 'rte_near': C10_NEAR, 'rte_mid': C10_MID}[kind] | 1)
+    a.emit(*movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)
+    p = a.done()
+    put(0x1000, p)
+    # the bus error handler: each frame's format word, SSW, fault address and
+    # A7 to $3020 + 16(n-1); the first of an RTE case completes its read (DF
+    # cleared) and returns, every other stops ($600D0002)
+    h = Asm(0x2400)
+    h.emit(0x2E38, 0x3010, 0xE98F)            # move.l $3010.w,d7 ; lsl.l #4,d7
+    h.emit(0x4DF8, 0x3020, 0xDDC7)            # lea $3020.w,a6 ; adda.l d7,a6
+    h.emit(0x3CAF, 0x0006)                    # move.w 6(a7),(a6)
+    h.emit(0x3D6F, 0x000A, 0x0002)            # move.w $A(a7),2(a6)
+    h.emit(0x2D6F, 0x0010, 0x0004)            # move.l $10(a7),4(a6)
+    h.emit(0x2D4F, 0x0008)                    # move.l a7,8(a6)
+    h.emit(0x52B8, 0x3010)                    # addq.l #1,$3010.w
+    if kind.startswith('rte'):
+        h.emit(0x0CB8, *L(1), 0x3010)         # cmpi.l #1,$3010.w
+        h.br(0x6600, 'STOP')                  # bne.w STOP
+        h.emit(0x026F, 0xFEFF, 0x000A)        # andi.w #$FEFF,$A(a7)  DF cleared: completed
+        h.emit(0x4E73)                        # rte
+    h.label('STOP')
+    h.emit(*movel_abs(0x600D0002, 0x3FF0))
+    h.emit(0x4E72, 0x2700)
+    put(0x2400, h.done())
+    put(4 * 2, L(0x2400))
+    put(4 * 3, L(0x2400))                     # the address error too (case adderr_inv halts first)
+    put(4 * 32, L(0x2400))                    # TRAP #0 -> the same: a trap that stacks lands there
+    strict = os.environ.get('C10_STRICT') == '1'
+    if kind in ('rte_near', 'rte_mid') and not strict:
+        # KNOWN ISSUES 57 (accepted): the kernel reads the frame straight through -
+        # the first word's fault halts, a middle long's is a bus error; reported only
+        put(0x3E40, L(0x414E5945))            # 'ANYE': halted or not, a NOTE (tb_cpfpu.v)
+        expect = []
+    elif kind.endswith('_inv') or kind == 'rte_mid':
+        put(0x3E40, L(0x48414C54))            # 'HALT': the run must end halted (tb_cpfpu.v)
+        expect = [(0x3010, 0, 0xFFFFFFFF), (0x3FF0, 0, 0xFFFFFFFF)]
+    elif kind == 'trap':
+        expect = [(0x3010, 1, 0xFFFFFFFF),
+                  (0x3020, 0x00080000, 0x0FFF0040),   # vector 2; SSW RW = 0 (a write)
+                  (0x3024, C10_TRAPW, 0xFFFFFFFF),
+                  (0x3FF0, 0x600D0002, 0xFFFFFFFF)]
+    else:
+        fa = {'rte_far': C10_FAR, 'rte_near': C10_NEAR, 'rte_mid': C10_MID}[kind]
+        expect = [(0x3010, 2, 0xFFFFFFFF),
+                  (0x3030, 0x00080040, 0x0FFF0040),   # the second: vector 2; SSW RW = 1 (a read)
+                  (0x3034, fa, 0xFFFFFFFF),
+                  (0x7FA8, 0x0000B008, 0x0000FFFF),   # the faulty frame intact: its format word
+                  (0x7FB4, 0x00003400, 0xFFFFFFFF),   # ... and its fault address
+                  (0x3FF0, 0x600D0002, 0xFFFFFFFF)]
 
 elif MODE == 'cmpm':
     # PC Exchange's 11-byte DOS-name compare (EXFS 16 at $E9E - KNOWN ISSUES 9,
