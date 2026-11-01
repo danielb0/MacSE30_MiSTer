@@ -99,6 +99,12 @@
 -- MULS.L, MULU.L
 -- extb.l
 
+-- KNOWN LIMITATION (MacSE30_MiSTer, see TG68K_030_changelog.md "Known open"): an RTE with DF set
+-- re-executes the whole instruction (the 68030 reruns only the faulted cycle, UM 8.2.3), and an FPU
+-- operand split across the faulting page reruns its first cycle - earlier accesses go out again.
+-- Harmless for RAM; loses data if one was an I/O read with a side effect (a FIFO, a read-to-clear
+-- flag) under virtual memory - e.g. an Amiga running VMM, NetBSD or Linux. Not fixed yet.
+
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.std_logic_unsigned.all;
@@ -5883,6 +5889,8 @@ PROCESS (clk, IPL, setstate, addrvalue, state, exec_write_back, set_direct_data,
 					-- 48): their frame's PC is the CAS/TAS itself (the handler reads the
 					-- operation word there, UM 8.2.2), DF set reruns it whole, and the
 					-- rollback undoes a register the faulted read wrote.
+					-- KNOWN LIMITATION: the re-execution repeats the instruction's earlier accesses (the
+					-- 68030 reruns only the faulted one) - see the note above the entity.
 					IF berr_k='1' AND make_berr='0' AND trap_berr='0' AND trap_mmu_berr='0' AND
 					   berr_exception_active='0' AND cp_bf_now='0' AND   -- (not a coprocessor dialog's: it goes on from the fault, 7d B5c)
 					   fc_internal(1 downto 0)="01" THEN

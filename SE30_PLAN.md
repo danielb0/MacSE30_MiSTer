@@ -17108,7 +17108,7 @@ status and where each was decided. Test tooling is not listed here.
 | 9 | **MIDI: an Apple MIDI Interface on the modem port.** The Mac had no MIDI port: an interface on a serial port clocked the SCC itself (1 MHz on HSKi, which the board ties to /TRxC; the SCC's x32 factor gives 31,250 baud). Ours: a 1 MHz clock on channel A's HSKi (0.5 / 2 MHz as options, as Apple's MIDI Driver offers), TxD to MIDI out, MIDI in to RxD (`MacSE30.sv` ties both ports empty today, `scc_port_in`). Out to the **MT32-pi** on the USER port (`sys/mt32pi.sv` is already in our framework; the LC core's measured 123 ALMs) and/or **MidiLink** over the UART (USB MIDI devices, the ARM's software synths), in from MidiLink; an OSD choice as on the LC (`MIDI` in CONF_STR). Est. 150-250 ALMs. Tests: a seam bench (the SCC at x32 on 1 MHz: bytes at 31,250, both ways), then the board | **wanted** (Daniel, 2026-10-09; soon after the release): his ST setup - Cubase to the MT32-pi, a keyboard in over USB MIDI. Test material on `MacPack_minivmac.dsk`: Applications:Music - **Cubase 2.5.1r3** (with Apple MIDI Manager, Apple MIDI Driver, PatchBay, and Roland MT32 / GS instrument sets) and **ConcertWare+MIDI** (MIDI Manager, MIDI Setup, example songs) | here |
 | 10 | **The IIcx card's extended resolutions (704 x 512, 672-pixel mode)**: Low End Mac reports the Macintosh II Video Card reached 704 x 512 on certain Apple 640 x 480 displays with the shareware MaxAppleZoom control panel (last updated June 1993, expired), and a 672-pixel mode for the 12" Monochrome Display. How MaxAppleZoom does it is unread (believed: it rewrites the card's timing registers to shrink the blanking within the same 30.24 MHz frame, and reports the larger bounds). Our card cannot follow: (a) the timing registers are stored but not modelled - the scan-out is the book's fixed 640 x 480 (`rtl/nubus_tfb.v`, scan-out; header "The timing registers are not modelled"); (b) the compaction keeps only the first 640 pixels and 480 rows of each page in block RAM, the rest goes to SDRAM unseen; (c) 704 x 512 x 8 = ~360 KB visible against 300 KB, ~53 M10K more with 15 free (IIcx 538/553). Needs: the timing registers' meaning from *Designing Cards and Drivers* ch. 11 (documentation, not MAME), a scan-out that follows them, and the pixels beyond 640 x 480 streamed from SDRAM; MaxAppleZoom itself to test (its expiry may need the Mac's clock set back) | **interesting, NOT a priority** (Daniel, 2026-10-13) | here |
 | 11 | **The IIcx card's exact 30.24 MHz dot clock** (since 2026-10-23 it is 30.2153 MHz, the main PLL's sixth output, -0.082 %: KNOWN ISSUES 24, E2) | some day (Daniel, 2026-10-23: "maybe we'll be able to do something else"); needs the SDRAM read-capture select redesigned so the main PLL can leave the chip's bottom edge, or an upstream pll_cfg_hdmi that follows the HDMI PLL's counter - KNOWN ISSUES 24's options (c) and (d) | KNOWN ISSUES 24 |
-| 12 | **Offer the CPU, MMU and FPU to other cores** (the Amiga - Minimig-AGA, apolkosnik's `030_mmu2` the kernel came from - and the Falcon): the kernel's 32-bit bus, caches and coprocessor interface, the 36 fixes, the 68882. Changelog drafted outside the repo: `C:\temp\Mac\TG68K_030_changelog.md` (2026-10-24). The Minimig's shared-memory window we removed (`$00DD4000-$00DD5FFF`, ea3066d) must come back for the Amiga as a generic option; the benches to go with it | AFTER THE RELEASE (Daniel, 2026-10-24) | here |
+| 12 | **Offer the CPU, MMU and FPU to other cores** (the Amiga - Minimig-AGA, apolkosnik's `030_mmu2` the kernel came from - and the Falcon): the kernel's 32-bit bus, caches and coprocessor interface, the 36 fixes, the 68882. Changelog drafted outside the repo: `C:\temp\Mac\TG68K_030_changelog.md` (2026-10-24). The Minimig's shared-memory window we removed (`$00DD4000-$00DD5FFF`, ea3066d) must come back for the Amiga as a generic option; the benches to go with it **Precondition: KNOWN ISSUES 56 and 47's DF-set limit fixed** (a rerun repeats earlier accesses - data loss on an Amiga paging memory; Daniel 2026-11-01) | AFTER THE RELEASE (Daniel, 2026-10-24) | here |
 | 13 | **Explain the 68882 benchmarks' ~6-10 % slowness** (Speedometer 4.02, compile 41: KWhet 0.90, Matrix 0.93, FFT 0.83, FPU average 0.94 of the built-in record; KNOWN ISSUES 1). The profile puts it in the CPU's side of the coprocessor dialog (46.4 clocks an FPU instruction, ~6 CIR cycles; the 68882 busy 4.3 %). FIRST (Daniel, 2026-11-01): rerun Speedometer 4.02's FPU set on the current core - compile 41 came before the A/UX fixes (KNOWN ISSUES 25-53), several in the FPU dialog and its fault paths; the gap may have moved. **DONE (Daniel, 2026-11-01): the full Speedometer 4.02 suite on the current core is identical to the saved set 'Macintosh IIcx v1', made with a much earlier core (compile 9 on the IIcx, 2026-10-10: FPU FFT 0.07, KWhet 0.17, Matrix 0.09) - the A/UX fixes moved no figure; the gap stands.** Then: a sim/cpfpu bench timing FADD/FMUL/FMOVE loops clock by clock, the dialog split from the arithmetic, the CIR cycles held to the 68030's documented bus-cycle times; any clocks between them are the kernel's. ~1 h of bench work, no long runs | **after the bug sweeps** (Daniel, 2026-11-01: "Let's finish our bug sweeps, and worry about it then") | 2026-11-01 |
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
@@ -21626,7 +21626,9 @@ Daniel - add to it, move items out when fixed).**
     Then the fixes. A probe build's PASC (the mode, $804, both counts)
     shows a count skew directly.
 
-56. **OPEN (2026-11-01, found by class 12's FPU-operand check): an FPU
+56. **ACCEPTED FOR THE RELEASE, TO FIX BEFORE THE CPU IS OFFERED (Daniel,
+    2026-11-01: "As long as the limitation is documented, we are OK. We can
+    fix it later."; found by class 12's FPU-operand check): an FPU
     operand's split long, faulted on its second bus cycle, runs its FIRST
     cycle again after the handler.** sim/cpfpu PROG=fsx with the new
     exactly-once count (staged in sim/_stage_c12f: the tb counts each run's
@@ -21648,9 +21650,19 @@ Daniel - add to it, move items out when fixed).**
     ~11282-11320) resumes the part from its start; the integer path has
     KNOWN ISSUES 49's dacc_part / dacc_rem machinery (keep the bytes
     already moved, run only the faulted cycle), the dialog's path never got
-    it. Fix: not started - Daniel's call (spec vs. no practical effect);
-    if fixed, batched with KNOWN ISSUES 53's dead T0 term, and class 4b's
-    split-operand cases (fswi) rerun by the trim rule.
+    it. The integer path has the larger form: KNOWN ISSUES 47's limit, DF
+    SET re-runs the whole instruction (every earlier access). Both are
+    harmless on these machines (a rerun repeats only RAM accesses: A/UX
+    pages user memory only, and its user processes touch no I/O), but not
+    on a machine that pages memory while software touches hardware
+    directly (an Amiga under VMM/GigaMem, NetBSD, Linux: a read-to-clear
+    flag or a FIFO read twice). Documented in TG68K_030_changelog.md's
+    "Known open". FIX with FUTURE ADDITIONS 12, before the CPU is offered:
+    a true continuation for DF SET (the earlier operands from 47's replay
+    log, only the faulted cycle live, a split operand's bytes in the
+    frame's free internal words - $58, the marker's bits 8-0). The check:
+    sim/cpfpu PROG=fsx FSX_ONCE=1 (all 435 must pass; 300 fail today),
+    and busfault_irq's rerun mode added to check 9.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -22105,8 +22117,16 @@ widens the RERUN list by the same rule.
 - **SWEEP: 15/15 PASS** (2026-11-01 11:10-11:51, 41 min; SE/30 CTX=11
   only - Daniel: the IIcx only where its different behaviour could reveal
   a bug; the replay logic is shared). 272-450 offsets a case.
-  sim/busfault_irq/sweep_c12r.log. Left for class 12: the FPU operands
-  (sim/cpfpu).
+  sim/busfault_irq/sweep_c12r.log.
+- **THE FPU OPERANDS (2026-11-01): DONE.** sim/cpfpu PROG=fsx gained the
+  exactly-once count (tb: each run's bus cycles to its operand and pointer
+  windows, the faulting run against the reference). All 435 cases: 300
+  differ, every one a long split by the fault = KNOWN ISSUES 56 (accepted
+  for the release, documented in the kernel source, both READMEs and the
+  changelog). Installed report-only (a NOTE); FSX_ONCE=1 makes it a
+  failure, for the fix. Checked: case 3 PASS + NOTE, FSX_ONCE=1 FAIL; the
+  aligned case 0 PASS under FSX_ONCE=1. FPU x interrupts is class 4b's.
+  **CLASS 12 DONE.**
 (6) **Pointer-level faults** - A/UX builds page tables lazily, so a first
 touch faults at level B (or A) and the handler writes a whole table; every
 sweep so far invalidated level C only. BUILT in `sim/predec_fault`

@@ -15,6 +15,17 @@ is plan 1.15's beat engine** (steps 2a, 2b, 2c); the import commit is
 | `TG68K_Pack.vhd` (again) | | the ALU component gained `beat_step` |
 | `TG68K_Cache_030.vhd` | upstream `c3e8a0d` | byte-identical, CRLF as upstream has it |
 
+**Known limitation - read before taking this kernel for another machine.** A
+bus-error handler that returns with DF set (the page-fault path) makes this
+kernel re-execute the whole instruction; the 68030 reruns only the faulted
+cycle (UM 8.2.3). An FPU operand split across the faulting page likewise
+reruns its first cycle. The earlier accesses go out again: harmless for RAM,
+but an I/O read with a side effect (a FIFO, a read-to-clear interrupt flag)
+loses data - a real risk on a machine that pages memory while software
+touches hardware, such as an Amiga under VMM, NetBSD or Linux. The SE/30 and
+IIcx are unaffected. Details and the planned fix: `TG68K_030_changelog.md`,
+"Known open", in the repository root.
+
 **`tg68k.v` is ours** (2026-09-26, plan 1.13 item 4): the kernel on the
 68030 bus of plan 2.11.1, to GLUE; benched with GLUE in `sim/system/`.
 

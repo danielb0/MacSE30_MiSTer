@@ -160,7 +160,20 @@ No known software uses these forms.
 - A bus-error frame's pipe stage words (stage B, the DOB on a read) are not the UM's; nothing
   reads them on the way back.
 - Completion (fix 39) holds 32 operands an instruction; a bus error inside the handler loses
-  the outer instruction's log; DF set still re-runs the whole instruction.
+  the outer instruction's log.
+- **Rerun repeats earlier accesses.** When a handler returns with DF set (the normal page-fault
+  path: fix the page, RTE), the 68030 reruns only the faulted bus cycle (UM 8.2.3). This kernel
+  re-executes the whole integer instruction, so the instruction's earlier reads and writes go out
+  again. A coprocessor (FPU) instruction resumes at its faulted transfer, but a misaligned operand
+  split across the faulting page runs its first bus cycle again (the bytes before the fault).
+  Harmless when those accesses are RAM: the same bytes come back and go out. Not harmless when an
+  earlier access is an I/O register with a read side effect - an interrupt flag cleared on read, a
+  FIFO that advances - e.g. `move.l (a1),(a0)+` copying a FIFO word into a paged-out buffer reads
+  the FIFO twice and loses a word. The SE/30 and IIcx are unaffected (A/UX pages only user memory,
+  and its user processes do not touch I/O). **A machine that pages memory while software touches
+  hardware directly (an Amiga under VMM/GigaMem, NetBSD or Linux) can lose data.** To be fixed
+  before this CPU is offered to other cores: a true continuation (the earlier operands from fix
+  39's replay log, only the faulted cycle live, a split operand's bytes kept in the frame).
 - A five-byte bit field whose first (long) cycle is completed by the handler gets its fifth
   byte from the replay instead of a second bus cycle.
 

@@ -277,6 +277,33 @@ module tb_cpfpu;
     as_q = cpu_as_n;
   end
 
+  // Class 12 (fsx): each access the instruction makes before the faulted one
+  // goes out ONCE. The program's table at $3E00 (magic $0CE00CE0, or $0CE00CE1
+  // to fail on a mismatch - KNOWN ISSUES 56, FSX_ONCE=1): the
+  // reference run's windows [lo,hi) at $3E04/$3E0C, the faulting run's at
+  // $3E14/$3E1C/$3E24, each run ending at its first write to $3E2C / $3E30.
+  // The bus cycles (not CPU space) to each run's windows must match.
+  integer once_n0 = 0, once_n1 = 0, once_c0 = 0, once_c1 = 0, once_ph = 0;
+  function in_w(input [31:0] x, input [31:0] t);
+    in_w = x >= ram[t >> 2] && x < ram[(t >> 2) + 1];
+  endfunction
+  reg as_q2 = 1;
+  always @(posedge clk) if (phi1) begin
+    if (ram[32'h3E00 >> 2][31:1] == 31'h06700670 && !cpu_as_n && as_q2) begin
+      if (cpu_fc == 3'd7) begin
+        if (cpu_addr[19:13] == 7'b0010_001) begin
+          if (once_ph == 0) once_c0 = once_c0 + 1; else if (once_ph == 1) once_c1 = once_c1 + 1;
+        end
+      end else begin
+        if (once_ph == 0 && (in_w(cpu_addr, 32'h3E04) || in_w(cpu_addr, 32'h3E0C))) once_n0 = once_n0 + 1;
+        if (once_ph == 1 && (in_w(cpu_addr, 32'h3E14) || in_w(cpu_addr, 32'h3E1C) || in_w(cpu_addr, 32'h3E24))) once_n1 = once_n1 + 1;
+        if (!cpu_rw_n && once_ph == 0 && cpu_addr == ram[32'h3E2C >> 2]) once_ph = 1;
+        else if (!cpu_rw_n && once_ph == 1 && cpu_addr == ram[32'h3E30 >> 2]) once_ph = 2;
+      end
+    end
+    as_q2 = cpu_as_n;
+  end
+
   // +trace: every bus cycle as it ends (address, FC, R/W, SIZ, data, DSACK/BERR)
   reg trace_on = 0;
   integer ntr = 0, ntrmax = 400;          // +ntr=N: trace N bus cycles (default 400)
@@ -402,6 +429,13 @@ module tb_cpfpu;
       else $display("---- dialog IRQs (come-again %0d): %0d", irq_skip, ndlg);
       if (sviol == 0) pass = pass + 1;
       else begin fails = fails + 1; $display("FAIL: %0d user-code instructions decoded in supervisor mode", sviol); end
+    end
+    if (ram[32'h3E00 >> 2][31:1] == 31'h06700670) begin
+      $display("---- class 12: the operand's bus cycles %0d (reference) / %0d (faulting), CIR cycles %0d / %0d",
+               once_n0, once_n1, once_c0, once_c1);
+      if (once_ph == 2 && once_n0 > 0 && once_n1 == once_n0) pass = pass + 1;
+      else if (!ram[32'h3E00 >> 2][0]) $display("NOTE: the faulting run's operand took %0d bus cycles, the reference %0d (KNOWN ISSUES 56; FSX_ONCE=1 checks it)", once_n1, once_n0);
+      else begin fails = fails + 1; $display("FAIL: the faulting run's operand took %0d bus cycles, the reference %0d (an access went out again)", once_n1, once_n0); end
     end
     if (cir_cycles > 0) pass = pass + 1;
     else begin fails = fails + 1; $display("FAIL: no coprocessor cycle"); end

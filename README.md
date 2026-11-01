@@ -180,7 +180,10 @@ kernel by Tobias Gubener, with the 68030 PMMU and audit work by apolkosnik
 ([Minimig-AGA_MiSTer](https://github.com/apolkosnik/Minimig-AGA_MiSTer), branch `030_mmu2`),
 which reached the Macintosh through Dani Sarfati's
 [MacIIvi_MiSTer](https://github.com/danifunker/MacIIvi_MiSTer); the kernel in this tree
-carries its own bus work and is documented in `rtl/tg68k/README.md`. The build scripts and
+carries its own bus work and is documented in `rtl/tg68k/README.md`. Its known open
+limitations are in `TG68K_030_changelog.md`; one of them (a bus-error rerun repeats the
+instruction's earlier accesses) can lose data on a machine that pages memory while software
+touches hardware directly, such as an Amiga under virtual memory - read it before reusing the CPU. The build scripts and
 several peripheral modules come from Dani Sarfati's
 [MacLC_MiSTer](https://github.com/MiSTer-devel/MacLC_MiSTer) and Sorgelig's
 [MacPlus_MiSTer](https://github.com/MiSTer-devel/MacPlus_MiSTer), which descends from Steve

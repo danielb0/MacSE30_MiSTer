@@ -1821,6 +1821,14 @@ elif MODE == 'fsx':
                  0x4BF8, 0x6800, 0x2B85, 0x6000, 0xF000, 0x2400, 0x52B8, 0x3010, 0x4CDF, 0x60E0, 0x4E73])
     put(4 * 32, L(0x2500))                    # TRAP #0: stop
     put(0x2500, [*movel_abs(0x600D0001, 0x3FF0), 0x4E72, 0x2700])
+    # class 12: the tb counts each run's bus cycles to its operand and pointer
+    # windows, the reference's until its first write to FSX_O1, the faulting
+    # run's until FSX_O2 - they must match (no access before the fault twice).
+    # Reported always; checked with FSX_ONCE=1 (KNOWN ISSUES 56: a split
+    # operand's first cycle runs again - 300 of the 435 cases fail it)
+    put(0x3E00, L(0x0CE00CE1 if os.environ.get('FSX_ONCE') == '1' else 0x0CE00CE0) + L(FSX_R - 128) + L(FSX_R + 128) + L(0x4800) + L(0x4804)
+                + L(FSX_P - 128) + L(FSX_P + 128) + L(FSX_T - 128) + L(FSX_T + 128) + L(0x4900) + L(0x4904)
+                + L(FSX_O1) + L(FSX_O2))
     faults = 0 if (WPM and not wr) else 1
     expect = [
         (0x3100, 0x00000000, 0xFFFFFFFF),     # the registers, then the memory windows, the same
