@@ -21733,6 +21733,16 @@ Daniel - add to it, move items out when fixed).**
     interrupt-time task - e.g. one Speedometer left installed - in the
     ~8 instructions to the fault), or the read returned a value memory
     does not hold (a core read path or a stale data-cache line).
+    CONTEXT (Daniel, 20:30): the crash followed a FULL BENCHMARK RUN (all
+    of Speedometer 4.02's tests), not just the basic Performance Rating -
+    may matter: more tests, more allocations, the FPU/graphics/disk sets.
+    NEXT ON THE BOARD (Daniel's idea: an extension conflict - an
+    interrupt-time task fits the mismatch): ~10 full runs + quit with
+    extensions OFF (Shift at boot) against ~10 with them on; then halve
+    the set if it matters. On a crash: dm the list block (A0) twice,
+    seconds apart - a change while MacsBug sits = a task still writing.
+    Then which test group precedes it (one group per launch), and the
+    rate (one crash in how many quits).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
