@@ -183,6 +183,9 @@ No known software uses these forms.
   word loads a junk PC and halts by an address error, and a fault on a middle long is a bus error
   instead of the halt. Only an RTE whose own frame is unreadable (a faulting supervisor stack)
   sees it; no known system has one.
+- A trace owed by an RTE under T0 (trace on change of flow) whose own replayed write faults
+  late is taken after the second handler and names the replayed instruction. The UM does not
+  say what the 68030 does here; only a bus-error handler that sets T0 itself can reach it.
 
 ## How it was tested
 

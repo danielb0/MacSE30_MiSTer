@@ -22060,6 +22060,14 @@ rtl/ edits while a sweep compiles it), with the other kernel fixes the
 remaining classes find, before the full chain on the frozen kernel. Check:
 c7 T1/T0 shapes, rerunc, sim/ki53_logs' tests unchanged; the chain covers
 the rest.
+KEPT, NOT REMOVED (Daniel 2026-11-01, "Leave it"): the term is not dead.
+make_trace_t0 latches the SR's T0 at each instruction start, so during an
+RTE replay it holds the bus-error handler's own T0 - normally 0 (exception
+entry clears T1/T0), 1 only if the handler sets T0 itself and its RTE's
+replayed write refaults late. Keeping it, a trace follows the second
+handler (naming the replayed instruction); removing it loses the RTE's
+trace. The UM does not say which the 68030 does. No Mac effect; the kernel
+stays frozen as is (pre-release rule). Changelog Known open notes it.
 RUNNING: sim/class7_queue.sh - (1) SET=c7 TRACE=1 CTX="00 11", 138 cases
 ~9 h; (2) TRACE=0, the flow and push shapes, 62 cases ~3 h. Log
 sim/class7_queue.log. Not run (trimmed): no-trace and T0 rerunc.
@@ -22151,7 +22159,7 @@ under interrupt. Each remaining class is sized by what is new in it:
   its port access or IFR clear) all leave the flag SET (noted - the data
   sheet does not say); a planted lost event FAILS. The SCC: no random
   traffic (its directed bench and serial/AppleTalk use on the board).
-Then the batched kernel edit (KNOWN ISSUES 53's dead T0 term) and the
+Then (no kernel edit: KNOWN ISSUES 53's T0 term is KEPT, see class 7) the
 chain on the frozen kernel (Daniel's OK), TRIMMED TOO (Daniel, 2026-11-01:
 the parts already tested on code unchanged since are not rerun). The rule:
 diff rtl/ from each sweep's PASS to the frozen kernel; rerun only the
