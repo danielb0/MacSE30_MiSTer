@@ -124,6 +124,11 @@ SHAPES = {
     "w_st_inv":   ("w", [], [0x50D0], INV),                          # st (a0)
     "w_pack_inv": ("w", [[0x227C, (INV + 1) >> 16, (INV + 1) & 0xFFFF]],
                    [0x8348, 0x0000], 0x3106),                        # movea.l #INV+1,a1 ; pack -(a0),-(a1),#0
+    # class 2's directed part (2026-11-01): supervisor MOVEM faulting through
+    # the PMMU (MMU=1) - an invalid page (read, write), a write-protected one
+    "r_movem_inv": ("r", [], [0x4CD0, 0x0003], INV),                 # movem.l (a0),d0-d1
+    "w_movem_inv": ("w", [], [0x48D0, 0x0003], INV),                 # movem.l d0-d1,(a0)
+    "w_movem_wp": ("w", [], [0x48D0, 0x0003], 0x00103100 if MMU else None),   # movem.l d0-d1,(a0)
     # KNOWN ISSUES 53's class: a change of flow whose own write faults - JSR
     # in user mode, its return address to the user stack (MMU=1: the WP
     # megabyte, a write-back fault; MMU=0: the empty slot); traced under T0
@@ -266,7 +271,8 @@ EXPECT = {"r_move_b": (0x111111ED, 0xBF96), "r_move_w": (0x11115EED, 0xBF96),
           "m_cas": (0x11111111, 0xBF96), "m_tas": (0x11111111, 0xBF96),
           "m_cas2": (0x11111111, 0xBF96), "m_cas2a": (0x11111111, 0xBF96),
           "m_cas_wp": (0x11111111, 0xBF96), "m_tas_wp": (0x11111111, 0xBF96), "m_add_wp": (0x11111111, 0xBF96),
-          "w_clr_inv": (0x11111111, 0xBF96), "w_st_inv": (0x11111111, 0xBF96), "w_pack_inv": (0x11111111, 0xBF96),
+          "w_clr_inv": (0x11111111, 0xBF96), "w_st_inv": (0x11111111, 0xBF96), "w_pack_inv": (0x11111111, 0xBF96), "r_movem_inv": (DIB, DIB),
+          "w_movem_inv": (0x11111111, 0xBF96), "w_movem_wp": (0x11111111, 0xBF96),
           "w_jsr_wp": (0x11111111, 0xBF96), "w_bsr_wp": (0x11111111, 0xBF96), "w_jsr_a_wp": (0x11111111, 0xBF96),
           # class 12: the zone's values before the fault, the DIB after it
           "c_cmpm": (0x11111111, 0xBF96), "c_movem": (0x55556666, 0x77778888),
@@ -306,7 +312,7 @@ SSWX = {"r_movea_l": (1, L), "r_cmp_w": (1, W), "r_move_b": (1, B), "r_move_w": 
         "r_movem_w": (1, W), "r_add": (1, L), "r_tst": (1, W), "r_addx": (1, L), "r_abcd": (1, B),
         "w_move_b": (0, B), "w_move_w": (0, W), "w_move_l": (0, L), "w_move_l2": (0, L),
         "w_d16": (0, L), "w_clr": (0, L), "w_movem": (0, L),
-        "w_clr_inv": (0, L), "w_st_inv": (0, B), "w_pack_inv": (0, B), "w_jsr_wp": (0, L),
+        "w_clr_inv": (0, L), "w_st_inv": (0, B), "w_pack_inv": (0, B), "r_movem_inv": (1, L), "w_movem_inv": (0, L), "w_movem_wp": (0, L), "w_jsr_wp": (0, L),
         "w_bsr_wp": (0, L), "w_jsr_a_wp": (0, L),
         "m_tas": (1, B), "m_cas": (1, L), "m_add": (1, L), "m_negx": (1, L), "m_roxl": (1, W),
         "m_move": (1, L), "m_cas2": (1, L), "m_cas2a": (1, L), "m_cas_wp": (1, L), "m_tas_wp": (1, B), "m_add_wp": (0 if MMU else 1, L),   # MMU off: the empty slot faults ADD's read
@@ -320,7 +326,7 @@ if SHAPE in SSWX:
     rw, sz = SSWX[SHAPE]
     ssw = 0x100 | (0x80 if SHAPE in LOCKED else 0) | (rw << 6) | (sz << 4) | (1 if SHAPE in USER else 5)   # (user data)
     faddr = {"r_move_l1": FAULT + 1, "r_move_l2": FAULT + 2, "w_move_l2": FAULT + 2}.get(SHAPE, FAULT)
-    if (SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp") or SHAPE in USERCOF) and MMU:
+    if (SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp", "w_movem_wp") or SHAPE in USERCOF) and MMU:
         faddr = 0x00103100
     if SHAPE.endswith("_inv"):
         faddr = INV
@@ -350,7 +356,7 @@ if MMU:
     # TIB 5 - its sixteen descriptors terminate early); the descriptors of
     # $40800050 copied to RAM ($0-$7: RAM, $8: ROM, $9-$E: slots CI, $F: I/O CI)
     TABLE = 0x4000
-    desc = [0x19 | (n << 20) | (0x04 if (SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp") or SHAPE in USERCOF) and n == 1 else 0) for n in range(8)] + [0x00800059 if C12 else 0x40800019] + \
+    desc = [0x19 | (n << 20) | (0x04 if (SHAPE in ("m_cas_wp", "m_tas_wp", "m_add_wp", "w_movem_wp") or SHAPE in USERCOF) and n == 1 else 0) for n in range(8)] + [0x00800059 if C12 else 0x40800019] + \
            [0x59 | ((0xF0 | s) << 24) for s in range(9, 15)] + [0x50F00059]
     if SHAPE.endswith("_inv"):
         desc[2] = 0                              # the third megabyte invalid (DT 0)

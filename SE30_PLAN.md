@@ -22091,6 +22091,13 @@ sim/class7_queue.log. Not run (trimmed): no-trace and T0 rerunc.
     its failing offsets are in the 6300-6560 check above, the rest passed
     on the old bench, and the fix changes nothing but the late-interrupt
     count (Daniel 2026-11-01: no needless repetition). CLASS 7 CLOSED.
+**UNTIL THE RELEASE: FIX ONLY WHAT CAN AFFECT THE MAC (Daniel, 2026-11-01:
+"At this stage I think it makes sense to spend the time fixing bugs which
+can actually affect the Mac. After the release is out, we can fix the rest
+with no time pressure.").** Each finding: can Mac software reach it (the
+OS, apps, games, the ROM, A/UX's kernel and pager, MacsBug)? Yes - fix now;
+no - accept, document where the code is taken, fix after the release
+(KNOWN ISSUES 56, 57 and 47's DF-set limit so far).
 **THE REMAINING CLASSES, TRIMMED (2026-11-01, Daniel: "Yes. Please trim.
 Keep the full class 12 sweep.").** Classes 4, 4b and 7 (~600 cases) found
 no kernel bug; the full chain's SET=all already carried class 13's shapes
@@ -22108,6 +22115,12 @@ under interrupt. Each remaining class is sized by what is new in it:
 - **2's directed part, references only.** A supervisor MOVEM set on a
   faulting page; MOVEM restart x interrupt is already swept (class 4's
   r_movem shapes, class 7's r_movem9).
+  **DONE (2026-11-01): busfault_irq's MOVEM shapes all fault by an
+  external bus error; added the PMMU's - r_movem_inv, w_movem_inv (the
+  invalid third megabyte), w_movem_wp (the WP second): supervisor, MMU=1.
+  Every old program byte-identical (3408/3408); references 18/18 PASS
+  (abort/rerun/complete x cache 1/0; the SSW and fault address from the
+  table, D0/D1 checked).**
 - **8, one tier-2 run (<30 min).** A random program mixing the existing
   generators (user and supervisor, MMU, interrupts); A/UX and 7.5.5 VM on
   the board stand for the long form.
