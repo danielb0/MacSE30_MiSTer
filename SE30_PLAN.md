@@ -21698,7 +21698,7 @@ Daniel - add to it, move items out when fixed).**
 
 58. **OPEN (Daniel, 2026-11-01 20:10, the latest build, System 7, 24-bit,
     MacsBug): a bus error QUITTING SPEEDOMETER 4.02 - the application heap
-    damaged.** Screenshots C:	emp\Mac\Screenshots‚61101_201037 and
+    damaged.** Screenshots C:\temp\Mac\Screenshots\20261101_201037 and
     _201457-_201615. Bus error at $4002C 'scod BFB1 0002'+$919C (the
     Process Manager), MOVE.L -(A3),D0 reading $02FEFFFC (24-bit $FEFFFC ->
     $50FEFFFC, I/O window 7, undecoded). The routine (+$916C) removes a
