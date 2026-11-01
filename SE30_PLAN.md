@@ -22166,12 +22166,12 @@ diff rtl/ from each sweep's PASS to the frozen kernel; rerun only the
 sweeps whose paths the diff touches. Since the trimmed chain (2804832) the
 only kernel change is KNOWN ISSUES 53 (8afce37), which acts only when a
 trace is owed (berr_trace_due, rte_fmt_a_trace; the untraced $A frame word
-is $0100 as before); the batched edit is in the T0 path. So, as of now:
+is $0100 as before). So, as of now:
 - STAND: (a) SET=all, no trace, CTX 00 11 i11 (472); (d) class 4's levels;
   (e) class 4b (236/236 on daf1b20, after 8afce37); class 4 level 1;
   class 7 (T1 138, T0 62, on 21be79a).
-- RERUN: (c) TRACE=0 SET=all CTX=11 (~176 cases, ~5.2 h - the batched
-  edit is there); (b) TRACE=1 CTX=11, the shapes class 7's T1 did not
+- RERUN: (c) TRACE=0 SET=all CTX=11 (~176 cases, ~5.2 h - 8afce37's T0
+  path, which only class 7's 62 cases have run since); (b) TRACE=1 CTX=11, the shapes class 7's T1 did not
   carry (~2-3 h).
 - ALWAYS: the regression (~7 h) and the release-form builds (~1.5 h).
 About 16 h instead of ~56 h. Any kernel fix from the remaining classes
