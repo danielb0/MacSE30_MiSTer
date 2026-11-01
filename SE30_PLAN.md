@@ -22124,10 +22124,33 @@ under interrupt. Each remaining class is sized by what is new in it:
 - **8, one tier-2 run (<30 min).** A random program mixing the existing
   generators (user and supervisor, MMU, interrupts); A/UX and 7.5.5 VM on
   the board stand for the long form.
+  **DONE (2026-11-01 14:29-14:43): run_rsweep3.sh ptrsuper, fresh seeds
+  1000-1007, CACR=0x2101 - supervisor kernel MOVES among random work,
+  lazily built tables (pointer faults), invalid/WP pages, a level-1
+  interrupt every 300-2000 clocks: 8/8 PASS (predec_fault/
+  rsweep_ptrsuper_c8.log).**
 - **9, VIA and SCC only (tier 1 each).** Random register traffic against
   the existing benches - they are the interrupt sources the CPU sweeps
   depend on. SDRAM had its random runs in round 3; SWIM, SCSI and ASC keep
   their directed benches and board use.
+  **NARROWED AND DONE (Daniel, 2026-11-01: "do the race sweep for the VIA
+  and skip random traffic for the SCC").** The VIA's Mac-reachable risk is
+  an interrupt event lost to a CPU access on its clock - the Quadra core's
+  board bug (its IFR write dropped every event of the clock: the ROM's VBL
+  acknowledge erased a Time Manager T2 time-out; DOOM II, Day of the
+  Tentacle, Dracula Unleashed hung). sim/via/tb_via_race.v (run_race.sh,
+  Icarus, seconds): T1 one-shot, T1 free-run, T2, the SR's completion,
+  CA1, CA2, CB1, CB2; every register read and written; the timers and SR
+  with the access on each E fall -3..+3 of the event, the edges on each
+  clock -6..+6 of the access. An access lands two clocks before the fall
+  the timers move on (GLUE's timing), so the two never share a clock; the
+  edges can, and se30_via.v sets after it clears. Rules: never lost to a
+  non-own access; own clears set before / clear after; a T1C-H/T2C-H
+  restart anywhere around the event gives its flag exactly N+1 falls later.
+  **2538/2538 PASS**; the 8 same-clock own clears (an edge on the clock of
+  its port access or IFR clear) all leave the flag SET (noted - the data
+  sheet does not say); a planted lost event FAILS. The SCC: no random
+  traffic (its directed bench and serial/AppleTalk use on the board).
 Then the batched kernel edit (KNOWN ISSUES 53's dead T0 term) and the
 chain on the frozen kernel (Daniel's OK), TRIMMED TOO (Daniel, 2026-11-01:
 the parts already tested on code unchanged since are not rerun). The rule:
