@@ -17257,6 +17257,12 @@ Daniel - add to it, move items out when fixed).**
    arguments - ours are Table 8-3's typical operands, the chip's
    transcendentals vary by argument (Table 8-15); a MAME tap of the
    window's FPU opcodes and operands would show which.
+   **The core's Performance Test against the second SE/30 (Daniel, 21:22,
+   `20261102_212245-screen.png`, 8 MB, VM on):** CPU 4.261 / 4.25 = 1.003,
+   Graphics 3.430 / 3.76 = 0.912 (LEM's 3.06: 3.69-3.71, 0.93; 4.02
+   reads 0.16 against 0.16 - the two Speedometers disagree, as on the
+   IIcx), Disk 2.362 / 1.85 = 1.28 (full-speed SCSI, by rule), **Math
+   7.571 / 7.60 = 0.996**, New PR 3.582 / 3.38 = 1.06; Old PR 3.963.
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
