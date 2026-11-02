@@ -22281,6 +22281,8 @@ builds are done (the stamp refuses a dirty tree).
 IIcx met at every corner (+0.070 ns); the SE/30 met everywhere but the
 framework's scaler, ascal's o_vcpt_pre3 at the slow corners (-0.624 ns,
 KNOWN ISSUES 6); the SDRAM capture met at every corner (A or B) on both.
+The ascal miss ACCEPTED (Daniel, 2026-11-02: "Accept, board test"); both
+frozen builds to the board next.
 **CLASS 12'S REST BUILT (2026-11-01; sim/busfault_irq SET=c12r).**
 - Shapes, MMU=1, the zone at $8FFFC0-$8FFFFF below empty slot 9:
   - c_movem16: movem.l (a0),d0-d7/a0-a7, a0 = $8FFFC4; the 16th long
