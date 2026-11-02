@@ -21326,7 +21326,10 @@ Daniel - add to it, move items out when fixed).**
     0.33, average 0.32 - compile 9's IIcx figures (2026-10-10) within
     +-0.01 everywhere: no change. Daniel's saved machine records were lost
     with the damaged disk (the backup predates them); the right-hand column
-    is Speedometer's built-in "Mac SE/30". Quit cleanly (QuickTime off). Left: A/UX 256.
+    is Speedometer's built-in "Mac SE/30". Quit cleanly (QuickTime off). A/UX PASSES (Daniel).
+    **BOTH FROZEN BUILDS BOARD-VERIFIED (2026-11-02): MacSE30_2a099c55_frozen
+    (aa70f91b) and MacIIcx_2a099c55_frozen (aa37a8b1) - the release
+    candidates; the freeze lifts, release prep next.**
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
