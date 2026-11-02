@@ -21284,6 +21284,11 @@ Daniel - add to it, move items out when fixed).**
     above the 2026-10-25 faulty run 1's $772C84 (its format 0 level-2 frame
     gone). STILL TO RUN: the IIcx on System 6 (the hang before - this bug's
     left mask?).
+    **BOARD, THE FROZEN BUILD (2026-11-02 14:01, Daniel, SE/30
+    MacSE30_2a099c55_frozen, System 7.1.2):** the authentic report, (a),
+    identical to k52's: "Bus Error at 40810BF6 _InitMenus+0208 while
+    reading long word from 10A02E20 in Supervisor data space", MOVEA.L
+    (A0),A0, A0 $10A02E20, SP $772C8C, SR Nzvc, 24-bit mode.
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
