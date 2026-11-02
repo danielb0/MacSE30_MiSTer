@@ -21345,6 +21345,12 @@ Daniel - add to it, move items out when fixed).**
     MacIIcx_7576fb3_rc.rbf md5 aa37a8b1 = BIT-IDENTICAL to the board-verified
     frozen IIcx, 39,185 ALMs, +0.070 ns. Next: Daniel's board look at the
     SE/30 RC, then releases/<rev>_20261102.rbf, main, the push (his OK).
+    **RELEASED 2026-11-02: "Release 20261102: 68030 CPU fixes", main bc09044,
+    pushed to danielb0 (main, release d2a049e, dev) and MiSTer-devel master.**
+    The SE/30 RC board-checked (Daniel: "It seems OK"); releases/
+    MacSE30_20261102.rbf (f82f06ad) + MacIIcx_20261102.rbf (aa37a8b1). The
+    release freeze is over. Next: FUTURE ADDITIONS 13 (FPU speed), then the
+    after-release list (KNOWN ISSUES 56, 47's DF-set limit, 57, 18, 42/43, 45).
 
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
