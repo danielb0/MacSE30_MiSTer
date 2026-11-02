@@ -17209,6 +17209,42 @@ Daniel - add to it, move items out when fixed).**
    touching ROM, trap tables, stack and data across many pages misses the
    22-entry ATC far more than a small integer loop; the core ran without
    VM. Test: the same mix on the core with 8 MB and VM on (14 MB).
+   **Ruled out (Daniel, 21:03, `20261102_210313-screen.png`: 8,192K, VM
+   on, 14,336K logical):** KWhet 68.415/s (1.221), FFT 29.167 (1.342),
+   F.P. Matrix 17.033 (1.308), the integer tests as before (Dhrystones
+   3947, Towers 2.617, Queens 1.683; Int. Matrix, Sieve, Puzzle,
+   Permutations identical); average 5.641. VM is not the difference.
+   Next: SANE's other FPU instructions - FMOVEM.X and the control
+   registers (Table 8-6) - on the dialog bench.
+   For the record, the same session's **FPU Benchmarks window** (3.x, Mac
+   II = 1.0, 8 MB, VM on; `20261102_210513-screen.png`): KWhetstones
+   789.473/s (1.105), Matrix Mult. 5.617 s (1.276), Fast Fourier 1.983 s
+   (1.353), average 1.244 - against compile 27's 1.120 / 1.396 / 1.364 /
+   1.293 (System 6, 2026-10-02): Matrix ~9 % slower since - compile 27
+   was the early, too-fast core (its CPU read 1.21 of the real SE/30,
+   before the pacing was settled; Daniel). No real SE/30 figure for this
+   window.
+   **A second real SE/30, stock, Speedometer 3.x (Daniel, 2026-11-02: a
+   post comparing it with a Performer-SE accelerator; its owner ran the
+   SE/30 himself - confirmed - and saved it as a machine record "Mac
+   SE/30"):** CPU 4.25, Graf 3.76, Disk 1.85, Math 7.60, New PR 3.38;
+   KWhet 10.01, Dhry 3.92, Towers 3.69, Quicksort 4.36, Bubble 5.16,
+   Queens 4.58, Puzzle 5.66, Permute 4.72, FFT 6.49, F.P. Matrix 6.23,
+   Int. Matrix 6.23, Sieve 6.95, Bench. Ave. 5.67; FPU FFT 1.25, KWhet
+   1.37, Matrix 1.45, Ave. 1.36. **Core / this machine (today's 16 MB /
+   VM runs):** KWhet 0.96 / 0.94, FFT 1.02 / 1.03, F.P. Matrix 1.05 /
+   1.02 - the SANE tests MATCH; Dhry 1.01-1.03, Towers 1.06-1.08,
+   Quicksort 1.05, Bubble 0.96, Queens 0.99-1.00, Puzzle 0.93, Permute
+   1.11, Int. Matrix 0.96, Sieve 0.96; **Bench. Ave. 0.997 / 0.995**;
+   Math: the core's last 3.23 reading 7.63 (compile 9 IIcx, 2026-10-10)
+   / 7.60 = 1.00. **So the two real SE/30s disagree on SANE code by
+   ~25-30 %** (the Facebook machine KWhet 7.67, FFT 5.00, Matrix 4.85;
+   LEM's 3.06 Math 6.63-6.70 against this one's 7.60), while their
+   integer tests agree within a few per cent - the spread is the real
+   machines' (System, Speedometer version or SANE patches; unknown), and
+   the core sits on the faster one. The direct-68882 window stays
+   short: FFT 1.08, KWhet 0.81, Matrix 0.88, Ave. 0.92 (4.02: 0.83 /
+   0.90 / 0.93 / 0.94).
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
