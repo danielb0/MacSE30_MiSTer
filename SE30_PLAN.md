@@ -17109,7 +17109,7 @@ status and where each was decided. Test tooling is not listed here.
 | 10 | **The IIcx card's extended resolutions (704 x 512, 672-pixel mode)**: Low End Mac reports the Macintosh II Video Card reached 704 x 512 on certain Apple 640 x 480 displays with the shareware MaxAppleZoom control panel (last updated June 1993, expired), and a 672-pixel mode for the 12" Monochrome Display. How MaxAppleZoom does it is unread (believed: it rewrites the card's timing registers to shrink the blanking within the same 30.24 MHz frame, and reports the larger bounds). Our card cannot follow: (a) the timing registers are stored but not modelled - the scan-out is the book's fixed 640 x 480 (`rtl/nubus_tfb.v`, scan-out; header "The timing registers are not modelled"); (b) the compaction keeps only the first 640 pixels and 480 rows of each page in block RAM, the rest goes to SDRAM unseen; (c) 704 x 512 x 8 = ~360 KB visible against 300 KB, ~53 M10K more with 15 free (IIcx 538/553). Needs: the timing registers' meaning from *Designing Cards and Drivers* ch. 11 (documentation, not MAME), a scan-out that follows them, and the pixels beyond 640 x 480 streamed from SDRAM; MaxAppleZoom itself to test (its expiry may need the Mac's clock set back) | **interesting, NOT a priority** (Daniel, 2026-10-13) | here |
 | 11 | **The IIcx card's exact 30.24 MHz dot clock** (since 2026-10-23 it is 30.2153 MHz, the main PLL's sixth output, -0.082 %: KNOWN ISSUES 24, E2) | some day (Daniel, 2026-10-23: "maybe we'll be able to do something else"); needs the SDRAM read-capture select redesigned so the main PLL can leave the chip's bottom edge, or an upstream pll_cfg_hdmi that follows the HDMI PLL's counter - KNOWN ISSUES 24's options (c) and (d) | KNOWN ISSUES 24 |
 | 12 | **Offer the CPU, MMU and FPU to other cores** (the Amiga - Minimig-AGA, apolkosnik's `030_mmu2` the kernel came from - and the Falcon): the kernel's 32-bit bus, caches and coprocessor interface, the 36 fixes, the 68882. Changelog drafted outside the repo: `C:\temp\Mac\TG68K_030_changelog.md` (2026-10-24). The Minimig's shared-memory window we removed (`$00DD4000-$00DD5FFF`, ea3066d) must come back for the Amiga as a generic option; the benches to go with it **Precondition: KNOWN ISSUES 56 and 47's DF-set limit fixed; with them KNOWN ISSUES 57 (RTE's frame validation)** (a rerun repeats earlier accesses - data loss on an Amiga paging memory; Daniel 2026-11-01) | AFTER THE RELEASE (Daniel, 2026-10-24) | here |
-| 13 | **Explain the 68882 benchmarks' ~6-10 % slowness** (Speedometer 4.02, compile 41: KWhet 0.90, Matrix 0.93, FFT 0.83, FPU average 0.94 of the built-in record; KNOWN ISSUES 1). The profile puts it in the CPU's side of the coprocessor dialog (46.4 clocks an FPU instruction, ~6 CIR cycles; the 68882 busy 4.3 %). FIRST (Daniel, 2026-11-01): rerun Speedometer 4.02's FPU set on the current core - compile 41 came before the A/UX fixes (KNOWN ISSUES 25-53), several in the FPU dialog and its fault paths; the gap may have moved. **DONE (Daniel, 2026-11-01): the full Speedometer 4.02 suite on the current core is identical to the saved set 'Macintosh IIcx v1', made with a much earlier core (compile 9 on the IIcx, 2026-10-10: FPU FFT 0.07, KWhet 0.17, Matrix 0.09) - the A/UX fixes moved no figure; the gap stands.** Then: a sim/cpfpu bench timing FADD/FMUL/FMOVE loops clock by clock, the dialog split from the arithmetic, the CIR cycles held to the 68030's documented bus-cycle times; any clocks between them are the kernel's. ~1 h of bench work, no long runs | **after the bug sweeps** (Daniel, 2026-11-01: "Let's finish our bug sweeps, and worry about it then") | 2026-11-01 |
+| 13 | **Explain the 68882 benchmarks' ~6-10 % slowness** (Speedometer 4.02, compile 41: KWhet 0.90, Matrix 0.93, FFT 0.83, FPU average 0.94 of the built-in record; KNOWN ISSUES 1). The profile puts it in the CPU's side of the coprocessor dialog (46.4 clocks an FPU instruction, ~6 CIR cycles; the 68882 busy 4.3 %). FIRST (Daniel, 2026-11-01): rerun Speedometer 4.02's FPU set on the current core - compile 41 came before the A/UX fixes (KNOWN ISSUES 25-53), several in the FPU dialog and its fault paths; the gap may have moved. **DONE (Daniel, 2026-11-01): the full Speedometer 4.02 suite on the current core is identical to the saved set 'Macintosh IIcx v1', made with a much earlier core (compile 9 on the IIcx, 2026-10-10: FPU FFT 0.07, KWhet 0.17, Matrix 0.09) - the A/UX fixes moved no figure; the gap stands.** Then: a sim/cpfpu bench timing FADD/FMUL/FMOVE loops clock by clock, the dialog split from the arithmetic, the CIR cycles held to the 68030's documented bus-cycle times; any clocks between them are the kernel's. ~1 h of bench work, no long runs | **DONE 2026-11-02 (Daniel: "go ahead with the FPU bench"): the dialog is not slow** - `sim/cpfpu` PROG=ftime + `ftime.py`, results in `sim/cpfpu/ftime_results.txt`; KNOWN ISSUES 1 has the reading | 2026-11-01 |
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
@@ -17155,6 +17155,28 @@ Daniel - add to it, move items out when fixed).**
    (PFPU: the 68882 under 1 %), so it compares each ROM's and System's
    SANE, not the hardware - only a same-model, same-System figure (LEM's
    SE/30 under 7.5.5) is a Math reference.
+   **The dialog bench (FUTURE ADDITIONS 13, 2026-11-02; `sim/cpfpu`
+   PROG=ftime, `ftime.py`, `ftime_results.txt`)**: the kernel + GLUE +
+   the 68882, loops timed between markers; 'iso' = one instruction with
+   the FPU idle (the MPU's clocks), 'str' = eight back to back. Against
+   the 68882 UM's MC68020 figures (cache case; the 68030 "always yields
+   better values"): register ops (FADD, FMUL, FMOVE, FTST, FCMP) 12.2
+   clocks (020: 18, 6 of them overlapped), FNOP/FBcc 13.1-13.2 (18-20),
+   memory and Dn sources 27-33 (39-48), CIR cycles 3 clocks each;
+   uncached 15-17 (020 worst case 17 + 4). Streams: FADD 34.7 (the
+   manual's 56 - 17 = 39), FMUL 48.5 (59), FTST 23.3 (21), FADD.D 39.1
+   (39). Over the 020 only where the MPU polls come-again: integer source
+   42 (35), FMOVE.D/X to memory 53/61 (46/52), FMOVE.L to Dn 113 (108) -
+   the reference (and the FPU's calibration, tb_fpu_timing) is UM 8.4's
+   ideal MPU reading the response exactly when the FPU is ready; the
+   kernel polls every ~6.6 clocks, a real MPU polls too (no document gives
+   its period). **So the MPU's side of the dialog is not the FPU
+   benchmarks' gap**; compile 41's 46.4 clocks an F-line instruction are
+   mostly waits for the FPU's own work and fetches. Left, if the gap is
+   real (two records bracket the core): the operations the benchmarks
+   use - the transcendentals' times are Table 8-3's typical operands,
+   the real chip's vary by argument (Table 8-15) - which a MAME tap of
+   Speedometer's FPU opcodes would show.
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;

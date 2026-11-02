@@ -277,6 +277,26 @@ module tb_cpfpu;
     as_q = cpu_as_n;
   end
 
+  // ftime (FUTURE ADDITIONS 13): at each write to $3F80, its value and the
+  // 68030 clocks (phi1) so far, the CIR cycles, the clocks with AS* low on
+  // them, the response CIR reads and those that read come-again (CA set)
+  integer t_clk = 0, t_circlk = 0, t_resp = 0, t_ca = 0, t_last = -10;
+  reg t_got = 0;
+  always @(posedge clk) if (phi1) begin
+    t_clk = t_clk + 1;
+    if (cpu_as_n) t_got = 0;
+    if (!cpu_as_n && cpu_fc == 3'd7 && cpu_addr[19:13] == 7'b0010_001) t_circlk = t_circlk + 1;
+    if (!cpu_as_n && !t_got && cpu_fc == 3'd7 && cpu_addr[19:13] == 7'b0010_001 && cpu_addr[4:0] == 5'd0 && cpu_rw_n &&
+        fpu_dsack_n != 2'b11) begin
+      t_got = 1; t_resp = t_resp + 1;
+      if (fpu_q[31]) t_ca = t_ca + 1;
+    end
+    if (ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F80 >> 2) && t_clk - t_last > 4) begin
+      t_last = t_clk;
+      $display("TMARK %0d clk %0d cir %0d circlk %0d resp %0d ca %0d", ram_wdata, t_clk, cir_cycles, t_circlk, t_resp, t_ca);
+    end
+  end
+
   // Class 12 (fsx): each access the instruction makes before the faulted one
   // goes out ONCE. The program's table at $3E00 (magic $0CE00CE0, or $0CE00CE1
   // to fail on a mismatch - KNOWN ISSUES 56, FSX_ONCE=1): the

@@ -1,0 +1,55 @@
+# ftime (FUTURE ADDITIONS 13, 2026-11-02): python ftime.py <run.log> - PROG=ftime, caches on (CACR $0101)
+instruction                     clocks    CIR CIRclk  resp    CA   68020  from
+FNOP                      iso     13.2   2.00    6.0  1.00  0.00      18  T8-7 cache
+FADD/FSUB.X FPm,FPn       iso     12.2   2.00    6.0  1.00  0.00      18  T8-9 14 + T8-10 4 (6 overlap)
+FMUL.X FPm,FPn            iso     12.1   2.00    6.0  1.00  0.00      18  as FADD
+FMOVE.X FPm,FPn           iso     12.1   2.00    6.0  1.00  0.00      18  as FADD
+FMOVE.L Dn,FPn            iso     42.1   7.00   24.0  5.00  4.00      35  T8-3 48-8, Dn -5 (T8-11)
+FMOVE.L FPn,Dn            iso    113.1  19.00   72.0 17.00 16.00     108  T8-3 110, Dn -2 (T8-11)
+FMOVE.D (An),FPn          iso     27.3   4.00   10.0  1.00  0.00      42  T8-3 40 (head) + (An) 2
+FMOVE.D FPn,(An)          iso     53.2   8.00   26.0  5.00  4.00      46  T8-3 44 + (An) 2
+FMOVE.X (An),FPn          iso     33.4   5.00   12.0  1.00  0.00      48  T8-3 46 (head) + (An) 2
+FMOVE.X FPn,(An)          iso     61.3   9.00   28.0  5.00  4.00      52  T8-3 50 + (An) 2
+FADD/FSUB.D (An),FPn      iso     27.2   4.00   10.0  1.00  0.00      39  T8-3 75-38 + (An) 2
+FADD/FSUB.L Dn,FPn        iso     42.2   7.00   24.0  5.00  4.00      35  T8-3 94-54, Dn -5
+FTST.X FPn                iso     12.2   2.00    6.0  1.00  0.00      18  as FADD
+FBEQ.W not taken          iso     13.1   2.00    6.0  1.00  0.00      18  T8-7 cache
+FBNE.W taken              iso     13.2   2.00    6.0  1.00  0.00      20  T8-7 cache
+FCMP.X FPm,FPn            iso     12.2   2.00    6.0  1.00  0.00      18  as FADD
+FNOP                      str     14.0   2.00    6.0  1.00  0.00          
+FADD/FSUB.X FPm,FPn       str     34.7   5.61   20.5  4.61  3.61      39  T8-3 56 - head 17
+FMUL.X FPm,FPn            str     48.5   7.92   29.7  6.92  5.92      59  T8-3 76 - head 17
+FMOVE.X FPm,FPn           str     13.0   2.00    6.0  1.00  0.00          
+FMOVE.D (An),FPn          str     38.3   5.72   16.9  2.72  1.72          
+FMOVE.D FPn,(An)          str     54.0   8.00   26.0  5.00  4.00          
+FADD/FSUB.D (An),FPn      str     39.1   5.86   17.4  2.86  1.86      39  T8-3 75 - head 36
+FTST.X FPn                str     23.3   3.72   12.9  2.72  1.72      21  T8-3 36 - tail 15
+pad-only loop: 185.4 clocks an iteration (iso), 96.0 (str)
+
+# FTIME_CACR=0: caches off
+instruction                     clocks    CIR CIRclk  resp    CA   68020  from
+FNOP                      iso     17.4   2.00    6.0  1.00  0.00      18  T8-7 cache
+FADD/FSUB.X FPm,FPn       iso     17.2   2.00    6.0  1.00  0.00      18  T8-9 14 + T8-10 4 (6 overlap)
+FMUL.X FPm,FPn            iso     15.3   2.00    6.0  1.00  0.00      18  as FADD
+FMOVE.X FPm,FPn           iso     17.2   2.00    6.0  1.00  0.00      18  as FADD
+FMOVE.L Dn,FPn            iso     45.8   7.00   24.0  5.00  4.00      35  T8-3 48-8, Dn -5 (T8-11)
+FMOVE.L FPn,Dn            iso    117.8  19.00   72.0 17.00 16.00     108  T8-3 110, Dn -2 (T8-11)
+FMOVE.D (An),FPn          iso     36.7   4.00   10.0  1.00  0.00      42  T8-3 40 (head) + (An) 2
+FMOVE.D FPn,(An)          iso     57.9   8.00   26.0  5.00  4.00      46  T8-3 44 + (An) 2
+FMOVE.X (An),FPn          iso     45.8   5.00   12.0  1.00  0.00      48  T8-3 46 (head) + (An) 2
+FMOVE.X FPn,(An)          iso     65.6   9.00   28.0  5.00  4.00      52  T8-3 50 + (An) 2
+FADD/FSUB.D (An),FPn      iso     36.6   4.00   10.0  1.00  0.00      39  T8-3 75-38 + (An) 2
+FADD/FSUB.L Dn,FPn        iso     46.6   7.00   24.0  5.00  4.00      35  T8-3 94-54, Dn -5
+FTST.X FPn                iso     15.3   2.00    6.0  1.00  0.00      18  as FADD
+FBEQ.W not taken          iso     17.4   2.00    6.0  1.00  0.00      18  T8-7 cache
+FBNE.W taken              iso     17.3   2.00    6.0  1.00  0.00      20  T8-7 cache
+FCMP.X FPm,FPn            iso     17.2   2.00    6.0  1.00  0.00      18  as FADD
+FNOP                      str     17.0   2.00    6.0  1.00  0.00          
+FADD/FSUB.X FPm,FPn       str     35.5   5.25   19.0  4.25  3.25      39  T8-3 56 - head 17
+FMUL.X FPm,FPn            str     49.1   7.50   28.0  6.50  5.50      59  T8-3 76 - head 17
+FMOVE.X FPm,FPn           str     16.0   2.00    6.0  1.00  0.00          
+FMOVE.D (An),FPn          str     42.4   4.88   13.5  1.88  0.88          
+FMOVE.D FPn,(An)          str     57.1   8.00   26.0  5.00  4.00          
+FADD/FSUB.D (An),FPn      str     42.5   4.88   13.5  1.88  0.88      39  T8-3 75 - head 36
+FTST.X FPn                str     21.1   2.87    9.5  1.87  0.87      21  T8-3 36 - tail 15
+pad-only loop: 275.0 clocks an iteration (iso), 143.3 (str)

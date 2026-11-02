@@ -2643,6 +2643,75 @@ elif MODE == 'cmpm':
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
 
+elif MODE == 'ftime':
+    # FUTURE ADDITIONS 13 (2026-11-02): the MPU's side of the dialog, clock
+    # by clock. Caches on (CACR $0101). Each case writes its number to $3F80
+    # (the bench prints the clocks and CIR cycles there), then loops ITER
+    # times. 'iso' cases: I1, pad, I2, pad - the pad (44 x ADD.L D3,D4)
+    # outlasts every tail, so the FPU is idle at each instruction and the
+    # difference to the pad-only loop is the MPU's time per instruction.
+    # 'str' cases: 8 instructions back to back - the throughput, against
+    # the empty loop. ftime.py reads run.log.
+    ITER = 32
+    PAD = [0xD883] * 44                       # add.l d3,d4
+    ISO = [                                   # (case, first, second): opcode words, each with its EA's
+        (1, [0xF280, 0x0000], [0xF280, 0x0000]),       # fnop
+        (2, [0xF200, 0x0522], [0xF200, 0x0528]),       # fadd.x fp1,fp2 ; fsub.x fp1,fp2
+        (3, [0xF200, 0x0523], [0xF200, 0x0D23]),       # fmul.x fp1,fp2 ; fmul.x fp3,fp2
+        (4, [0xF200, 0x0500], [0xF200, 0x0500]),       # fmove.x fp1,fp2
+        (5, [0xF205, 0x4100], [0xF205, 0x4100]),       # fmove.l d5,fp2
+        (6, [0xF206, 0x6100], [0xF206, 0x6100]),       # fmove.l fp2,d6
+        (7, [0xF210, 0x5500], [0xF210, 0x5500]),       # fmove.d (a0),fp2
+        (8, [0xF211, 0x7500], [0xF211, 0x7500]),       # fmove.d fp2,(a1)
+        (9, [0xF212, 0x4900], [0xF212, 0x4900]),       # fmove.x (a2),fp2
+        (10, [0xF211, 0x6900], [0xF211, 0x6900]),      # fmove.x fp2,(a1)
+        (11, [0xF210, 0x5522], [0xF210, 0x5528]),      # fadd.d (a0),fp2 ; fsub.d (a0),fp2
+        (12, [0xF205, 0x4122], [0xF205, 0x4128]),      # fadd.l d5,fp2 ; fsub.l d5,fp2
+        (13, [0xF200, 0x083A], [0xF200, 0x083A]),      # ftst.x fp2
+        (14, [0xF281, 0x0002], [0xF281, 0x0002]),      # fbeq.w *+4: not taken (FP2 is not zero)
+        (15, [0xF28E, 0x0002], [0xF28E, 0x0002]),      # fbne.w *+4: taken, to the next instruction
+        (16, [0xF200, 0x0538], [0xF200, 0x0538]),      # fcmp.x fp1,fp2
+    ]
+    STR = [                                   # (case, the pair, repeated 4 times)
+        (21, [0xF280, 0x0000], [0xF280, 0x0000]),
+        (22, [0xF200, 0x0522], [0xF200, 0x0528]),
+        (23, [0xF200, 0x0523], [0xF200, 0x0D23]),
+        (24, [0xF200, 0x0500], [0xF200, 0x0500]),
+        (27, [0xF210, 0x5500], [0xF210, 0x5500]),
+        (28, [0xF211, 0x7500], [0xF211, 0x7500]),
+        (31, [0xF210, 0x5522], [0xF210, 0x5528]),
+        (33, [0xF200, 0x083A], [0xF200, 0x083A]),
+    ]
+    put(0x1000, [0x4EF8, 0x4000])                        # jmp $4000.w: past the vector stubs
+    a = Asm(0x4000)
+    a.emit(0x203C, *L(int(os.environ.get('FTIME_CACR', '0x0101'), 0)), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (FTIME_CACR, $0101 by default)
+    a.emit(0x41F8, 0x3100, 0x43F8, 0x3200, 0x45F8, 0x3110)   # lea $3100.w,a0 / $3200.w,a1 / $3110.w,a2
+    a.emit(0x7A07)                                       # moveq #7,d5
+    a.emit(0xF23C, 0x4480, *L(0x3FC00000))               # fmove.s #1.5,fp1
+    a.emit(0xF23C, 0x4500, *L(0x40100000))               # fmove.s #2.25,fp2
+    a.emit(0xF23C, 0x4580, *L(0x3F2AAAAB))               # fmove.s #0.6667,fp3
+    a.emit(0xF280, 0x0000)                               # fnop: the FPU idle
+    def case(n, body):
+        a.emit(movel_abs(n, 0x3F80))                     # the marker
+        a.emit(0x7E00 | (ITER - 1))                      # moveq #ITER-1,d7
+        a.label('L%d' % n); a.emit(body)
+        a.br(0x51CF, 'L%d' % n)                          # dbra d7
+    case(100, PAD + PAD)                                 # the pad-only reference
+    for n, i1, i2 in ISO:
+        case(n, i1 + PAD + i2 + PAD)
+    case(200, [])                                        # the empty loop
+    for n, i1, i2 in STR:
+        case(n, (i1 + i2) * 4 + PAD)                     # the pad lets the last tail end
+    case(300, PAD)                                       # the reference for the str cases
+    a.emit(movel_abs(999, 0x3F80))
+    a.emit(movel_abs(0x600D0001, 0x3FF0))
+    a.emit(0x4E72, 0x2700)                               # stop #$2700
+    p = a.done()
+    put(0x4000, p)
+    put(0x3100, [0x4002, 0x0000, 0x0000, 0x0000])        # 2.25 as a double
+    put(0x3110, [0x4000, 0x0000, 0xC000, 0x0000, 0x0000, 0x0000])   # 3.0 as an extended
+    expect = [(0x3FF0, 0x600D0001, 0xFFFFFFFF)]
+
 else:
     p = []
     p += [0x7003]                                  # moveq #3,d0
