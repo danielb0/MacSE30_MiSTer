@@ -21295,7 +21295,9 @@ Daniel - add to it, move items out when fixed).**
     data space", no procedure name, MOVEA.L (A0),A0 then MOVE.L $5C(A0),D0;
     A0 $20D920D9 (24-bit $D920D9 = empty slot $D, a junk handle - D0/D5
     $210E4080 look like code words), SP $77F364. Authentic by the same
-    reading as (a): a junk pointer into an empty slot. Still owed: the
+    reading as (a): a junk pointer into an empty slot. WHEN (Daniel): on
+    System 6 at once, at launch; on System 7 after the game's first screen
+    (then _InitMenus) - a different path to the same kind of fault. Still owed: the
     IIcx on System 6 (the hang).
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
