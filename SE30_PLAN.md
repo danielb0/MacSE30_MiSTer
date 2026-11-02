@@ -21304,7 +21304,11 @@ Daniel - add to it, move items out when fixed).**
     k52release does the same on the same images (Daniel) - disk damage
     (the Speedometer crashes, the VM swap file, the System 6 Finder's
     Desktop file all wrote to it). Daniel restores MacPack and the 7.5.5
-    disk from backups - after the restore it runs normally (Daniel). Still owed: the
+    disk from backups - after the restore it runs normally (Daniel).
+    **THE FROZEN SE/30 BUILD PASSES (Daniel, 2026-11-02): "SE/30 passes
+    all attempted tests"** - boot, Speedometer, the Finder, The Pawn on 7.1.2
+    and 6, A/UX with X; the disk damage put down to the repeated crashes.
+    The IIcx next. Still owed: the
     IIcx on System 6 (the hang).
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
