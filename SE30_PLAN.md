@@ -17194,6 +17194,21 @@ Daniel - add to it, move items out when fixed).**
    instructions a `_FP68K` call), so they are Math's question, not the
    68882's. Wanted: the same mix on the current core, same Speedometer
    version - each test's ratio says which code runs fast.
+   **The core's mix (Daniel, 2026-11-02 20:54, screenshot
+   `C:\temp\Mac\Screenshots\20261102_205447-screen.png`; 16 MB, VM off,
+   ROM $0178), core / real (speed):** Dhrystones 1.001, Towers 1.062,
+   Quick Sort 1.027, Bubble 0.963, Queens 1.000, Puzzle 0.933,
+   Permutations 1.094, Int. Matrix 0.986, Sieve 0.964 - **the nine integer
+   tests average 1.003** (the timer's 1/60 s tick is ~1 % of the shorter
+   ones); **KWhetstones 1.250, FFT 1.322, F.P. Matrix 1.342** - the three
+   that go through SANE; average 5.653 / 5.230 = 1.081. So the integer
+   CPU is right test by test, and the whole excess is in the SANE path
+   (an A-line trap and ~8.5 FPU instructions an operation). Lead: the
+   real machine ran **virtual memory** (14,080K logical on 8 MB, so
+   32-bit) - System 7's VM tables use small pages, and trap-heavy code
+   touching ROM, trap tables, stack and data across many pages misses the
+   22-entry ATC far more than a small integer loop; the core ran without
+   VM. Test: the same mix on the core with 8 MB and VM on (14 MB).
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
