@@ -17148,8 +17148,13 @@ Daniel - add to it, move items out when fixed).**
    to confirm from its Developer Note), which doubles the CIR cycles of
    the dialog, so it should score below an SE/30. The record therefore
    lends the SE/30 record's FPU figures weight, and the core's few per
-   cent slow (the dialog's 46.4 clocks) likely real. Not yet read: the
-   two records' CPU figures (a general bus gap or an FPU-path one).
+   cent slow (the dialog's 46.4 clocks) likely real. Against the Colour
+   Classic record the core is slightly faster on CPU (as its 16-bit bus
+   predicts) and much slower on Math. Daniel doubts the records' Math
+   scores across machines (too fast): Math times SANE's integer code
+   (PFPU: the 68882 under 1 %), so it compares each ROM's and System's
+   SANE, not the hardware - only a same-model, same-System figure (LEM's
+   SE/30 under 7.5.5) is a Math reference.
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
