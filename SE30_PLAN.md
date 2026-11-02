@@ -21783,6 +21783,10 @@ Daniel - add to it, move items out when fixed).**
     hardware the core models, so nothing for the core: closed for good.
     CONFIRMED (Daniel): QuickTime itself - PowerPlug back on, QuickTime
     off, Speedometer quits cleanly.
+    The SE/30 (Daniel, 2026-11-02, the frozen build 2a099c55): Speedometer
+    quit cleanly - the crash so far only on the IIcx (colour QuickDraw
+    and the TFB video driver are the IIcx's own; QuickTime may take a
+    different path there). Nothing for the core either way.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
