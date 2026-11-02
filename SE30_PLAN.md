@@ -21319,7 +21319,7 @@ Daniel - add to it, move items out when fixed).**
     the old hang (the level-2 mask left set) gone.
     **IIcx, MORE (Daniel, 2026-11-02): The Pawn on System 6 (above), the
     video depths over HDMI (B&W, 16 and 256 colours) and soft power (Shut
-    Down powers off) PASS.** Left: a file copy + Speedometer, A/UX 256.
+    Down powers off) PASS; a file copy PASSES.** Left: Speedometer, A/UX 256.
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
