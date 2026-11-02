@@ -21308,8 +21308,15 @@ Daniel - add to it, move items out when fixed).**
     **THE FROZEN SE/30 BUILD PASSES (Daniel, 2026-11-02): "SE/30 passes
     all attempted tests"** - boot, Speedometer, the Finder, The Pawn on 7.1.2
     and 6, A/UX, a floppy format and a file copy to it; the disk damage put down to the repeated crashes.
-    The IIcx next. Still owed: the
-    IIcx on System 6 (the hang).
+    The IIcx next.
+    **IIcx, SYSTEM 6.0.8 (14:41, Daniel, MacIIcx_2a099c55_frozen, MacsBug):
+    NO HANG - the last board item of 46 CLOSED.** At launch, the same game
+    routine as the SE/30 System 6 run, one step further: "Bus Error at
+    007B02C0 while reading long word from B6DB6E12 in Supervisor data
+    space", MOVE.L $5C(A0),D0 (after MOVEA.L (A0),A0), A0 $B6DB6DB6 (24-bit
+    $DB6E12 = empty slot $D, a junk record), D0/D5 $210E4080 as on the
+    SE/30, SP $780A10, SR mask 0. The bus error delivered and stacked;
+    the old hang (the level-2 mask left set) gone.
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
