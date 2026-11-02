@@ -21319,7 +21319,14 @@ Daniel - add to it, move items out when fixed).**
     the old hang (the level-2 mask left set) gone.
     **IIcx, MORE (Daniel, 2026-11-02): The Pawn on System 6 (above), the
     video depths over HDMI (B&W, 16 and 256 colours) and soft power (Shut
-    Down powers off) PASS; a file copy PASSES.** Left: Speedometer, A/UX 256.
+    Down powers off) PASS; a file copy PASSES.**
+    Speedometer 4.02 (15:09, 20261102_150903-screen.png, Quadra 605 = 1.0):
+    CPU 0.27, Graphics 0.27, Disk 1.16, Math 1.10, PR 0.35; integer
+    0.18-0.27, FPU 0.07/0.17/0.09, colour B&W 0.32, 2-bit 0.31, 4/8-bit
+    0.33, average 0.32 - compile 9's IIcx figures (2026-10-10) within
+    +-0.01 everywhere: no change. Daniel's saved machine records were lost
+    with the damaged disk (the backup predates them); the right-hand column
+    is Speedometer's built-in "Mac SE/30". Left: A/UX 256.
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
