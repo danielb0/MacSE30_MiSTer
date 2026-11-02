@@ -2671,6 +2671,12 @@ elif MODE == 'ftime':
         (14, [0xF281, 0x0002], [0xF281, 0x0002]),      # fbeq.w *+4: not taken (FP2 is not zero)
         (15, [0xF28E, 0x0002], [0xF28E, 0x0002]),      # fbne.w *+4: taken, to the next instruction
         (16, [0xF200, 0x0538], [0xF200, 0x0538]),      # fcmp.x fp1,fp2
+        (17, [0xF213, 0xF008], [0xF213, 0xF008]),      # fmovem.x fp4,(a3)
+        (18, [0xF213, 0xD008], [0xF213, 0xD008]),      # fmovem.x (a3),fp4
+        (19, [0xF213, 0xF00E], [0xF213, 0xF00E]),      # fmovem.x fp4-fp6,(a3)
+        (20, [0xF213, 0xD00E], [0xF213, 0xD00E]),      # fmovem.x (a3),fp4-fp6
+        (40, [0xF206, 0xA800], [0xF206, 0x8800]),      # fmove.l fpsr,d6 ; fmove.l d6,fpsr
+        (41, [0xF213, 0xB800], [0xF213, 0x9800]),      # fmovem.l fpcr/fpsr,(a3) ; fmovem.l (a3),fpcr/fpsr
     ]
     STR = [                                   # (case, the pair, repeated 4 times)
         (21, [0xF280, 0x0000], [0xF280, 0x0000]),
@@ -2686,6 +2692,7 @@ elif MODE == 'ftime':
     a = Asm(0x4000)
     a.emit(0x203C, *L(int(os.environ.get('FTIME_CACR', '0x0101'), 0)), 0x4E7B, 0x0002)   # move.l #CACR,d0; movec d0,cacr (FTIME_CACR, $0101 by default)
     a.emit(0x41F8, 0x3100, 0x43F8, 0x3200, 0x45F8, 0x3110)   # lea $3100.w,a0 / $3200.w,a1 / $3110.w,a2
+    a.emit(0x47F8, 0x3300)                               # lea $3300.w,a3 (FMOVEM's)
     a.emit(0x7A07)                                       # moveq #7,d5
     a.emit(0xF23C, 0x4480, *L(0x3FC00000))               # fmove.s #1.5,fp1
     a.emit(0xF23C, 0x4500, *L(0x40100000))               # fmove.s #2.25,fp2

@@ -1,4 +1,4 @@
-# ftime (FUTURE ADDITIONS 13, 2026-11-02): python ftime.py <run.log> - PROG=ftime, caches on (CACR $0101)
+# ftime (FUTURE ADDITIONS 13, 2026-11-02): python ftime.py <run.log> - PROG=ftime, caches on (CACR $0101); FMOVEM and control-register cases added the same evening
 instruction                     clocks    CIR CIRclk  resp    CA   68020  from
 FNOP                      iso     13.2   2.00    6.0  1.00  0.00      18  T8-7 cache
 FADD/FSUB.X FPm,FPn       iso     12.2   2.00    6.0  1.00  0.00      18  T8-9 14 + T8-10 4 (6 overlap)
@@ -7,15 +7,21 @@ FMOVE.X FPm,FPn           iso     12.1   2.00    6.0  1.00  0.00      18  as FAD
 FMOVE.L Dn,FPn            iso     42.1   7.00   24.0  5.00  4.00      35  T8-3 48-8, Dn -5 (T8-11)
 FMOVE.L FPn,Dn            iso    113.1  19.00   72.0 17.00 16.00     108  T8-3 110, Dn -2 (T8-11)
 FMOVE.D (An),FPn          iso     27.3   4.00   10.0  1.00  0.00      42  T8-3 40 (head) + (An) 2
-FMOVE.D FPn,(An)          iso     53.2   8.00   26.0  5.00  4.00      46  T8-3 44 + (An) 2
+FMOVE.D FPn,(An)          iso     53.3   8.00   26.0  5.00  4.00      46  T8-3 44 + (An) 2
 FMOVE.X (An),FPn          iso     33.4   5.00   12.0  1.00  0.00      48  T8-3 46 (head) + (An) 2
-FMOVE.X FPn,(An)          iso     61.3   9.00   28.0  5.00  4.00      52  T8-3 50 + (An) 2
-FADD/FSUB.D (An),FPn      iso     27.2   4.00   10.0  1.00  0.00      39  T8-3 75-38 + (An) 2
+FMOVE.X FPn,(An)          iso     61.6   9.00   28.0  5.00  4.00      52  T8-3 50 + (An) 2
+FADD/FSUB.D (An),FPn      iso     27.1   4.00   10.0  1.00  0.00      39  T8-3 75-38 + (An) 2
 FADD/FSUB.L Dn,FPn        iso     42.2   7.00   24.0  5.00  4.00      35  T8-3 94-54, Dn -5
 FTST.X FPn                iso     12.2   2.00    6.0  1.00  0.00      18  as FADD
 FBEQ.W not taken          iso     13.1   2.00    6.0  1.00  0.00      18  T8-7 cache
 FBNE.W taken              iso     13.2   2.00    6.0  1.00  0.00      20  T8-7 cache
 FCMP.X FPm,FPn            iso     12.2   2.00    6.0  1.00  0.00      18  as FADD
+FMOVEM.X FPn,(An) 1       iso     49.3   7.00   18.0  2.00  1.00      66  T8-6 37+25n +2 +2
+FMOVEM.X (An),FPn 1       iso     44.3   7.00   18.0  2.00  1.00      70  T8-6 35+31n +2 +2
+FMOVEM.X 3 regs,(An)      iso     99.6  13.00   30.0  2.00  1.00     116  T8-6 37+25n +2 +2
+FMOVEM.X (An),3 regs      iso     86.4  13.00   30.0  2.00  1.00     132  T8-6 35+31n +2 +2
+FMOVE.L FPSR,Dn/Dn,FPSR   iso     23.7   4.00   12.0  2.00  1.00    31.5  T8-6 (31+28)/2 +2
+FMOVEM.L FPCR/FPSR <-> (An)  iso     34.7   5.00   14.0  2.00  1.00      43  T8-6 27+6n +2 +2
 FNOP                      str     14.0   2.00    6.0  1.00  0.00          
 FADD/FSUB.X FPm,FPn       str     34.7   5.61   20.5  4.61  3.61      39  T8-3 56 - head 17
 FMUL.X FPm,FPn            str     48.5   7.92   29.7  6.92  5.92      59  T8-3 76 - head 17

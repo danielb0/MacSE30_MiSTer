@@ -33,6 +33,13 @@ CASES = {
     14: ('FBEQ.W not taken', 'iso', 18, 'T8-7 cache'),
     15: ('FBNE.W taken', 'iso', 20, 'T8-7 cache'),
     16: ('FCMP.X FPm,FPn', 'iso', 18, 'as FADD'),
+    # Table 8-6 (cache case, +2 for an MC68882, + (An) 2)
+    17: ('FMOVEM.X FPn,(An) 1', 'iso', 66, 'T8-6 37+25n +2 +2'),
+    18: ('FMOVEM.X (An),FPn 1', 'iso', 70, 'T8-6 35+31n +2 +2'),
+    19: ('FMOVEM.X 3 regs,(An)', 'iso', 116, 'T8-6 37+25n +2 +2'),
+    20: ('FMOVEM.X (An),3 regs', 'iso', 132, 'T8-6 35+31n +2 +2'),
+    40: ('FMOVE.L FPSR,Dn/Dn,FPSR', 'iso', 31.5, 'T8-6 (31+28)/2 +2'),
+    41: ('FMOVEM.L FPCR/FPSR <-> (An)', 'iso', 43, 'T8-6 27+6n +2 +2'),
     21: ('FNOP', 'str', None, ''),
     22: ('FADD/FSUB.X FPm,FPn', 'str', 39, 'T8-3 56 - head 17'),
     23: ('FMUL.X FPm,FPn', 'str', 59, 'T8-3 76 - head 17'),

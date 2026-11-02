@@ -17245,6 +17245,18 @@ Daniel - add to it, move items out when fixed).**
    the core sits on the faster one. The direct-68882 window stays
    short: FFT 1.08, KWhet 0.81, Matrix 0.88, Ave. 0.92 (4.02: 0.83 /
    0.90 / 0.93 / 0.94).
+   **The dialog bench's SANE instructions (ftime, cases 17-20, 40, 41;
+   Table 8-6, cache case, +2 for the 68882, + (An) 2):** FMOVEM.X one
+   register out / in 49.3 / 44.3 (020: 66 / 70), three 99.6 / 86.4 (116 /
+   132) - per register out 25.2 (the table's 25), in 21 (31); FMOVE.L
+   FPSR to and from Dn 23.7 (31.5); FMOVEM.L FPCR/FPSR out and in 34.7
+   (43). All at or under the 68020, as the 030's are said to be; no
+   document gives the 030's own. So nothing on the MPU's side of any FPU
+   instruction runs slow. What is left for the direct-68882 window (KWhet
+   0.81-0.90): the FPU's own operation times with the benchmarks'
+   arguments - ours are Table 8-3's typical operands, the chip's
+   transcendentals vary by argument (Table 8-15); a MAME tap of the
+   window's FPU opcodes and operands would show which.
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
