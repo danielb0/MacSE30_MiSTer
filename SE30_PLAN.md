@@ -21334,6 +21334,18 @@ Daniel - add to it, move items out when fixed).**
     **BOTH FROZEN BUILDS BOARD-VERIFIED (2026-11-02): MacSE30_2a099c55_frozen
     (aa70f91b) and MacIIcx_2a099c55_frozen (aa37a8b1) - the release
     candidates; the freeze lifts, release prep next.**
+    **RELEASE TREE + RC BUILDS (2026-11-02):** release branch 7576fb3 (+ d969165,
+    the changelog header): dev's kernel since 01c0d12 merged (7 conflicts),
+    comments cut to the release style, token-identical to dev 8ec086b; every
+    other HDL file unchanged; TG68K_030_changelog.md at the root,
+    rtl/tg68k/README.md names it and the rerun limitation. Builds
+    (C:\Git\MacSE30_rc, scratchpad rc_build.sh, log sim/rc_build.log):
+    MacSE30_7576fb3_rc.rbf md5 f82f06ad, 38,187 ALMs (91 %), MET AT EVERY
+    CORNER (+0.052 ns, ascal included this fit), capture A or B everywhere;
+    MacIIcx_7576fb3_rc.rbf md5 aa37a8b1 = BIT-IDENTICAL to the board-verified
+    frozen IIcx, 39,185 ALMs, +0.070 ns. Next: Daniel's board look at the
+    SE/30 RC, then releases/<rev>_20261102.rbf, main, the push (his OK).
+
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
