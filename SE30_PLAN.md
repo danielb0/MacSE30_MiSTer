@@ -21297,7 +21297,14 @@ Daniel - add to it, move items out when fixed).**
     $210E4080 look like code words), SP $77F364. Authentic by the same
     reading as (a): a junk pointer into an empty slot. WHEN (Daniel): on
     System 6 at once, at launch; on System 7 after the game's first screen
-    (then _InitMenus) - a different path to the same kind of fault. Still owed: the
+    (then _InitMenus) - a different path to the same kind of fault.
+    A DAMAGED DISK, NOT THE CORE (14:14): opening MacPack in the Finder
+    then bus-errored in QuickDraw's blitter (_bEND0+2, BFEXTU (A4){D6:0}
+    from $BCA45A - 24-bit slot B, a bitmap with a junk base address);
+    k52release does the same on the same images (Daniel) - disk damage
+    (the Speedometer crashes, the VM swap file, the System 6 Finder's
+    Desktop file all wrote to it). Daniel restores MacPack and the 7.5.5
+    disk from backups. Still owed: the
     IIcx on System 6 (the hang).
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
