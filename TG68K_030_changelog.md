@@ -1,6 +1,6 @@
 # The SE/30 core's 68030: changes to the TG68K kernel, the PMMU, and a new 68882
 
-Daniel Baum, 2026-10-24, updated 2026-10-28 (fixes 37-45). The CPU of the Macintosh SE/30
+Daniel Baum, 2026-10-24, updated 2026-11-01 (fixes 37-45, the known-open list). The CPU of the Macintosh SE/30
 and IIcx MiSTer cores, measured against where it came from:
 
 | file | baseline |
