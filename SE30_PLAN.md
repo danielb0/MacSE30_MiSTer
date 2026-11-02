@@ -21289,6 +21289,14 @@ Daniel - add to it, move items out when fixed).**
     identical to k52's: "Bus Error at 40810BF6 _InitMenus+0208 while
     reading long word from 10A02E20 in Supervisor data space", MOVEA.L
     (A0),A0, A0 $10A02E20, SP $772C8C, SR Nzvc, 24-bit mode.
+    SE/30, System 6 (14:07, the same build, MacsBug): no hang - a clean
+    bus error in the game's own code, elsewhere than System 7's: "Bus
+    Error at 007AEC12 while reading long word from 20D920D9 in Supervisor
+    data space", no procedure name, MOVEA.L (A0),A0 then MOVE.L $5C(A0),D0;
+    A0 $20D920D9 (24-bit $D920D9 = empty slot $D, a junk handle - D0/D5
+    $210E4080 look like code words), SP $77F364. Authentic by the same
+    reading as (a): a junk pointer into an empty slot. Still owed: the
+    IIcx on System 6 (the hang).
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
     pre-existing, both kernels): a handler that completes a faulted access
