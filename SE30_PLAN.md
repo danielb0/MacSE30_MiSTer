@@ -17242,6 +17242,10 @@ Daniel - add to it, move items out when fixed).**
 6. **The framework's HDMI scaler** (`ascal`) misses timing by tens of ps
    to -0.313 ns at slow -40C on some fits (compiles 18, 20, 25, 37, 39,
    40); not our logic, accepted as precedent. Compile 41 met everywhere.
+   The final chain's SE/30 build (2a099c55, 2026-11-02): the worst yet,
+   -0.514 ns slow 100C and -0.624 ns slow -40C, the same path
+   (o_vcpt_pre3[3] -> o_vcpt_pre3[10], 7.0 ns of data delay); every
+   other path met; the IIcx met everywhere (+0.070 ns).
 7. ~~**A bus error on a WRITE that the handler completes in software**~~
    **FIXED 2026-10-07 (the audit; 1.18.5).** Was: (DF
    cleared, format $B, RTE): the kernel stacks the continuation PC + 2 for
@@ -22270,6 +22274,13 @@ the regression (345 min last time) and, if it passes, both builds (~1.5
 h, archived "frozen"). ~20 h, not 16. A later trim of (b): list shapes
 in sim/final_chain_b_only.txt before (c) ends. No tracked edits until the
 builds are done (the stamp refuses a dirty tree).
+**FINAL CHAIN DONE (2026-11-02 12:46, on 2a099c55):** (c) T0 196/196 PASS
+(364 min); (b) T1 200/200 PASS (423 min); the regression 65/65 lines PASS
+(05:53-11:32); both builds archived "frozen": MacSE30_2a099c55_frozen.rbf
+(md5 aa70f91b) and MacIIcx_2a099c55_frozen.rbf (md5 aa37a8b1). STA: the
+IIcx met at every corner (+0.070 ns); the SE/30 met everywhere but the
+framework's scaler, ascal's o_vcpt_pre3 at the slow corners (-0.624 ns,
+KNOWN ISSUES 6); the SDRAM capture met at every corner (A or B) on both.
 **CLASS 12'S REST BUILT (2026-11-01; sim/busfault_irq SET=c12r).**
 - Shapes, MMU=1, the zone at $8FFFC0-$8FFFFF below empty slot 9:
   - c_movem16: movem.l (a0),d0-d7/a0-a7, a0 = $8FFFC4; the 16th long
