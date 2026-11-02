@@ -21304,7 +21304,9 @@ Daniel - add to it, move items out when fixed).**
     k52release does the same on the same images (Daniel) - disk damage
     (the Speedometer crashes, the VM swap file, the System 6 Finder's
     Desktop file all wrote to it). Daniel restores MacPack and the 7.5.5
-    disk from backups - after the restore it runs normally (Daniel).
+    disk from backups - after the restore it runs normally (Daniel). Both
+    mounted disks were damaged - the 7.5.5 boot disk would not boot; neither
+    image kept. Two-disk host-checked copies have passed many times (Daniel).
     **THE FROZEN SE/30 BUILD PASSES (Daniel, 2026-11-02): "SE/30 passes
     all attempted tests"** - boot, Speedometer, the Finder, The Pawn on 7.1.2
     and 6, A/UX, a floppy format and a file copy to it; the disk damage put down to the repeated crashes.
