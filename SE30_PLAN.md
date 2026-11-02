@@ -17178,7 +17178,9 @@ Daniel - add to it, move items out when fixed).**
    the real chip's vary by argument (Table 8-15) - which a MAME tap of
    Speedometer's FPU opcodes would show.
    **A real SE/30's Speedometer 3.x Benchmark Mix (Daniel, 2026-11-02, a
-   photo; Mac Classic = 1.0; version and source to record)** - the first
+   photo from a Facebook post comparing the poster's souped-up Mac with a
+   SE/30 - the SE/30 the baseline; Mac Classic = 1.0; Speedometer
+   version not shown)** - the first
    per-test real-SE/30 reference: 8 MB physical, 14,080K logical (virtual
    memory on), ROM $0178, 68882. Absolute (ratio): KWhetstones 56.022/s
    (7.674), Dhrystones 3851.091/s (3.952), Towers 2.833 s (3.671), Quick
