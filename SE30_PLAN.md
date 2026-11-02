@@ -17139,6 +17139,17 @@ Daniel - add to it, move items out when fixed).**
    totals are a 68020's), so there is no exact target. Accepted with
    Math's: across Speedometer the core is within ~+-15 % of the real
    machine on every figure.
+   **A second record (Daniel, 2026-11-02): Speedometer 4.02's built-in
+   Colour Classic** (10 MB, 8-bit, 40 MB disk; FPU fitted, as it scores
+   the FPU tests): KWhet 0.15 / Matrix 0.09 / FFT 0.08 / average 0.11.
+   The core (0.17 / 0.09 / 0.07-0.08 / 0.11) sits between it and the
+   SE/30 record (0.19 / 0.10 / 0.09 / 0.12). Both machines are a 16 MHz
+   68030 + 68882; the Colour Classic's CPU bus is 16 bits (LC II design -
+   to confirm from its Developer Note), which doubles the CIR cycles of
+   the dialog, so it should score below an SE/30. The record therefore
+   lends the SE/30 record's FPU figures weight, and the core's few per
+   cent slow (the dialog's 46.4 clocks) likely real. Not yet read: the
+   two records' CPU figures (a general bus gap or an FPU-path one).
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
