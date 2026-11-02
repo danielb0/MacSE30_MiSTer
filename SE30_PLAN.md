@@ -21307,7 +21307,7 @@ Daniel - add to it, move items out when fixed).**
     disk from backups - after the restore it runs normally (Daniel).
     **THE FROZEN SE/30 BUILD PASSES (Daniel, 2026-11-02): "SE/30 passes
     all attempted tests"** - boot, Speedometer, the Finder, The Pawn on 7.1.2
-    and 6, A/UX with X; the disk damage put down to the repeated crashes.
+    and 6 (A/UX as tried); the disk damage put down to the repeated crashes.
     The IIcx next. Still owed: the
     IIcx on System 6 (the hang).
 
