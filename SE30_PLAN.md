@@ -17177,6 +17177,21 @@ Daniel - add to it, move items out when fixed).**
    use - the transcendentals' times are Table 8-3's typical operands,
    the real chip's vary by argument (Table 8-15) - which a MAME tap of
    Speedometer's FPU opcodes would show.
+   **A real SE/30's Speedometer 3.x Benchmark Mix (Daniel, 2026-11-02, a
+   photo; Mac Classic = 1.0; version and source to record)** - the first
+   per-test real-SE/30 reference: 8 MB physical, 14,080K logical (virtual
+   memory on), ROM $0178, 68882. Absolute (ratio): KWhetstones 56.022/s
+   (7.674), Dhrystones 3851.091/s (3.952), Towers 2.833 s (3.671), Quick
+   Sort 1.933 (4.440), Bubble Sort 2.617 (5.159), Queens 1.667 (4.580),
+   Puzzle 3.917 (5.638), Permutations 3.883 (4.781), FFT 39.150 (4.998),
+   F.P. Matrix 22.283 (4.852), Int. Matrix 2.317 (6.094), Sieve 4.500
+   (6.922); average 5.230. The core's last Benchmark Mix average was 5.944
+   (compile 27, 3.23, System 6: 1.14 - Math's pattern) and compile 40's
+   FP Matrix 6.559; no per-test core figures yet. The mix's FFT, Matrix
+   and KWhet run through SANE (compile 40's FP Matrix: ~8.5 FPU
+   instructions a `_FP68K` call), so they are Math's question, not the
+   68882's. Wanted: the same mix on the current core, same Speedometer
+   version - each test's ratio says which code runs fast.
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
