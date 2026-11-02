@@ -21307,6 +21307,8 @@ Daniel - add to it, move items out when fixed).**
     disk from backups - after the restore it runs normally (Daniel). Both
     mounted disks were damaged - the 7.5.5 boot disk would not boot; neither
     image kept. Two-disk host-checked copies have passed many times (Daniel).
+    CAUSE (Daniel): The Pawn's crashes under System 6 - both directories
+    damaged, standard for a System 6/7-era Mac after a crash. Not the core.
     **THE FROZEN SE/30 BUILD PASSES (Daniel, 2026-11-02): "SE/30 passes
     all attempted tests"** - boot, Speedometer, the Finder, The Pawn on 7.1.2
     and 6, A/UX, a floppy format and a file copy to it; the disk damage put down to the repeated crashes.
