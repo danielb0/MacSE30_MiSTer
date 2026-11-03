@@ -17273,6 +17273,18 @@ Daniel - add to it, move items out when fixed).**
    integer loops) or the Speedometer version. Daniel, 2026-11-02: kept in
    KNOWN ISSUES; likely unsolvable short of a real SE/30, and maybe not
    even then.
+   **SYSTEM 7.1 (Daniel, 2026-11-03, IIcx core, release 20261102,
+   Speedometer 3.x, `20261103_143107-screen.png`) - against the second
+   real SE/30:** CPU 4.26 (1.00), Math 7.76 (1.02); SANE KWhet 10.01
+   (1.00), FFT 6.61 (1.02), F.P. Matrix 6.53 (1.05); Dhry 3.96, Towers
+   3.97, Quicksort 4.56, Bubble 4.94, Queens 4.53, Puzzle 5.30, Permute
+   5.23, Int. Matrix 5.88, Sieve 6.65; **Bench. Ave. 5.68 / 5.67 =
+   1.00**; FPU window FFT 1.13, KWhet 1.27, Matrix 1.35, Ave. 1.25 (0.92,
+   still short); Graf 5.69 and colour 1.54-1.85 = the NuBus card, not
+   comparable; Disk 2.82 full speed. **7.1 does not make SANE slow** - KWhet
+   1.00 here against the SE/30 core's 0.94-0.96 on 7.5 - so the System
+   version does not explain the Facebook machine's ~25-35 %. Left: its
+   extensions or Speedometer version. (7.1's menu bar: help icon, no clock.)
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
