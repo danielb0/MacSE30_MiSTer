@@ -17265,7 +17265,10 @@ Daniel - add to it, move items out when fixed).**
    7.571 / 7.60 = 0.996**, New PR 3.582 / 3.38 = 1.06; Old PR 3.963.
    Not geography (one crystal, VIA/VBL time bases, nothing from the
    mains). The Facebook machine looks like System 7.5, as the core ran
-   (Daniel) - so not the System; left: its extensions (a file server:
+   (Daniel) - so not the System [2026-11-03, Daniel: read from the help
+   icon and the menu-bar clock only; the help menu is System 7.0's, the
+   clock 7.5's control panel or SuperClock on 7.0/7.1 - so 7.0-7.5, the
+   System NOT ruled out]; left: its extensions (a file server:
    File Sharing, AppleShare, trap patches tax every SANE call and spare
    integer loops) or the Speedometer version. Daniel, 2026-11-02: kept in
    KNOWN ISSUES; likely unsolvable short of a real SE/30, and maybe not
