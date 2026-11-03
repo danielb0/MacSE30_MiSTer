@@ -17285,6 +17285,21 @@ Daniel - add to it, move items out when fixed).**
    1.00 here against the SE/30 core's 0.94-0.96 on 7.5 - so the System
    version does not explain the Facebook machine's ~25-35 %. Left: its
    extensions or Speedometer version. (7.1's menu bar: help icon, no clock.)
+   **SE/30 CORE, SYSTEM 7.1 (Daniel, 2026-11-03, release 20261102,
+   `20261103_144114-screen.png` + `_144131`) - core / the second real
+   SE/30:** CPU 4.27 (1.00), Graf 3.65 (0.97), Disk 3.00 (full speed),
+   Math 7.85 (1.03), New PR 3.91 (1.16, the disk in it); SANE KWhet 10.10
+   (1.01), FFT 6.79 (1.05), F.P. Matrix 6.65 (1.07); Dhry 3.96 (1.01),
+   Towers 4.00 (1.08), Quicksort 4.52 (1.04), Bubble 4.97 (0.96), Queens
+   4.58 (1.00), Puzzle 5.24 (0.93), Permute 5.23 (1.11), Int. Matrix 5.88
+   (0.94), Sieve 6.70 (0.96); **Bench. Ave. 5.72 / 5.67 = 1.01**; FPU
+   window 1.13 / 1.26 / 1.34, Ave. 1.25 (0.92, as on the IIcx);
+   Monochrome 0.91. Against the same core on 7.5 (2026-11-02 21:22): 7.1
+   is a few per cent FASTER - Graf 3.65 vs 3.43 (the 3.x Graphics gap was
+   mostly 7.5's), Math 7.85 vs 7.57, SANE ~3-6 %. **Conclusion: the System
+   version does not make SANE slow on either core; the core matches the
+   second real SE/30 on 7.1 as on 7.5. The Facebook machine's slow SANE
+   stays unexplained (its extensions or Speedometer version).**
    **The whole comparison** (compile 41, Daniel's screenshot
    `20261004_230744-screen.png`, Speedometer 4.02 Comparison - Machine
    Records, core / the built-in Mac SE/30 record): CPU 0.27 / 0.27;
