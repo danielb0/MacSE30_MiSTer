@@ -24679,6 +24679,11 @@ capture: A or B met at every corner. **Only the framework misses**: ascal
 `o_hcpt[3] -> o_vcpt_pre3[0]`, -0.228 ns slow -40 C on the HDMI clock
 (KNOWN ISSUES 6; the frozen build's -0.624 was the same path).
 
+**Board, ram64b (2026-11-03, Daniel's 128 MB module): 64 MB WORKS** -
+Reset & Apply Memory at 64 MB starts cleanly, About This Macintosh shows
+64 MB. Still to see at 64 MB: A/UX, CodeWarrior with a large partition,
+back to 32 and 8 MB.
+
 ---
 
 # Section 14 - the Macintosh IIcx build (opened 2026-10-09)
