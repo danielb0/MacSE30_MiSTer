@@ -6,7 +6,15 @@
 # and the memory operations of plan 3.8 items 18 and 19, which hold the
 # machine in reset and drive the SDRAM controller's ports over JTAG (the
 # machine restarts from the reset vector when released):
-#   ... peek <longword hex> [count] [step]       read longwords, count of them, step apart (-1: descending)
+#   ... peek <longword hex> [count] [step]       read longwords, count of them, step apart (-1: descending);
+#                                                the 128 MB: a 128 MB module's second chip is
+#                                                longwords $1000000-$1FFFFFF (plan 13.6)
+#   ... c1test [pause s]                         the two chips side by side (plan 13.6): unique
+#                                                longwords poked across both chips' banks and
+#                                                rows, read back at once and after the pause
+#                                                (default 2 s: refresh), then complemented,
+#                                                then byte-masked writes; the mismatches
+#   ... c1mode <hex>                             LOAD MODE on the second chip alone
 #   ... poke <longword hex> <data hex> [be hex]  a CPU-port write (byte
 #                                                enables, default F), read back
 #   ... mode <hex>                               LOAD MODE with this value
@@ -66,7 +74,7 @@ set samples 1
 set delay   1.0
 set op      ""
 set opargs  {}
-if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime fputime profile} [lindex $argv 0]] >= 0} {
+if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime fputime profile c1test c1mode} [lindex $argv 0]] >= 0} {
 	set op     [lindex $argv 0]
 	set opargs [lrange $argv 1 end]
 } else {
@@ -338,7 +346,7 @@ if {$op ne ""} {
 	# one operation: flags = {we, raw}; returns {data ok|timeout}
 	proc pk_op {flags lw} {
 		global idx go
-		set src [expr {(1 << 30) | ($flags << 28) | ($lw & 0x7FFFFF)}]
+		set src [expr {(1 << 30) | ($flags << 28) | ($lw & 0x1FFFFFF)}]
 		set before [expr {([rd PPEK] >> 32) & 0xFF}]
 		write_source_data -instance_index $idx(PPEK) -value_in_hex -value [format %08X [expr {$src | ($go << 31)}]]
 		set go [expr {1 - $go}]
@@ -362,10 +370,10 @@ if {$op ne ""} {
 	proc raw_ctl {w0 w1 dqm oe sel ap second kind mode {rd 0}} {
 		return [expr {($mode << 51) | ($kind << 50) | ($second << 49) | ($ap << 48) | ($rd << 47) | (($sel & 7) << 44) | ($oe << 40) | ($dqm << 32) | (($w1 & 0xFFFF) << 16) | ($w0 & 0xFFFF)}]
 	}
-	proc pk_raw {word ctl} {
+	proc pk_raw {word ctl {chip 0}} {
 		global idx
 		write_source_data -instance_index $idx(PRAW) -value_in_hex -value [format %016llX $ctl]
-		write_source_data -instance_index $idx(PPOK) -value_in_hex -value [format %016llX [expr {($word & 1) << 36}]]
+		write_source_data -instance_index $idx(PPOK) -value_in_hex -value [format %016llX [expr {(($word & 1) << 36) | ($chip << 38)}]]
 		return [pk_op 1 [expr {$word >> 1}]]
 	}
 	proc pk_mode {mode} { return [pk_raw 0 [raw_ctl 0 0 0 0 0 0 0 1 $mode]] }
@@ -403,9 +411,9 @@ if {$op ne ""} {
 			set n    [expr {[llength $opargs] >= 2 ? [lindex $opargs 1] : 1}]
 			set step [expr {[llength $opargs] >= 3 ? [lindex $opargs 2] : 1}]
 			for {set i 0} {$i < $n} {incr i} {
-				set a [expr {($a0 + $i * $step) & 0x7FFFFF}]
+				set a [expr {($a0 + $i * $step) & 0x1FFFFFF}]
 				lassign [pk_peek $a] d st
-				puts [format "  %06X: %08X%s" $a $d [note $st]]
+				puts [format "  %07X: %08X%s" $a $d [note $st]]
 			}
 		}
 		peeks {
@@ -417,7 +425,7 @@ if {$op ne ""} {
 				set a0 [expr 0x$ah]
 				puts [format "  region %06X x %d" $a0 $cnt]
 				for {set i 0} {$i < $cnt} {incr i} {
-					set a [expr {($a0 + $i) & 0x7FFFFF}]
+					set a [expr {($a0 + $i) & 0x1FFFFFF}]
 					lassign [pk_peek $a] d st
 					puts [format "  %06X: %08X%s" $a $d [note $st]]
 				}
@@ -431,6 +439,83 @@ if {$op ne ""} {
 			puts [format "  poke %06X <- %08X be %X%s" $a $d $be [note $st]]
 			lassign [pk_peek $a] r st
 			puts [format "  %06X: %08X%s" $a $r [note $st]]
+		}
+		c1mode {
+			set m [expr 0x[lindex $opargs 0]]
+			lassign [pk_raw 0 [raw_ctl 0 0 0 0 0 0 0 1 $m] 1] w st
+			puts [format "  chip 1: LOAD MODE %04X%s" $m [note $st]]
+		}
+		c1test {
+			set pause [expr {[llength $opargs] >= 1 ? [lindex $opargs 0] : 2}]
+			# regions as SDRAM longwords: chip 0 below 16 MB (the Mac's
+			# first 16 MB), chip 0 at 32-64 MB (the tenth column), chip 1;
+			# the system region (16-32 MB: the ROM, the floppy, the
+			# training pair) is never touched
+			set regions {{chip0-low 0x0000000 0x400000} {chip0-A9 0x0800000 0x800000} {chip1 0x1000000 0x1000000}}
+			proc where {a} {
+				set w [expr {$a << 1}]
+				return [format "chip %d bank %d row %04X col %03X" [expr {($w >> 25) & 1}] [expr {($w >> 22) & 3}] \
+					[expr {($w >> 9) & 0x1FFF}] [expr {((($w >> 24) & 1) << 9) | ($w & 0x1FF)}]]
+			}
+			set addrs {}
+			set x 12345
+			foreach r $regions {
+				lassign $r name base size
+				# every bank, rows spread, both column halves
+				for {set k 0} {$k < 48} {incr k} {
+					set x [expr {($x * 1103515245 + 12345) & 0x7FFFFFFF}]
+					set off [expr {($x >> 3) % $size}]
+					lappend addrs [list $name [expr {$base + $off}]]
+				}
+			}
+			proc pat {a pass} { return [expr {((($a * 2654435761) & 0xFFFFFFFF) ^ 0xA5C35A3C) ^ ($pass ? 0xFFFFFFFF : 0)}] }
+			proc check_all {addrs pass label} {
+				array set bad {}
+				set shown 0
+				foreach e $addrs {
+					lassign $e name a
+					lassign [pk_peek $a] d st
+					set want [pat $a $pass]
+					if {$d != $want || $st ne "ok"} {
+						incr bad($name)
+						if {$shown < 12} {
+							puts [format "    %-9s %07X (%s): wrote %08X read %08X xor %08X%s" $name $a [where $a] $want $d [expr {$d ^ $want}] [note $st]]
+							incr shown
+						}
+					}
+				}
+				set line "  $label:"
+				foreach n {chip0-low chip0-A9 chip1} {
+					append line [format "  %s %d/48 bad" $n [expr {[info exists bad($n)] ? $bad($n) : 0}]]
+				}
+				puts $line
+			}
+			foreach pass {0 1} {
+				foreach e $addrs { lassign $e name a; pk_poke $a [pat $a $pass] 0xF }
+				check_all $addrs $pass "pass [expr {$pass + 1}], read at once"
+				if {$pass == 0} {
+					after [expr {int($pause * 1000)}]
+					check_all $addrs $pass "pass 1, read after $pause s"
+				}
+			}
+			# byte-masked writes: the high word, the low word, one byte, on
+			# three addresses of each region
+			set mbad 0
+			foreach r $regions {
+				lassign $r name base size
+				foreach off {0x100 0x123457 0x3FFF00} {
+					set a [expr {$base + ($off % $size)}]
+					pk_poke $a 0x11223344 0xF
+					pk_poke $a 0xAABBCCDD 0xC
+					pk_poke $a 0x55667788 0x1
+					lassign [pk_peek $a] d st
+					if {$d != 0xAABB3388} {
+						incr mbad
+						puts [format "    masks %-9s %07X (%s): read %08X, expected AABB3388" $name $a [where $a] $d]
+					}
+				}
+			}
+			puts "  byte masks: $mbad/9 bad"
 		}
 		mode {
 			set m [expr 0x[lindex $opargs 0]]

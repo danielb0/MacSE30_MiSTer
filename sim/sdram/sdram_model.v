@@ -72,7 +72,23 @@ module sdram_model (
       fill_byte = h[31:24] ^ h[15:8];
     end
   endfunction
-  initial if (PRELOAD_HEX != "") $readmemh(PRELOAD_HEX, mem, PRELOAD_WORD);
+  // the image is in word order; on a 1024-column chip a word address below
+  // $1000000 has A9 = 0, so it is placed word by word ({bank, row, 0, col})
+  reg [15:0] pre [0:(1<<20)-1];
+  integer    pi;
+  reg [25:0] pw;
+  initial if (PRELOAD_HEX != "") begin
+    if (COL_BITS == 9) $readmemh(PRELOAD_HEX, mem, PRELOAD_WORD);
+    else begin
+      for (pi = 0; pi < (1 << 20); pi = pi + 1) pre[pi] = 16'hxxxx;
+      $readmemh(PRELOAD_HEX, pre);
+      for (pi = 0; pi < (1 << 20); pi = pi + 1)
+        if (pre[pi] !== 16'hxxxx) begin
+          pw = PRELOAD_WORD + pi;
+          mem[{pw[23:22], pw[21:9], 1'b0, pw[8:0]}] = pre[pi];
+        end
+    end
+  end
 
   // ------------------------------------------------------- the state
   reg        open_r [0:3];             // a row is open in the bank

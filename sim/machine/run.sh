@@ -49,7 +49,10 @@ T0=$(date +%s)
 # IICX=1: the IIcx build (plan 14.3 step 4), logged to run_iicx.log
 IICX=${IICX:-0}
 LOG=run.log; [ "$IICX" = 1 ] && LOG=run_iicx.log
-"$MODELSIM/vsim.exe" -c -quiet -gIICX=$IICX -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_machine > $LOG 2>&1
+# RAM_SIZE (0-3 = 8/16/32/64 MB) and MODULE_MB (32/64/128), plan 13.6
+RAM_SIZE=${RAM_SIZE:-0}; MODULE_MB=${MODULE_MB:-32}
+[ "$RAM_SIZE" != 0 ] && LOG=run_ram${RAM_SIZE}_m${MODULE_MB}.log
+"$MODELSIM/vsim.exe" -c -quiet -gIICX=$IICX -gRAM_SIZE=$RAM_SIZE -gMODULE_MB=$MODULE_MB ${VSIMARGS:-} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_machine > $LOG 2>&1
 T1=$(date +%s)
 grep -E '^# (---- |==== |FAIL |     )' $LOG | sed 's/^# //'
 echo "---- ModelSim wall clock: $((T1 - T0)) s"

@@ -769,13 +769,14 @@ wire [31:0] mem_wdata, mem_rdata;
 // of go reads or writes the longword pk_addr or runs one raw experiment.
 // Without the probes the machine owns the ports outright.
 wire        pk_hold, pk_start, pk_req, pk_we;
-wire [22:0] pk_addr;
+wire [24:0] pk_addr;                    // the 128 MB (plan 13.6: chip 1 above longword $1000000)
 wire  [3:0] pk_be;
 wire [31:0] pk_wdata;
 wire        raw_req, raw_ack;
 wire [63:0] raw_ctl;
 wire [23:0] raw_addr;
 wire        dqm_force;
+wire        raw_chip;                   // a raw experiment on chip 1 (plan 13.6)
 
 se30_sdram sdram
 (
@@ -783,13 +784,13 @@ se30_sdram sdram
 	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
 	.c1_ok(c1_ok), .c1_fail(),
 	.cpu_start(pk_hold ? pk_start : mem_start), .cpu_req(pk_hold ? pk_req : mem_req),
-	.cpu_we(pk_hold ? pk_we : mem_we), .cpu_addr(pk_hold ? {2'b00, pk_addr} : mem_addr),
+	.cpu_we(pk_hold ? pk_we : mem_we), .cpu_addr(pk_hold ? pk_addr : mem_addr),
 	.cpu_be(pk_hold ? pk_be : mem_be), .cpu_wdata(pk_hold ? pk_wdata : mem_wdata),
 	.cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
 	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
 	.vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
-	.raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
+	.raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_chip(raw_chip), .raw_ack(raw_ack),
 	.dbg_dqm_force(dqm_force), .dbg_wr(dbg_sdw),
 	.sd_clk(SDRAM_CLK), .sd_cke(SDRAM_CKE), .sd_addr(SDRAM_A), .sd_ba(SDRAM_BA), .sd_dq(SDRAM_DQ),
 	.sd_dqm({SDRAM_DQMH, SDRAM_DQML}), .sd_cs_n(SDRAM_nCS), .sd_ras_n(SDRAM_nRAS),
@@ -1020,10 +1021,11 @@ wire [463:0] scsi_meter = {st_clk, st_bsy, st_hold, st_hsw, st_cmd,
 wire [463:0] scsi_meter = 464'd0;
 `endif
 
-// The peek and poke.  PPEK's source word is {go, hold, we, raw, 5'b0,
-// longword address[22:0]}; PPOK's is {26'b0, DQM force, odd, byte enables
-// [3:0], write data[31:0]}; PRAW's is the controller's raw schedule word
-// (its header).
+// The peek and poke.  PPEK's source word is {go, hold, we, raw, 3'b0,
+// longword address[24:0]}; PPOK's is {25'b0, raw chip, DQM force, odd,
+// byte enables[3:0], write data[31:0]}; PRAW's is the controller's raw
+// schedule word (its header).  The address reaches the 128 MB and the raw
+// chip bit a 128 MB module's second chip (plan 13.6).
 // A toggle of go while hold is up runs one operation: a read or a write
 // through the CPU port as GLUE would (start for one clk_sys, then the
 // request until the acknowledge), or a raw experiment at word address
@@ -1039,7 +1041,7 @@ reg   [2:0] pk_st = 0;
 reg         pk_go_q = 0, pk_start_r = 0, pk_req_r = 0, raw_req_r = 0;
 assign pk_hold  = pk_src[30];
 assign pk_we    = pk_src[29];
-assign pk_addr  = pk_src[22:0];
+assign pk_addr  = pk_src[24:0];
 assign pk_be    = pok_src[35:32];
 assign pk_wdata = pok_src[31:0];
 assign pk_start = pk_start_r;
@@ -1047,6 +1049,7 @@ assign pk_req   = pk_req_r;
 assign raw_req  = raw_req_r;
 assign raw_ctl  = praw_src;
 assign raw_addr = {pk_src[22:0], pok_src[36]};
+assign raw_chip = pok_src[38];
 assign dqm_force = pk_hold && pok_src[37];                   // item 21: the mask high (A12:11, item 22)
 always @(posedge clk_sys) begin
 	pk_go_q    <= pk_src[31];
@@ -1102,12 +1105,13 @@ assign dbg_coff = 2'b00;
 assign pk_start = 1'b0;
 assign pk_req = 1'b0;
 assign pk_we = 1'b0;
-assign pk_addr = 23'd0;
+assign pk_addr = 25'd0;
 assign pk_be = 4'd0;
 assign pk_wdata = 32'd0;
 assign raw_req = 1'b0;
 assign raw_ctl = 64'd0;
 assign raw_addr = 24'd0;
+assign raw_chip = 1'b0;
 assign dqm_force = 1'b0;
 `endif
 

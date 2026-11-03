@@ -142,6 +142,7 @@ module tb_se30_sdram;
   reg         raw_req = 0;
   reg  [63:0] raw_ctl = 0;
   reg  [23:0] raw_addr = 0;
+  reg         raw_chip = 0;                       // a raw experiment on the second chip (plan 13.6)
   wire        raw_ack;
   reg         dk_req = 0, dk_we = 0;
   reg  [23:0] dk_addr = 0;
@@ -163,7 +164,7 @@ module tb_se30_sdram;
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
     .dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
     .vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
-    .raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_ack(raw_ack),
+    .raw_req(raw_req), .raw_ctl(raw_ctl), .raw_addr(raw_addr), .raw_chip(raw_chip), .raw_ack(raw_ack),
     .dbg_dqm_force(1'b0),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
@@ -745,6 +746,15 @@ module tb_se30_sdram;
         check(acks_late == acks_before, "back-to-back cycles to both chips acknowledged at two C16M, refresh included");
         check(chip1.refreshes > kd && chip1.max_ref_gap > 0.0 && chip1.max_ref_gap <= 7812.5,
               "the second chip refreshed inside every 7.8125 us");
+        // the JTAG poke's raw port on the second chip: the two-WRITE form
+        // to word $00C000 lands there, and not in the first chip
+        kd = chip.mem[midx(26'h000C000)];
+        raw_chip = 1;
+        raw_op(raw_word(16'h5566, 16'h7788, 8'b00_00_00_00, 4'b0011, 3'b010, 1'b0, 1'b1, 1'b1, 1'b0, 13'h0), 24'h00C000);
+        raw_chip = 0;
+        check(chip1.mem[midx(26'h000C000)] == 16'h5566 && chip1.mem[midx(26'h000C001)] == 16'h7788,
+              "a raw experiment on the second chip lands there");
+        check(chip.mem[midx(26'h000C000)] === kd[15:0], "and not in the first chip");
         check(chip1.errors == 0, "the second chip: no datasheet violation");
       end
     end

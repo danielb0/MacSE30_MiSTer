@@ -51,6 +51,12 @@ module tb_se30_machine;
   // the IIcx build (plan 14.3 step 4): run.sh's IICX=1 sets this; the same
   // ROM, the same checks, the card in slot $9 in place of the 1-bit video
   parameter IICX = 0;
+  // the memory (plan 13.6): RAM_SIZE 0-3 = 8/16/32/64 MB, on a MODULE_MB
+  // 32/64/128 MB module (64 and 128: 1024-column chips; 128: a second chip
+  // on the inverted nCS, as tb_se30_sdram has it)
+  parameter RAM_SIZE  = 0;
+  parameter MODULE_MB = 32;
+  localparam COLS = (MODULE_MB == 32) ? 9 : 10;
 
   reg clk_mem = 0;
   always #5.319 clk_mem = ~clk_mem;
@@ -92,7 +98,7 @@ module tb_se30_machine;
     .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),
     .dk_req(1'b0), .dk_we(1'b0), .dk_addr(24'd0), .dk_wdata(16'd0), .dk_rdata(), .dk_ack(),
     .vr_req(vr_req), .vr_we(vr_we), .vr_addr(vr_addr), .vr_be(vr_be), .vr_wdata(vr_wdata), .vr_rdata(vr_rdata), .vr_ack(vr_ack),
-    .raw_req(1'b0), .raw_ctl(64'd0), .raw_addr(24'd0), .raw_ack(), .dbg_dqm_force(1'b0),
+    .raw_req(1'b0), .raw_ctl(64'd0), .raw_addr(24'd0), .raw_chip(1'b0), .raw_ack(), .dbg_dqm_force(1'b0),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
 
@@ -112,10 +118,14 @@ module tb_se30_machine;
   assign dq_chip = oe_c ? dq_out_c : 16'hzzzz;
   assign #(DQ_TO_REG) sd_dq = sdram.dq_oe ? 16'hzzzz : dq_chip;
 
-  sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1)) chip (
+  sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1), .COL_BITS(COLS)) chip (
     .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
     // the chip's DQM is the A12/A11 traces, as on the MiSTer modules (the
     // controller header's THE MASK); dqm_c, the FPGA's DQM pins, reaches nothing
+    .ba(ba_c), .addr(addr_c), .dqm(addr_c[12:11]), .dq(dq_chip));
+  wire cs1_n_c = (MODULE_MB == 128) ? !cs_n_c : 1'b1;
+  sdram_model #(.FILL_UNWRITTEN(1), .COL_BITS(10)) chip1 (
+    .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs1_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
     .ba(ba_c), .addr(addr_c), .dqm(addr_c[12:11]), .dq(dq_chip));
 
   // ---------------------------------------------------------- machine
@@ -127,7 +137,7 @@ module tb_se30_machine;
 
   se30_machine #(.DECLROM_HEX("declrom.hex"), .FPU_UCODE("../../rtl/fpu/ucode/"), .IICX(IICX)) machine (
     .dbg_coff(2'b00),
-    .clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .ram_size(2'd0),
+    .clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .ram_size(RAM_SIZE[1:0]),
     .mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
     .mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
     .declrom_we(1'b0), .declrom_waddr(13'd0), .declrom_wdata(8'd0),
@@ -193,6 +203,24 @@ module tb_se30_machine;
   integer    io_cyc [0:NIO-1];
   reg [31:0] ring [0:NRING-1];
   initial for (i = 0; i < 65536; i = i + 1) seen[i] = 0;
+  // +RUNTO's watch: the sizing's entry ($408035A4), its probe ($40803610),
+  // D6 and RAMSIZ as they change
+  integer    runto = 0, sizing_n = 0, probe_n = 0;
+  reg [31:0] d6_q = 0;
+  reg  [1:0] rs_q = 2'b11;
+  always @(posedge clk_sys) if (reset_n && runto != 0) begin
+    if (machine.dbg_regs[63:32] !== d6_q) begin
+      $display("      cycle %0d: D6 %08x -> %08x (last fetch %08x)", cycles, d6_q, machine.dbg_regs[63:32], last_fetch);
+      d6_q = machine.dbg_regs[63:32];
+    end
+    if (machine.ramsiz !== rs_q) begin
+      $display("      cycle %0d: RAMSIZ %b -> %b", cycles, rs_q, machine.ramsiz); rs_q = machine.ramsiz;
+    end
+  end
+  always @(last_fetch) if (runto != 0) begin
+    if (last_fetch == 32'h408035A4) begin sizing_n = sizing_n + 1; $display("      cycle %0d: the sizing entered", cycles); end
+    if (last_fetch == 32'h40803610) probe_n = probe_n + 1;
+  end
 
   always @(posedge clk_sys) if (phi1 && reset_n) begin
     if (!cpu_as_n) begin
@@ -286,6 +314,13 @@ module tb_se30_machine;
     // ---- phase 2: on with the VIAs, to a long loop (the boot chime's delay)
     $display("---- running on, with the VIAs answering (plan 4.9)");
     while (!halted && since_new < LOOP_CYCLES && cycles < 60000) @(posedge clk_sys);
+    // +RUNTO=n (plan 13.6): on past the loop to cycle n, reporting the sizing
+    if ($value$plusargs("RUNTO=%d", runto)) begin
+      $display("---- on to cycle %0d (+RUNTO)", runto);
+      while (!halted && cycles < runto) @(posedge clk_sys);
+      $display("      at cycle %0d: last fetch %08x, D6 %08x, RAMSIZ %b, sizing entered %0d times", cycles, last_fetch,
+               machine.dbg_regs[63:32], machine.ramsiz, sizing_n);
+    end
     repeat (4) @(posedge clk_sys);
     $display("      stopped after %0d cycles: %s", cycles,
              halted ? "the CPU HALTED (double bus fault)" : (since_new >= LOOP_CYCLES) ? "a LOOP (no new fetch address)" : "the cycle limit");

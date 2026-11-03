@@ -227,7 +227,8 @@
 //             1 = PRECHARGE ALL then LOAD MODE with [63:51] as the value -
 //             so an experiment can put the chip in burst-write mode
 //             (A9 = 0) and back
-//   raw_addr is a word address; a read of the words afterwards, through
+//   raw_addr is a word address (raw_chip: on the second chip, THE SECOND
+//   CHIP below); a read of the words afterwards, through
 //   the CPU port as the peek does it, is the experiment's result.  The
 //   acknowledge is a level held until the request drops, like dl_ack.
 //   The benches drive it against the model, which masks as the datasheet
@@ -319,6 +320,7 @@ module se30_sdram #(
   input             raw_req,
   input      [63:0] raw_ctl,
   input      [23:0] raw_addr,          // word address
+  input             raw_chip,          // ... on a 128 MB module's second chip (THE SECOND CHIP; the JTAG poke)
   output reg        raw_ack,
   input             dbg_dqm_force,     // hold both DQM pins high, for a meter on the chip (item 21)
   output reg [60:0] dbg_wr,            // RTRACE (KNOWN ISSUES 20): a CPU write's WRITE pair as the pins carried it -
@@ -448,7 +450,7 @@ module se30_sdram #(
   reg [31:0] xs_wdata;
   reg [23:0] xs_dl_addr;
   reg [15:0] xs_dl_data;
-  reg        xs_raw_req;
+  reg        xs_raw_req, xs_raw_chip;
   reg [63:0] xs_raw_ctl;
   reg [23:0] xs_raw_addr;
   reg        xs_dk_req, xs_dk_we;
@@ -465,7 +467,7 @@ module se30_sdram #(
       xs_req <= cpu_req; xs_we <= cpu_we;
       xs_addr <= cpu_addr; xs_be <= cpu_be; xs_wdata <= cpu_wdata;
       xs_dl_req <= dl_req; xs_dl_addr <= dl_addr; xs_dl_data <= dl_data;
-      xs_raw_req <= raw_req; xs_raw_ctl <= raw_ctl; xs_raw_addr <= raw_addr;
+      xs_raw_req <= raw_req; xs_raw_ctl <= raw_ctl; xs_raw_addr <= raw_addr; xs_raw_chip <= raw_chip;
       xs_dk_req <= dk_req; xs_dk_we <= dk_we; xs_dk_addr <= dk_addr; xs_dk_wdata <= dk_wdata;
       xs_vr_req <= vr_req; xs_vr_we <= vr_we; xs_vr_addr <= vr_addr; xs_vr_be <= vr_be; xs_vr_wdata <= vr_wdata;
     end
@@ -480,6 +482,7 @@ module se30_sdram #(
   wire        r_read = xs_raw_ctl[47];
   wire        r_ap = xs_raw_ctl[48], r_second = xs_raw_ctl[49], r_kind = xs_raw_ctl[50];
   wire [12:0] r_mode = xs_raw_ctl[63:51];
+  wire        r_chip = xs_raw_chip;
   wire  [1:0] r_bank = xs_raw_addr[23:22];
   wire [12:0] r_row  = xs_raw_addr[21:9];
   wire  [8:0] r_col  = xs_raw_addr[8:0];
@@ -729,8 +732,8 @@ module se30_sdram #(
             end else if (raw_req_q && !raw_ack) begin
               // an experiment (the header): every row is closed here, so
               // a LOAD MODE may follow a PRECHARGE ALL at once
-              if (r_kind) begin cmd <= CMD_PRECHARGE; sd_addr <= 13'h0400; busy <= 4'd6; end
-              else begin cmd <= CMD_ACTIVE; sd_ba <= r_bank; sd_addr <= r_row; busy <= ACT_BUSY; end
+              if (r_kind) begin cmd <= {r_chip, CMD_PRECHARGE[2:0]}; sd_addr <= 13'h0400; busy <= 4'd6; end
+              else begin cmd <= {r_chip, CMD_ACTIVE[2:0]}; sd_ba <= r_bank; sd_addr <= r_row; busy <= ACT_BUSY; end
               seq_n = 1; state <= S_RAW;
             end
           end
@@ -868,22 +871,22 @@ module se30_sdram #(
         S_RAW: begin
           seq_n = seq + 1'b1;
           if (r_kind) begin                                         // PRECHARGE ALL was issued at entry
-            if (seq_is2) begin cmd <= CMD_LOAD_MODE; sd_addr <= r_mode; sd_ba <= 0; end
+            if (seq_is2) begin cmd <= {r_chip, CMD_LOAD_MODE[2:0]}; sd_addr <= r_mode; sd_ba <= 0; end
             if (seq == 4'd4) begin raw_ack <= 1; state <= S_IDLE; end  // tMRD met by busy
           end else begin
             if (seq_is2) begin
-              cmd <= r_read ? CMD_READ : CMD_WRITE; sd_ba <= r_bank;
+              cmd <= {r_chip, r_read ? CMD_READ[2:0] : CMD_WRITE[2:0]}; sd_ba <= r_bank;
               sd_addr <= {2'b00, r_ap && !(r_second && !r_read), 1'b0, r_col};
             end
             if (seq == 4'd3 && r_second && !r_read) begin
-              cmd <= CMD_WRITE; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap, 1'b0, r_col | 9'd1};
+              cmd <= {r_chip, CMD_WRITE[2:0]}; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap, 1'b0, r_col | 9'd1};
             end
             if (seq_ge2 && seq_le5)                         // the schedule's mask (its data and enable: below)
               sd_addr[12:11] <= r_dqm[2 * r_k +: 2];               // after the column address: the schedule wins
             if (r_read && seq == 4'd7) cpu_rdata[31:16] <= dq_m;   // a read's words, as S_ACC takes them
             if (r_read && seq == 4'd8) cpu_rdata[15:0]  <= dq_m;
             if (seq == 4'd7 && !r_ap) begin                         // tRAS met at 4, tWR after the last data
-              cmd <= CMD_PRECHARGE; sd_ba <= r_bank; sd_addr[10] <= 1'b0; busy <= 4'd3;
+              cmd <= {r_chip, CMD_PRECHARGE[2:0]}; sd_ba <= r_bank; sd_addr[10] <= 1'b0; busy <= 4'd3;
             end
             if (seq == 4'd9) begin raw_ack <= 1; state <= S_IDLE; end
           end

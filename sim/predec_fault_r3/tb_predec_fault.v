@@ -169,7 +169,7 @@ module tb_predec_fault;
     .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),
     .dk_req(1'b0), .dk_we(1'b0), .dk_addr(24'd0), .dk_wdata(16'd0), .dk_rdata(), .dk_ack(),
     .vr_req(1'b0), .vr_we(1'b0), .vr_addr(23'd0), .vr_be(4'd0), .vr_wdata(32'd0), .vr_rdata(), .vr_ack(),
-    .raw_req(1'b0), .raw_ctl(64'd0), .raw_addr(24'd0), .raw_ack(), .dbg_dqm_force(1'b0),
+    .raw_req(1'b0), .raw_ctl(64'd0), .raw_addr(24'd0), .raw_chip(1'b0), .raw_ack(), .dbg_dqm_force(1'b0),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq),
     .sd_dqm(sd_dqm), .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
   localparam real CLK_TO_PIN = 4.0, OUT_TO_PIN = 4.0, DQ_TO_REG = 2.0;

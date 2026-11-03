@@ -35,9 +35,10 @@
 // and, since plan 3.8 items 18 and 19 (the SDRAM read capture, the peek
 // and poke):
 //   PCAP  the training's failure counts; PMEM the machine's last read
-//   PPEK  the peek/poke: source {go, hold, we, raw, 5'b0, longword
-//         address}, probe {operations done[7:0], data[31:0]}
-//   PPOK  source only: {27'b0, odd, byte enables, write data}
+//   PPEK  the peek/poke: source {go, hold, we, raw, 3'b0, longword
+//         address[24:0]}, probe {operations done[7:0], data[31:0]}
+//   PPOK  source only: {25'b0, raw chip, DQM force, odd, byte enables,
+//         write data}
 //   PRAW  source only: the controller's raw experiment schedule word
 //   PPKS  the poke's status
 // and, since plan 3.8 item 23:
@@ -178,10 +179,10 @@ module dbg_probes #(
 	input  wire  [3:0] sdram_cap,          // {cap_sel, cap_fail, cap_ok[1:0]} from se30_sdram
 	input  wire [31:0] cap_detail,         // PCAP: {the same four, failures through A[13:0], through B[13:0]} of 65,536 reads each
 	input  wire [31:0] mem_last,           // PMEM: the data of the machine's last acknowledged memory read
-	output wire [31:0] peek_src,           // PPEK's source: {go, hold, we, raw, 5'b0, longword address[22:0]} from the host
+	output wire [31:0] peek_src,           // PPEK's source: {go, hold, we, raw, 3'b0, longword address[24:0]} from the host
 	input  wire [39:0] peek_data,          // PPEK: {operations done[7:0], the longword read (or written; a raw READ's words after a raw experiment)}
 	input  wire [15:0] peek_stat,          // PPKS: {operations done[7:0], 2'b0, raw_ack, hold, req, state[2:0]}
-	output wire [63:0] poke_src,           // PPOK's source: {26'b0, DQM force, odd, byte enables[3:0], write data[31:0]}
+	output wire [63:0] poke_src,           // PPOK's source: {25'b0, raw chip, DQM force, odd, byte enables[3:0], write data[31:0]}
 	output wire [63:0] raw_src,            // PRAW's source: the SDRAM controller's raw experiment schedule word
 	input  wire        rom_loaded,
 	input  wire [31:0] via_state,         // se30_machine's dbg_via (plan 4.8)
