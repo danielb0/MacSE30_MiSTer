@@ -24681,8 +24681,29 @@ capture: A or B met at every corner. **Only the framework misses**: ascal
 
 **Board, ram64b (2026-11-03, Daniel's 128 MB module): 64 MB WORKS** -
 Reset & Apply Memory at 64 MB starts cleanly, About This Macintosh shows
-64 MB. Still to see at 64 MB: A/UX, CodeWarrior with a large partition,
-back to 32 and 8 MB.
+64 MB. CodeWarrior IDE in a 40,000K partition, ~22,000K left. A/UX 3.1
+boots at 64 and 32 MB; its console (total / available, bytes):
+
+| RAM | total | available | kernel kept |
+|---|---|---|---|
+| 16 MB (2026-10-18, before FA 5) | 16,777,216 | 12,464,128 | 4.1 MB (26 %) |
+| 32 MB (ram64b) | 33,554,432 | 20,541,440 | 12.4 MB (39 %) |
+| 64 MB (ram64b) | 67,108,864 | 31,178,752 | 34.3 MB (54 %) |
+
+The share A/UX keeps grows smoothly with the RAM from the 16 MB baseline
+(old map) through 32 MB (first chip only) to 64 MB: A/UX's own table
+sizing, not a step at the second chip.
+At 64 MB A/UX's Mac environment reports Built-in Memory 65,536K (Total
+Memory 16,384K, its own partition setting) and Macintosh SE/30.
+
+**Compile IIcx ram64b**: `output_files/MacIIcx_d84f6c30_ram64b.rbf` (md5
+bd64e165), 36 min, tree d84f6c3. 38,790 ALMs (93 %), 538 RAM blocks.
+**Our clocks met at every corner** (clk_sys worst +0.335 slow -40 C, the
+CPU's `r_ea_h -> Add55`; clk_mem worst +0.740 slow 100 C, `dq_w -> dq_m`;
+holds >= +0.102); the capture: A or B met at every corner. **Only the
+framework misses**: ascal `o_v_poly_t.r1[9] -> o_v_poly_pix.r[1]`,
+-0.120 ns slow -40 C (KNOWN ISSUES 6). Board: to do (OSD 8/16/32/64,
+64 MB, colour over HDMI).
 
 ---
 
