@@ -27,7 +27,13 @@
 //      one to one, never in the system region (16-32 MB) or above 80 MB;
 //      8 and 16 MB stay in unit 0 (their old addresses).
 //   8. 32 MB: bank B keeps its own data; both banks repeat above 32 MB.
-//      64 MB: bank B reads all ones; bank A's top longword is SDRAM 80 MB.
+//      64 MB: bank B's range repeats bank A (plan 13.6.8); bank A's top
+//      longword is SDRAM 80 MB.
+//   9. The ROM's RAM address test ($40803944, plan 13.6.8) for every size:
+//      its table's ref says whether a write at the top must reach ref
+//      (2, 8, 32, 64 MB: ref 0) or must not reach 0 (16 MB); then its
+//      power-of-two uniqueness walk up and down.
+// +PLANT=2 makes 64 MB's bank B empty again: check 9's 64 MB FAILS.
 // +PLANT=1 hands the walk of 5 the 16 MB SIMMs: checks 5 must FAIL.
 `timescale 1ns/1ps
 
@@ -118,6 +124,34 @@ module tb_se30_simms;
     end
   endtask
 
+  // the ROM's RAM address test, $40803944-$408039FC: top a0, the table's
+  // ref; nonzero fail = the ROM's D6
+  task addr_test(input [31:0] a0, input [31:0] ref_, output integer fail);
+    reg [31:0] d, a2, d5;
+    begin
+      fail = 0;
+      if (ref_ == 32'hFFFFFFFF) begin                 // $4080398C: no wrap onto 0
+        wr(32'h0, 32'h0); wr(a0, 32'hAAAAAAAA); rd(32'h0, d);
+        if (d != 0) fail = 1;
+      end else begin                                  // $4080397A: the top reaches ref
+        wr(ref_, 32'h0); wr(a0, 32'hA5B4C3D2); rd(ref_, d);
+        if (d == 0) fail = 1;
+      end
+      if (!fail) begin
+        // $408039A0: a2 = the bank size (RAMSIZ's), halved if above the top
+        a2 = (ramsiz == 0) ? 32'h100000 : (ramsiz == 1) ? 32'h400000 : (ramsiz == 2) ? 32'h1000000 : 32'h4000000;
+        if (!(a0 > a2)) a2 = a2 >> 1;
+        wr(32'h0, 32'h0);
+        for (d5 = 4; d5 <= a2; d5 = d5 << 1) wr(d5, d5);
+        rd(32'h0, d); if (d != 0) fail = 2;
+        for (d5 = 4; d5 <= a2 && !fail; d5 = d5 << 1) begin rd(d5, d); if (d != d5) fail = 3; end
+        for (d5 = a2; d5 >= 4; d5 = d5 >> 1) wr(d5, d5);
+        rd(32'h0, d); if (d != 0 && !fail) fail = 4;
+        for (d5 = 4; d5 <= a2 && !fail; d5 = d5 << 1) begin rd(d5, d); if (d != d5) fail = 5; end
+      end
+    end
+  endtask
+
   // the ROM's sizing, $408035A4: returns the RAMSIZ it leaves and the size
   reg  [7:0] p1_size [0:3];
   reg  [1:0] p1_rs   [0:3];
@@ -142,7 +176,7 @@ module tb_se30_simms;
   endtask
 
   reg  [1:0] rs;
-  reg [31:0] mb, d, exp_addr;
+  reg [31:0] mb, d, d2, exp_addr;
   integer i, n, errs, plant;
   reg [24:0] lin_exp;
   reg [2:0]  u_exp;
@@ -257,11 +291,24 @@ module tb_se30_simms;
     size = 3; ramsiz = 2'd3;
     wr(32'h04000300, 32'h66666666);
     rd(32'h04000300, d);
-    check(d == 32'hFFFFFFFF, "8. 64 MB: bank B reads all ones");
+    rd(32'h00000300, d2);
+    check(d == d2 && d != 32'hFFFFFFFF, "8. 64 MB: bank B's range repeats bank A (the write at 64 MB is at 0)");
     wr(32'h03FFFFFC, 32'h77777777);
     rd(32'h03FFFFFC, d);
     check(d == 32'h77777777 && phys == 25'h13FFFFF, "8. ... the top longword of bank A is SDRAM 80 MB, on chip 1");
     check(bad_units == 0, "8. no access left the RAM's four SDRAM units");
+
+    // 9. the ROM's RAM address test, $40803944, at the RAMSIZ and size each
+    // configuration's sizing leaves
+    for (n = 0; n < 4; n = n + 1) begin
+      size = n; ramsiz = (n == 0) ? 2'd1 : (n == 3) ? 2'd3 : 2'd2;
+      if (plant == 2 && n == 3) force dut.empty = dut.bank_b;
+      addr_test(n == 0 ? 32'h00800000 : n == 1 ? 32'h01000000 : n == 2 ? 32'h02000000 : 32'h04000000,
+                n == 1 ? 32'hFFFFFFFF : 32'h0, errs);
+      release dut.empty;
+      $display("     %0d MB: the address test %s", 8 << n, errs ? "FAILED" : "passed");
+      check(errs == 0, "9. the ROM's RAM address test passes");
+    end
 
     if (fails == 0) $display("==== PASS: %0d checks", checks);
     else            $display("==== FAIL: %0d of %0d checks", fails, checks);

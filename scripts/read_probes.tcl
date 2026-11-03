@@ -74,7 +74,7 @@ set samples 1
 set delay   1.0
 set op      ""
 set opargs  {}
-if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime fputime profile c1test c1mode} [lindex $argv 0]] >= 0} {
+if {$argc >= 1 && [lsearch -exact {peek peeks poke mode raw dqmtest dqmread dqmforce scsitime fputime profile c1test c1mode alines} [lindex $argv 0]] >= 0} {
 	set op     [lindex $argv 0]
 	set opargs [lrange $argv 1 end]
 } else {
@@ -439,6 +439,31 @@ if {$op ne ""} {
 			puts [format "  poke %06X <- %08X be %X%s" $a $d $be [note $st]]
 			lassign [pk_peek $a] r st
 			puts [format "  %06X: %08X%s" $a $r [note $st]]
+		}
+		alines {
+			# the address lines (plan 13.6): a distinct longword at SDRAM
+			# longword 0 and at every 1 << k (k 0-24, the 128 MB), skipping
+			# the system region (16-32 MB: longwords $400000-$7FFFFF), then
+			# all read back - an alias shows as a value written elsewhere
+			set al [list 0]
+			for {set k 0} {$k <= 24} {incr k} {
+				set a [expr {1 << $k}]
+				if {$a >= 0x400000 && $a < 0x800000} { set a [expr {$a | 0x800000}] }
+				lappend al $a
+			}
+			set i 0
+			foreach a $al { pk_poke $a [expr {0x5A000000 | ($i << 16) | $i}] 0xF; incr i }
+			set i 0; set bad 0
+			foreach a $al {
+				lassign [pk_peek $a] d st
+				set want [expr {0x5A000000 | ($i << 16) | $i}]
+				set w [expr {$a << 1}]
+				set tag [format "chip %d bank %d row %04X col %03X" [expr {($w >> 25) & 1}] [expr {($w >> 22) & 3}] [expr {($w >> 9) & 0x1FFF}] [expr {((($w >> 24) & 1) << 9) | ($w & 0x1FF)}]]
+				if {$d != $want} { incr bad; set m "  <-- BAD" } else { set m "" }
+				puts [format "  %07X (%s): %08X%s%s" $a $tag $d $m [note $st]]
+				incr i
+			}
+			puts "  address lines: $bad of [llength $al] bad"
 		}
 		c1mode {
 			set m [expr 0x[lindex $opargs 0]]

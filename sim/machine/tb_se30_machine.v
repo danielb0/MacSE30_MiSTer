@@ -206,12 +206,19 @@ module tb_se30_machine;
   // +RUNTO's watch: the sizing's entry ($408035A4), its probe ($40803610),
   // D6 and RAMSIZ as they change
   integer    runto = 0, sizing_n = 0, probe_n = 0;
-  reg [31:0] d6_q = 0;
+  reg [31:0] stopat = 0;
+  initial if (!$value$plusargs("STOPAT=%h", stopat)) stopat = 0;
+  reg [31:0] d6_q = 0, d7_q = 0;
+  reg        d7_hit = 0;                // the CPU reached the board's failure loop after the sizing
   reg  [1:0] rs_q = 2'b11;
   always @(posedge clk_sys) if (reset_n && runto != 0) begin
     if (machine.dbg_regs[63:32] !== d6_q) begin
       $display("      cycle %0d: D6 %08x -> %08x (last fetch %08x)", cycles, d6_q, machine.dbg_regs[63:32], last_fetch);
       d6_q = machine.dbg_regs[63:32];
+    end
+    if (machine.dbg_regs[31:0] !== d7_q) begin
+      if (sizing_n != 0) $display("      cycle %0d: D7 %08x -> %08x (last fetch %08x)", cycles, d7_q, machine.dbg_regs[31:0], last_fetch);
+      d7_q = machine.dbg_regs[31:0];
     end
     if (machine.ramsiz !== rs_q) begin
       $display("      cycle %0d: RAMSIZ %b -> %b", cycles, rs_q, machine.ramsiz); rs_q = machine.ramsiz;
@@ -220,6 +227,12 @@ module tb_se30_machine;
   always @(last_fetch) if (runto != 0) begin
     if (last_fetch == 32'h408035A4) begin sizing_n = sizing_n + 1; $display("      cycle %0d: the sizing entered", cycles); end
     if (last_fetch == 32'h40803610) probe_n = probe_n + 1;
+    // where the board sat after the 64 MB failure (PIFA $40803214-$408032A0)
+    if (sizing_n != 0 && last_fetch >= 32'h40803200 && last_fetch < 32'h40803300) d7_hit = 1;
+    // +STOPAT=<hex>: stop at the first fetch of this address after the sizing
+    if (sizing_n != 0 && stopat != 0 && last_fetch == stopat) begin
+      d7_hit = 1; $display("      cycle %0d: reached %08x, D6 %08x", cycles, stopat, machine.dbg_regs[63:32]);
+    end
   end
 
   always @(posedge clk_sys) if (phi1 && reset_n) begin
@@ -317,7 +330,9 @@ module tb_se30_machine;
     // +RUNTO=n (plan 13.6): on past the loop to cycle n, reporting the sizing
     if ($value$plusargs("RUNTO=%d", runto)) begin
       $display("---- on to cycle %0d (+RUNTO)", runto);
-      while (!halted && cycles < runto) @(posedge clk_sys);
+      while (!halted && cycles < runto && !d7_hit) @(posedge clk_sys);
+      repeat (2000) @(posedge clk_sys);
+      if (d7_hit) $display("      STOPPED: the CPU reached $408032xx after the sizing (where the board loops)");
       $display("      at cycle %0d: last fetch %08x, D6 %08x, RAMSIZ %b, sizing entered %0d times", cycles, last_fetch,
                machine.dbg_regs[63:32], machine.ramsiz, sizing_n);
     end

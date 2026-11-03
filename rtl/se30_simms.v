@@ -5,7 +5,8 @@
 //   size = 0   8 MB: four 1 MB SIMMs (1 Mbit chips) in each bank
 //   size = 1  16 MB: four 4 MB SIMMs (4 Mbit chips) in bank A, bank B empty
 //   size = 2  32 MB: four 4 MB SIMMs in each bank
-//   size = 3  64 MB: four 16 MB SIMMs (16 Mbit chips) in bank A, bank B empty
+//   size = 3  64 MB: four 16 MB SIMMs (16 Mbit chips) in bank A, bank B empty -
+//             and bank B's range repeats bank A (below)
 //
 // GLUE (se30_glue.v) puts bank B at the RAMSIZ boundary, A20/A22/A24/A26
 // for RAMSIZ 00-11 (Guide Table 4-10, plan 2.11.2), and hands over a flat
@@ -20,6 +21,16 @@
 // The ROM's sizing (plan 13.4.1) relies on exactly these two: it finds
 // RAMSIZ 01 and 8 MB, RAMSIZ 10 and 16 MB, RAMSIZ 10 and 32 MB, or
 // RAMSIZ 11 and 64 MB.
+//
+// 64 MB WRAPS (plan 13.6.8): the ROM's RAM address test ($40803944) looks
+// the top of RAM up in its table at $40803A00 and, for 64 MB (ref 0),
+// requires a longword written at $04000000 to appear at 0 - where for 1,
+// 4 and 16 MB, bank A alone (ref $FFFFFFFF), it requires that it does not.
+// So with 16 Mbit SIMMs in bank A and bank B empty, bank B's range repeats
+// bank A (A26 ignored).  The Guide does not say why; the ROM's table is
+// Apple's statement of it, and a real 64 MB SE/30 passes the test.  The
+// sizing finds 64 MB either way (its 64 MB probe fails on the alias as it
+// failed on the empty bank; plan 13.4.3: the ROM cannot tell them apart).
 //
 // Undocumented and never reached by the ROM's sizing: what GLUE drives on
 // a chip's top address pins while RAMSIZ is below the chips' size.  This
@@ -84,7 +95,7 @@ module se30_simms (
     endcase
 
   assign phys  = {unit, lin[21:0]};
-  assign empty = size[0] && bank_b;
+  assign empty = (size == 2'd1) && bank_b;       // 16 MB's bank B; 64 MB's repeats bank A
 
   initial empty_q = 1'b0;
   always @(posedge clk)
