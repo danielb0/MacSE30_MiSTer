@@ -21485,6 +21485,18 @@ Daniel - add to it, move items out when fixed).**
     MacSE30_20261102.rbf (f82f06ad) + MacIIcx_20261102.rbf (aa37a8b1). The
     release freeze is over. Next: FUTURE ADDITIONS 13 (FPU speed), then the
     after-release list (KNOWN ISSUES 56, 47's DF-set limit, 57, 18, 42/43, 45).
+    **BOARD, A REAL WORKLOAD (2026-11-03, Daniel, SE/30, release 20261102):
+    a new 1 GB work disk PASSES.** The disk already partitioned (HD SC
+    Setup), its old contents deleted in the Finder; ~800 files copied from
+    the previous work disk (the other SCSI slot); then CodeWarrior 8 Gold
+    from CD-ROM (CW8_Gold_Tools_199601, a bare HFS volume renamed .cdr ->
+    .iso; "Mac OS heaven" install, 172 MB, 2,379 files) and the examples
+    from a second CD - ~3,850 files in all. The new disk boots; the IDE
+    compiled and linked a demo program; Disk First Aid finds no errors
+    after the copy and again after the install. Exercises: CD-ROM reads into
+    SCSI writes, full speed, both targets busy; HFS catalog growth on a 1 GB
+    volume (16 KB allocation blocks). A reference workload if a later build
+    damages a disk again.
 
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
