@@ -21485,7 +21485,7 @@ Daniel - add to it, move items out when fixed).**
     MacSE30_20261102.rbf (f82f06ad) + MacIIcx_20261102.rbf (aa37a8b1). The
     release freeze is over. Next: FUTURE ADDITIONS 13 (FPU speed), then the
     after-release list (KNOWN ISSUES 56, 47's DF-set limit, 57, 18, 42/43, 45).
-    **BOARD, A REAL WORKLOAD (2026-11-03, Daniel, SE/30, release 20261102):
+    **BOARD, A REAL WORKLOAD (2026-11-03, Daniel, IIcx, release 20261102):
     a new 1 GB work disk PASSES.** The disk already partitioned (HD SC
     Setup), its old contents deleted in the Finder; ~800 files copied from
     the previous work disk (the other SCSI slot); then CodeWarrior 8 Gold
