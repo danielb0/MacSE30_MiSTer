@@ -21,13 +21,21 @@
 //      the module (a sweep of every bit plus random addresses).
 //   4. 16 MB: bank B keeps nothing and reads all ones; bank A aliases at
 //      16 MB.
+//   5. 32 MB (FUTURE ADDITIONS 5): the ROM sets RAMSIZ 10 and finds 32 MB.
+//   6. 64 MB: the ROM sets RAMSIZ 11 and finds 64 MB.
+//   7. The SDRAM map: the RAM's 16 MB units land at 0, 32, 48 and 64 MB,
+//      one to one, never in the system region (16-32 MB) or above 80 MB;
+//      8 and 16 MB stay in unit 0 (their old addresses).
+//   8. 32 MB: bank B keeps its own data; both banks repeat above 32 MB.
+//      64 MB: bank B reads all ones; bank A's top longword is SDRAM 80 MB.
+// +PLANT=1 hands the walk of 5 the 16 MB SIMMs: checks 5 must FAIL.
 `timescale 1ns/1ps
 
 module tb_se30_simms;
   reg         clk = 0;
   always #5 clk = ~clk;
 
-  reg         big;
+  reg   [1:0] size;
   reg   [1:0] ramsiz;
   reg  [31:0] cpu_addr;
   reg         start = 0, sel = 1;
@@ -35,13 +43,26 @@ module tb_se30_simms;
                          (ramsiz == 2'd1) ? {4'b0, cpu_addr[22:2]} :
                          (ramsiz == 2'd2) ? {2'b0, cpu_addr[24:2]} :
                                             cpu_addr[26:2];
-  wire [21:0] phys;
+  wire [24:0] phys;
   wire        empty, empty_q;
 
-  se30_simms dut (.clk(clk), .big(big), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(start), .sel(sel),
+  se30_simms dut (.clk(clk), .size(size), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(start), .sel(sel),
                   .phys(phys), .empty(empty), .empty_q(empty_q));
 
-  reg [31:0] mem [0:(1 << 22) - 1];
+  // the SDRAM's four RAM units (0, 2, 3, 4) packed into 64 MB; a unit
+  // anywhere else is counted, and lands nowhere
+  reg [31:0] mem [0:(1 << 24) - 1];
+  reg  [1:0] pk;
+  reg        bad_unit;
+  always @* begin
+    bad_unit = 0;
+    case (phys[24:22])
+      3'd0: pk = 2'd0; 3'd2: pk = 2'd1; 3'd3: pk = 2'd2; 3'd4: pk = 2'd3;
+      default: begin pk = 2'd0; bad_unit = 1; end
+    endcase
+  end
+  wire [23:0] mi = {pk, phys[21:0]};
+  integer bad_units = 0;
 
   integer fails = 0, checks = 0;
   task check(input ok, input [8*96-1:0] what);
@@ -58,14 +79,16 @@ module tb_se30_simms;
     begin
       cpu_addr = a; #1;
       @(posedge clk); start <= 1; @(posedge clk); start <= 0;
-      if (!empty) mem[phys] = d;
+      if (bad_unit) bad_units = bad_units + 1;
+      else if (!empty) mem[mi] = d;
     end
   endtask
   task rd(input [31:0] a, output [31:0] d);
     begin
       cpu_addr = a; #1;
       @(posedge clk); start <= 1; @(posedge clk); start <= 0; #1;
-      d = mem[phys] | {32{empty_q}};
+      if (bad_unit) bad_units = bad_units + 1;
+      d = (bad_unit ? 32'hDEADBEEF : mem[mi]) | {32{empty_q}};
     end
   endtask
 
@@ -120,7 +143,9 @@ module tb_se30_simms;
 
   reg  [1:0] rs;
   reg [31:0] mb, d, exp_addr;
-  integer i, n, errs;
+  integer i, n, errs, plant;
+  reg [24:0] lin_exp;
+  reg [2:0]  u_exp;
 
   initial begin
     p1_size[0] = 32; p1_rs[0] = 2'd3;  p1_size[1] = 8; p1_rs[1] = 2'd2;
@@ -134,37 +159,39 @@ module tb_se30_simms;
     p2_ref[6] = 32'h01000000; p2_ref[7] = 32'h01000000;
     p2_ref[10] = 32'h04000000; p2_ref[11] = 32'h04000000; p2_ref[12] = 32'h04000000;
 
+    if (!$value$plusargs("PLANT=%d", plant)) plant = 0;
+
     // 1. 8 MB
-    for (i = 0; i < (1 << 22); i = i + 1) mem[i] = 32'h5A5A5A5A;
-    big = 0; ramsiz = 2'd3;                          // RAMSIZ undriven reads 11
+    for (i = 0; i < (1 << 24); i = i + 1) mem[i] = 32'h5A5A5A5A;
+    size = 0; ramsiz = 2'd3;                          // RAMSIZ undriven reads 11
     size_ram(rs, mb);
     $display("     8 MB: RAMSIZ %0d, %0d MB", rs, mb);
     check(rs == 2'd1, "1. 8 MB: the ROM sets RAMSIZ 01 (4 MB banks)");
     check(mb == 8,    "1. ... and finds 8 MB");
 
     // 2. 16 MB
-    for (i = 0; i < (1 << 22); i = i + 1) mem[i] = 32'h5A5A5A5A;
-    big = 1; ramsiz = 2'd3;
+    for (i = 0; i < (1 << 24); i = i + 1) mem[i] = 32'h5A5A5A5A;
+    size = 1; ramsiz = 2'd3;
     size_ram(rs, mb);
     $display("     16 MB: RAMSIZ %0d, %0d MB", rs, mb);
     check(rs == 2'd2, "2. 16 MB: the ROM sets RAMSIZ 10 (16 MB banks)");
     check(mb == 16,   "2. ... and finds 16 MB");
 
     // 3. 8 MB at RAMSIZ 01 maps as ram_addr[20:0]
-    big = 0; ramsiz = 2'd1; errs = 0; n = 0;
+    size = 0; ramsiz = 2'd1; errs = 0; n = 0;
     for (i = 2; i < 32; i = i + 1) begin
       cpu_addr = 32'h1 << i; #1; n = n + 1;
-      if (phys != {1'b0, ram_addr[20:0]} || empty) errs = errs + 1;
+      if (phys != {4'b0, ram_addr[20:0]} || empty) errs = errs + 1;
     end
     for (i = 0; i < 100000; i = i + 1) begin
       cpu_addr = $random; #1; n = n + 1;
-      if (phys != {1'b0, ram_addr[20:0]} || empty) errs = errs + 1;
+      if (phys != {4'b0, ram_addr[20:0]} || empty) errs = errs + 1;
     end
     $display("     %0d addresses, %0d differ", n, errs);
     check(errs == 0, "3. 8 MB, RAMSIZ 01: every address maps as ram_addr[20:0], never empty");
 
     // 4. 16 MB at RAMSIZ 10: bank B empty, bank A aliases at 16 MB
-    big = 1; ramsiz = 2'd2;
+    size = 1; ramsiz = 2'd2;
     wr(32'h00000100, 32'h11111111);
     wr(32'h01000100, 32'h22222222);                   // bank B: lost
     rd(32'h01000100, d);
@@ -178,7 +205,63 @@ module tb_se30_simms;
     check(!empty_q, "4. a ROM access after an empty-bank read clears the all-ones flag (one data bus)");
     wr(32'h00FFFFFC, 32'h33333333);
     rd(32'h00FFFFFC, d);
-    check(d == 32'h33333333 && phys == 22'h3FFFFF, "4. the top longword of bank A is the top of 16 MB");
+    check(d == 32'h33333333 && phys == 25'h03FFFFF, "4. the top longword of bank A is the top of 16 MB");
+
+    // 5. 32 MB: four 4 MB SIMMs in each bank
+    for (i = 0; i < (1 << 24); i = i + 1) mem[i] = 32'h5A5A5A5A;
+    size = (plant == 1) ? 2'd1 : 2'd2; ramsiz = 2'd3;
+    size_ram(rs, mb);
+    $display("     32 MB: RAMSIZ %0d, %0d MB", rs, mb);
+    check(rs == 2'd2, "5. 32 MB: the ROM sets RAMSIZ 10 (16 MB banks)");
+    check(mb == 32,   "5. ... and finds 32 MB");
+
+    // 6. 64 MB: four 16 MB SIMMs in bank A
+    for (i = 0; i < (1 << 24); i = i + 1) mem[i] = 32'h5A5A5A5A;
+    size = 3; ramsiz = 2'd3;
+    size_ram(rs, mb);
+    $display("     64 MB: RAMSIZ %0d, %0d MB", rs, mb);
+    check(rs == 2'd3, "6. 64 MB: the ROM sets RAMSIZ 11 (64 MB banks)");
+    check(mb == 64,   "6. ... and finds 64 MB");
+    check(bad_units == 0, "5-6. no sizing access left the RAM's four SDRAM units");
+
+    // 7. the SDRAM map, every configuration at the RAMSIZ its sizing leaves:
+    // phys = the RAM's linear longword with its 16 MB unit moved (0, 2, 3, 4)
+    errs = 0; n = 0;
+    for (i = 0; i < 400000; i = i + 1) begin
+      size = i % 4;
+      ramsiz = (size == 0) ? 2'd1 : (size == 3) ? 2'd3 : 2'd2;
+      cpu_addr = (i < 128) ? (32'h1 << (i % 32)) : $random;
+      cpu_addr = cpu_addr & ((size == 0) ? 32'h007FFFFF : (size == 1) ? 32'h00FFFFFF :
+                             (size == 2) ? 32'h01FFFFFF : 32'h03FFFFFF);
+      #1; n = n + 1;
+      lin_exp = cpu_addr[26:2];
+      case (lin_exp[23:22]) 2'd0: u_exp = 0; 2'd1: u_exp = 2; 2'd2: u_exp = 3; default: u_exp = 4; endcase
+      if (empty || phys != {u_exp, lin_exp[21:0]}) begin
+        errs = errs + 1;
+        if (errs <= 5) $display("     size %0d addr %h: phys %h, expected %h", size, cpu_addr, phys, {u_exp, lin_exp[21:0]});
+      end
+    end
+    $display("     %0d addresses, %0d differ", n, errs);
+    check(errs == 0, "7. every RAM address maps to its unit (0, 2, 3, 4) one to one, never empty");
+
+    // 8. the banks of 32 and 64 MB
+    size = 2; ramsiz = 2'd2;
+    wr(32'h00000200, 32'h44444444);
+    wr(32'h01000200, 32'h55555555);                   // bank B: its own
+    rd(32'h00000200, d);
+    check(d == 32'h44444444, "8. 32 MB: bank A keeps its own data");
+    rd(32'h01000200, d);
+    check(d == 32'h55555555 && phys == 25'h0800080, "8. ... and bank B its own, at SDRAM 32 MB");
+    rd(32'h03000200, d);                              // A25: above both banks
+    check(d == 32'h55555555, "8. the banks repeat above 32 MB (A25 ignored)");
+    size = 3; ramsiz = 2'd3;
+    wr(32'h04000300, 32'h66666666);
+    rd(32'h04000300, d);
+    check(d == 32'hFFFFFFFF, "8. 64 MB: bank B reads all ones");
+    wr(32'h03FFFFFC, 32'h77777777);
+    rd(32'h03FFFFFC, d);
+    check(d == 32'h77777777 && phys == 25'h13FFFFF, "8. ... the top longword of bank A is SDRAM 80 MB, on chip 1");
+    check(bad_units == 0, "8. no access left the RAM's four SDRAM units");
 
     if (fails == 0) $display("==== PASS: %0d checks", checks);
     else            $display("==== FAIL: %0d of %0d checks", fails, checks);

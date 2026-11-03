@@ -182,7 +182,9 @@ localparam CONF_STR = {
 	"-;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[9:8],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
-	"O[4],Memory,8 MB,16 MB;",
+	"h0O[11:10],Memory,8 MB,16 MB;",
+	"h1O[11:10],Memory,8 MB,16 MB,32 MB;",
+	"h2O[11:10],Memory,8 MB,16 MB,32 MB,64 MB;",
 	"O[7:6],Mouse speed,Normal,/2,/4,/8;",
 `ifdef MACIICX
 	"O[5],Power switch,Normal,Locked on;",
@@ -254,6 +256,9 @@ assign sd_rd[4:2]     = scsi_io_rd;
 assign sd_rd[5]       = pram_sd_rd;
 assign sd_wr          = {pram_sd_wr, 1'b0, scsi_io_wr[1:0], flp2_sd_wr, flp_sd_wr};   // the CD never writes
 
+wire [15:0] sdram_sz;                   // the fitted module (the memory option, below)
+wire [15:0] menumask;
+
 hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -263,6 +268,8 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 
 	.buttons(buttons),
 	.status(status),
+	.status_menumask(menumask),
+	.sdram_sz(sdram_sz),
 
 	.ps2_key(ps2_key),
 	.ps2_mouse(ps2_mouse),
@@ -374,11 +381,22 @@ always @(posedge clk_sys) begin
 	else machine_reset_n <= 1;
 end
 
-// The memory option (plan 13.4): the SIMMs change only while the machine is
-// held, as fitting them is a power-off job; the ROM sizes RAM afresh on
-// every reset (plan 13.4.1), so "Reset & Apply Memory" is enough.
-reg ram16 = 0;
-always @(posedge clk_sys) if (!machine_reset_n) ram16 <= status[4];
+// The memory option (plan 13.4, FUTURE ADDITIONS 5): the SIMMs change only
+// while the machine is held, as fitting them is a power-off job; the ROM
+// sizes RAM afresh on every reset (plan 13.4.1), so "Reset & Apply Memory"
+// is enough.  The OSD offers what the fitted module holds (hps_io's
+// sdram_sz, from Main_MiSTer: [15] set, [1:0] 1/2/3 = 32/64/128 MB): 8 and
+// 16 MB on a 32 MB module or an unknown one, 32 MB on 64 MB (the RAM's
+// second 16 MB at SDRAM 32 MB, rtl/se30_simms.v), 64 MB on 128 MB when the
+// training found its second chip clean (c1_ok: the top 16 MB live there).
+// The stored choice is clamped to that, so an old setting never selects
+// absent RAM.
+wire        c1_ok;
+wire  [1:0] mem_max = (!sdram_sz[15] || sdram_sz[1:0] < 2'd2) ? 2'd1 :
+                      (sdram_sz[1:0] == 2'd2 || !c1_ok)        ? 2'd2 : 2'd3;
+assign      menumask = {13'd0, mem_max == 2'd3, mem_max == 2'd2, mem_max == 2'd1};
+reg   [1:0] ram_size = 0;
+always @(posedge clk_sys) if (!machine_reset_n) ram_size <= (status[11:10] > mem_max) ? mem_max : status[11:10];
 
 ///////////////////////   PERSISTENT PRAM   //////////////////////
 // The RTC's 256 bytes in one sector of the SC5 image (plan 13.2, the LC
@@ -741,7 +759,7 @@ wire        sdram_ready, cap_sel;
 wire  [1:0] cap_ok;
 wire [13:0] cap_fail_a, cap_fail_b;
 wire        mem_start, mem_req, mem_we, mem_ack;
-wire [22:0] mem_addr;
+wire [24:0] mem_addr;
 wire  [3:0] mem_be;
 wire [31:0] mem_wdata, mem_rdata;
 
@@ -763,8 +781,9 @@ se30_sdram sdram
 (
 	.clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(pll_locked),
 	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
+	.c1_ok(c1_ok), .c1_fail(),
 	.cpu_start(pk_hold ? pk_start : mem_start), .cpu_req(pk_hold ? pk_req : mem_req),
-	.cpu_we(pk_hold ? pk_we : mem_we), .cpu_addr(pk_hold ? pk_addr : mem_addr),
+	.cpu_we(pk_hold ? pk_we : mem_we), .cpu_addr(pk_hold ? {2'b00, pk_addr} : mem_addr),
 	.cpu_be(pk_hold ? pk_be : mem_be), .cpu_wdata(pk_hold ? pk_wdata : mem_wdata),
 	.cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
@@ -821,7 +840,7 @@ se30_mouse_speed mouse_speed (.clk(clk_sys), .speed(status[7:6]), .ps2_in(ps2_mo
 
 se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
 (
-	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram16(ram16),
+	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram_size(ram_size),
 	.mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
 	.mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
 	.declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),

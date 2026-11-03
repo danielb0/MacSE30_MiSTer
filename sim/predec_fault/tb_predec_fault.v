@@ -127,11 +127,12 @@ module tb_predec_fault;
     .overlay(1'b0), .ramsiz(ramsiz), .hsync_n(hsync_n));
 
   // the SIMMs: four 4 MB in bank A, bank B empty (se30_simms, big = 1)
-  wire [21:0] ram_phys;
+  wire [24:0] ram_phys_sdram;                // se30_simms' SDRAM address; 16 MB is its unit 0
+  wire [21:0] ram_phys = ram_phys_sdram[21:0];
   wire        ram_empty, ram_empty_q;
   se30_simms simms (
-    .clk(clk), .big(1'b1), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(ecs && mem_early), .sel(!rom_early),
-    .phys(ram_phys), .empty(ram_empty), .empty_q(ram_empty_q));
+    .clk(clk), .size(2'd1), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(ecs && mem_early), .sel(!rom_early),
+    .phys(ram_phys_sdram), .empty(ram_empty), .empty_q(ram_empty_q));
 
   integer px = 0;
   always @(posedge clk) if (phi1) begin
@@ -163,7 +164,7 @@ module tb_predec_fault;
   se30_sdram #(.TR_READS_LOG2(5)) sdram (
     .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(sdram_reset_n),
     .ready(sd_ready), .cap_sel(sd_cap_sel), .cap_ok(sd_cap_ok),
-    .cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
+    .cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr({2'b00, mem_addr}),
     .cpu_be(ram_be), .cpu_wdata(ram_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
     .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),
     .dk_req(1'b0), .dk_we(1'b0), .dk_addr(24'd0), .dk_wdata(16'd0), .dk_rdata(), .dk_ack(),

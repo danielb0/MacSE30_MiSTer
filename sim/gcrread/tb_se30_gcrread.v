@@ -348,7 +348,7 @@ module tb_se30_gcrread;
   se30_sdram #(.TR_READS_LOG2(5)) sdram (
     .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(reset_n),
     .ready(sd_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(), .cap_fail_b(),
-    .cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr(mem_addr),
+    .cpu_start(mem_start), .cpu_req(mem_req), .cpu_we(mem_we), .cpu_addr({2'b00, mem_addr}),
     .cpu_be(ram_be), .cpu_wdata(ram_wdata), .cpu_rdata(mem_rdata), .cpu_ack(mem_ack),
     .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),
     .dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),

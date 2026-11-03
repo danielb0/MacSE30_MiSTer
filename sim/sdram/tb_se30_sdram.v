@@ -49,6 +49,12 @@
 //        with byte enables land by lane and read back, through itself and
 //        as the CPU's longwords; alongside back-to-back CPU cycles it waits
 //        for the window after a start and no CPU cycle is late
+//    14. the larger modules (FUTURE ADDITIONS 5; MODULE_MB = 64 or 128):
+//        word bit 24 is the chip's tenth column, a longword there lands
+//        apart from its 32 MB alias; on 128 MB word bit 25 is the second
+//        chip (nCS inverted into it), which the ladder and every refresh
+//        reach, whose datasheet intervals hold, and which the training
+//        judges clean (c1_ok); on 32 and 64 MB c1_ok is 0 (nothing answers)
 //    12. the disk port (plan 5.12.5): words written land and read back
 //        as the CPU's longwords, words read (even and odd) are the CPU's;
 //        alongside back-to-back CPU cycles it makes progress and no CPU
@@ -116,16 +122,19 @@ module tb_se30_sdram;
   parameter       EXPECT_OK  = 2'b11;               // the training's expected {A, B} verdict for these delays
   parameter       EXPECT_SEL = 0;                   // and its expected choice, 0 = A
   parameter       TRAIN_ONLY = 0;                   // 1: stop after the training checks
+  parameter       MODULE_MB  = 32;                  // 32, 64 (one 1024-column chip) or 128 (two, nCS inverted into the second)
+  localparam      COLS       = (MODULE_MB == 32) ? 9 : 10;
 
   // --------------------------------------------------------------- DUT
   reg         cpu_start = 0, cpu_req = 0, cpu_we = 0;
-  reg  [22:0] cpu_addr = 0;
+  reg  [24:0] cpu_addr = 0;
   reg   [3:0] cpu_be = 4'hF;
   reg  [31:0] cpu_wdata = 0;
   wire [31:0] cpu_rdata;
   wire        cpu_ack, ready, cap_sel;
   wire  [1:0] cap_ok;
-  wire [13:0] cap_fail_a, cap_fail_b;
+  wire [13:0] cap_fail_a, cap_fail_b, c1_fail;
+  wire        c1_ok;
   reg         dl_req = 0;
   reg  [23:0] dl_addr = 0;
   reg  [15:0] dl_data = 0;
@@ -148,6 +157,7 @@ module tb_se30_sdram;
   se30_sdram #(.TR_READS_LOG2(5)) dut (                 // 32 reads per capture here; 65,536 on the board
     .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(reset_n),
     .ready(ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
+    .c1_ok(c1_ok), .c1_fail(c1_fail),
     .cpu_start(cpu_start), .cpu_req(cpu_req), .cpu_we(cpu_we), .cpu_addr(cpu_addr),
     .cpu_be(cpu_be), .cpu_wdata(cpu_wdata), .cpu_rdata(cpu_rdata), .cpu_ack(cpu_ack),
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
@@ -174,19 +184,30 @@ module tb_se30_sdram;
   assign dq_chip = oe_c ? dq_out_c : 16'hzzzz;
   assign #(DQ_TO_REG) sd_dq = dut.dq_oe ? 16'hzzzz : dq_chip;
 
-  sdram_model chip (
+  sdram_model #(.COL_BITS(COLS)) chip (
     .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
     // the chip's DQM is the A12/A11 traces, as on the MiSTer modules (the
     // controller header's THE MASK); dqm_c, the FPGA's DQM pins, reaches nothing
     .ba(ba_c), .addr(addr_c), .dqm(addr_c[12:11]), .dq(dq_chip));
+  // a 128 MB module's second chip: nCS inverted into it (the controller's
+  // THE SECOND CHIP); on the smaller modules nothing is there
+  wire        cs1_n_c = (MODULE_MB == 128) ? !cs_n_c : 1'b1;
+  sdram_model #(.COL_BITS(10)) chip1 (
+    .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs1_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
+    .ba(ba_c), .addr(addr_c), .dqm(addr_c[12:11]), .dq(dq_chip));
+  // a word address's place in a chip's array: {bank, row, column}, the
+  // tenth column bit from word bit 24 on the 1024-column chips
+  function [24:0] midx(input [25:0] w);
+    midx = (COLS == 9) ? {1'b0, w[23:0]} : {w[23:22], w[21:9], w[24], w[8:0]};
+  endfunction
 
   // ------------------------------------------------- bus contention
   // Plan 1.17.5 item 6: our output enable may stay on for a write's whole
   // access, so it must never overlap the chip driving read data (or its
   // tOH/tHZ tail) at the chip's pins.
   integer clashes = 0;
-  always @(oe_c or chip.dq_drv)
-    if (oe_c === 1'b1 && chip.dq_drv !== 16'hzzzz) begin
+  always @(oe_c or chip.dq_drv or chip1.dq_drv)
+    if (oe_c === 1'b1 && (chip.dq_drv !== 16'hzzzz || chip1.dq_drv !== 16'hzzzz)) begin
       clashes = clashes + 1;
       if (clashes <= 5) $display("CLASH: our DQ driver on while the chip drives, t=%0t", $time);
     end
@@ -204,7 +225,7 @@ module tb_se30_sdram;
   // ack_at: the C16M edge from S0 at which the acknowledge was first seen
   // by a GLUE sampling from edge 2; 99 = never (20 clocks).
   integer bus_cycles = 0, acks_late = 0;
-  task bus_cycle(input we, input [22:0] a, input [3:0] be, input [31:0] wd,
+  task bus_cycle(input we, input [24:0] a, input [3:0] be, input [31:0] wd,
                  input abort, input integer req_delay,
                  output [31:0] rd, output integer ack_at);
     integer e;                                      // clk_sys edges since S0
@@ -232,11 +253,11 @@ module tb_se30_sdram;
       end
     end
   endtask
-  task cpu_write(input [22:0] a, input [3:0] be, input [31:0] wd, output integer ack_at);
+  task cpu_write(input [24:0] a, input [3:0] be, input [31:0] wd, output integer ack_at);
     reg [31:0] dummy;
     begin bus_cycle(1, a, be, wd, 0, 0, dummy, ack_at); end
   endtask
-  task cpu_read(input [22:0] a, output [31:0] rd, output integer ack_at);
+  task cpu_read(input [24:0] a, output [31:0] rd, output integer ack_at);
     begin bus_cycle(0, a, 4'hF, 32'h0, 0, 0, rd, ack_at); end
   endtask
 
@@ -258,7 +279,7 @@ module tb_se30_sdram;
   endfunction
   // a read shaped as the JTAG peek's (MacSE30.sv): start for one clk_sys,
   // the request from the next, the acknowledge sampled every clk_sys
-  task peek_read(input [22:0] a, output [31:0] rd);
+  task peek_read(input [24:0] a, output [31:0] rd);
     begin
       @(posedge clk_sys); #1 cpu_addr = a; cpu_we = 0; cpu_be = 4'hF; cpu_start = 1;
       @(posedge clk_sys); #1 cpu_start = 0; cpu_req = 1;
@@ -299,7 +320,7 @@ module tb_se30_sdram;
     if (!((dut.since_start >= 11 && dut.since_start <= 16) || dut.since_start == 63 || dut.since_start == 0))
       vr_out_of_window = vr_out_of_window + 1;
   end
-  task vr_op(input we, input [22:0] a, input [3:0] be, input [31:0] d, output [31:0] q);
+  task vr_op(input we, input [24:0] a, input [3:0] be, input [31:0] d, output [31:0] q);
     begin
       @(posedge clk_sys); #1 vr_addr = a; vr_we = we; vr_be = be; vr_wdata = d; vr_req = 1;
       @(posedge clk_sys); #1;
@@ -360,7 +381,15 @@ module tb_se30_sdram;
     check(t_ready > 200000.0 && t_ready < 260000.0, "ready after the 200 us pause, the ladder and the training");
     check(chip.refreshes == 8, "eight refreshes in the ladder");
     check(chip.errors == 0, "the ladder and the training are accepted by the model");
-    check(chip.mem[24'hFFFFFE] == 16'hA5C3 && chip.mem[24'hFFFFFF] == 16'h5A3C, "the training wrote its pair to the top two words");
+    check(chip.mem[midx(26'hFFFFFE)] == 16'hA5C3 && chip.mem[midx(26'hFFFFFF)] == 16'h5A3C, "the training wrote its pair to the top two words");
+    if (MODULE_MB == 128) begin
+      check(chip1.refreshes == 8, "the second chip: eight refreshes in the ladder");
+      check(chip1.errors == 0, "the second chip: its ladder and training accepted by the model");
+      check(chip1.mem[midx(26'h2FFFFFE)] == 16'hA5C3 && chip1.mem[midx(26'h2FFFFFF)] == 16'h5A3C,
+            "the second chip: the training wrote its pair there");
+      check(c1_ok && c1_fail == 0, "the second chip judged clean through the chosen capture");
+    end else
+      check(!c1_ok && c1_fail == 32, "no second chip: every one of its reads failed, c1_ok 0");
     check(cap_ok == EXPECT_OK, "the training's verdict is what these delays call for");
     check(cap_sel == EXPECT_SEL, "and its choice");
     check(clashes == 0, "our DQ driver never overlaps the chip's (the training)");
@@ -374,6 +403,7 @@ module tb_se30_sdram;
       $finish;
     end
     cpu_read(23'h7FFFFF, rd, ack);
+    if (rd !== 32'hA5C35A3C || ack != 2) $display("      first read: %08x ack %0d", rd, ack);
     check(rd == 32'hA5C35A3C && ack == 2, "the first CPU read returns the training's pair through the capture chosen");
 
     // 2. writes and reads at the contract's latency
@@ -688,6 +718,37 @@ module tb_se30_sdram;
     check(vr_out_of_window == 0, "every VRAM ACTIVE in the window after a start (10-15) or on an idle bus");
     $display("      80 VRAM longwords in %0d CPU cycles; %0d VRAM ACTIVEs", n_cpu, vr_issues);
 
+    // 14. the larger modules
+    if (MODULE_MB >= 64) begin
+      $display("---- the tenth column%s", (MODULE_MB == 128) ? " and the second chip" : "");
+      cpu_write(25'h0006010, 4'hF, 32'h13579BDF, ack);                // its 32 MB alias
+      cpu_write(25'h0806010, 4'hF, 32'h2468ACE0, ack);                // word bit 24: column A9
+      check(ack == 2, "a write above 32 MB acknowledged at two C16M");
+      cpu_read(25'h0006010, rd, ack);
+      cpu_read(25'h0806010, rd2, ack);
+      check(rd == 32'h13579BDF && rd2 == 32'h2468ACE0 && ack == 2, "word bit 24 is a column of its own: no alias at 32 MB");
+      check(chip.mem[midx(26'h100C020)] == 16'h2468 && chip.mem[midx(26'h100C021)] == 16'hACE0,
+            "and it is the chip's tenth column (A9)");
+      if (MODULE_MB == 128) begin
+        cpu_write(25'h1806010, 4'hF, 32'hFEEDFACE, ack);              // word bit 25: the second chip
+        cpu_read(25'h1806010, rd, ack);
+        check(rd == 32'hFEEDFACE && ack == 2, "the second chip: a longword lands and reads back at two C16M");
+        cpu_read(25'h0806010, rd2, ack);
+        check(rd2 == 32'h2468ACE0, "and the first chip's word at the same row and column is untouched");
+        check(chip1.mem[midx(26'h100C020)] == 16'hFEED && chip1.mem[midx(26'h100C021)] == 16'hFACE,
+              "it is in the second chip's array");
+        chip.max_ref_gap = 0.0; chip1.max_ref_gap = 0.0; kd = chip1.refreshes;
+        cycles_before = bus_cycles; acks_before = acks_late;
+        for (k = 0; k < 2000; k = k + 1) begin
+          if (k[0]) cpu_read(25'h1806010, rd, ack); else cpu_read(25'h0006010, rd2, ack);
+        end
+        check(acks_late == acks_before, "back-to-back cycles to both chips acknowledged at two C16M, refresh included");
+        check(chip1.refreshes > kd && chip1.max_ref_gap > 0.0 && chip1.max_ref_gap <= 7812.5,
+              "the second chip refreshed inside every 7.8125 us");
+        check(chip1.errors == 0, "the second chip: no datasheet violation");
+      end
+    end
+
     // 11. the model's verdict
     check(chip.errors == 0, "no datasheet violation in the whole run");
     check(clashes == 0, "our DQ driver never overlaps the chip's (the whole run)");
@@ -702,7 +763,7 @@ module tb_se30_sdram;
   end
 
   initial begin
-    #2000000;                                                        // 2 ms
+    #3000000;                                                        // 3 ms
     $display("==== FAIL: timeout");
     $finish;
   end

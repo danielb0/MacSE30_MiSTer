@@ -104,11 +104,12 @@ module tb_mmu16;
     .overlay(1'b0), .ramsiz(ramsiz), .hsync_n(hsync_n));
 
   // the SIMMs: four 4 MB in bank A, bank B empty (se30_simms, big = 1)
-  wire [21:0] ram_phys;
+  wire [24:0] ram_phys_sdram;                // se30_simms' SDRAM address; 16 MB is its unit 0
+  wire [21:0] ram_phys = ram_phys_sdram[21:0];
   wire        ram_empty, ram_empty_q;
   se30_simms simms (
-    .clk(clk), .big(1'b1), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(ecs && mem_early), .sel(!rom_early),
-    .phys(ram_phys), .empty(ram_empty), .empty_q(ram_empty_q));
+    .clk(clk), .size(2'd1), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(ecs && mem_early), .sel(!rom_early),
+    .phys(ram_phys_sdram), .empty(ram_empty), .empty_q(ram_empty_q));
 
   integer px = 0;
   always @(posedge clk) if (phi1) begin

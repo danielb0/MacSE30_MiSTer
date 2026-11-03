@@ -5,7 +5,8 @@
 //
 // WHAT IT MODELS
 //   4 banks x 8192 rows x 512 columns x 16 bits (the geometry every MiSTer
-//   module presents), the command set, the mode register (CAS latency 2 or
+//   module presents; COL_BITS = 10 makes it a 64 MB chip's 1024 columns,
+//   A9 the tenth column bit, AS4C32M16SB 1.4), the command set, the mode register (CAS latency 2 or
 //   3, burst length 1/2/4/8 sequential, write burst or single), auto
 //   precharge on reads and writes, DQM on writes (no latency) and reads
 //   (two clocks), and the data pins driven with the datasheet's tAC after
@@ -50,9 +51,11 @@ module sdram_model (
   localparam real tINIT = 200000.0;     // 200 us
   localparam real tSLOP = 0.01;         // rounding on the comparisons
   parameter  real tCK   = 10.638;       // the controller's clock, for the auto-precharge tRAS check
+  parameter COL_BITS    = 9;            // 9: 32 MB (512 columns); 10: 64 MB (1024)
+  localparam AW         = 15 + COL_BITS;  // {bank, row, column}
 
   // ------------------------------------------------------ the array
-  reg [15:0] mem [0:(1<<24)-1];        // {bank, row[12:0], col[8:0]}
+  reg [15:0] mem [0:(1<<AW)-1];        // {bank, row[12:0], col}
   parameter PRELOAD_HEX  = "";         // an image to load before the run (the ROM, for the machine bench)
   parameter PRELOAD_WORD = 0;          // at this word address
   // What a never-written word reads as: 0 = X (the default; the SDRAM bench
@@ -61,10 +64,11 @@ module sdram_model (
   // are (plan 3.8 item 23: the machine bench ended with D6 = X, the ROM
   // having branched on unwritten RAM, where the board reads real bits).
   parameter FILL_UNWRITTEN = 0;
-  function [7:0] fill_byte(input [23:0] a, input hi);
-    reg [31:0] h;
+  function [7:0] fill_byte(input [AW-1:0] a, input hi);
+    reg [31:0] h, ah;
     begin
-      h = ({a, 7'd0, hi} ^ 32'h5BD1E995) * 32'h9E3779B1;
+      ah = a >> 24;                              // 0 on a 9-column chip: the values as before
+      h = ({a[23:0], 7'd0, hi} ^ 32'h5BD1E995 ^ (ah << 24)) * 32'h9E3779B1;
       fill_byte = h[31:24] ^ h[15:8];
     end
   endfunction
@@ -92,7 +96,7 @@ module sdram_model (
   // --------------------------------------------------- read pipeline
   // a word due on the k-th edge after this one: valid flag, address
   reg        rd_v [0:7];
-  reg [23:0] rd_a [0:7];
+  reg [AW-1:0] rd_a [0:7];
   reg        rd_pre_v [0:7];           // the auto precharge due after the last word
   reg  [1:0] rd_pre_b [0:7];
   reg  [1:0] dqm_hist [0:1];           // read DQM: two clocks of latency
@@ -100,7 +104,7 @@ module sdram_model (
 
   // ---------------------------------------------------- write burst
   integer    wr_left;                  // beats still to take
-  reg [23:0] wr_a;
+  reg [AW-1:0] wr_a;
   reg  [1:0] wr_bank;
   reg        wr_ap;
 
@@ -112,16 +116,14 @@ module sdram_model (
     begin errors = errors + 1; $display("SDRAM MODEL ERROR t=%0t: %0s", $time, what); end
   endtask
 
-  function [23:0] burst_col(input [23:0] a, input integer k);
+  function [AW-1:0] burst_col(input [AW-1:0] a, input integer k);
     // sequential burst: the low log2(bl) column bits count, wrapping
-    reg [8:0] c;
     begin
-      c = a[8:0];
       case (bl)
         1: burst_col = a;
-        2: burst_col = {a[23:9], c[8:1], c[0] + k[0]};
-        4: burst_col = {a[23:9], c[8:2], c[1:0] + k[1:0]};
-        default: burst_col = {a[23:9], c[8:3], c[2:0] + k[2:0]};
+        2: burst_col = {a[AW-1:1], a[0] + k[0]};
+        4: burst_col = {a[AW-1:2], a[1:0] + k[1:0]};
+        default: burst_col = {a[AW-1:3], a[2:0] + k[2:0]};
       endcase
     end
   endfunction
@@ -221,7 +223,7 @@ module sdram_model (
         // built to the late model captured the burst's second word first.
         for (i = 0; i < bl; i = i + 1) begin
           rd_v[cl + i - 2] = 1;                                   // launched cl - 1 edges after this one, valid at cl
-          rd_a[cl + i - 2] = burst_col({ba, row_r[ba], addr[8:0]}, i);
+          rd_a[cl + i - 2] = burst_col({ba, row_r[ba], addr[COL_BITS-1:0]}, i);
         end
         if (addr[10]) begin                                       // auto precharge after the last word
           rd_pre_v[cl + bl - 2] = 1; rd_pre_b[cl + bl - 2] = ba;
@@ -232,7 +234,7 @@ module sdram_model (
       3'b100: begin                                               // WRITE: this edge's data is the first beat
         if (!open_r[ba]) err("WRITE on a closed bank");
         if (now - t_act[ba] < tRCD - tSLOP) err("WRITE before tRCD");
-        wr_a = {ba, row_r[ba], addr[8:0]}; wr_bank = ba; wr_ap = addr[10];
+        wr_a = {ba, row_r[ba], addr[COL_BITS-1:0]}; wr_bank = ba; wr_ap = addr[10];
         if (!dqm[1]) mem[wr_a][15:8] = dq[15:8];
         if (!dqm[0]) mem[wr_a][7:0]  = dq[7:0];
         wr_left = (wbl_single ? 1 : bl) - 1;

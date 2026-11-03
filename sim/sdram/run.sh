@@ -2,9 +2,10 @@
 # Run tb_se30_sdram under Icarus Verilog.  See the header of tb_se30_sdram.v
 # for what it proves.  IVERILOG: the iverilog bin directory.
 #
-# Five runs: the full bench at the default pin delays (both captures inside
+# Six runs: the full bench at the default pin delays (both captures inside
 # the eye, A chosen), then the training alone at three settings that move
-# the read-data eye (the bench's header): only B inside, only A, neither.
+# the read-data eye (the bench's header): only B inside, only A, neither;
+# then the full bench on a 64 MB and a 128 MB module.
 # Exit status is the verdict: 0 when every run prints "==== PASS".
 set -u
 cd "$(dirname "$0")"
@@ -24,5 +25,15 @@ for cfg in "1.0 0.0 1 1 only-B" "4.0 3.5 2 0 only-A" "5.0 4.5 0 0 neither"; do
   echo "---- training with the eye moved: $5"
   "$IVERILOG/vvp.exe" -n out/tb_train.vvp | tee -a run.log | grep -E '^(FAIL|====|      ready)'
   grep -q "^==== PASS" <("$IVERILOG/vvp.exe" -n out/tb_train.vvp) || ok=1
+done
+# the larger modules (FUTURE ADDITIONS 5): one 1024-column chip, then two
+# with nCS inverted into the second - the whole bench, default delays
+for mb in 64 128; do
+  "$IVERILOG/iverilog.exe" -g2005-sv -DSIMULATION -o out/tb_mod.vvp -P tb_se30_sdram.MODULE_MB=$mb     tb_se30_sdram.v sdram_model.v ../../rtl/se30_sdram.v || exit 1
+  echo "---- a $mb MB module"
+  "$IVERILOG/vvp.exe" -n out/tb_mod.vvp > out/mod_$mb.log
+  cat out/mod_$mb.log >> run.log
+  grep -E '^(FAIL|====)' out/mod_$mb.log
+  grep -q "^==== PASS" out/mod_$mb.log || ok=1
 done
 exit $ok
