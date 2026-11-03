@@ -21501,7 +21501,9 @@ Daniel - add to it, move items out when fixed).**
     System 7.5.5", 65,531 blocks of 16 KB, 49,018 free; 4,273 files, 557
     folders, 557 folder threads, 12 file threads; 16,513 blocks in use =
     the bitmap's; **PROBLEMS: 0**. Daniel backed the image up - the
-    reference copy.
+    reference copy. **SE/30 too (2026-11-03, Daniel, release 20261102): the
+    same disk, CodeWarrior "works fine"** - its colour requirement is Color
+    QuickDraw, which the SE/30's ROM has (the 1-bit screen notwithstanding).
 
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
