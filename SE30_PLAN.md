@@ -17101,7 +17101,7 @@ status and where each was decided. Test tooling is not listed here.
 | 2 | **CD audio** | **nice to have** (Daniel, 2026-10-07): does not fit beside the MVP - about 3,000 ALMs (the LC's block measured 2,986) against ~400 free in the release, and CUE/BIN images need Main_MiSTer's support | MVP and upgrades, above |
 | 3 | **128 MB RAM** (a forum request for the IIcx, 2026-10-29: 32, 64 and 128 MB under MODE32) | **BACK ON THE ROADMAP (Daniel, 2026-10-29: "Let's put 128MB back on the roadmap. People do like silly stuff like that")**, after the release, with item 5. Authentic: the IIcx's eight SIMM slots reach 128 MB with 16 MB SIMMs (available years after 1989, at several thousand dollars). Route: ONE 128 MB SDRAM module, all of it Mac RAM - move what else the core keeps in SDRAM (the ROM image, loaded at byte 24 MB; the IIcx card's off-screen VRAM pages) out, e.g. into the HPS DDR3 (slower; the 68030's caches hide most of it for ROM code - measure against the paced timing first). Not a second SDRAM module (few users have the I/O board for it). Was DROPPED 2026-10-24 ("I don't think we will go above 64MB"). | MVP and upgrades; 3.7 |
 | 4 | **A colour video card** in the PDS pseudo-slots `$9`-`$B`, an OSD option; the card, and one output or two screens, open. **Build it as a self-contained slot device, shared with item 8** (the IIcx puts the same card in a NuBus slot) | **nice to have** (Daniel, 2026-10-07): does not fit beside the MVP. **Measured proxy (2026-10-09, the LC core's fit report):** its colour video is V8 timing and scanout 655 ALMs + RAMDAC/CLUT 72 (2 M10K) + VRAM glue 185 with the screen in block RAM (384 M10K), + a reconfigurable video PLL 570 that one fixed mode (640 x 480, 67 Hz) does not need: **~1,000-1,100 ALMs** with the slot interface and declaration ROM. 640 x 480 x 8 = ~300 M10K; beside the mono screen only 191 are free (release 362/553), so this option is 4-bit in block RAM, or the screen in SDRAM (a burst video port, ~18 MB/s) | MVP and upgrades |
-| 5 | **32 and 64 MB RAM**: the SDRAM controller learning the 64 MB modules, the OSD offering only what the fitted module holds | later, a separate decision (Daniel, 2026-10-07); 32 MB needs a 64 MB module, 64 MB a 128 MB module (the ROM image sits above the RAM); 128 MB is item 3 (back on the roadmap 2026-10-29). **The OSD offers only what the module holds** (Daniel, 2026-10-29): hps_io's `sdram_sz` (sys/hps_io.sv:159-161: [15] set, [1:0] 1/2/3 = 32/64/128 MB, from Main_MiSTer - known once Memtest or the user has set it) drives `status_menumask`; one Memory line per module size, the others hidden (H/h prefixes - a list cannot grey single values); the RTL clamps the stored choice to the module, so an old setting never selects absent RAM. Unset [15]: offer 8/16 MB only, or probe aliasing at reset before the CPU runs (decide then) | Section 13 |
+| 5 | **32 and 64 MB RAM** - **BUILT 2026-11-03, plan 13.6; the SE/30 compiled (`MacSE30_405ff4cb_ram64.rbf`), awaiting the board** (Daniel: the SE/30 first, then the IIcx): the SDRAM controller learning the 64 MB modules, the OSD offering only what the fitted module holds | later, a separate decision (Daniel, 2026-10-07); 32 MB needs a 64 MB module, 64 MB a 128 MB module (the ROM image sits above the RAM); 128 MB is item 3 (back on the roadmap 2026-10-29). **The OSD offers only what the module holds** (Daniel, 2026-10-29): hps_io's `sdram_sz` (sys/hps_io.sv:159-161: [15] set, [1:0] 1/2/3 = 32/64/128 MB, from Main_MiSTer - known once Memtest or the user has set it) drives `status_menumask`; one Memory line per module size, the others hidden (H/h prefixes - a list cannot grey single values); the RTL clamps the stored choice to the module, so an old setting never selects absent RAM. Unset [15]: offer 8/16 MB only, or probe aliasing at reset before the CPU runs (decide then) | Section 13 |
 | 6 | **A/UX** | long-term compatibility target (Daniel, 2026-10-07); **first run 2026-10-13: the kernel boots, disk writes abort - KNOWN ISSUES 17** | FUTURE BOARD TESTS item 9 |
 | 7 | **The second (external) floppy drive**: built (compile 25), out of the builds since compile 37 for space | **probably never** (Daniel, 2026-10-09: "we're probably never going to restore the second drive"); `sim/gcrread` now exercises one drive, `+twodrives` keeps the old run | MVP and upgrades; 5.14 |
 | 8 | **A Macintosh IIcx build**, a compile option of this core: the SE/30's ROM ($97221136), CPU, 68882, GLUE, VIAs, SCC, SCSI, SWIM, ASC, ADB and RTC unchanged; the mono pseudo-slot video out; NuBus slots with item 4's colour card; the machine's ID bits for a IIcx (which VIA lines: from the *Guide*); soft power (Shut Down stops or resets the core). Build options already exist (`SE30_EXT_DRIVE`, CD-ROM, PBER) | **STARTED 2026-10-09 (Daniel: "we should start working on the Mac IIcx/ci variant"); the IIcx first. **The IIcx is to be finished (Daniel, 2026-10-09: "definitely finish the cx. It's cheap, and there are no other colour 68030 models"); **after it, NO MORE MAC MODELS (Daniel, 2026-10-09).** His tests: a model must be properly emulated (authentic speed on the DE10-Nano) and distinguishable by the user. Reviewed that day against the MiSTer core list (Apple I, II+/IIe, IIgs, Lisa, MacPlus, LC, SE/30; danifunker's Quadra 800 and IIvi; his Power Mac, expected at about half speed): Mac II/IIx = a IIcx to the user; Classic II, Color Classic, LC II/III = the SE/30 and LC cores; IIci and PowerBook 140/170 = faster or portable SE/30/IIcx-class machines; Centris/Quadra = the Quadra 800 core; IIfx (40 MHz) and the Power Macs cannot run at authentic speed; the Portable/PowerBook 100 = the MacPlus core's 16 MHz mode with another screen (Daniel). The Lisa (Macintosh XL) has its own core.** **The IIci is OPEN, LOW PRIORITY** (Daniel, 2026-10-09: "Leave it open but low priority. I doubt there's much point to it." - to the user a IIci is a faster IIcx with more RAM: Low End Mac's real machines, Speedometer 4.02 8-bit, IIci CPU 0.38 / Graphics 0.39 / Math 1.25 (0.40 / 0.46 / 1.37 with the 32 KB cache card) against the IIcx's 0.26 / 0.25 / 0.96, the same 640 x 480 x 8-bit screen; the Quadra 800 core already offers a fast colour Mac. Earlier: "leave it open" - my proposal to follow with it was never his decision; his test: no point in cores the user cannot tell apart). It is a new machine on the same parts: ROM $368CADFE, MDU decode, RBV video and VIA2, 25 MHz.** **Packaging decided (Daniel, 2026-10-09): one repository, a second Quartus project** - `MacIIcx.qpf/.qsf/.srf` beside `MacSE30.*` sharing `rtl/` and `sys/`, a define switching the differences; `releases/MacIIcx_<date>.rbf` beside `MacSE30_<date>.rbf`; a second wiki Cores row `| [Apple Macintosh IIcx](https://github.com/MiSTer-devel/MacSE30_MiSTer) |MACIICX| Yes | |` (the distribution takes, per row, the rbfs whose names contain that row's home, so the two names must not contain each other; undated `releases/` files go to both games folders). Precedent: MiSTer-devel/Atari800_MiSTer (Atari800 + Atari5200) and Daniel's UK101 core. Was: planned, after the SE/30's release (Daniel, 2026-10-09: "we will attempt it, maybe when the SE/30 is released"). Fit estimate: release 37,372 - mono video 91 + card ~1,000-1,100 = **~38,300-38,400 ALMs, at the ~38.3k ceiling**; M10K: the mono screen's 136 freed leaves ~327, an 8-bit 640 x 480 screen (~300) plus CLUT and declaration ROM fits in block RAM, barely. Levers if over: CD-ROM (776), floppy writing (~1,100), the CPU/FPU audit. Chosen over a IIvi: the IIvi (VASP, Egret, 1 MB ROM, 0.5-1 MB VRAM) is a different chipset; the MacIIvi_MiSTer core stalled at 93-98 % ALMs and 98 % M10K without an FPU, its peripherals the LC's (SCSI 7,988 against our 1,731, Egret 2,256, Ethernet 888), timing hunted by seed, Speedometer CPU 3.95x slower than a real Performa 600 | here |
@@ -22919,6 +22919,11 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     to a shell. Pass: boot to a shell, compile something, a few hours of
     load without a kernel oops. A later 64 MB build (FUTURE ADDITIONS 5)
     would use the same guests.
+17. **32 and 64 MB on the smaller SDRAM modules** (2026-11-03, plan
+    13.6.7; Daniel has only a 128 MB module): a tester with a 32 MB module
+    - the OSD shows 8/16 MB, both boot as before; with a 64 MB module - the
+    OSD shows 8/16/32 MB, 32 MB gives 32,768K. Before the release that
+    carries FUTURE ADDITIONS 5.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
@@ -24490,6 +24495,127 @@ empty-bank question, open since 2026-09-27.
     **booted in 32-bit mode = Yes** (the switch kept by PRAM); MC68030 at
     16 MHz with the instruction and data caches enabled; MC68882,
     hardware FPU = Yes.
+
+## 13.6 32 and 64 MB (FUTURE ADDITIONS 5, 2026-11-03)
+
+Daniel, 2026-11-03: "let's make a build with 32MB and 64MB memory options.
+I think we'll ignore 128MB for now"; the SE/30 first, board-tested, then
+the IIcx (its capture phases differ, it is the core near the ceiling).
+
+### 13.6.1 The SIMMs, by the ROM's own walk (13.4.1)
+
+| option | SIMMs | phase 1 | phase 2 stops at | found |
+|---|---|---|---|---|
+| 32 MB | 4 x 4 MB in both banks | (32, 11) aliases onto 0, (8, 10) passes: RAMSIZ 10 | 32 (aliases onto 0) | 32 MB |
+| 64 MB | 4 x 16 MB in bank A, bank B empty | (32, 11) passes: RAMSIZ 11 | 64 (bank B, empty, reads ones) | 64 MB |
+
+Both are boards a real SE/30 or IIcx could carry (16 MB 30-pin SIMMs;
+FUTURE ADDITIONS 3). GLUE is unchanged: it already decodes RAMSIZ 11 and a
+25-bit longword address. `rtl/se30_simms.v`: `size` 0-3; the RAM as one
+linear longword address per configuration, then its 16 MB units moved.
+
+### 13.6.2 The SDRAM map
+
+The system region stays at 16-32 MB (the floppy image at 16 MB, the IIcx
+card's VRAM at 20 MB, the ROM at 24 MB, the training pair at the top), so
+nothing moves when the option changes and the ROM download is untouched.
+The RAM's 16 MB units go to SDRAM 0, 32, 48 and 64 MB:
+- 8 and 16 MB: unit 0, every address as before (sim/simms check 3);
+- 32 MB: 48 MB of a 64 MB module;
+- 64 MB: 80 MB of a 128 MB module, the top 16 MB on its second chip.
+
+### 13.6.3 The controller (`rtl/se30_sdram.v`, THE SECOND CHIP)
+
+- Word bit 24 = A9, a 64 MB chip's tenth column (AS4C32M16SB 1.4: 1024
+  columns); below word $1000000 every address maps as before.
+- Word bit 25 = the nCS level: a 128 MB module (2 x AS4C32M16SB) inverts
+  nCS into its second chip (cross-checks: the PSX core's `SDRAM_nCS =
+  chip`, the IIvi core's controller). INHIBIT (1111) is a NOP to chip 1.
+- The ladder (PRECHARGE ALL, eight AUTO REFRESH, LOAD MODE) and every
+  refresh go to both chips, chip 1 a clock after chip 0 (`c1_dup`); a
+  refresh holds the chip REF_BUSY + 1, so the refresh window closes at 15
+  (was 17; the bench's 100 us back-to-back run found 16 one clock late).
+  The training's stale `ref_due` is cleared at its end (the first read
+  after it was a C16M late).
+- The training's third pass: the pair written to chip 1 and read 65,536
+  times through the capture chosen on chip 0 (one capture clock serves
+  both); `c1_ok` = every read returned the pair. ~7 ms more at power-up.
+- Only the CPU port is wider; the download, disk, VRAM and raw ports stay
+  below 32 MB.
+
+### 13.6.4 The OSD (`MacSE30.sv`)
+
+`O[11:10],Memory` (bit 5 is the IIcx's power switch, so bit 4 could not
+grow; a core set to 16 MB before starts at 8 MB once - README). One line
+per module, chosen by `status_menumask` from hps_io's `sdram_sz`
+(Main_MiSTer's shared-memory record of the module type, user_io.cpp
+sdram_sz()): 8/16 MB on a 32 MB or unknown module, 8/16/32 on 64 MB,
+8/16/32/64 on 128 MB only with `c1_ok`. The stored choice is clamped to
+the line shown, latched while the machine is held in reset.
+
+### 13.6.5 The tests
+
+- **sim/simms 22 PASS** (33 s): the ROM's walk finds RAMSIZ 10 and 32 MB,
+  RAMSIZ 11 and 64 MB; 400,000 addresses over the four configurations map
+  to their units one to one, never into the system region or above 80 MB;
+  32 MB's bank B keeps its own data, 64 MB's reads ones; bank A's top
+  longword of 64 MB is SDRAM 80 MB. **Plant** (+PLANT=1, 16 MB SIMMs for
+  the 32 MB walk): check 5 FAILS (the ROM finds 16 MB) as it must.
+- **sim/sdram** (16 s, run.sh): 32 MB module 203 PASS, the three training
+  eyes 9/9/9, **64 MB module 206** (word bit 24 a column of its own, no
+  alias at 32 MB; c1_ok 0), **128 MB module 215** (the second chip: its
+  ladder and eight refreshes, the training's pair, c1_ok 1, a longword
+  there at two C16M, the first chip's word at the same row untouched,
+  2,000 back-to-back cycles alternating chips all at two C16M, its refresh
+  inside 7.8125 us, no datasheet violation). The model learned COL_BITS
+  (9 or 10); the bench a second chip on the inverted nCS. **Plants**: no
+  chip-1 refresh -> "the second chip refreshed inside every 7.8125 us"
+  FAILS; A9 tied 0 -> three checks FAIL.
+- **sim/machine** SE/30 17 PASS (101 s), IIcx 17 PASS (105 s): the ROM
+  from reset into its RAM tests, its image at the 25-bit address.
+- sim/gcrread: only its CPU address padded; its full gate is ~10 h (6 h
+  behavioural + 4 h on the controller), started by mistake without an
+  estimate and stopped at Daniel's OK (2026-11-03 17:58) - the disk port
+  it drives is unchanged and passes in sim/sdram on all three modules.
+- mmu16, predec_fault, predec_fault_r3: their se30_simms ports renamed
+  (16 MB = size 1, unit 0); vlog clean; run at the next regression.
+
+### 13.6.6 Compile (SE/30, 2026-11-03)
+
+`output_files/MacSE30_405ff4cb_ram64.rbf` (md5 0fec9a4e), 36 min, tree
+405ff4c. **39,666 ALMs (95 %)**, 363 RAM blocks - against the release's
+38,187: the logic added is tens of ALMs (the SIMMs' lookup, two address
+bits, chip 1's duplicate register), the rest the fitter's packing at
+95 % (13.4.3's note). **Our clocks met at every corner** (clk_sys worst
++1.232 slow 100 C, the kernel; clk_mem worst +0.433 slow 100 C,
+`ref_early -> sd_addr[11]`; holds >= +0.078); the capture: A or B met at
+every corner. **Only the framework misses**: ascal
+`o_vpix_inner[1].r[5] -> o_poly_lum[7]`, -0.061 ns at slow -40 C on the
+HDMI clock (KNOWN ISSUES 6; the frozen build's -0.624 was the same
+class). TimeQuest finds no combinational loop; the map report's 8
+`se30_flp_decoder|Add2` cells are KNOWN ISSUES 27's artefact.
+
+### 13.6.7 The board (Daniel's 128 MB module only, 2026-11-03)
+
+Daniel has only a 128 MB module. Its first chip is the 64 MB module's
+chip, so 32 MB on it exercises what a 64 MB module would (the tenth
+column, chip 1 unused); what it cannot show is the 64 MB module's menu
+line (8/16/32) and a 32 MB module - both bench-covered (sim/sdram's 64
+and 32 MB runs; below 32 MB the chip sees today's commands plus chip-1
+copies that go nowhere). FUTURE BOARD TESTS 17 asks a tester with a 32
+or 64 MB module before a release. To run on the 128 MB module:
+1. The OSD offers 8/16/32/64 MB. If only 8/16: Main_MiSTer has no module
+   record (sdram_sz[15] clear) - not a core fault; if 8/16/32: c1_ok
+   is 0, the second chip failed the training (the risk, 13.6.3).
+2. 16 MB, Reset & Apply Memory: 16,384K as before (unchanged map).
+3. 32 MB: About This Macintosh 32,768K in 32-bit mode (MODE32 on the
+   SE/30); 24-bit mode still 8 MB used.
+4. 64 MB: 65,536K in 32-bit mode; then load the top: big application
+   partitions (CodeWarrior building a PowerPlant demo with a large
+   partition), A/UX 3.1 at 64 MB.
+5. Back to 8 MB: sized down cleanly.
+Then the IIcx build (~37 min) and its own board check (its capture
+phases are re-quantised; chip 1's verdict must be seen there too).
 
 ---
 
