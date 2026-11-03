@@ -21496,7 +21496,12 @@ Daniel - add to it, move items out when fixed).**
     after the copy and again after the install. Exercises: CD-ROM reads into
     SCSI writes, full speed, both targets busy; HFS catalog growth on a 1 GB
     volume (16 KB allocation blocks). A reference workload if a later build
-    damages a disk again.
+    damages a disk again. Host check (tools/hfs/hfs_vol.py, read-only, on
+    I:\games\MACIICX\Work_755_1GB.img, 1 GB, partition map): volume "Work
+    System 7.5.5", 65,531 blocks of 16 KB, 49,018 free; 4,273 files, 557
+    folders, 557 folder threads, 12 file threads; 16,513 blocks in use =
+    the bitmap's; **PROBLEMS: 0**. Daniel backed the image up - the
+    reference copy.
 
 
 47. **FIXED IN TEST (2026-10-25, found by KNOWN ISSUES 46's class sweep;
