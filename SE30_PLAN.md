@@ -24617,6 +24617,68 @@ or 64 MB module before a release. To run on the 128 MB module:
 Then the IIcx build (~37 min) and its own board check (its capture
 phases are re-quantised; chip 1's verdict must be seen there too).
 
+**Board, compile ram64 (2026-11-03): 32 MB works; 64 MB Sad-Macs** (the
+chimes, no code shown) at Reset & Apply Memory. Memtest on the module:
+0 errors.
+
+### 13.6.8 The 64 MB Sad Mac: the RAM must wrap at 64 MB (2026-11-03)
+
+**Ruled out over JTAG** (the probe build, read_probes `c1test`, `c1mode`,
+`alines`): chip 1 keeps unique longwords across its banks and rows, after
+a 2 s pause (refresh) and complemented, and takes byte masks; the
+tenth column and the address lines are clean; the JTAG peek reaches all
+128 MB. The controller and the second chip are not the fault.
+
+**The cause, from the ROM** (sim/machine at 64 MB on the two-chip model
+reproduced it: D6 = $04000000 at cycle ~13,600, then the test manager at
+$408032xx). After the sizing, the ROM's RAM address test
+($40803944-$408039FC) looks the bank size up by RAMSIZ ($408036BA: 1, 4,
+16, 64 MB) and the top of RAM up in its table at $40803A00 (pairs of
+size and reference, ended by $08070605):
+
+| top | ref | | top | ref |
+|---|---|---|---|---|
+| 1M | $FFFFFFFF | | 20M | 16M |
+| 2M | 0 | | 32M | 0 |
+| 4M | $FFFFFFFF | | 64M | 0 |
+| 5M | 4M | | 65M | 64M |
+| 8M | 0 | | 68M | 64M |
+| 16M | $FFFFFFFF | | 80M | 64M |
+| 17M | 16M | | 128M | 0 |
+
+A negative reference (1, 4, 16 MB: bank A alone) requires that a write at
+the top does NOT reach 0; otherwise the ROM clears (ref), writes
+$A5B4C3D2 at the top and requires (ref) to change - so **64 MB (4 x 16 MB
+in bank A, bank B empty) must wrap at 64 MB onto 0**, where our model
+read bank B as empty and the write vanished; D6 is the failure value.
+Then a power-of-two uniqueness walk. The Guide does not document it;
+the ROM's table is Apple's statement of the hardware, and a real 64 MB
+SE/30 passes it. 16 MB stays empty above bank A (its ref is negative).
+
+**The fix** (76d32c8, `rtl/se30_simms.v`): `empty` only for 16 MB's bank
+B; 64 MB's bank B range repeats bank A (A26 ignored). The sizing still
+finds 64 MB (its 64 MB probe fails on the alias as it did on the empty
+bank).
+
+**Tests**: sim/simms **26 PASS** - check 8 now expects 64 MB's bank B to
+repeat bank A; check 9 replicates the ROM's $40803944 test (the table,
+the reference write, the uniqueness walk) at all four sizes; **plant**
++PLANT=2 (64 MB's bank B empty again) fails check 9 as it must.
+sim/machine at 64 MB on the 128 MB model: the sizing finds RAMSIZ 11 and
+64 MB, the address test passes (the ROM never reaches $408032xx and goes
+on into its later tests at $4083F7xx and $40805Exx); stopped at cycle
+31,000 of its 64 MB RAM test (a +STOPAT at $408039FE never fires: the
+passing path leaves the test elsewhere).
+
+Compile ram64b: `output_files/MacSE30_76d32c89_ram64b.rbf` (md5 9fc33821),
+36 min, tree 76d32c8. 40,127 ALMs (96 %; ram64 39,666 - the change is a
+gate, the rest the fitter's packing), 363 RAM blocks. **Our clocks met at
+every corner** (clk_sys worst +1.563 slow 100 C, the kernel; clk_mem worst
++0.373 slow 100 C, kernel -> `xs_wdata[17]`; holds >= +0.074); the
+capture: A or B met at every corner. **Only the framework misses**: ascal
+`o_hcpt[3] -> o_vcpt_pre3[0]`, -0.228 ns slow -40 C on the HDMI clock
+(KNOWN ISSUES 6; the frozen build's -0.624 was the same path).
+
 ---
 
 # Section 14 - the Macintosh IIcx build (opened 2026-10-09)
