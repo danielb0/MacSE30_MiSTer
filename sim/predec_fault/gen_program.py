@@ -883,6 +883,54 @@ DSW_WPX = [
 ]
 DSW_WP = os.environ.get("DSW_WP") == "1"
 
+# DSW_CCRSET=1 (2026-11-04, A/UX's cc: `move.l a0,$402e7c.l` with A0 = 0, the
+# bss page's first write, then `beq` NOT taken - "Memory fault" at the clr.b
+# (a0) after it): the condition codes a faulted write leaves.  The main list
+# sets CCR 0 before every instruction and stores no zero, so a Z (or any flag)
+# left from before the instruction compares equal and passes; these cases
+# make the pre-instruction CCR differ from the result - zero sources (Z), $1F
+# before (N/Z/V/C must change) - with An and Dn sources and (xxx).L as cc's
+# destination.  A case's words may depend on the operand address (abs.L).
+# Replaces the list (DSW_WP keeps it: the write faults on a WP page).
+# DSW_CCRPLANT=1: the faulting run clears the CCR after the instruction -
+# the CCR compare (and the BEQ case's register compare) must FAIL.
+DSW_CCRSET = os.environ.get("DSW_CCRSET") == "1"
+DSW_CCRPLANT = os.environ.get("DSW_CCRPLANT") == "1"
+def _abs(a): return [(a >> 16) & 0xFFFF, a & 0xFFFF]
+DSW_CCR = [
+    (lambda a: [0x91C8, 0x44FC, 0x0000, 0x23C8] + _abs(a), 0, 0, 4, "SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(xxx).L (cc)"),
+    (lambda a: [0x91C8, 0x44FC, 0x0000, 0x23C8] + _abs(a) + [0x6702, 0x4AFC], 0, 0, 4,
+     "SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(xxx).L; BEQ.B +2; ILLEGAL (cc's branch)"),
+    (lambda a: [0x91C8, 0x44FC, 0x0000, 0x33C8] + _abs(a), 0, 0, 2, "SUBA.L A0,A0; MOVE #0,CCR; MOVE.W A0,(xxx).L"),
+    (lambda a: [0x7800, 0x44FC, 0x0000, 0x23C4] + _abs(a), 0, 0, 4, "MOVEQ #0,D4; MOVE #0,CCR; MOVE.L D4,(xxx).L"),
+    (lambda a: [0x7800, 0x44FC, 0x0000, 0x13C4] + _abs(a), 0, 0, 1, "MOVEQ #0,D4; MOVE #0,CCR; MOVE.B D4,(xxx).L"),
+    ([0x91C8, 0x44FC, 0x0000, 0x2C88], 0, 0, 4, "SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(A6)"),
+    ([0x7800, 0x44FC, 0x0000, 0x2C84], 0, 0, 4, "MOVEQ #0,D4; MOVE #0,CCR; MOVE.L D4,(A6)"),
+    (lambda a: [0x44FC, 0x001F, 0x23C4] + _abs(a), 0, 0, 4, "MOVE #$1F,CCR; MOVE.L D4,(xxx).L (D4 negative)"),
+    (lambda a: [0x44FC, 0x001F, 0x23C9] + _abs(a), 0, 0, 4, "MOVE #$1F,CCR; MOVE.L A1,(xxx).L (A1 positive)"),
+    (lambda a: [0x44FC, 0x001F, 0x42B9] + _abs(a), 0, 0, 4, "MOVE #$1F,CCR; CLR.L (xxx).L"),
+    ([0x44FC, 0x001F, 0x2C89], 0, 0, 4, "MOVE #$1F,CCR; MOVE.L A1,(A6)"),
+    ([0x44FC, 0x001F, 0x4296], 0, 0, 4, "MOVE #$1F,CCR; CLR.L (A6)"),
+]
+# ... and every case checks its CCR absolutely too (a fault in BOTH runs - a
+# first-touch walk, say - compares equal): MOVE CCR,D5; CMPI.W #want,D5; BEQ.B
+# +2; ILLEGAL - the 68030's flags (PRM 4-116 MOVE, 4-73 CLR: X kept, N Z by the
+# operand, V C cleared).  DSW_CCRPLANT=2 clears the CCR in BOTH runs: the pair
+# compare passes, this check must FAIL.
+DSW_CCR_WANT = {"SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(xxx).L (cc)": 0x04,
+                "SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(xxx).L; BEQ.B +2; ILLEGAL (cc's branch)": 0x04,
+                "SUBA.L A0,A0; MOVE #0,CCR; MOVE.W A0,(xxx).L": 0x04,
+                "MOVEQ #0,D4; MOVE #0,CCR; MOVE.L D4,(xxx).L": 0x04,
+                "MOVEQ #0,D4; MOVE #0,CCR; MOVE.B D4,(xxx).L": 0x04,
+                "SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(A6)": 0x04,
+                "MOVEQ #0,D4; MOVE #0,CCR; MOVE.L D4,(A6)": 0x04,
+                "MOVE #$1F,CCR; MOVE.L D4,(xxx).L (D4 negative)": 0x18,
+                "MOVE #$1F,CCR; MOVE.L A1,(xxx).L (A1 positive)": 0x10,
+                "MOVE #$1F,CCR; CLR.L (xxx).L": 0x14,
+                "MOVE #$1F,CCR; MOVE.L A1,(A6)": 0x10,
+                "MOVE #$1F,CCR; CLR.L (A6)": 0x14}
+assert set(DSW_CCR_WANT) == set(x[4] for x in DSW_CCR)
+
 # ssweep (the third round's scan 1, 2026-10-20: SUPERVISOR-side faults): A/UX's
 # kernel touches user pages with MOVES - copyin $554F0, copyout $556F0, uclear
 # $557D0 (MOVES.L -(An)), sendsig's signal frame, the exec loader - and the
@@ -929,7 +977,9 @@ def ssw_cases():
 def dsw_cases():
     out = []
     insns = DSW_INSN
-    if DSW_WP:
+    if DSW_CCRSET:
+        insns = DSW_CCR
+    if DSW_WP and not DSW_CCRSET:
         first = [x[4] for x in DSW_INSN].index("MOVE.B D4,(A6)")
         insns = [x for x in DSW_INSN[first:] if not x[4].startswith("CMPM")] + DSW_WPX[:-1]
     for ws, adj, fs, fl, what in insns:
@@ -956,7 +1006,11 @@ def dsw_build(case):
         w.extend([0x4BEE, 0x0008])                       # lea 8(a6),a5
         w.extend([0x44FC, 0x001F])                       # move #$1F,ccr, then
         w.extend([0x44FC, 0x0000])                       # move #0,ccr: the same flags (X!) for both runs - a restart's CCR rollback taken too early shows as $1F
-        w.extend(ws)                                     # THE INSTRUCTION
+        w.extend(ws(base + adj) if callable(ws) else ws)   # THE INSTRUCTION
+        if (DSW_CCRPLANT and out == DSW_OUT2) or os.environ.get("DSW_CCRPLANT") == "2":
+            w.extend([0x44FC, 0x0000])                   # the plant: the faulting run's (2: both runs') CCR cleared
+        if DSW_CCRSET:                                   # the absolute check: move ccr,d5; cmpi.w #want,d5; beq.b +2; illegal
+            w.extend([0x42C5, 0x0C45, DSW_CCR_WANT[what.rsplit(" at P", 1)[0]], 0x6702, 0x4AFC])
         w.extend([0x42F9] + L(out + 0x80))              # move.w ccr,out+$80
         w.extend([0x48F9, 0x7FFF] + L(out))              # movem.l d0-d7/a0-a6,out
     w.extend([0x48E7, 0xFFFE])                           # movem.l d0-d7/a0-a6,-(a7)

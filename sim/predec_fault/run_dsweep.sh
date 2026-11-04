@@ -14,6 +14,8 @@ EXTRA="$*"
 N=$(env $EXTRA TCMODE=aux CASESET=dsweep DSWLIST=1 python gen_program.py | wc -l)
 [ "$N" -gt 0 ] || { echo "==== dsweep${EXTRA:+ ($EXTRA)}: the case list is empty - the generator failed"; exit 1; }
 LOG=dsweep.log
+# DSW_CCRSET=1 (the CCR set): dsweep_ccr[_wp][_c<CACR>].log
+case " $EXTRA " in *" DSW_CCRSET=1 "*) c=$(echo " $EXTRA " | sed -n 's/.* CACR=\([^ ]*\) .*/\1/p'); w=; case " $EXTRA " in *" DSW_WP=1 "*) w=_wp ;; esac; LOG=dsweep_ccr$w${c:+_c$c}.log ;; esac
 case " $EXTRA " in *" DSW_PTR="*) v=${EXTRA##*DSW_PTR=}; LOG=dsweep_ptr_${v%% *}; c=$(echo " $EXTRA " | sed -n 's/.* CACR=\([^ ]*\) .*/\1/p'); LOG=$LOG${c:+_c$c}.log ;; esac
 one() {
   k=$1; d=$HERE/../_dsw_$k

@@ -24733,6 +24733,31 @@ for /bin/cc between runs (its cached text region / page tables) - a
 hypothesis.  NEXT: the image copied back after a clean Shut Down: decode
 core and core_c (u-area frame at $F9A: fault address, SSW), then a fresh
 64 MB boot running /bin/cc first (works -> in-memory kernel state).
+**THE CORE DECODED (2026-11-04 evening, image AUX disk\debugAUX_3_1_1GB-clean2.vhd): NOT MEMORY - `beq` NOT TAKEN.**  core and core_c
+(14:31, 14:44) hold the same u-area frame at $FDE: format $A, SR $0004, PC
+$21D0, SSW $0111 (DF, byte WRITE, FC 1), fault address $00000000.  cc's
+main (capstone on /bin/cc): $21A2 jsr copy(argv[0]) -> A2; $21B8 jsr
+strrchr(A2,'/'); $21C0 `move.l a0,$402e7c.l`; $21C6 `beq.b $21EE`; $21C8
+`addq.l #1,$402e7c.l`; $21CE `clr.b (a0)` <- the fault, A0 = 0.  Run as
+"cc" (no '/', strrchr = 0) the beq must be taken; /tmp/cc2 "worked"
+because its name has a '/'.  The 68030 cannot do this (UM 8.1.2/8.2.1-3:
+the stacked SR is the instruction's; RTE never recomputes the CCR save for
+an emulated RMW).  Bare `cc` worked on compile 81 (SE/30, 16 MB, screenshot
+20261018_093109: `cc -O -o fps2 n.c -lm`).
+**THE BENCH (sim/predec_fault, DSW_CCRSET=1, 43 cases):** dsweep's list set
+CCR 0 before every instruction and stored no zero, so a stale CCR passed;
+the new set stores zeros from An and Dn to (xxx).L and (A6) (.L .W .B),
+$1F before MOVE/CLR, cc's MOVE/BEQ itself, at P+0..P-3, and checks the CCR
+both against the resident run and absolutely (MOVE CCR,D5; CMPI; BEQ;
+ILLEGAL).  Plants: DSW_CCRPLANT=1 fails the pair compare, =2 the absolute
+check.  CACR $2101: invalid page and DSW_WP=1 (copy-on-write), HANDLER aux
+and auxirq - **43/43 PASS in all four** (logs dsweep_ccr*_abs.log).  So
+the kernel in sim gets cc's shape right under a fault; not reproduced.
+NEXT (board): tools/auxunix/zflag.c (C:	emp\Mac\zflag.img) - cc's shape
+in a program of its own, `./zflag` (first write to its bss page) and
+`./zflag t` (page touched first); on the IIcx ram64b at 64 MB, then at 16 MB,
+then the SE/30 ram64b, then a release build - which build/size/machine
+breaks the branch.  `/bin/cc -o hello hello.c` (a '/') should work.
 Daniel also saw the ' key give a non-quote character in CommandShell
 (the shell did not treat it as a quote): check ' in a System 7 editor -
 our ADB keymap or his layout.  More IIcx testing to follow (Daniel).
