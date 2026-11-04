@@ -24702,8 +24702,10 @@ bd64e165), 36 min, tree d84f6c3. 38,790 ALMs (93 %), 538 RAM blocks.
 CPU's `r_ea_h -> Add55`; clk_mem worst +0.740 slow 100 C, `dq_w -> dq_m`;
 holds >= +0.102); the capture: A or B met at every corner. **Only the
 framework misses**: ascal `o_v_poly_t.r1[9] -> o_v_poly_pix.r[1]`,
--0.120 ns slow -40 C (KNOWN ISSUES 6). Board: to do (OSD 8/16/32/64,
-64 MB, colour over HDMI).
+-0.120 ns slow -40 C (KNOWN ISSUES 6). **Board, IIcx ram64b (2026-11-04):
+64 MB works** in colour: TattleTech RAM Size 67,108,864, BufPtr $3F8BF60
+(475,296 bytes of high RAM below $4000000 - the top of the 64 MB). More
+IIcx testing to follow (Daniel).
 
 ---
 
