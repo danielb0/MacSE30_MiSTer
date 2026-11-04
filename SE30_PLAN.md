@@ -24704,8 +24704,11 @@ holds >= +0.102); the capture: A or B met at every corner. **Only the
 framework misses**: ascal `o_v_poly_t.r1[9] -> o_v_poly_pix.r[1]`,
 -0.120 ns slow -40 C (KNOWN ISSUES 6). **Board, IIcx ram64b (2026-11-04):
 64 MB works** in colour: TattleTech RAM Size 67,108,864, BufPtr $3F8BF60
-(475,296 bytes of high RAM below $4000000 - the top of the 64 MB). More
-IIcx testing to follow (Daniel).
+(475,296 bytes of high RAM below $4000000 - the top of the 64 MB). A/UX
+3.1 boots at 64 MB (2026-11-04): total 67,108,864, available 31,174,656 -
+one 4 KB page under the SE/30's 31,178,752 (the IIcx's card slot); Mac
+side Built-in 65,536K, Total 16,384K as on the SE/30. More IIcx testing
+to follow (Daniel).
 
 ---
 
