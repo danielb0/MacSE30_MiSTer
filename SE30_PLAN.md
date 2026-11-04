@@ -24733,7 +24733,7 @@ for /bin/cc between runs (its cached text region / page tables) - a
 hypothesis.  NEXT: the image copied back after a clean Shut Down: decode
 core and core_c (u-area frame at $F9A: fault address, SSW), then a fresh
 64 MB boot running /bin/cc first (works -> in-memory kernel state).
-**THE CORE DECODED (2026-11-04 evening, image AUX disk\debugAUX_3_1_1GB-clean2.vhd): NOT MEMORY - `beq` NOT TAKEN.**  core and core_c
+**THE CORE DECODED (2026-11-04 evening, image AUX disk\debug\AUX_3_1_1GB-clean2.vhd): NOT MEMORY - `beq` NOT TAKEN.**  core and core_c
 (14:31, 14:44) hold the same u-area frame at $FDE: format $A, SR $0004, PC
 $21D0, SSW $0111 (DF, byte WRITE, FC 1), fault address $00000000.  cc's
 main (capstone on /bin/cc): $21A2 jsr copy(argv[0]) -> A2; $21B8 jsr
@@ -24753,7 +24753,7 @@ ILLEGAL).  Plants: DSW_CCRPLANT=1 fails the pair compare, =2 the absolute
 check.  CACR $2101: invalid page and DSW_WP=1 (copy-on-write), HANDLER aux
 and auxirq - **43/43 PASS in all four** (logs dsweep_ccr*_abs.log).  So
 the kernel in sim gets cc's shape right under a fault; not reproduced.
-NEXT (board): tools/auxunix/zflag.c (C:	emp\Mac\zflag.img) - cc's shape
+NEXT (board): tools/auxunix/zflag.c (C:\temp\Mac\zflag.img) - cc's shape
 in a program of its own, `./zflag` (first write to its bss page) and
 `./zflag t` (page touched first); on the IIcx ram64b at 64 MB, then at 16 MB,
 then the SE/30 ram64b, then a release build - which build/size/machine
