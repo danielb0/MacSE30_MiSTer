@@ -24707,8 +24707,35 @@ framework misses**: ascal `o_v_poly_t.r1[9] -> o_v_poly_pix.r[1]`,
 (475,296 bytes of high RAM below $4000000 - the top of the 64 MB). A/UX
 3.1 boots at 64 MB (2026-11-04): total 67,108,864, available 31,174,656 -
 one 4 KB page under the SE/30's 31,178,752 (the IIcx's card slot); Mac
-side Built-in 65,536K, Total 16,384K as on the SE/30. More IIcx testing
-to follow (Daniel).
+side Built-in 65,536K, Total 16,384K as on the SE/30.
+
+**OPEN 2026-11-04: `/bin/cc` "Memory fault - core dumped", IIcx ram64b at
+64 MB, every run** (Daniel; cc worked on this disk before - hello, hello.s
+of 10-22).  Found the same afternoon, A/UX kept running throughout:
+- adb /bin/cc core: PC $21D0 = `moveq #$2F,d0` (cannot fault; D0 still 0),
+  then `move.l d0,(a7); move.l a2,-(a7); jsr $47F021CE` = strrchr(argv[0],
+  '/') through shared libc (.lt at $47F00000 - a normal target).  SP
+  $FFFFFDCC, A2 = D1 = $404784 (argv[0] "cc" just copied to the heap: A1 =
+  A2+3), the rest 0: the first lines of main.
+- /bin/cc on the clean image is byte-identical at $21D0 (ufsread.py).
+- `cp /bin/cc /tmp/cc2`: /tmp/cc2 compiles and links correctly; /bin/cc
+  still faults after it (also `cc -o pagescan2 ...`).
+- tools/auxunix/pagescan.c (via an HFS floppy; the A/UX Finder writes
+  AppleSingle - `tail -<len>c f | tr \015 \012`): /dev/mem reads from
+  $10000 to 64 MB ($0-$FFFF ENOMEM).  Two full copies of cc's four text
+  pages, all byte-exact, at $02996000-$029D6000 (~41.6 MB, first chip);
+  no partial match (>= 1/4) anywhere.
+- tools/auxunix/memtest.c 24 3: 24 MB of heap (into the top 16 MB = second
+  chip), address pattern and its inverse, read now and after 20 s idle:
+  0 errors.
+So the code and user RAM are sound; the fault follows state A/UX keeps
+for /bin/cc between runs (its cached text region / page tables) - a
+hypothesis.  NEXT: the image copied back after a clean Shut Down: decode
+core and core_c (u-area frame at $F9A: fault address, SSW), then a fresh
+64 MB boot running /bin/cc first (works -> in-memory kernel state).
+Daniel also saw the ' key give a non-quote character in CommandShell
+(the shell did not treat it as a quote): check ' in a System 7 editor -
+our ADB keymap or his layout.  More IIcx testing to follow (Daniel).
 
 ---
 
