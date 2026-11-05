@@ -22036,7 +22036,11 @@ Daniel - add to it, move items out when fixed).**
     and the TFB video driver are the IIcx's own; QuickTime may take a
     different path there). Nothing for the core either way.
 
-59. **FIX IN TEST (2026-11-05, from the review of 13.6.8's /bin/cc fault;
+59. **FIXED ON THE BOARD (Daniel, 2026-11-05 morning, the ki59 build: "cc is
+    now working" - bare cc compiles again; the first board result after the
+    sim could not reproduce it, so the diagnosis stands). Left: zflag, the
+    other core, 16 MB, then KNOWN ISSUES 54 (HyperCard under VM).**
+    **Was FIX IN TEST (2026-11-05, from the review of 13.6.8's /bin/cc fault;
     REGRESSION since 12e0e6b, 2026-10-25 - in the 20261102 release and every
     build after; the 20261024 release is clean): KNOWN ISSUES 46's CCR
     restore fired on PAGE FAULTS.** `berr_read_ccr_restore`
@@ -24844,7 +24848,8 @@ then the SE/30 ram64b, then a release build - which build/size/machine
 breaks the branch.  `/bin/cc -o hello hello.c` (a '/') should work.
 **REVIEWED 2026-11-05 (Daniel: "see if you can find whether there is a
 core bug"; then "the same issue occurs in 16mb ... a regression"): THE
-CORE BUG IS KNOWN ISSUES 59** - KNOWN ISSUES 46's CCR restore (12e0e6b,
+CORE BUG IS KNOWN ISSUES 59, FIXED - cc works on the ki59 build (Daniel,
+2026-11-05 morning)** - KNOWN ISSUES 46's CCR restore (12e0e6b,
 2026-10-25) gated on the last EXTERNAL bus error's latched RW/FC, which a
 page fault never updates, so after the ROM's slot probing every page
 fault put the pre-instruction CCR in its frame; a Format $A last write
