@@ -26435,7 +26435,20 @@ busfault_irq SET=all only before a release or on a change to the
 exception/bus-error paths), the sweeps' per-case cost (3 min a case is
 the bench's full boot; a snapshot after the setup would cut most of it),
 and which of (a)-(d) are redundant with each other (a's CTX=11 subset is
-inside b and c).
+inside b and c). DECIDED (Daniel, 2026-11-05): review the duplicates in
+BOTH the sweeps and the regression; stop re-running the setup.
+MEASURED 2026-11-05 13:21 (the running (a)): busfault_irq has NO ROM
+boot - the bench starts the generated program from reset; the compile
+and the reference run are ~20 s a case. The cost is the OFFSETS run: one
+iteration per interrupt placement, each replaying the program FROM RESET
+up to its offset (~1000 clocks/s): w_clr 275 offsets x <=1048 clocks =
+minutes, r_movem9 2036-2224 offsets x <=11432 clocks = ~4.5 h a case,
+3-4 parts of 1600. So the fix is not one snapshot but a CHECKPOINT every
+K clocks of the reference run and each iteration restored from the last
+one before its offset (ModelSim checkpoint/restore - confirm the Starter
+Edition has it), or a dense-window cut (the +-250-clock windows after
+every exception at 2-clock steps are most of the 2,000). Either turns
+(a) from ~28 h into a few hours.
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
