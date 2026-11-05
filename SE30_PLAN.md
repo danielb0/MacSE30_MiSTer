@@ -24326,6 +24326,25 @@ repository and the MiSTer-devel question). PBER as option (a): "Go with
     Quadra 700 per a 68kmla poster - not 3.5.2's PM 6100 scale); no video.
     Norton 3.2.1 on the SE/30 core would compare directly
     (macintoshgarden.org/apps/norton-utilities-321).
+  - **Norton System Info 3.5.2's own SE/30 reference (Daniel, 2026-11-05;
+    it ships on the disk and has to be loaded; PM 6100/60 = 100):**
+
+    | test | this core | real SE/30 | ratio |
+    |---|---|---|---|
+    | Overall | 8.3 | 8.27 | 1.00 |
+    | CPU | 7.18 | 7.13 | 1.01 |
+    | Video | 25.6 | 26.9 | 0.95 |
+    | FPU | 1.66 | 1.74 | 0.95 (KNOWN ISSUES 60) |
+    | Disk | 146 | 96.5 | 1.51 (the SD at full speed, by rule) |
+
+    The CPU within 1 % as on the IIcx; the FPU the same 1.66 against 1.74
+    as the IIcx (both references have the 68882 at 16 MHz) - KNOWN ISSUES
+    60 is one deviation on both cores. The built-in video 5 % slow,
+    consistent with Speedometer's spread above; close enough (Daniel:
+    "all indications are that it's pretty close"). Beside the IIcx's
+    Norton entry (Section 14): the real SE/30's built-in video beats the
+    real IIcx's NuBus card 1.8x (26.9 / 14.8); our cores only 1.2x (25.6
+    / 21.0) - KNOWN ISSUES 61's missing waits.
 
   - **CPU matches the real machine** (it was +19 % before the paced
     kernel). The integer tests now run from -18 % to +19 %, most within
