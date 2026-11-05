@@ -26466,6 +26466,27 @@ time"): night59's chain STOPPED at (a) 194/556 PASS, no failure (the
 partial log sim/busfault_irq/sweep_all_ki59a_partial.log). The revision
 first - checkpoint/restore in busfault_irq, gaps 1-4, the dedupe - then
 the whole chain again on ff633ce's kernel as the ki59 release gate.**
+**CORRECTION, MEASURED 13:55 (one w_clr case alone, 275 placements):**
+the earlier reading of run_sweep.sh was wrong. An iteration is the
+program's WHOLE loop (~1,800 clocks for w_clr: 496,150 clocks for 277
+iterations; the interrupt lands at its placement and the loop runs to
+its end regardless), not a replay of a prefix - so checkpoint/restore
+would save under a third, not tenfold, and is not worth its complexity.
+The time is placements x iteration length / speed: the last full chain
+had (a) 178,807 placements over 472 cases (now 556, ~210k), (b) 72,717,
+(c) 62,962, (d) 56,067 - evenly spread, no shape over 4 %; r_movem9's
+cases are the largest (2,000+ each). Speed: 1,070 clocks/s a simulator
+alone; vsim prints "Design size of 17802 statements exceeds ModelSim-Intel
+FPGA Starter Edition recommended capacity. Expect performance to be
+adversely affected" (the 10,000-statement throttle; 8 physical cores,
+8-wide gives ~4x). Also wrong: (a) is no trace, (b) T1, (c) T0 - three
+modes, NOT a's CTX=11 inside b/c. So the busfault_irq stages stay ~36 h
+unless the PLACEMENT POLICY changes (the +-20..+250 window at every
+second clock after each exception = ~135 a exception; the berr and c
+windows; a coverage argument is needed before cutting) or a faster
+simulator is found. What the revision does save: the chain runs ONCE
+after the bench changes (gap 1's preamble changes busfault_irq's
+program, so its stages rerun anyway), and the regression's dedupe.
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
