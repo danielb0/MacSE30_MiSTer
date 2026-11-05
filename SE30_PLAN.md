@@ -26460,6 +26460,12 @@ floor is 556 x 20 s / 8 = 25 min. Total: regression ~4.5 h, full chain
 ~11-13 h (one night) with checkpoint/restore, ~16-18 h with the window
 cut only. Builds extra (~1.5 h a core). Unverified: Starter Edition
 checkpoint/restore (a 1-h trial when the simulators are free).
+**DECIDED 2026-11-05 13:40 (Daniel: "stop the current sweep, do the
+revisions, and start it again. It will save more than a day's running
+time"): night59's chain STOPPED at (a) 194/556 PASS, no failure (the
+partial log sim/busfault_irq/sweep_all_ki59a_partial.log). The revision
+first - checkpoint/restore in busfault_irq, gaps 1-4, the dedupe - then
+the whole chain again on ff633ce's kernel as the ki59 release gate.**
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
