@@ -21728,7 +21728,14 @@ Daniel - add to it, move items out when fixed).**
     (a) failed m_add_wp with the MMU off on the SSW: the bench's, not the
     core's - the empty slot faults ADD's read, $145; staged in
     sim/_stage14, rerun by sim/after_k46c.sh.)
-54. **OPEN, INTERMITTENT? - seen twice, not reproduced since (2026-10-29, Daniel, board): HyperCard quits silently at launch
+54. **2026-11-05 (Daniel, IIcx ki59 build - KNOWN ISSUES 59 fixed): HyperCard
+    runs under System 7.5.5 with VM on, 16 MB physical, 32 MB total.** 59's
+    stale-CCR restore on page faults is the one core mechanism found that
+    fits the two silent quits (a flag-tested first-touch store under VM);
+    it was never reproduced after them, so this pass is consistent with 59,
+    not proof. Stays parked; to close as "explained by 59" if the quits
+    never return on the fixed kernel.
+    **Was OPEN, INTERMITTENT? - seen twice, not reproduced since (2026-10-29, Daniel, board): HyperCard quits silently at launch
     under System 7.5.5 with virtual memory on** (64 MB total, 16 MB built
     in, the swap file on the second disk `MacPack`): no bomb, no
     "unexpectedly quit" message, the system stays up. With VM off it runs,
@@ -22041,8 +22048,9 @@ Daniel - add to it, move items out when fixed).**
     bare cc compiles again; the first board result after the sim could not
     reproduce it, so the diagnosis stands). zflag on the same build: "ok
     (first write to the page)" and "ok (page touched first)" - the faulted
-    first write's flags are right, and so is the control. Left: the SE/30
-    ki59 build, 16 MB, then KNOWN ISSUES 54 (HyperCard under VM).**
+    first write's flags are right, and so is the control. HyperCard under
+    VM (KNOWN ISSUES 54) runs on the IIcx ki59, 7.5.5, 16 MB + VM to 32 MB.
+    Left: the SE/30 ki59 build, 16 MB.**
     **Was FIX IN TEST (2026-11-05, from the review of 13.6.8's /bin/cc fault;
     REGRESSION since 12e0e6b, 2026-10-25 - in the 20261102 release and every
     build after; the 20261024 release is clean): KNOWN ISSUES 46's CCR
