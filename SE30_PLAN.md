@@ -22050,7 +22050,9 @@ Daniel - add to it, move items out when fixed).**
     (first write to the page)" and "ok (page touched first)" - the faulted
     first write's flags are right, and so is the control. HyperCard under
     VM (KNOWN ISSUES 54) runs on the IIcx ki59, 7.5.5, 16 MB + VM to 32 MB.
-    Left: the SE/30 ki59 build, 16 MB.**
+    **ALL TESTS PASS ON BOTH CORES (Daniel, 2026-11-05 morning) - CLOSED.**
+    Next (Daniel): the ki59 builds to the forum; after a couple of quiet
+    days a release of both cores (the new memory sizes + this fix).**
     **Was FIX IN TEST (2026-11-05, from the review of 13.6.8's /bin/cc fault;
     REGRESSION since 12e0e6b, 2026-10-25 - in the 20261102 release and every
     build after; the 20261024 release is clean): KNOWN ISSUES 46's CCR
