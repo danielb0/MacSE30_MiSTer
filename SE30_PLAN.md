@@ -22103,8 +22103,22 @@ Daniel - add to it, move items out when fixed).**
     sweep_pawn.log).** Then sim/night59.sh: both cores built (label
     ki59), the trimmed chain (every predec_fault sweep with PREBERR=1 at
     both CACRs, busfault_irq (a)-(d), the regression; log night59.log).
+    **BUILT (night59.sh, tree ff633ce):** `output_files/MacSE30_ff633cee_ki59.rbf`
+    (md5 39a78982, 36 min, 40,391 ALMs = 96 %) and
+    `output_files/MacIIcx_ff633cee_ki59.rbf` (md5 c9551831, 61 min, 38,657
+    ALMs = 92 %). IIcx: met at every corner (+0.117). SE/30: the same
+    verdict as the board-verified ram64b - our clocks met at every corner,
+    the capture A or B met everywhere, the only misses the framework's
+    ascal `o_vcpt_pre3[7] -> o_vcpt_pre3[4]` (-0.100 slow -40 C, -0.032
+    slow 100 C; KNOWN ISSUES 6; ram64b -0.228) and the SDRAM_DQ[9]/[2] ->
+    dq_q capture-pin checks the capture rule excepts (-0.337 / -0.141, the
+    same figures as ram64b). The chain after the builds: every
+    predec_fault sweep with PREBERR=1 at both CACRs PASS (2026-11-05
+    04:20-06:03: dsweep 235+216, CCR 55+55, isweep 209, xsweep 127, ssweep
+    130+65, selfst 132, x 2 CACRs); busfault_irq (a) running from 06:03
+    (556 cases, ~15 h), then (b), (c), (d), the regression.
     Board (Daniel, morning of 2026-11-06): `cc -o hello hello.c` bare and
-    zflag on both ram64b+fix builds at 64 and 16 MB; then KNOWN ISSUES 54.
+    zflag on both ki59 builds at 64 and 16 MB; then KNOWN ISSUES 54.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
