@@ -22051,8 +22051,13 @@ Daniel - add to it, move items out when fixed).**
     first write's flags are right, and so is the control. HyperCard under
     VM (KNOWN ISSUES 54) runs on the IIcx ki59, 7.5.5, 16 MB + VM to 32 MB.
     **ALL TESTS PASS ON BOTH CORES (Daniel, 2026-11-05 morning) - CLOSED.**
-    Next (Daniel): the ki59 builds to the forum; after a couple of quiet
-    days a release of both cores (the new memory sizes + this fix).**
+    **DECIDED (Daniel, 2026-11-05): the ki59 builds (tree ff633ce) are the
+    NEXT RELEASE, barring unforeseen results in night59's sweeps and
+    regression** - posted to the forum as MacSE30_dev.rbf / MacIIcx_dev.rbf
+    (md5 39a78982 / c9551831, byte-identical to the archived ki59 files);
+    the release after a couple of quiet days: the release branch with the
+    comments restored, release-form compiles, releases/<core>_<date>.rbf,
+    the squashed main, the push to MiSTer-devel master on his OK.**
     **Was FIX IN TEST (2026-11-05, from the review of 13.6.8's /bin/cc fault;
     REGRESSION since 12e0e6b, 2026-10-25 - in the 20261102 release and every
     build after; the 20261024 release is clean): KNOWN ISSUES 46's CCR
