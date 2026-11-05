@@ -26487,6 +26487,16 @@ windows; a coverage argument is needed before cutting) or a faster
 simulator is found. What the revision does save: the chain runs ONCE
 after the bench changes (gap 1's preamble changes busfault_irq's
 program, so its stages rerun anyway), and the regression's dedupe.
+The throttle cannot be sliced around: it keys on the loaded design
+(the kernel alone is 13,356 lines), not the test. Ways round it, for
+later: Questa-Intel Starter (Daniel 2026-11-05: its free licence gives
+people "all kinds of technical issues" - not now), a VHDL port of the
+~2,200 Verilog lines for GHDL/NVC, or a paid licence.
+**DECIDED 2026-11-05 13:52 (Daniel): RESTART the chain unchanged and let
+it finish; think again after.** sim/night59b.sh = night59's stages 3-4,
+(a) resumed from its 194 (RESUME=1), log sim/night59.log continued.
+The revision (gaps 1-4, the dedupe, the placement policy, the
+simulator) is the first post-release task.
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
