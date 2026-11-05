@@ -26416,6 +26416,15 @@ lengthens the regression except the last):**
    not a sweep.
 Board: zflag.c and a bare `cc` run after every kernel change, as The Pawn
 is (the class on the machine itself).
+**DECIDED 2026-11-05 (Daniel, with night59's chain at busfault_irq (a)):
+revise the regression tests along gaps 1-4 BEFORE the regression is run
+again.** night59's own run of it (the chain's last stage, unchanged -
+the script is running) stands as the ki59 release gate; the next run
+after that is the revised one. Also noted: busfault_irq (a)-(d) guard the
+fix's other edge (a narrower gate must still fire for 46's external bus
+errors), not 59's class; only the armed predec_fault cases and the board
+cover that, and the sim cannot reach the deferred dispatch (gap 1 needs
+a way to force it).
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
