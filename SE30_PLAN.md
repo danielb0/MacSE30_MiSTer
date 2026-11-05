@@ -26449,6 +26449,17 @@ one before its offset (ModelSim checkpoint/restore - confirm the Starter
 Edition has it), or a dense-window cut (the +-250-clock windows after
 every exception at 2-clock steps are most of the 2,000). Either turns
 (a) from ~28 h into a few hours.
+ESTIMATE FOR THE REVIEWED CHAIN (2026-11-05, Daniel asked): today
+~36 h sweeps + 5.7 h regression (phase 1 benches ~0.5 h; predec_fault
+~1.4 h; cpfpu fsweep/fifsweep/fsxsweep ~3.3 h; pawn 0.4 h). The gap
+fills add little: 1 and 2 a few hundred clocks a run (<5 %), 3 nil, 4 a
+directed set of tens of cases (~15 min). Dedupe (CACR/WP pairs, a's
+CTX=11 inside b/c) ~-25 %. busfault_irq with checkpoint/restore (or the
+window cut): (a) ~3-4 h, (b)+(c) ~2 h, (d) ~1 h; the compile + reference
+floor is 556 x 20 s / 8 = 25 min. Total: regression ~4.5 h, full chain
+~11-13 h (one night) with checkpoint/restore, ~16-18 h with the window
+cut only. Builds extra (~1.5 h a core). Unverified: Starter Edition
+checkpoint/restore (a 1-h trial when the simulators are free).
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
