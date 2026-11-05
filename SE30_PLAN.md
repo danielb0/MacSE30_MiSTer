@@ -24305,6 +24305,28 @@ repository and the MiSTer-devel question). PBER as option (a): "Go with
   | Bench. Ave. | 0.24 | 0.27 | **0.25** | 1.04 |
   | FPU FFT / KWhet / Matrix / Ave. | 0.09 / 0.19 / 0.10 / 0.12 | 0.07 / 0.17 / 0.09 / 0.11 | 0.08 / 0.17 / 0.09 / 0.11 | 0.89 / 0.89 / 0.90 / 0.92 |
 
+  - **A second measured real SE/30 (added 2026-11-05, Daniel: "Please
+    do")**: the 68kmla Speedometer 4.02 collection
+    (docs.google.com/spreadsheets/d/1JR5cCSfitfoo5JuMKVo3bK2dx5Zx7z-spgEBZkbpEeI,
+    from the "Accelerator Benchmark collection" thread 44512; row "SE/30,
+    Stock, Stock", System 7.5.x, by zigzagjoe): CPU 0.26, Dhry 0.18,
+    Quicksort 0.27, Sieve 0.28, FPU KWhet 0.18, **Graphics (1-bit) 0.19**.
+    A stock SE/30 with Bolle's GS card (7.5.3): CPU 0.25, Dhry 0.19,
+    Quicksort 0.25, Sieve 0.26, FPU KWhet 0.16. Against compile 49: CPU
+    0.27, Dhry 0.18, Quicksort 0.27, Sieve 0.26, FPU KWhet 0.17 - the CPU
+    and integer at parity, the FPU in KNOWN ISSUES 60's range. **Graphics:
+    ours 0.16 against 0.19 here (0.84), against the record's 0.23 (0.70)
+    and Low End Mac's 0.16 (1.00)** - real SE/30s spread 0.16-0.23 on the
+    built-in video, ours at the bottom. Not proof of a fault (the "closed"
+    above stands on Low End Mac's figure), but it keeps 1.16.3's
+    video-RAM cycle question worth a look against GLUE's PAL equations
+    and the schematics (`Docs`) after the release. The same group's
+    Norton SI **3.2.1** survey (sheet 1bdO3rF0DlVGDzlcmVvv-0KkzPsc94GhDklZwZFaOUPY):
+    stock SE/30 CPU **26.19**, FPU **11.12** (3.2.1's own reference, a
+    Quadra 700 per a 68kmla poster - not 3.5.2's PM 6100 scale); no video.
+    Norton 3.2.1 on the SE/30 core would compare directly
+    (macintoshgarden.org/apps/norton-utilities-321).
+
   - **CPU matches the real machine** (it was +19 % before the paced
     kernel). The integer tests now run from -18 % to +19 %, most within
     10 %; before pacing they ran up to +43 % (Int. Matrix).
