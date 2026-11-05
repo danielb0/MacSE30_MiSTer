@@ -22150,15 +22150,33 @@ Daniel - add to it, move items out when fixed).**
     Ave. 0.92. Two tools, two reference machines, the same sign - a real
     deviation, not rounding. (Speedometer's Math, ~13-16 % FAST and
     accepted above, is mostly SANE integer code, not the 68882 - a
-    different measurement.) Where it can come from: the 68882's own
-    instruction times reproduce Table 8-3 in 227 of 228 rows; the MPU's
-    side of the dialog is unpaced (that would read fast, not slow); so the
-    lead is the coprocessor interface's BUS CYCLES - the CPU-space CIR
-    reads and writes, several per FPU instruction. Documented: the MC68882
-    UM's interface timing at 16 MHz. Next: a sim/cpfpu bench counting
-    clocks per CPU-space access against the UM, before any change. Not
-    Mac-affecting (FPU-heavy work 5-8 % slower), so after the release
-    (the pre-release rule, the freeze).
+    different measurement.) **Norton's per-operation figures (core / real
+    IIcx, System 7.1, PM 6100 = 1):**
+
+    | op | core | real | ratio | | op | core | real | ratio |
+    |---|---|---|---|---|---|---|---|---|
+    | Multiply S | .0160 | .0161 | 0.99 | | Sine | 1.24 | 1.32 | **0.94** |
+    | Multiply D | .0221 | .0219 | 1.01 | | Cosine | 1.22 | 1.30 | **0.94** |
+    | Divide S | .0502 | .0516 | 0.97 | | Tangent | 1.02 | 1.08 | **0.94** |
+    | Divide D | .0935 | .0948 | 0.99 | | Arc Tangent | .314 | .335 | **0.94** |
+    | Add S / D | .0221 / .0250 | .0231 / .0260 | 0.96 / 0.96 | | Absolute | .0785 | .0813 | 0.97 |
+    | Subtract S / D | .0221 / .0250 | .0232 / .0260 | 0.95 / 0.96 | | Square Root | .889 | .903 | 0.98 |
+    | Int to Single | .0326 | .0343 | 0.95 | | Log 10 | .616 | .605 | 1.02 |
+    | Single to Int | .0086 | .0088 | 0.98 | | Vector | .0076 | .0083 | 0.92 |
+
+    **Not a fixed per-instruction cost**: one would hit the cheap
+    operations hardest and the long ones least, but Multiply is at 1.0
+    beside Add's 0.96, and the four trigonometric functions (the longest)
+    are all at 0.94 while Log 10 is 1.02 fast. So per-operation times, as
+    the earlier finding already said (the MPU's side of the dialog is not
+    the FPU benchmarks' gap; the transcendentals run Table 8-3's TYPICAL
+    operand times, the real chip's vary by argument, Table 8-15). The
+    lead: FSIN/FCOS/FTAN/FATAN on Norton's arguments - the real 68882
+    ~6 % faster there than the typical figure. Next: Norton's FPU operands
+    (a MAME tap of its FPU opcodes and source values) against Table 8-15's
+    argument-dependent times, before any change. Not Mac-affecting
+    (FPU-heavy work 5-8 % slower), so after the release (the pre-release
+    rule, the freeze).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
@@ -25836,6 +25854,20 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   (ask on 68kmla). Norton names our machine "Macintosh", not "Macintosh
   IIcx" - the System and TattleTech identify it correctly, so Norton's
   own lookup; not a core lead.
+
+  Norton's video tests one by one (core / real IIcx, System 7.1, PM 6100
+  = 1): CPU-bound QuickDraw at parity - Lines 1.04 (.242/.233), DrawText
+  1.07 (.130/.122), Picture 1.09 (.250/.230), Ovals 1.16, Round Rects
+  1.26; small CopyBits 1.24 / 1.23; frame-buffer traffic far ahead -
+  Rects 1.39 (.260/.187), large CopyBits 1.56 / 1.52 (.248/.159,
+  .361/.238), **Scrolling 2.04 (.239/.117)**. So the whole gap is the
+  card's access time, not QuickDraw; and it is largest where VRAM is READ
+  (Scrolling reads and writes the screen; large CopyBits mostly writes
+  it). Ours reads and writes VRAM alike (~894 ns); a real NuBus card's
+  read is a full round trip with the data coming back. Whether the Toby's
+  reads are that much faster than the High-Resolution card's, or ours are
+  too fast, still needs a real Toby's Norton figures (or the Toby's
+  documented slave timing).
 - **The VBL status level (14.4): CLOSED on the board (Daniel, 19:00).**
   Prince of Persia's intro colour-cycles continuously through the Palette
   Manager and its fades change every entry per frame; both look right, no
