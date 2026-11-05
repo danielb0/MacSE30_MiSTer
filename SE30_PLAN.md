@@ -26425,6 +26425,17 @@ fix's other edge (a narrower gate must still fire for 46's external bus
 errors), not 59's class; only the armed predec_fault cases and the board
 cover that, and the sim cannot reach the deferred dispatch (gap 1 needs
 a way to force it).
+Also for that review (Daniel, 2026-11-05: "36 hours is a very long
+time and makes maintenance very cumbersome"): WHEN THE FULL CHAIN RUNS.
+Today's rule (2026-11-01) is "rerun the sweeps whose paths the kernel diff
+touches", judged by hand per fix; busfault_irq (a)-(d) alone are ~30 h
+(a 556 x ~3 min, b ~7 h, c ~6 h, d ~5 h), the regression ~6 h. To
+settle: a tiered chain (the regression + the diff's classes per fix;
+busfault_irq SET=all only before a release or on a change to the
+exception/bus-error paths), the sweeps' per-case cost (3 min a case is
+the bench's full boot; a snapshot after the setup would cut most of it),
+and which of (a)-(d) are redundant with each other (a's CTX=11 subset is
+inside b and c).
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
