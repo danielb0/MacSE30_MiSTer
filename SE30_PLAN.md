@@ -22142,6 +22142,24 @@ Daniel - add to it, move items out when fixed).**
     Board (Daniel, morning of 2026-11-06): `cc -o hello hello.c` bare and
     zflag on both ki59 builds at 64 and 16 MB; then KNOWN ISSUES 54.
 
+60. **OPEN, AFTER THE RELEASE (2026-11-05, Daniel's Norton run): the FPU
+    reads 5-8 % SLOW on two benchmarks, both cores.** Norton Utilities
+    (IIcx core, System 7.1): FPU 1.66 against Norton's reference IIcx 1.74
+    (0.95). Speedometer 4.02's FPU benchmarks against the real SE/30
+    (compile 30 and the later rerun): FFT 0.89, KWhet 0.89, Matrix 0.90,
+    Ave. 0.92. Two tools, two reference machines, the same sign - a real
+    deviation, not rounding. (Speedometer's Math, ~13-16 % FAST and
+    accepted above, is mostly SANE integer code, not the 68882 - a
+    different measurement.) Where it can come from: the 68882's own
+    instruction times reproduce Table 8-3 in 227 of 228 rows; the MPU's
+    side of the dialog is unpaced (that would read fast, not slow); so the
+    lead is the coprocessor interface's BUS CYCLES - the CPU-space CIR
+    reads and writes, several per FPU instruction. Documented: the MC68882
+    UM's interface timing at 16 MHz. Next: a sim/cpfpu bench counting
+    clocks per CPU-space access against the UM, before any change. Not
+    Mac-affecting (FPU-heavy work 5-8 % slower), so after the release
+    (the pre-release rule, the freeze).
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -25791,6 +25809,33 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   precedent, KNOWN ISSUES).  Daniel notes Speedometer 3.23 appears to run
   its graphics test in greyscale rather than colour - noted, not chased.
   Section 14's step 3 (the card's CPU-side speed, 14.2 item 12) is CLOSED.
+- **Norton Utilities against its reference IIcx (Daniel, 2026-11-05; IIcx
+  core, 640x480 8-bit, 32-bit, VM off, 128 K cache):**
+
+  | test | this core (7.5.5) | this core (7.1) | reference IIcx (7.1) | ratio |
+  |---|---|---|---|---|
+  | Overall | 8.23 | - | 7.98 | 1.03 |
+  | CPU | 7.2 | 7.19 | 7.14 | 1.01 |
+  | FPU | - | 1.66 | 1.74 | 0.95 (KNOWN ISSUES 60) |
+  | Video | 20.8 | 21.0 | 14.8 | 1.42 (a different card) |
+  | Disk | 147 | - | 93.1 | 1.58 (the SD at full speed, by rule) |
+
+  The reference's card is the **Mac II High-Resolution Video Card**
+  (1989, M0322/M0324), Apple's cost-reduced replacement for the Toby
+  (M0211/M5640); both unaccelerated; no published speed figure for either
+  card found (Low End Mac, 68kmla). Norton's reference IIfx with the same
+  card: Video 18.5 - 1.25x the IIcx on a ~2.5-3x CPU, so ~2/3 of the
+  IIcx's video time is waiting on the card; taking out the CPU share, our
+  Toby's card time is ~57-59 % of the High-Resolution card's (~1.7x
+  faster an access). The 7.1 rerun rules out the System version.
+  Either the real Toby is that much faster than its cost-reduced
+  successor (consistent with Speedometer's match above) or ours is too
+  fast and Speedometer's graphics test is CPU-bound enough to hide it.
+  **The timing stays as built**; what would settle it: a Norton Video
+  score from a real Mac II-family machine with the Toby at 640x480 8-bit
+  (ask on 68kmla). Norton names our machine "Macintosh", not "Macintosh
+  IIcx" - the System and TattleTech identify it correctly, so Norton's
+  own lookup; not a core lead.
 - **The VBL status level (14.4): CLOSED on the board (Daniel, 19:00).**
   Prince of Persia's intro colour-cycles continuously through the Palette
   Manager and its fades change every entry per frame; both look right, no
