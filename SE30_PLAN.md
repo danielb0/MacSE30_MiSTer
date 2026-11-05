@@ -25900,7 +25900,7 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   |---|---|---|---|---|
   | Overall | 8.23 | - | 7.98 | 1.03 |
   | CPU | 7.2 | 7.19 | 7.14 | 1.01 |
-  | FPU | - | 1.66 | 1.74 | 0.95 (KNOWN ISSUES 60) |
+  | FPU | 1.65 | 1.66 | 1.74 | 0.95 (KNOWN ISSUES 60) |
   | Video | 20.8 | 21.0 | 14.8 | 1.42 (a different card) |
   | Disk | 147 | - | 93.1 | 1.58 (the SD at full speed, by rule) |
 
