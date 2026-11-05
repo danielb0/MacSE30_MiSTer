@@ -22039,8 +22039,10 @@ Daniel - add to it, move items out when fixed).**
 59. **FIXED ON THE BOARD (Daniel, 2026-11-05 morning, the IIcx ki59 build
     at 64 MB, the failing configuration of 13.6.8: "cc is now working" -
     bare cc compiles again; the first board result after the sim could not
-    reproduce it, so the diagnosis stands). Left: zflag, the SE/30 ki59
-    build, 16 MB, then KNOWN ISSUES 54 (HyperCard under VM).**
+    reproduce it, so the diagnosis stands). zflag on the same build: "ok
+    (first write to the page)" and "ok (page touched first)" - the faulted
+    first write's flags are right, and so is the control. Left: the SE/30
+    ki59 build, 16 MB, then KNOWN ISSUES 54 (HyperCard under VM).**
     **Was FIX IN TEST (2026-11-05, from the review of 13.6.8's /bin/cc fault;
     REGRESSION since 12e0e6b, 2026-10-25 - in the 20261102 release and every
     build after; the 20261024 release is clean): KNOWN ISSUES 46's CCR
