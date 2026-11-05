@@ -1593,8 +1593,16 @@ BEGIN
   -- delivers its operand - the frame's SR is the CCR before the instruction
   -- (UM 8.2.2), not flags from the bus data.  The shadow is taken on the
   -- dispatch edge and put back on every edge of the frame's stacking (the
-  -- instruction's own flag write lands after the dispatch and outranks it)
+  -- instruction's own flag write lands after the dispatch and outranks it).
+  -- KNOWN ISSUES 59: EXTERNAL bus errors only.  berr_external_rw/fc are
+  -- latched at an external bus error's first fire and keep that value
+  -- through every later PMMU fault (make_mmu_berr marks only the walker's
+  -- bus errors, not a page fault), so once a data read had bus-errored (the
+  -- ROM's slot probing at boot) every page fault restored the CCR too - a
+  -- completed last write's flags were lost (A/UX's cc: MOVE.L A0,(xxx).L
+  -- then BEQ, the branch on the flags from before the MOVE).
   berr_read_ccr_restore <= '1' WHEN setinterrupt = '1' AND make_berr = '1' AND make_mmu_berr = '0' AND
+                                    pmmu_fault = '0' AND berr_pmmu_fault_valid = '0' AND
                                     berr_external_rw = '1' AND berr_external_fc(1 downto 0) = "01" ELSE '0';
   PROCESS (clk) BEGIN
     IF rising_edge(clk) THEN

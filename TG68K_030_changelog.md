@@ -148,6 +148,17 @@ development history.
     internal word now carries the owed trace and the instruction's length, and the RTE of a
     completed write ends with that trace, naming the instruction.
 
+### Since 2026-11-02: the regression in fix 38
+
+46. Fix 38's CCR restore fired on page faults as well (a regression of 2026-10-25, in the
+    20261102 release). Its gate used the RW and FC latched at the last external bus error,
+    which a PMMU fault never updates, so once any data read had bus-errored (a Macintosh ROM's
+    slot probing at boot) every later page fault taken through the deferred dispatch stacked
+    the CCR from before its instruction. A restarted instruction recomputed its flags; a
+    completed last write (Format $A, only the write replayed) lost them: `move.l a0,(xxx).l`
+    with A0 = 0 then `beq` branched on the flags from before the move (A/UX's cc, "Memory
+    fault" on every run). The gate now excludes PMMU faults.
+
 ## Known open (deferred)
 
 - A PMMU instruction's full-format EA is wrong when no fault occurs.

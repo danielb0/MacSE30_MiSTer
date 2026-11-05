@@ -116,6 +116,18 @@ MODECHK = CASESET in ("dsweep", "ssweep", "isweep", "xsweep", "rsweep", "zdiv", 
 # operand's page fault and rerun; a non-zero divisor behind the fault does not.
 # (words, operand address, invalid page or None, quotient register D4 wanted, traps)
 ZDIV, ZCOUNT = 0x1FA0, 0x3F24
+# PREBERR=1 (2026-11-05, A/UX's cc "Memory fault" at 64 and 16 MB, every build since
+# 2026-10-25): an EXTERNAL bus error on a supervisor data read before the PMMU is enabled -
+# the ROM's slot probing at boot, on both machines - so the kernel's latched RW/FC of the last
+# external bus error (berr_external_rw/fc) are a data read's when the cases' PMMU faults
+# dispatch.  KNOWN ISSUES 46's CCR restore (TG68KdotC_Kernel.vhd berr_read_ccr_restore) was
+# gated on those latches alone and fired on every later page fault: a LASTWRITE Format $A
+# fault then resumed with the flags from BEFORE its instruction (cc's MOVE.L A0,(xxx).L; BEQ
+# took the wrong path).  The probe: vector 2 -> PROBE, MOVE.L $B0000000,D0 (super-slot B,
+# empty: GLUE's UI6 times it out), PROBE clears DF in the frame and RTEs (the read completed
+# from the DIB, UM 8.2.2), vector 2 -> BERR; PRECOUNT counts the probe's one entry.
+PREBERR = os.environ.get("PREBERR") == "1"
+PROBE, PRECOUNT = 0x1FC0, 0x3F28
 ZDIV_CASES = [
     ([0x88D6], 0x2B000, None, 0x00010000, 1, "DIVU.W (A6),D4 by a resident zero"),
     ([0x89D6], 0x2B000, None, 0x00010000, 1, "DIVS.W (A6),D4 by a resident zero"),
@@ -911,6 +923,16 @@ DSW_CCR = [
     (lambda a: [0x44FC, 0x001F, 0x42B9] + _abs(a), 0, 0, 4, "MOVE #$1F,CCR; CLR.L (xxx).L"),
     ([0x44FC, 0x001F, 0x2C89], 0, 0, 4, "MOVE #$1F,CCR; MOVE.L A1,(A6)"),
     ([0x44FC, 0x001F, 0x4296], 0, 0, 4, "MOVE #$1F,CCR; CLR.L (A6)"),
+    # cc's flow (2026-11-05): the MOVE.L is the return of a subroutine (strrchr) - the
+    # prefetch refilled after the RTS, A0 and the CCR set inside it
+    (lambda a: [0x6008, 0x91C8, 0x44FC, 0x0000, 0x4E75, 0x61F6, 0x23C8] + _abs(a) + [0x6702, 0x4AFC], 0, 0, 4,
+     "BRA.B over; sub: SUBA.L A0,A0; MOVE #0,CCR; RTS; over: BSR.B sub; MOVE.L A0,(xxx).L; BEQ.B +2; ILLEGAL (cc's return)"),
+    # ... and the page READ first, so the write faults on an ATC HIT (DSW_WP=1: a resident
+    # write-protected page - A/UX's copy-on-write of a page the program has read), not a walk
+    (lambda a: [0x4AB9] + _abs(a) + [0x91C8, 0x44FC, 0x0000, 0x23C8] + _abs(a) + [0x6702, 0x4AFC], 0, 0, 4,
+     "TST.L (xxx).L; SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(xxx).L; BEQ.B +2; ILLEGAL (the page read first)"),
+    (lambda a: [0x4AB9] + _abs(a) + [0x6008, 0x91C8, 0x44FC, 0x0000, 0x4E75, 0x61F6, 0x23C8] + _abs(a) + [0x6702, 0x4AFC], 0, 0, 4,
+     "TST.L (xxx).L; BRA.B over; sub: SUBA.L A0,A0; MOVE #0,CCR; RTS; over: BSR.B sub; MOVE.L A0,(xxx).L; BEQ.B +2; ILLEGAL (read first, cc's return)"),
 ]
 # ... and every case checks its CCR absolutely too (a fault in BOTH runs - a
 # first-touch walk, say - compares equal): MOVE CCR,D5; CMPI.W #want,D5; BEQ.B
@@ -928,7 +950,10 @@ DSW_CCR_WANT = {"SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(xxx).L (cc)": 0x04,
                 "MOVE #$1F,CCR; MOVE.L A1,(xxx).L (A1 positive)": 0x10,
                 "MOVE #$1F,CCR; CLR.L (xxx).L": 0x14,
                 "MOVE #$1F,CCR; MOVE.L A1,(A6)": 0x10,
-                "MOVE #$1F,CCR; CLR.L (A6)": 0x14}
+                "MOVE #$1F,CCR; CLR.L (A6)": 0x14,
+                "BRA.B over; sub: SUBA.L A0,A0; MOVE #0,CCR; RTS; over: BSR.B sub; MOVE.L A0,(xxx).L; BEQ.B +2; ILLEGAL (cc's return)": 0x04,
+                "TST.L (xxx).L; SUBA.L A0,A0; MOVE #0,CCR; MOVE.L A0,(xxx).L; BEQ.B +2; ILLEGAL (the page read first)": 0x04,
+                "TST.L (xxx).L; BRA.B over; sub: SUBA.L A0,A0; MOVE #0,CCR; RTS; over: BSR.B sub; MOVE.L A0,(xxx).L; BEQ.B +2; ILLEGAL (read first, cc's return)": 0x04}
 assert set(DSW_CCR_WANT) == set(x[4] for x in DSW_CCR)
 
 # ssweep (the third round's scan 1, 2026-10-20: SUPERVISOR-side faults): A/UX's
@@ -1815,6 +1840,10 @@ def main():
         fix.append((len(w), name))
         emit(0, 0)
 
+    if PREBERR:                                      # the arming external bus error (PREBERR, above), PMMU off
+        emit(0x21FC); l32(PROBE); emit(0x0008)       # MOVE.L #PROBE,$8.W: vector 2
+        emit(0x2039); l32(0xB0000000)                # MOVE.L $B0000000.L,D0: super-slot B, no card
+        emit(0x21FC); l32(BERR); emit(0x0008)        # MOVE.L #BERR,$8.W: the bench's handler back
     emit(0x203C); l32(CACR)                          # MOVE.L #CACR,D0
     emit(0x4E7B, 0x0002)                             # MOVEC D0,CACR
     emit(0x41F9); l32(CRP_AT)                        # LEA CRP_AT,A0
@@ -2154,7 +2183,12 @@ def main():
     assert TRAP0 + 2 * len(trap0) <= LOOPSTOP
     zdiv = [0x52B8, ZCOUNT,                          # ADDQ.L #1,ZCOUNT.W
             0x4E73] if CASESET == "zdiv" else []     # RTE (format 2: the next instruction)
-    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1), (TRAPS, traps), (ZDIV, zdiv)):
+    probe = [0x08AF, 0x0000, 0x000A,                 # PREBERR's handler: BCLR #0,$A(A7) - DF cleared, the read completed by software
+             0x52B8, PRECOUNT,                       # ADDQ.L #1,PRECOUNT.W
+             0x4E73] if PREBERR else []              # RTE
+    if PREBERR:
+        expect.append((PRECOUNT, 1, "preberr: the arming external bus error (a supervisor data read of super-slot B) was taken once"))
+    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1), (TRAPS, traps), (ZDIV, zdiv), (PROBE, probe)):
         for i, x in enumerate(code):
             mem[base // 2 + i] = x
     rec[0] = False                                   # the tables and the handler's words are not the cases'

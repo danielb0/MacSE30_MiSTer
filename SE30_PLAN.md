@@ -22036,6 +22036,76 @@ Daniel - add to it, move items out when fixed).**
     and the TFB video driver are the IIcx's own; QuickTime may take a
     different path there). Nothing for the core either way.
 
+59. **FIX IN TEST (2026-11-05, from the review of 13.6.8's /bin/cc fault;
+    REGRESSION since 12e0e6b, 2026-10-25 - in the 20261102 release and every
+    build after; the 20261024 release is clean): KNOWN ISSUES 46's CCR
+    restore fired on PAGE FAULTS.** `berr_read_ccr_restore`
+    (TG68KdotC_Kernel.vhd ~1597) was gated on `make_berr AND NOT
+    make_mmu_berr AND berr_external_rw AND berr_external_fc(1:0) = 01`.
+    Two facts make that a page-fault gate: `berr_external_rw/fc` are
+    latched only at an EXTERNAL bus error's first fire (~5762, under
+    `berr_k`) and keep that value for ever after; and `make_mmu_berr`
+    marks only the walker's own bus errors (the MMUSR B bit, ~5745) - an
+    invalid page, a write-protected page and a supervisor violation all
+    leave it 0 and dispatch as `trap_berr` (~6029). So once any data read
+    had bus-errored externally (the ROM's Slot Manager probing at boot, on
+    both machines; the IIcx's NuBus timeouts too; FC 101 or 001 -> bits
+    1:0 = 01, RW 1), every later page fault taken through the deferred
+    (`make_berr` registered) dispatch stacked the CCR from BEFORE its
+    instruction and rolled the live flags back to it. Harmless for a
+    restart frame (Format $B, the instruction re-executed); WRONG for a
+    LASTWRITE Format $A frame: the instruction has completed and only its
+    write is replayed, so its flags are lost. cc's `move.l a0,$402e7c.l`
+    (A0 = 0, the bss page's first write) then `beq`: the branch read the
+    flags from before the MOVE, Z clear, and ran on to `clr.b (a0)` -
+    13.6.8's core, every run, at 64 AND 16 MB (Daniel, 2026-11-05: 16 MB
+    too, "we seem to have a regression"). `/tmp/cc2` "worked" because
+    its name's '/' wants the not-taken path. Exposure: every program under
+    A/UX (a `move`/`clr`/`addq` to memory then a branch on its flags across
+    a first-touch page - compilers emit it for `if ((p = f()) == 0)`),
+    System 7 VM the same (KNOWN ISSUES 54, HyperCard under VM, to rerun
+    after the fix), the IIcx a little more (NuBus timeouts arm it too).
+    Not Mac OS without VM (no page faults), not restart faults, not the
+    external bus errors themselves (46 stays right for them).
+    **THE FIX**: the gate takes `pmmu_fault = '0' AND
+    berr_pmmu_fault_valid = '0'` as well - the discriminator the trace
+    drop at ~5990 already used.
+    **SIM (2026-11-05 evening): NOT REPRODUCED, and why.** sim/predec_fault
+    `PREBERR=1` (gen_program.py: before PMOVE TC a supervisor read of
+    super-slot B, GLUE's UI6 times it out, a probe handler clears DF and
+    RTEs, the count checked) arms the latches exactly as the board's boot
+    does; then the DSW_CCRSET cases, the invalid page and the
+    copy-on-write page (DSW_WP=1), CACR $2101, SDRAM=1, CACR 0; new cases
+    43-54 with cc's flow (the MOVE as a subroutine's return, BSR/RTS) and
+    the page READ first (the write faults on an ATC hit, as copy-on-write
+    of a page the program has read); and +IRQAT at every clock of
+    fault-50..fault+20 for cases 1 and 51 (irq_ccr_pb_d1/d51.log, 71 + 66
+    runs): ALL PASS on the unfixed kernel. The spy (ModelSim `when` on
+    trap_berr, clk_n): in every shape the page fault dispatches on the
+    SAME edge (`pmmu_fault` live, `make_berr` still 0 at setinterrupt), the
+    path the gate never sees; the restore needs the DEFERRED dispatch
+    (`make_berr` registered first), whose trigger on the board is not yet
+    known (the dispatch block ~5228 defers when a group-1 exception wins
+    the edge or the retire condition ~5214 is false at it). So the fix is
+    by construction - a stale latch of one exception kind gating a restore
+    for another - and the board decides it; if cc still faults on the
+    fixed builds, the next instrument is the frame's SR on the board (the
+    RTRACE records no SR: dbg_rtrace.v's R record is SSW, state1, the
+    fault address and the DOB) with a JTRACE trigger at user PC $21C0.
+    The bench gap this shows is 1 of the regression gaps noted under
+    "Sweep classes left": no bench arms a latch one exception leaves for
+    another to read.
+    **Tests after the fix**: run_dsweep.sh CACR=0x2101 DSW_CCRSET=1
+    PREBERR=1 [DSW_WP=1] (55 cases each; in the regression from now),
+    busfault_irq SET=pawn CTX="11 i11" (46's own class, unchanged):
+    **55/55, 55/55, 6/6 PASS on the fixed kernel (2026-11-05 night;
+    dsweep_ccr_pb_c0x2101.log, dsweep_ccr_wp_pb_c0x2101.log,
+    sweep_pawn.log).** Then sim/night59.sh: both cores built (label
+    ki59), the trimmed chain (every predec_fault sweep with PREBERR=1 at
+    both CACRs, busfault_irq (a)-(d), the regression; log night59.log).
+    Board (Daniel, morning of 2026-11-06): `cc -o hello hello.c` bare and
+    zflag on both ram64b+fix builds at 64 and 16 MB; then KNOWN ISSUES 54.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -24758,6 +24828,17 @@ in a program of its own, `./zflag` (first write to its bss page) and
 `./zflag t` (page touched first); on the IIcx ram64b at 64 MB, then at 16 MB,
 then the SE/30 ram64b, then a release build - which build/size/machine
 breaks the branch.  `/bin/cc -o hello hello.c` (a '/') should work.
+**REVIEWED 2026-11-05 (Daniel: "see if you can find whether there is a
+core bug"; then "the same issue occurs in 16mb ... a regression"): THE
+CORE BUG IS KNOWN ISSUES 59** - KNOWN ISSUES 46's CCR restore (12e0e6b,
+2026-10-25) gated on the last EXTERNAL bus error's latched RW/FC, which a
+page fault never updates, so after the ROM's slot probing every page
+fault put the pre-instruction CCR in its frame; a Format $A last write
+(cc's MOVE.L A0,(xxx).L) resumed with the flags from before it. Fixed
+in the gate; the sim could not reach the deferred dispatch the gate
+needs (59 has the whole trail); the board decides.  Builds for the
+morning: SE/30 and IIcx ram64b + the fix.  Regression tests: the gaps
+noted under "Sweep classes left" (Daniel: to discuss later).
 Daniel also saw the ' key give a non-quote character in CommandShell
 (the shell did not treat it as a quote): check ' in a System 7 editor -
 our ADB keymap or his layout.  More IIcx testing to follow (Daniel).
@@ -26266,6 +26347,38 @@ in the repo root.**
 **Sweep classes left.** The list follows that block: 2's directed part,
 7's T0 flow x interrupt, 8, 9, 10's rest, 12's rest. Then the full chain
 on the frozen kernel (Daniel's OK).
+
+**Regression gaps noted 2026-11-05 (Daniel asked for the review after
+KNOWN ISSUES 59, the stale-latch CCR restore; none adds cases, so none
+lengthens the regression except the last):**
+1. State carried from one exception kind into another: every bench starts
+   from reset, so a latch one event sets and another reads is never stale
+   (59's class: the external bus error's RW/FC read by a PMMU fault; also
+   its datatype/size/RMW/address, make_mmu_berr's kept value, the Format
+   $A replay's SSW/address/data, the completion capture, the trace-owed
+   bits). Fill: an ARMING PREAMBLE in predec_fault, cpfpu and busfault_irq
+   - one of each exception kind before the cases (an external bus-error
+   read and write, a PMMU fault with a Format $A replay, a trace, an
+   interrupt, an FPU dialog). PREBERR=1 is the first instance. Cost: a few
+   hundred clocks a run.
+2. The CCR is checked loosely outside dsweep: only dsw_build sets the flags
+   before its instruction (zero, until DSW_CCRSET); isweep, xsweep, ssweep
+   and selfst set none, so a stale value the same in both runs passes.
+   Fill: DSW_CCRSET's discipline everywhere - pre-load $1F (or a value the
+   instruction must change) and check absolutely. Cost: a few instructions
+   a case.
+3. The stacked frame is logged, not checked: no sweep checks the SSW or
+   format word against the UM, and none records the stacked SR. Fill: the
+   handler logs the SR, the generator expects its CCR (the instruction's
+   for a Format $A frame, the pre-instruction one for a restart). Would
+   have caught 59 at the frame. Cost: nil.
+4. Exception nesting is thin: an external bus error inside a page-fault
+   handler, a page fault inside an external bus error's handler, a traced
+   instruction whose write page-faults, auxfull (the context switch) are
+   not in the regression. Fill: a DIRECTED set of tens of cases, minutes,
+   not a sweep.
+Board: zflag.c and a bare `cc` run after every kernel change, as The Pawn
+is (the class on the machine itself).
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.

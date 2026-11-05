@@ -61,6 +61,11 @@ if [ "$WHAT" != phase1 ]; then
     for c in 0 0x2101; do   # the fourth round: KNOWN ISSUES 36's other side - a real zero divisor still traps, 8 cases
       job "zdiv zero-divide traps CACR=$c" predec_fault bash -c "d=../_zd_$c; rm -rf \$d; mkdir \$d; cp gen_program.py tb_predec_fault.v run.sh \$d/; cd \$d && CASESET=zdiv TCMODE=aux HANDLER=aux CACR=$c ./run.sh +UOK; r=\$?; cd ..; rm -rf \$d; exit \$r"
     done
+    # KNOWN ISSUES 59: the CCR after a faulted last write, with the latches of an earlier EXTERNAL bus
+    # error armed first (PREBERR=1 - the ROM's slot probing at boot), the page invalid and copy-on-write
+    for w in "" "DSW_WP=1"; do
+      r=$(cd "$SIM/predec_fault" && ./run_dsweep.sh CACR=0x2101 DSW_CCRSET=1 PREBERR=1 $w 2>&1 | tail -1); echo "$r"
+    done
     for c in 0 0x2101; do   # KNOWN ISSUES 37's class: an address register stored through its own (An)+/-(An), 132 cases
       r=$(cd "$SIM/predec_fault" && ./run_selfst.sh CACR=$c 2>&1 | tail -1); echo "$r"
     done
