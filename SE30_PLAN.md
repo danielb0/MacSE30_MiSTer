@@ -22178,6 +22178,31 @@ Daniel - add to it, move items out when fixed).**
     (FPU-heavy work 5-8 % slower), so after the release (the pre-release
     rule, the freeze).
 
+61. **OPEN, AFTER THE RELEASE (2026-11-05, Daniel: "Yes, record it"): the
+    IIcx's Toby card acknowledges VRAM with NO wait states; the real card
+    takes TWO - documented.** *Designing Cards and Drivers*, 2nd ed.,
+    Chapter 11, **Figure 11-2 "Access to video RAM space"** (book p. 235,
+    PDF page 266; `Docs\nubus\`; the text extract garbles the diagram - read
+    the page image): a VRAM WRITE and a VRAM READ each take **4 NuBus
+    clocks = 400 ns** - the start cycle, two wait clocks, the acknowledge
+    in the fourth. The card's 20M clock is twice /CLK; its RAM timing chain
+    runs states 3, 2, 0, 1 on 150 ns VRAM (64K x 4, p. 233). Reads cost the
+    same as writes. Ours (from the code, not yet measured): `iicx_nuchip`
+    samples the card's ack on the first NuBus clock after START
+    (S_WAIT), and `nubus_tfb` acks a block-RAM access within 2 clk_sys
+    (~64 ns) - so 2 NuBus clocks, 200 ns short an access. This corrects
+    Section 14's "no documented figure to build to": the figure was in the
+    book we had. It explains Norton's per-test pattern (QuickDraw-bound
+    tests at 1.04-1.09, frame-buffer traffic up to Scrolling 2.04; Section
+    14's Norton entry). Open: how compile 9's 894 ns AS*-to-DSACK splits
+    between the card's handshake and the NuChip/GLUE (the NuChip's own
+    latency is undocumented - its header's OPEN). Next: sim/nubus, the
+    split per access; then the card acknowledges VRAM in the fourth NuBus
+    clock (Figure 11-2), reads and writes alike; check the control-space
+    (register/CLUT/ROM) timing in Chapter 11 the same way; then Norton's
+    Video breakdown and Speedometer per depth on the board. Not
+    Mac-affecting (the screen is only faster), so after the release.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -25867,7 +25892,11 @@ to $F908xxxx/$F909xxxx/$F90Axxxx with the PC into `cardtap.log`, kept):
   read is a full round trip with the data coming back. Whether the Toby's
   reads are that much faster than the High-Resolution card's, or ours are
   too fast, still needs a real Toby's Norton figures (or the Toby's
-  documented slave timing).
+  documented slave timing). **ANSWERED the same day: the Toby's timing IS
+  documented** (*Designing Cards and Drivers* Figure 11-2: 4 NuBus clocks
+  a VRAM read or write, two of them waits) and ours acknowledges with
+  none - ours is too fast. KNOWN ISSUES 61; the "accepted as built"
+  above is superseded by it.
 - **The VBL status level (14.4): CLOSED on the board (Daniel, 19:00).**
   Prince of Persia's intro colour-cycles continuously through the Palette
   Manager and its fades change every entry per frame; both look right, no
