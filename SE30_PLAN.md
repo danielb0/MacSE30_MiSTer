@@ -22267,7 +22267,29 @@ Daniel - add to it, move items out when fixed).**
     So the SCSI target and pseudo-DMA work; what fails is ncrscsi's
     interrupt-driven use, which narrows the lead to the 53C80 IRQ/DRQ
     through VIA2 CB2/CA2 (or that driver's timing). A further discriminator:
-    an sbc kernel with flags 0x03 (PDMA + interrupts). To check, from
+    an sbc kernel with flags 0x03 (PDMA + interrupts).
+    **SECOND FAULT, THE PDMA WRITE (2026-11-06 13:24):** sysinst's "I/O
+    error writing Disk Map"; a hand `dd` of one block to sd1 gives "sbc0:
+    timeout waiting for DREQ." / "ncr5380_machine: unexpected disconnect." /
+    "sd1(sbc0:0:1:0): generic HBA error" / "error writing fsbn 100". Reads
+    are fine. NetBSD's sbc_pdma_out (sys/arch/mac68k/dev/sbc.c v1.75 - the
+    use, not the spec): ICR |= DATA, MR |= DMA, write Start DMA Send; per 64
+    bytes 4 byte writes to SCSIBase+$12000 (each after polling BSR for
+    DRQ and PHASE MATCH, aborting if PHASE MATCH or BSY drops) and 15
+    longwords to +$6000 (GLUE's handshake); after the last byte it polls BSR
+    for DRQ AND PHASE MATCH (~10 s), then a dummy write to +$12000. On a
+    real 5380 that holds: after the last byte's REQ falls DRQ rises, and ACK
+    stays asserted until DACK cycles again (SP-1051 10.5.2), so the target
+    cannot leave DATA OUT before the dummy write. Ours lost PHASE MATCH
+    there and the target ran on to bus free by itself: either the MacPlus
+    target (scsi.v) changes phase without waiting for ACK to fall, or our
+    53C80 drops ACK early (the send's ACK release on a DACK fall while
+    `consumed`). The ROM never checks phase at the end of a send, so the
+    Mac OS hides it. Possibly Mac-affecting: any third-party SCSI driver
+    that ends a blind write the documented way. Check in sim: a bench of
+    exactly that sequence against se30_scsi (both drives), BSR sampled after
+    the last byte. Workaround on the board: sbc flags without PDMA writes
+    (0x09 = PDMA | PDMA_NO_WRITE, or 0) via userconf. To check, from
     documentation: the VIA2 CA2/CB2 edges and polarity against the Guide
     and the schematic (sheet 6); which interrupts ncrscsi enables and
     expects (NetBSD sys/arch/mac68k/dev/ncr5380.c, mac68k5380.c - a
