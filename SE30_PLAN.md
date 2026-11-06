@@ -22238,6 +22238,30 @@ Daniel - add to it, move items out when fixed).**
     figure for the upper VRAM is worth one probe read; sim/nubus check 3
     ("5 to 8 C16M clocks") moves with the fix.
 
+62. **OPEN (2026-11-06, Daniel installing NetBSD 11.1 mac68k on the IIcx,
+    64 MB): the INSTALL kernel's `ncrscsi` driver hangs after sd0's
+    INQUIRY.** Everything else probed right: IIcx/68030/68882, total memory
+    65536 KB, ASC, IWM, both SCC channels, NuBus, ADB (keyboard at 2, mouse
+    at 3), the console on the Toby (intvid at $F9900020, 640 x 480). Then
+    "sd0 at scsibus0 target 0 lun 0: <SEAGATE, ST225N, > disk fixed" at
+    4.16 s, and nothing more but "waiting for devices: scsibus0 sd0" from
+    64 s on, repeated, with no timeout or phase message. So the commands
+    sd's attach sends next (TEST UNIT READY, READ CAPACITY, MODE SENSE)
+    never complete, and nothing times them out: something the driver waits
+    on never comes. Lead: ncrscsi is interrupt-driven - the 53C80's IRQ and
+    DRQ through VIA2 CB2/CA2, pseudo-DMA from the handler - which the ROM
+    never uses (it polls, with GLUE's blind handshake), so that path has
+    only been checked against the ROM. A real IIcx boots ncrscsi (the
+    default driver), so this is ours until shown otherwise. To check, from
+    documentation: the VIA2 CA2/CB2 edges and polarity against the Guide
+    and the schematic (sheet 6); which interrupts ncrscsi enables and
+    expects (NetBSD sys/arch/mac68k/dev/ncr5380.c, mac68k5380.c - a
+    cross-check of the use, not the spec); our 53C80's interrupt set
+    (8.1, 8.3, 8.5, 8.6 built; END OF DMA absent since /EOP is pulled up -
+    check the SE/30 and IIcx sheets agree). Next on the board: the
+    INSTALLSBC kernel (the sbc driver). Not Mac-affecting: after the
+    release.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
