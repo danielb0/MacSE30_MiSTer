@@ -20,7 +20,7 @@ See [Credits](#credits) for the people whose work this builds on.
 - Runs **A/UX 3.1**, Apple's Unix, with its X11 clients (see [A/UX](#aux))
 - **68030 CPU with PMMU and caches** at the SE/30's 15.67 MHz, timed to match a real machine
 - **68882 FPU**
-- **Memory:** 8 MB or 16 MB
+- **Memory:** 8, 16, 32 or 64 MB (32 MB needs a 64 MB SDRAM module, 64 MB a 128 MB one)
 - **Display:** the SE/30's built-in 512×342 black-and-white screen; on the IIcx, Apple's
   Macintosh II Video Card: 640×480 in black and white, or 4, 16 or 256 colours or greys
 - **Sound** (Apple Sound Chip)
@@ -89,10 +89,14 @@ and slow the Mac to a crawl, as on a real Mac.
 
 ## Memory and 32-bit mode
 
-Select 8 MB or 16 MB in the OSD and use **Reset & Apply Memory**. In 24-bit mode the Mac
-uses at most 8 MB. The SE/30 ROM is not 32-bit clean: for 32-bit addressing install
-Apple's **MODE32** extension (with its installer) and turn 32-Bit Addressing on in the
-Memory control panel. Older software often fails in 32-bit mode, as on a real SE/30.
+Select the memory in the OSD and use **Reset & Apply Memory**. The OSD offers what your
+SDRAM module can hold: 8 and 16 MB on a 32 MB module, up to 32 MB on a 64 MB module, up to
+64 MB on a 128 MB module; if MiSTer has not detected the module's size, only 8 and 16 MB.
+The memory setting moved with 32 and 64 MB: a core set to 16 MB before starts at 8 MB once.
+In 24-bit mode the Mac uses at most 8 MB. The SE/30 ROM is not 32-bit clean: for 32-bit
+addressing install Apple's **MODE32** extension (with its installer) and turn 32-Bit
+Addressing on in the Memory control panel. Older software often fails in 32-bit mode, as
+on a real SE/30.
 
 ## A/UX
 
