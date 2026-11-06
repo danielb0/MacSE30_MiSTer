@@ -22202,6 +22202,8 @@ Daniel - add to it, move items out when fixed).**
     (register/CLUT/ROM) timing in Chapter 11 the same way; then Norton's
     Video breakdown and Speedometer per depth on the board. Not
     Mac-affecting (the screen is only faster), so after the release.
+    DECIDED 2026-11-06 (Daniel): into the release after the current one,
+    together with KNOWN ISSUES 62's NetBSD SCSI fixes.
     **MEASURED 2026-11-06 (Daniel: "Please do"; a scratch copy of sim/nubus
     at the board's clocks: clk_sys 31.3344 MHz, c16_en every second clk,
     the NuChip's default fraction, a monitor timing each stage; 44/45
@@ -22298,6 +22300,12 @@ Daniel - add to it, move items out when fixed).**
     check the SE/30 and IIcx sheets agree). Next on the board: the
     INSTALLSBC kernel (the sbc driver). Not Mac-affecting: after the
     release.
+    **DECIDED 2026-11-06 (Daniel): both NetBSD faults wait until after the
+    current release** ("not a bug that anyone is ever going to notice,
+    unless they try to install NetBSD"; NetBSD compatibility was never
+    claimed). They go into the NEXT release together with KNOWN ISSUES 61's
+    Toby wait states - card and SCSI fixes, no kernel change, so no sweeps
+    (feedback: batch CPU changes).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
