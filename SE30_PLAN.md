@@ -26563,6 +26563,12 @@ lengthens the regression except the last):**
    not a sweep.
 Board: zflag.c and a bare `cc` run after every kernel change, as The Pawn
 is (the class on the machine itself).
+Also for the review (Daniel, 2026-11-06): busfault_irq (a)'s IIcx context
+(i11). It covers the bus shapes only (190 of 556 cases, ~3 of (a)'s ~10 h),
+because an empty-slot access ends at the NuChip's NuBus timeout, not
+GLUE's, so the bus error lands at a different time against the interrupt.
+It has never failed where the SE/30 passed. To decide: keep it, or rely on
+the regression's two-core builds.
 **DECIDED 2026-11-05 (Daniel, with night59's chain at busfault_irq (a)):
 revise the regression tests along gaps 1-4 BEFORE the regression is run
 again.** night59's own run of it (the chain's last stage, unchanged -
