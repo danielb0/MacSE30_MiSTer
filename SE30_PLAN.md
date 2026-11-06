@@ -22251,8 +22251,13 @@ Daniel - add to it, move items out when fixed).**
     on never comes. Lead: ncrscsi is interrupt-driven - the 53C80's IRQ and
     DRQ through VIA2 CB2/CA2, pseudo-DMA from the handler - which the ROM
     never uses (it polls, with GLUE's blind handshake), so that path has
-    only been checked against the ROM. A real IIcx boots ncrscsi (the
-    default driver), so this is ours until shown otherwise. To check, from
+    only been checked against the ROM. BUT real Macs show the same
+    (Daniel: "Real Macs have a similar problem with non-apple HDs"):
+    port-mac68k carries years of drive-dependent ncrscsi trouble ("Timeout
+    waiting for phase-change" resets, a Fujitsu M2512, a DAT drive that
+    needed sbc, a IIvx that needed ncrscsi), and our target presents a
+    non-Apple drive (SEAGATE ST225N). So whether this is ours or authentic
+    is OPEN; the sbc kernel's result is the first discriminator. To check, from
     documentation: the VIA2 CA2/CB2 edges and polarity against the Guide
     and the schematic (sheet 6); which interrupts ncrscsi enables and
     expects (NetBSD sys/arch/mac68k/dev/ncr5380.c, mac68k5380.c - a
