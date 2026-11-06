@@ -26758,6 +26758,25 @@ it finish; think again after.** sim/night59b.sh = night59's stages 3-4,
 (a) resumed from its 194 (RESUME=1), log sim/night59.log continued.
 The revision (gaps 1-4, the dedupe, the placement policy, the
 simulator) is the first post-release task.
+**THE NEXT RELEASE, PREPARED (2026-11-06 ~23:00; Daniel: "Once the chain
+is finished, assuming there are no errors, please prepare the release and
+compile both cores ... proceed without me"; "Do not push to MiSTer-devel.
+Only do that when I approve it").** Chain at 23:00: (a) 556/556, (b)
+228/228, (c) running. Release tree C:\Git\MacSE30_rc, branch release
+27e0705 (not pushed): dev's changes since 8ec086b merged - the KI 59 fix
+(changelog fix 46, header updated 2026-11-05) and FUTURE ADDITIONS 5
+(32/64 MB: se30_simms, se30_sdram's second chip and 10th column, the OSD
+by module size); comments in the release style; the kernel, se30_machine,
+se30_sdram and se30_simms token-identical to dev da6e060, MacSE30.sv
+differing only by the probes (as before); README's memory lines; both
+revisions elaborate. NOT in it: KI 61 (Toby waits) and 62 (NetBSD SCSI),
+the next-next release (d1d110a). sim/rc59_after_chain.sh (Task Scheduler
+task SE30_rc59; log sim/rc59.log) waits for "night59b: done", builds only
+if (a)-(d) and the regression all pass, waits for the simulators to end,
+then compiles both revisions in the release tree, runs sta_corners and
+archives output_files/<rev>_27e0705_rc.rbf. Left for Daniel: the board
+look at both RC builds, then releases/<rev>_<date>.rbf, main, and any
+push (danielb0 or MiSTer-devel) on his approval only.
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
