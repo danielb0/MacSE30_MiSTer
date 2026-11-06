@@ -22202,6 +22202,41 @@ Daniel - add to it, move items out when fixed).**
     (register/CLUT/ROM) timing in Chapter 11 the same way; then Norton's
     Video breakdown and Speedometer per depth on the board. Not
     Mac-affecting (the screen is only faster), so after the release.
+    **MEASURED 2026-11-06 (Daniel: "Please do"; a scratch copy of sim/nubus
+    at the board's clocks: clk_sys 31.3344 MHz, c16_en every second clk,
+    the NuChip's default fraction, a monitor timing each stage; 44/45
+    checks pass, the one failure being check 4's per-clk tick count, an
+    artefact of the doubled clock).** AS* to DSACK, current RTL:
+    | access | sel->START (sync) | START->card ack | ack->DSACK | AS*->DSACK | waits |
+    |---|---|---|---|---|---|
+    | block-RAM VRAM, registers, ROM, RAMDAC | 64-128 | 64 | 32-64 | 160-223 ns | 0 |
+    | upper VRAM (SDRAM, $4B020 up) | 64-96 | 223 | 64-96 | 351-415 ns | 2 |
+    (GLUE adds nothing: sel rises with AS*.) The NuChip samples the ack on
+    each NuBus tick, so the card's 64 ns ack is taken on the first tick
+    after START: START and acknowledge in consecutive NuBus clocks, no
+    waits. The SDRAM path's 223 ns ack (5 bench clocks of SDRAM wait) lands
+    on the third tick: the fourth NuBus clock, exactly Figure 11-2. The
+    640 x 480 x 8 frame is $4B000 bytes, ALL in block RAM, so every screen
+    access at every depth takes the zero-wait path. That is the Norton gap.
+    **The 894 ns does not reproduce:** the ack and NuChip timing are
+    unchanged since compile 9 (nubus_tfb's cycle 2999b63, iicx_nuchip
+    26b7fe8, both 2026-10-09), and that scratch model is gone. Treat it as
+    unknown; these figures replace it. The NuChip/GLUE side adds 64-128 ns
+    of sync (up to one NuBus clock), as a real NuChip must, so the full
+    two waits are wanted, not fewer.
+    **The fix is card-only** (no iicx_nuchip change, so no busfault_irq
+    sweeps): hold the block-RAM/register ack until the fourth NuBus clock.
+    Either (a) count clk_sys from sel: ack at 8 clks (255 ns) is safe,
+    since the second tick after START comes at clk 6-7 and the third at
+    9-10 (7 clks could meet the second tick and give one wait); or (b) take
+    nb_tick into the card (a new port, wired in se30_machine's g_iicx block
+    only) and ack on the second tick after sel, exact by construction.
+    (b) is the authentic shape: the card's state chain runs on /CLK.
+    Also: Chapter 11's control-space timing (registers, CLUT, ROM) is still
+    to read; the SDRAM path's ack depends on the arbiter's latency on the
+    board (5 clks in the bench; more would add a third wait), so the board
+    figure for the upper VRAM is worth one probe read; sim/nubus check 3
+    ("5 to 8 C16M clocks") moves with the fix.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
