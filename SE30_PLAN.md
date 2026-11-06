@@ -22291,7 +22291,11 @@ Daniel - add to it, move items out when fixed).**
     that ends a blind write the documented way. Check in sim: a bench of
     exactly that sequence against se30_scsi (both drives), BSR sampled after
     the last byte. Workaround on the board: sbc flags without PDMA writes
-    (0x09 = PDMA | PDMA_NO_WRITE, or 0) via userconf. To check, from
+    (0x09 = PDMA | PDMA_NO_WRITE, or 0) via userconf. The failed writes DID
+    reach the medium: afterwards the Mac OS no longer mounts the second
+    disk (sysinst's partition-map write, and the test dd zeroing sector
+    100 inside the HFS volume at 96) - so the data path works and the
+    fault is the end of the transfer. To check, from
     documentation: the VIA2 CA2/CB2 edges and polarity against the Guide
     and the schematic (sheet 6); which interrupts ncrscsi enables and
     expects (NetBSD sys/arch/mac68k/dev/ncr5380.c, mac68k5380.c - a
