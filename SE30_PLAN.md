@@ -22257,7 +22257,17 @@ Daniel - add to it, move items out when fixed).**
     waiting for phase-change" resets, a Fujitsu M2512, a DAT drive that
     needed sbc, a IIvx that needed ncrscsi), and our target presents a
     non-Apple drive (SEAGATE ST225N). So whether this is ours or authentic
-    is OPEN; the sbc kernel's result is the first discriminator. To check, from
+    is OPEN; the sbc kernel's result is the first discriminator.
+    **INSTALLSBC BOOTS (2026-11-06 12:59):** "sbc0 at obio0 addr 0:
+    options=01<PDMA>" - pseudo-DMA on, the interrupt option (0x02) OFF, so
+    sbc polls. sd0 1024 MB (2097152 sectors), sd1 <SEAGATE, ST225O> 1500 MB
+    (3072000), cd0 <SONY, CD-ROM CDU-8001, 3.2i>, all "async, 8-bit"; root
+    on md0a; sysinst's "Terminal type?" prompt. "fabricating a geometry" on
+    each disk = our targets answer no MODE SENSE geometry page (harmless).
+    So the SCSI target and pseudo-DMA work; what fails is ncrscsi's
+    interrupt-driven use, which narrows the lead to the 53C80 IRQ/DRQ
+    through VIA2 CB2/CA2 (or that driver's timing). A further discriminator:
+    an sbc kernel with flags 0x03 (PDMA + interrupts). To check, from
     documentation: the VIA2 CA2/CB2 edges and polarity against the Guide
     and the schematic (sheet 6); which interrupts ncrscsi enables and
     expects (NetBSD sys/arch/mac68k/dev/ncr5380.c, mac68k5380.c - a
