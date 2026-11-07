@@ -22347,6 +22347,18 @@ Daniel - add to it, move items out when fixed).**
     Norton's Video on the IIcx (KI 61 should bring it down from 21.0 toward
     the reference); a Mac OS write check (copy to the SCSI disk). Then the
     SE/30 test version (REVS=MacSE30).
+    **BOARD, NORTON VIDEO (Daniel 2026-11-07 22:01, IIcx test build;
+    screenshots 20261107_220135/220151):** Video 17.9 (was 21.0) against the
+    reference IIcx's 14.8: 1.21 (was 1.42). Per test, core / reference: .179/
+    .148 1.21, .213/.187 1.14 (Rects, was 1.39), .151/.136 1.11, .165/.154
+    1.07, .238/.233 1.02, .245/.230 1.07, .151/.123 1.23, .233/.193 1.21, .209/
+    .159 1.31 and .311/.238 1.31 (large CopyBits, were 1.56/1.52), .122/.122
+    1.00, .162/.117 1.38 (Scrolling, was 2.04). Every frame-buffer test moved
+    toward the reference, the QuickDraw-bound ones barely. The card now
+    follows Figure 11-2; the reference's card is the Mac II High-Resolution
+    Video Card, not the Toby (Section 14's Norton entry), so the 1.21 is not
+    a like-for-like gap. What remains undocumented: the NuChip's own
+    latency. What would settle it: a real Toby's Norton Video (68kmla).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
