@@ -22310,6 +22310,43 @@ Daniel - add to it, move items out when fixed).**
     claimed). They go into the NEXT release together with KNOWN ISSUES 61's
     Toby wait states - card and SCSI fixes, no kernel change, so no sweeps
     (feedback: batch CPU changes).
+    **FIXED ON DEV, KNOWN ISSUES 61 AND 62 TOGETHER (2026-11-07, Daniel: "Let's
+    create the fixes for 1 and 2 ... just the IIcx for testing"), b130a75.**
+    62, the PDMA write end: SP-1051 Figure 11.4 (rendered; the extract garbles
+    it) releases byte N-1's ACK at the end of the DACK cycle that answers the
+    DRQ raised after REQ fell (T9 then T10). Ours released it at the end of ANY
+    DACK ending after REQ fell - including the DACK that wrote the byte, when
+    the target took it inside that access (always, for a polled byte, whose
+    REQ is up before the DACK). After the last byte ACK dropped by itself and
+    the target went to STATUS before NetBSD's dummy write ("timeout waiting
+    for DREQ"). Now a flag (dack_free) arms the release only once DACK has
+    been false after REQ fell. The ROM ends every write with MR = 0 (10.5.2's
+    other route), unchanged. sim/scsi_seam case 10b runs sbc_pdma_out (4 byte
+    writes after DRQ+PHASE MATCH, 60 through the handshake, the end wait, the
+    dummy write); +DTAIL=n sets DACK's tail: the old chip fails 10b at tail
+    10 (BSR $50 - STATUS), passes at 2-9 and 12 (a race, as on the board);
+    the fixed chip passes 104/104 at every tail 2-12 and 305/305 in full
+    (case 10's ring-fill check is a throughput check, gated to tails <= 10:
+    GLUE's tail is 3-4 clocks). ncr53c80 case 8b rewritten to Figure 11.4
+    (it encoded the old release): 107/107, fails on the old chip. The first
+    fault (ncrscsi's interrupt-driven hang after INQUIRY) is NOT diagnosed;
+    the INSTALL kernel is worth a retry on the test build.
+    61, the Toby's waits: Chapter 11 times only video RAM space (Figure 11-2);
+    control space (registers, CLUT, VBL, ROM) is listed with no figure, so it
+    stays as built. The card takes the NuChip's nb_tick and acknowledges VRAM
+    space (block RAM and SDRAM, reads and writes) no sooner than the second
+    tick after sel, so the NuChip takes it at the third: the fourth NuBus
+    clock. sim/nubus 49/49: the block-RAM ack 3 NuBus clocks after START (the
+    old card: 2 at the bench's C16M), an access 8-10 C16M clocks (was 5-8).
+    machine 17/17 both cores.
+    **IIcx TEST BUILD (sim/ki6162_build.sh, Task Scheduler SE30_ki6162):**
+    output_files/MacIIcx_b130a755_ki6162.rbf, md5 7eb37e98, 35 min, 38,844
+    ALMs (93 %), +0.036 ns MET AT EVERY CORNER, capture A or B everywhere, 8
+    loop cells (as the release). Not board-checked. Board: NetBSD INSTALLSBC
+    (sysinst's disk map write, the dd to sd1), the INSTALL (ncrscsi) kernel,
+    Norton's Video on the IIcx (KI 61 should bring it down from 21.0 toward
+    the reference); a Mac OS write check (copy to the SCSI disk). Then the
+    SE/30 test version (REVS=MacSE30).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
