@@ -36,7 +36,7 @@ development history.
 - **Optional, SE/30-specific:** a write pending buffer, and a pace that holds each instruction
   to the UM's section 11 times (so software timing loops run at the real machine's speed).
 
-## Bug fixes (45)
+## Bug fixes (46)
 
 ### Bus and bus errors
 

@@ -26787,6 +26787,16 @@ every corner, 61 min. 8 loop cells each, the same count as dev's builds.
 (The script's md5sum failed under the Task Scheduler; the sums were taken
 by hand.) Next: Daniel's board look at both, then releases/, main, push.
 
+**RELEASE 20261107 CUT, NOT PUSHED (2026-11-07).** Daniel's board check
+passed: IIcx at 64, 32 and 16 MB (video, audio, CodeWarrior IDE at 50 MB;
+A/UX at 64 MB with 4 X11 programs and a cc compile); SE/30 boot, floppy
+mount, format, copy, unmount and read. release 0777e30: releases/
+MacSE30_20261107.rbf (7ab28c4f) and MacIIcx_20261107.rbf (85a4cc64), the
+RC builds unchanged; TG68K_030_changelog.md "Bug fixes (46)" (dev too).
+main 1 squashed commit "Release 20261107: 32 and 64 MB, A/UX cc fix" (tree
+= release + the prerelease2 rbf main already held). NOTHING PUSHED: danielb0
+and MiSTer-devel (`git push mister main:master`) wait for Daniel's OK.
+
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
 - KNOWN ISSUES 54 (HyperCard under VM, quit twice, then fine) open as
