@@ -26796,6 +26796,8 @@ RC builds unchanged; TG68K_030_changelog.md "Bug fixes (46)" (dev too).
 main 1 squashed commit "Release 20261107: 32 and 64 MB, A/UX cc fix" (tree
 = release + the prerelease2 rbf main already held). NOTHING PUSHED: danielb0
 and MiSTer-devel (`git push mister main:master`) wait for Daniel's OK.
+PUSHED 2026-11-07 on Daniel's OK ("Push both"): danielb0 main 550614c, dev,
+release 0777e30; MiSTer-devel master 550614c. RELEASED 20261107.
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
