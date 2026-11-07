@@ -2,6 +2,8 @@
 // the 68030's four-clock RAM cycle by starting at ECS (a read speculative, auto-precharged); CL2,
 // single-location writes, the mask on A12:11 (the MiSTer module's DQM wiring), refresh in idle
 // clocks, and the read capture on clock A or B, chosen at power-up by a training read.
+// Above 32 MB: a 64 MB chip's tenth column, and a 128 MB module's second chip, picked by nCS; the
+// ladder and every refresh go to both chips, and the training checks the second one (c1_ok).
 // The IIcx build adds vr_*, its card's VRAM above the card's block RAM: one longword with byte
 // enables, served in the disk port's window; its VCO (846.0288 MHz) puts the three clock phases
 // at +1.034, -0.296 and -2.219 ns.
@@ -22,12 +24,14 @@ module se30_sdram #(
   output reg  [1:0] cap_ok,            // the training's verdict: {A clean, B clean}
   output reg [13:0] cap_fail_a,        // reads that did not return the pair through A, saturating
   output reg [13:0] cap_fail_b,        // and through B
+  output reg        c1_ok,             // the second chip returned the pair on every read
+  output reg [13:0] c1_fail,           // its failures, saturating
 
   // the CPU port (clk_sys domain)
   input             cpu_start,         // ECS with a RAM/ROM address: the S0 half-clock
   input             cpu_req,           // GLUE's ram_req | rom_req: AS*-qualified, until acknowledged
   input             cpu_we,
-  input      [22:0] cpu_addr,          // longword address
+  input      [24:0] cpu_addr,          // longword address
   input       [3:0] cpu_be,
   input      [31:0] cpu_wdata,
   output reg [31:0] cpu_rdata,
@@ -56,6 +60,7 @@ module se30_sdram #(
   input             raw_req,
   input      [63:0] raw_ctl,
   input      [23:0] raw_addr,          // word address
+  input             raw_chip,          // ... on a 128 MB module's second chip (the JTAG poke)
   output reg        raw_ack,
   input             dbg_dqm_force,     // hold both DQM pins high (only while the machine is held in reset)
   output reg [60:0] dbg_wr,            // debug: a CPU write's WRITE pair as the pins carried it; unconnected, pruned
@@ -89,7 +94,7 @@ module se30_sdram #(
   localparam REF_PERIOD  = 10'd700;            // 7.45 us: from here it goes at the first idle clock, inside tREFI's 7.81 us
   localparam REF_FORCE   = 10'd1023;           // overdue: refresh even with a CPU start pending
   localparam WIN_LO      = 6'd10;              // the idle window after a cycle, in clocks since its start:
-  localparam WIN_HI      = 6'd17;              // a refresh issued here completes before a back-to-back start needs the chip
+  localparam WIN_HI      = 6'd15;              // a refresh issued here (both chips: REF_BUSY + 1) completes before a back-to-back start needs the chip
   localparam DK_HI       = 6'd15;              // and a disk word's (ACT_BUSY, two clocks longer) issued here
   localparam ACT_BUSY    = 4'd8;               // clocks from ACTIVE to the next ACTIVE or refresh
   localparam REF_BUSY    = 4'd6;               // tRFC 63 ns
@@ -97,7 +102,7 @@ module se30_sdram #(
   localparam [15:0] TR_W1 = 16'hA5C3, TR_W2 = 16'h5A3C;
   localparam  [1:0] TR_BANK = 2'd3;
   localparam [12:0] TR_ROW  = 13'd8191;
-  localparam  [8:0] TR_COL  = 9'd510;
+  localparam  [9:0] TR_COL  = 10'd510;
   localparam [17:0] TR_READS = 18'd1 << TR_READS_LOG2;
 
   reg  [3:0] cmd;
@@ -157,12 +162,12 @@ module se30_sdram #(
   always @(posedge clk) begin phi_q <= phi; phi_qq <= phi_q; end
   wire       sample_en = (phi_q != phi_qq);           // one clock after the clk_sys edge: the edge after is the sample
   reg        xs_start, xs_start_evt, xs_req, xs_we, xs_dl_req;
-  reg [22:0] xs_addr;
+  reg [24:0] xs_addr;
   reg  [3:0] xs_be;
   reg [31:0] xs_wdata;
   reg [23:0] xs_dl_addr;
   reg [15:0] xs_dl_data;
-  reg        xs_raw_req;
+  reg        xs_raw_req, xs_raw_chip;
   reg [63:0] xs_raw_ctl;
   reg [23:0] xs_raw_addr;
   reg        xs_dk_req, xs_dk_we;
@@ -179,7 +184,7 @@ module se30_sdram #(
       xs_req <= cpu_req; xs_we <= cpu_we;
       xs_addr <= cpu_addr; xs_be <= cpu_be; xs_wdata <= cpu_wdata;
       xs_dl_req <= dl_req; xs_dl_addr <= dl_addr; xs_dl_data <= dl_data;
-      xs_raw_req <= raw_req; xs_raw_ctl <= raw_ctl; xs_raw_addr <= raw_addr;
+      xs_raw_req <= raw_req; xs_raw_ctl <= raw_ctl; xs_raw_addr <= raw_addr; xs_raw_chip <= raw_chip;
       xs_dk_req <= dk_req; xs_dk_we <= dk_we; xs_dk_addr <= dk_addr; xs_dk_wdata <= dk_wdata;
       xs_vr_req <= vr_req; xs_vr_we <= vr_we; xs_vr_addr <= vr_addr; xs_vr_be <= vr_be; xs_vr_wdata <= vr_wdata;
     end
@@ -194,15 +199,18 @@ module se30_sdram #(
   wire        r_read = xs_raw_ctl[47];
   wire        r_ap = xs_raw_ctl[48], r_second = xs_raw_ctl[49], r_kind = xs_raw_ctl[50];
   wire [12:0] r_mode = xs_raw_ctl[63:51];
+  wire        r_chip = xs_raw_chip;
   wire  [1:0] r_bank = xs_raw_addr[23:22];
   wire [12:0] r_row  = xs_raw_addr[21:9];
   wire  [8:0] r_col  = xs_raw_addr[8:0];
 
-  // the word address of the access: bank, row, column
-  wire [23:0] a_word  = {xs_addr, 1'b0};
+  // the word address of the access: chip, bank, row, column (A9 = word
+  // bit 24, the 64 MB chip's tenth column)
+  wire [25:0] a_word  = {xs_addr, 1'b0};
+  wire        a_chip  = a_word[25];
   wire  [1:0] a_bank  = a_word[23:22];
   wire [12:0] a_row   = a_word[21:9];
-  wire  [8:0] a_col   = a_word[8:0];
+  wire  [9:0] a_col   = {a_word[24], a_word[8:0]};
   wire  [1:0] d_bank  = xs_dl_addr[23:22];
   wire [12:0] d_row   = xs_dl_addr[21:9];
   wire  [8:0] d_col   = xs_dl_addr[8:0];
@@ -233,8 +241,9 @@ module se30_sdram #(
   reg        a_we;                     // the access in flight is a write
   reg [12:0] a_row_r;                   // its row (the debug tap only; unconnected, pruned)
   reg        a_written;                // its WRITE has issued
+  reg        a_chip_r;
   reg  [1:0] a_bank_r;
-  reg  [8:0] a_col_r;
+  reg  [9:0] a_col_r;
   reg  [3:0] a_be;
   reg [31:0] a_wdata;
   reg        k_we_r;                   // the disk word in flight, latched at its ACTIVE
@@ -250,6 +259,11 @@ module se30_sdram #(
   reg  [3:0] init_step;                // 0 pause, 1 precharge, 2-9 refreshes, 10 mode, 11 settle
   reg  [1:0] tr_step;                  // the training: 0 write the pair, 1 read it, 2 judge and switch
   reg        tr_pass;                  // 0 testing A, 1 testing B
+  reg        tr_c1;                    // the last pass: the second chip through the chosen capture
+  // the second chip's copy of a ladder command or a refresh, a clock later
+  reg        c1_dup;
+  reg  [2:0] c1_cmd;
+  reg [12:0] c1_addr;
   reg [17:0] tr_n;                     // reads done in this pass
   reg [17:0] tr_good;                  // reads that returned the pair
   wire [17:0] tr_bad = TR_READS - tr_good;
@@ -260,7 +274,7 @@ module se30_sdram #(
   initial dbg_wr = 0;
   always @(posedge clk) begin
     if (state == S_ACC && a_we && !a_written && req_q && seq_ge2)
-      dw_hi <= {~a_be[3:2], a_bank_r, a_col_r, dq_pre};
+      dw_hi <= {~a_be[3:2], a_bank_r, a_col_r[8:0], dq_pre};
     if (state == S_ACC && a_we && a_written && seq_is3)
       dbg_wr <= {~dbg_wr[60], dw_hi[28:27], ~a_be[1:0], dw_hi[26:25], a_row_r, dw_hi[24:16], dw_hi[15:0], dq_pre};
   end
@@ -277,13 +291,15 @@ module se30_sdram #(
       dk_ack <= 0; dk_rdata <= 0; vr_ack <= 0; vr_rdata <= 0;
       v_we_r <= 0; v_bank_r <= 0; v_col_r <= 0; v_be_r <= 0; v_wdata_r <= 0;
       since_start <= 6'd63; win_ref <= 0; win_dk <= 1;
-      start_pend <= 0; a_we <= 0; a_written <= 0; a_bank_r <= 0; a_row_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
+      start_pend <= 0; a_we <= 0; a_written <= 0; a_chip_r <= 0; a_bank_r <= 0; a_row_r <= 0; a_col_r <= 0; a_be <= 0; a_wdata <= 0;
       k_we_r <= 0; k_bank_r <= 0; k_col_r <= 0; k_wdata_r <= 0;
       cap_sel <= 0; cap_ok <= 2'b00; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
-      cap_fail_a <= 0; cap_fail_b <= 0;
+      cap_fail_a <= 0; cap_fail_b <= 0; c1_ok <= 0; c1_fail <= 0; tr_c1 <= 0;
+      c1_dup <= 0; c1_cmd <= 3'b111; c1_addr <= 0;
     end else begin
       seq_n = seq;
       cmd    <= CMD_NOP;
+      c1_dup <= 0;
       if (busy != 0) busy <= busy - 1'b1;
       if (ref_cnt != 10'h3FF) ref_cnt <= ref_cnt + 1'b1;
       ref_due   <= (ref_cnt >= REF_PERIOD);
@@ -307,12 +323,21 @@ module se30_sdram #(
           init_cnt <= init_cnt + 1'b1;
           case (init_step)
             4'd0:  if (init_cnt == INIT_PAUSE) begin init_step <= 1; init_cnt <= 0; end
-            4'd1:  begin cmd <= CMD_PRECHARGE; sd_addr[10] <= 1'b1; init_step <= 2; init_cnt <= 0; end
-            4'd10: if (init_cnt == 15'd8) begin cmd <= CMD_LOAD_MODE; sd_addr <= MODE; sd_ba <= 0; init_step <= 11; init_cnt <= 0; end
-            4'd11: if (init_cnt == 15'd2) begin
-              state <= S_TRAIN; tr_step <= 0; tr_pass <= 0; tr_n <= 0; tr_good <= 0; seq_n = 0; cap_sel <= 0;
+            4'd1:  begin
+              cmd <= CMD_PRECHARGE; sd_addr[10] <= 1'b1; init_step <= 2; init_cnt <= 0;
+              c1_dup <= 1; c1_cmd <= CMD_PRECHARGE[2:0]; c1_addr <= 13'h1C00;          // A10: all banks; DQM high
             end
-            default: if (init_cnt == 15'd8) begin cmd <= CMD_REFRESH; init_step <= init_step + 1'b1; init_cnt <= 0; end
+            4'd10: if (init_cnt == 15'd8) begin
+              cmd <= CMD_LOAD_MODE; sd_addr <= MODE; sd_ba <= 0; init_step <= 11; init_cnt <= 0;
+              c1_dup <= 1; c1_cmd <= CMD_LOAD_MODE[2:0]; c1_addr <= MODE;
+            end
+            4'd11: if (init_cnt == 15'd2) begin
+              state <= S_TRAIN; tr_step <= 0; tr_pass <= 0; tr_c1 <= 0; tr_n <= 0; tr_good <= 0; seq_n = 0; cap_sel <= 0;
+            end
+            default: if (init_cnt == 15'd8) begin
+              cmd <= CMD_REFRESH; init_step <= init_step + 1'b1; init_cnt <= 0;
+              c1_dup <= 1; c1_cmd <= CMD_REFRESH[2:0]; c1_addr <= 13'h1800;
+            end
           endcase
         end
 
@@ -323,18 +348,18 @@ module se30_sdram #(
           seq_n = seq + 1'b1;
           case (tr_step)
             2'd0: begin                                             // the pair: two WRITEs, the second auto-precharged
-              if (seq_is0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
+              if (seq_is0) begin cmd <= {tr_c1, CMD_ACTIVE[2:0]}; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
               if (seq_is2) begin
-                cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b0, 1'b0, TR_COL};
+                cmd <= {tr_c1, CMD_WRITE[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b0, TR_COL};
               end
               if (seq_is3) begin
-                cmd <= CMD_WRITE; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL | 9'd1};
+                cmd <= {tr_c1, CMD_WRITE[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, TR_COL | 10'd1};
               end
               if (seq == 4'd9) begin tr_step <= 1; seq_n = 0; end
             end
             2'd1: begin                                             // a read, the same clocks as S_ACC's
-              if (seq_is0) begin cmd <= CMD_ACTIVE; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
-              if (seq_is2) begin cmd <= CMD_READ; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, 1'b0, TR_COL}; end
+              if (seq_is0) begin cmd <= {tr_c1, CMD_ACTIVE[2:0]}; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
+              if (seq_is2) begin cmd <= {tr_c1, CMD_READ[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, TR_COL}; end
               if (seq == 4'd7) tr_w1 <= dq_m;
               if (seq == 4'd8) begin
                 if (tr_w1 == TR_W1 && dq_m == TR_W2) tr_good <= tr_good + 1'b1;
@@ -347,7 +372,9 @@ module se30_sdram #(
             end
             default: begin                                          // judge this pass; switch; settle 16 clocks
               if (seq_is0) begin
-                if (!tr_pass) begin
+                if (tr_c1) begin
+                  c1_ok <= (tr_fail == 0); c1_fail <= tr_fail;      // the second chip: judged, cap_sel kept
+                end else if (!tr_pass) begin
                   cap_ok[1] <= (tr_fail == 0); cap_fail_a <= tr_fail;
                   cap_sel <= 1;                                     // B next
                 end else begin
@@ -359,8 +386,9 @@ module se30_sdram #(
               end
               if (seq == 4'd15) begin
                 seq_n = 0;
-                if (!tr_pass) begin tr_pass <= 1; tr_step <= 1; end
-                else begin state <= S_IDLE; ref_cnt <= 0; busy <= 0; end
+                if (tr_c1) begin state <= S_IDLE; ref_cnt <= 0; ref_due <= 0; ref_early <= 0; ref_force <= 0; busy <= 0; end
+                else if (!tr_pass) begin tr_pass <= 1; tr_step <= 1; end
+                else begin tr_c1 <= 1; tr_step <= 0; end            // the second chip: write its pair, then read
               end
             end
           endcase
@@ -372,13 +400,14 @@ module se30_sdram #(
         S_IDLE: begin
           if (busy == 0) begin
             if (go) begin
-              cmd <= CMD_ACTIVE; sd_ba <= a_bank; sd_addr <= a_row;
-              a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_row_r <= a_row; a_col_r <= a_col;
+              cmd <= {a_chip, CMD_ACTIVE[2:0]}; sd_ba <= a_bank; sd_addr <= a_row;
+              a_we <= we_q; a_written <= 0; a_chip_r <= a_chip; a_bank_r <= a_bank; a_row_r <= a_row; a_col_r <= a_col;
               a_be <= xs_be; a_wdata <= xs_wdata;
               seq_n = 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
             end else if (ref_due || (ref_early && win_ref)) begin
-              cmd <= CMD_REFRESH; busy <= REF_BUSY; ref_cnt <= 0;
+              cmd <= CMD_REFRESH; busy <= REF_BUSY + 1'b1; ref_cnt <= 0;
+              c1_dup <= 1; c1_cmd <= CMD_REFRESH[2:0];                // the second chip's, next clock
             end else if (dl_req_q && !dl_ack) begin
               cmd <= CMD_ACTIVE; sd_ba <= d_bank; sd_addr <= d_row;
               seq_n = 1; busy <= ACT_BUSY;
@@ -399,8 +428,8 @@ module se30_sdram #(
             end else if (raw_req_q && !raw_ack) begin
               // an experiment: every row is closed here, so
               // a LOAD MODE may follow a PRECHARGE ALL at once
-              if (r_kind) begin cmd <= CMD_PRECHARGE; sd_addr <= 13'h0400; busy <= 4'd6; end
-              else begin cmd <= CMD_ACTIVE; sd_ba <= r_bank; sd_addr <= r_row; busy <= ACT_BUSY; end
+              if (r_kind) begin cmd <= {r_chip, CMD_PRECHARGE[2:0]}; sd_addr <= 13'h0400; busy <= 4'd6; end
+              else begin cmd <= {r_chip, CMD_ACTIVE[2:0]}; sd_ba <= r_bank; sd_addr <= r_row; busy <= ACT_BUSY; end
               seq_n = 1; state <= S_RAW;
             end
           end
@@ -411,7 +440,7 @@ module se30_sdram #(
           seq_n = seq + 1'b1;
           if (!a_we) begin
             // a read: speculative, auto-precharged; the two words reach dq_m 7 and 8 clocks after ACTIVE
-            if (seq_is2) begin cmd <= CMD_READ; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, a_col_r}; end
+            if (seq_is2) begin cmd <= {a_chip_r, CMD_READ[2:0]}; sd_ba <= a_bank_r; sd_addr <= {2'b00, 1'b1, a_col_r}; end
             if (seq == 4'd7) cpu_rdata[31:16] <= dq_m;
             if (seq == 4'd8) begin
               cpu_rdata[15:0] <= dq_m; cpu_ack <= req_q;
@@ -423,17 +452,17 @@ module se30_sdram #(
             if (!a_written) begin
               if (seq == 4'd15) seq_n = 4'd15;                       // count the wait, saturating
               if (req_q && seq_ge2) begin                       // tRCD met at 2
-                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {~a_be[3:2], 1'b0, 1'b0, a_col_r};
+                cmd <= {a_chip_r, CMD_WRITE[2:0]}; sd_ba <= a_bank_r; sd_addr <= {~a_be[3:2], 1'b0, a_col_r};
                 a_written <= 1; seq_n = 4'd3; cpu_ack <= 1;
                 busy <= 4'd6;                                       // the low word, tWR, tRP: 4.8 from here
               end else if (seq_ge5) begin
                 // no request by now: the cycle was aborted; precharge
-                cmd <= CMD_PRECHARGE; sd_ba <= a_bank_r; sd_addr[10] <= 1'b0;
+                cmd <= {a_chip_r, CMD_PRECHARGE[2:0]}; sd_ba <= a_bank_r; sd_addr[10] <= 1'b0;
                 busy <= 4'd2; state <= S_IDLE;
               end
             end else begin
               if (seq_is3) begin                                // the low word, auto-precharged
-                cmd <= CMD_WRITE; sd_ba <= a_bank_r; sd_addr <= {~a_be[1:0], 1'b1, 1'b0, a_col_r | 9'd1};
+                cmd <= {a_chip_r, CMD_WRITE[2:0]}; sd_ba <= a_bank_r; sd_addr <= {~a_be[1:0], 1'b1, a_col_r | 10'd1};
               end
               if (seq == 4'd4) state <= S_DONE;
             end
@@ -452,8 +481,8 @@ module se30_sdram #(
             else if (go) begin
               // the next cycle's start, with this one never requested: the
               // data is discarded and the row for the new one opens now
-              cmd <= CMD_ACTIVE; sd_ba <= a_bank; sd_addr <= a_row;
-              a_we <= we_q; a_written <= 0; a_bank_r <= a_bank; a_row_r <= a_row; a_col_r <= a_col;
+              cmd <= {a_chip, CMD_ACTIVE[2:0]}; sd_ba <= a_bank; sd_addr <= a_row;
+              a_we <= we_q; a_written <= 0; a_chip_r <= a_chip; a_bank_r <= a_bank; a_row_r <= a_row; a_col_r <= a_col;
               a_be <= xs_be; a_wdata <= xs_wdata;
               seq_n = 1; busy <= ACT_BUSY; start_pend <= 0;
               state <= S_ACC;
@@ -507,22 +536,22 @@ module se30_sdram #(
         S_RAW: begin
           seq_n = seq + 1'b1;
           if (r_kind) begin                                         // PRECHARGE ALL was issued at entry
-            if (seq_is2) begin cmd <= CMD_LOAD_MODE; sd_addr <= r_mode; sd_ba <= 0; end
+            if (seq_is2) begin cmd <= {r_chip, CMD_LOAD_MODE[2:0]}; sd_addr <= r_mode; sd_ba <= 0; end
             if (seq == 4'd4) begin raw_ack <= 1; state <= S_IDLE; end  // tMRD met by busy
           end else begin
             if (seq_is2) begin
-              cmd <= r_read ? CMD_READ : CMD_WRITE; sd_ba <= r_bank;
+              cmd <= {r_chip, r_read ? CMD_READ[2:0] : CMD_WRITE[2:0]}; sd_ba <= r_bank;
               sd_addr <= {2'b00, r_ap && !(r_second && !r_read), 1'b0, r_col};
             end
             if (seq == 4'd3 && r_second && !r_read) begin
-              cmd <= CMD_WRITE; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap, 1'b0, r_col | 9'd1};
+              cmd <= {r_chip, CMD_WRITE[2:0]}; sd_ba <= r_bank; sd_addr <= {2'b00, r_ap, 1'b0, r_col | 9'd1};
             end
             if (seq_ge2 && seq_le5)                         // the schedule's mask (its data and enable: below)
               sd_addr[12:11] <= r_dqm[2 * r_k +: 2];               // after the column address: the schedule wins
             if (r_read && seq == 4'd7) cpu_rdata[31:16] <= dq_m;   // a read's words, as S_ACC takes them
             if (r_read && seq == 4'd8) cpu_rdata[15:0]  <= dq_m;
             if (seq == 4'd7 && !r_ap) begin                         // tRAS met at 4, tWR after the last data
-              cmd <= CMD_PRECHARGE; sd_ba <= r_bank; sd_addr[10] <= 1'b0; busy <= 4'd3;
+              cmd <= {r_chip, CMD_PRECHARGE[2:0]}; sd_ba <= r_bank; sd_addr[10] <= 1'b0; busy <= 4'd3;
             end
             if (seq == 4'd9) begin raw_ack <= 1; state <= S_IDLE; end
           end
@@ -550,6 +579,11 @@ module se30_sdram #(
         end
         default: ;
       endcase
+      // the second chip's copy of the last clock's ladder command or refresh
+      if (c1_dup) begin
+        cmd <= {1'b1, c1_cmd};
+        if (state == S_INIT) sd_addr <= c1_addr;
+      end
       // the mask held high while dbg_dqm_force is set, but never into a mode register's reserved bits
       if (dbg_dqm_force && state != S_INIT && !(state == S_RAW && r_kind)) sd_addr[12:11] <= 2'b11;
       seq <= seq_n;

@@ -1529,8 +1529,9 @@ BEGIN
 	-- stack frame is the value in the status register before the RTE instruction
 	-- was executed.
   -- a data read ended by an external bus error stacks the CCR from before the instruction (UM 8.2.2),
-  -- restored on every edge of the frame's stacking
+  -- restored on every edge of the frame's stacking; never on a PMMU fault (a completed last write keeps its flags)
   berr_read_ccr_restore <= '1' WHEN setinterrupt = '1' AND make_berr = '1' AND make_mmu_berr = '0' AND
+                                    pmmu_fault = '0' AND berr_pmmu_fault_valid = '0' AND
                                     berr_external_rw = '1' AND berr_external_fc(1 downto 0) = "01" ELSE '0';
   PROCESS (clk) BEGIN
     IF rising_edge(clk) THEN

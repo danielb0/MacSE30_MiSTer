@@ -15,13 +15,13 @@ module se30_machine #(
   input         phi1,
   input         phi2,
   input         reset_n,
-  input         ram16,                 // the SIMMs: 0 = 8 MB, 1 = 16 MB (se30_simms; the top latches it at reset)
+  input   [1:0] ram_size,              // the SIMMs: 0 = 8, 1 = 16, 2 = 32, 3 = 64 MB (se30_simms; the top latches it at reset)
 
   // the memory port, to se30_sdram
   output        mem_start,
   output        mem_req,
   output        mem_we,
-  output [22:0] mem_addr,
+  output [24:0] mem_addr,
   output  [3:0] mem_be,
   output [31:0] mem_wdata,
   input  [31:0] mem_rdata,
@@ -264,16 +264,16 @@ module se30_machine #(
   // one access a cycle, RAM or ROM by GLUE's decode; R/W is taken at the start, with ECS
   assign mem_start = ecs && mem_early;
   assign mem_req   = ram_req || rom_req;
-  // the SIMMs map RAM into the SDRAM; an empty bank reads all ones. The ROM sits at word $C00000.
-  wire [21:0] ram_phys;
+  // the SIMMs map RAM (8 to 64 MB) into the SDRAM; an empty bank reads all ones. The ROM sits at word $C00000.
+  wire [24:0] ram_phys;
   wire        ram_empty, ram_empty_q;
   se30_simms simms (
-    .clk(clk), .big(ram16), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(mem_start), .sel(!rom_early),
+    .clk(clk), .size(ram_size), .ramsiz(ramsiz), .ram_addr(ram_addr), .start(mem_start), .sel(!rom_early),
     .phys(ram_phys), .empty(ram_empty), .empty_q(ram_empty_q));
   assign ram_rdata = mem_rdata | {32{ram_empty_q}};
 
   assign mem_we    = !rom_early && ram_we && !ram_empty;
-  assign mem_addr  = rom_early ? {2'b11, 5'b00000, rom_addr} : {1'b0, ram_phys};
+  assign mem_addr  = rom_early ? {4'b0011, 5'b00000, rom_addr} : ram_phys;
   assign mem_be    = ram_be;
   assign mem_wdata = ram_wdata;
   assign ram_ack   = mem_ack;

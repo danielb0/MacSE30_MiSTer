@@ -1,6 +1,6 @@
 # The SE/30 core's 68030: changes to the TG68K kernel, the PMMU, and a new 68882
 
-Daniel Baum, 2026-10-24, updated 2026-11-01 (fixes 37-45, the known-open list). The CPU of the Macintosh SE/30
+Daniel Baum, 2026-10-24, updated 2026-11-05 (fixes 37-46, the known-open list). The CPU of the Macintosh SE/30
 and IIcx MiSTer cores, measured against where it came from:
 
 | file | baseline |
@@ -36,7 +36,7 @@ development history.
 - **Optional, SE/30-specific:** a write pending buffer, and a pace that holds each instruction
   to the UM's section 11 times (so software timing loops run at the real machine's speed).
 
-## Bug fixes (45)
+## Bug fixes (46)
 
 ### Bus and bus errors
 
@@ -147,6 +147,17 @@ development history.
     (UM 8.1.12: the trace completes after the bus error's handler). The format $A frame's
     internal word now carries the owed trace and the instruction's length, and the RTE of a
     completed write ends with that trace, naming the instruction.
+
+### Since 2026-11-02: the regression in fix 38
+
+46. Fix 38's CCR restore fired on page faults as well (a regression of 2026-10-25, in the
+    20261102 release). Its gate used the RW and FC latched at the last external bus error,
+    which a PMMU fault never updates, so once any data read had bus-errored (a Macintosh ROM's
+    slot probing at boot) every later page fault taken through the deferred dispatch stacked
+    the CCR from before its instruction. A restarted instruction recomputed its flags; a
+    completed last write (Format $A, only the write replayed) lost them: `move.l a0,(xxx).l`
+    with A0 = 0 then `beq` branched on the flags from before the move (A/UX's cc, "Memory
+    fault" on every run). The gate now excludes PMMU faults.
 
 ## Known open (deferred)
 
