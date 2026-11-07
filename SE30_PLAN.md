@@ -26777,6 +26777,15 @@ then compiles both revisions in the release tree, runs sta_corners and
 archives output_files/<rev>_27e0705_rc.rbf. Left for Daniel: the board
 look at both RC builds, then releases/<rev>_<date>.rbf, main, and any
 push (danielb0 or MiSTer-devel) on his approval only.
+**THE CHAIN PASSED AND THE RC BUILDS ARE MADE (2026-11-07).** night59b:
+(a) 556/556, (b) 228/228, (c) 224/224, (d) 190/190, regression 67/67
+(14:07). rc59 (verdict PASS 14:09), both in C:\Git\MacSE30_rc\output_files:
+MacSE30_27e0705_rc.rbf md5 7ab28c4f, 38,373 ALMs (92 %), +0.067 ns MET AT
+EVERY CORNER (ascal included), capture A or B everywhere, 31 min;
+MacIIcx_27e0705_rc.rbf md5 85a4cc64, 38,657 ALMs (92 %), +0.117 ns met at
+every corner, 61 min. 8 loop cells each, the same count as dev's builds.
+(The script's md5sum failed under the Task Scheduler; the sums were taken
+by hand.) Next: Daniel's board look at both, then releases/, main, push.
 
 **Board testing since the release.**
 - System 7.5.5 VM (64 MB on 16 MB) works.
