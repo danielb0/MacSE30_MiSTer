@@ -28,7 +28,9 @@
 //    8. send: Start DMA Send raises DRQ; a DACK write loads the ODR and
 //       drops DRQ; REQ gets ACK with the byte on the bus; REQ false raises
 //       DRQ; ACK holds until DACK cycles; resetting DMA MODE releases the
-//       last ACK and DRQ (6.8.1, 10.5.2-3, 11.4)
+//       last ACK and DRQ (6.8.1, 10.5.2-3, 11.4).  8b: REQ already true
+//       as the DACK write lands - the DACK that wrote the byte never
+//       releases its ACK, the next DACK cycle does (T9, T10)
 //    9. loss of BSY with MONITOR BUSY: BUSY ERROR, the interrupt, ICR's
 //       low bits and DMA MODE cleared (6.3 bit 2, 6.7 bit 2, 8.6)
 //   10. selection interrupt through the Select Enable Register (8.1)
@@ -214,23 +216,37 @@ module tb_se30_ncr53c80;
     check(got[0] == 8'hC0 && got[1] == 8'hC1 && got[3] == 8'hC3, "8. each byte on the bus under ACK");
     wait_drq(20, ok); check(ok && o_ack, "8. after the last byte: DRQ for more, ACK still held");
     reg_wr(2, 8'h00); ticks(1); check(!o_ack && !drq, "8. resetting DMA MODE releases ACK and DRQ (10.5.3)");
-    // 8b. the target already requesting as each DACK write lands (the ROM
+    // 8b. the target already requesting as the DACK write lands (the ROM
     // waits for REQ before Start DMA Send): ACK and REQ's fall come while
-    // DACK is still active, and DRQ must follow DACK going false (T2)
+    // DACK is still active; DRQ follows DACK going false (T2), but ACK
+    // holds until the NEXT DACK cycle goes false (T9 then T10, 10.5.2) -
+    // the DACK that wrote the byte never releases it (KNOWN ISSUES 62)
     reg_wr(2, 8'h02); t_req = 1; reg_wr(5, 8'h00);
-    for (i = 0; i < 4; i = i + 1) begin
-      wait_drq(40, ok); check(ok, "8b. DRQ for each byte, REQ already true");
+    wait_drq(40, ok); check(ok, "8b. DRQ for the first byte, REQ already true");
+    @(negedge clk); dack = 1; wdata = 8'hD0; @(negedge clk); wr = 1; @(negedge clk); wr = 0;
+    wait_ack(1, 10, ok); check(ok, "8b. ACK while DACK is still active");
+    got[0] = b_db; t_req = 0; ticks(2);
+    check(!drq, "8b. no DRQ while DACK is active");
+    ticks(12); @(negedge clk); dack = 0; ticks(2);
+    check(drq, "8b. DRQ once DACK goes false (T2)");
+    check(o_ack, "8b. ACK held: the DACK that wrote the byte does not release it (11.4)");
+    ticks(100); check(o_ack, "8b. ... and it stays until DACK cycles (10.5.2)");
+    for (i = 1; i < 4; i = i + 1) begin
       @(negedge clk); dack = 1; wdata = 8'hD0 + i; @(negedge clk); wr = 1; @(negedge clk); wr = 0;
-      wait_ack(1, 10, ok); check(ok, "8b. ACK while DACK is still active");
-      got[i] = b_db; t_req = 0; ticks(2);
-      check(!drq, "8b. no DRQ while DACK is active");
+      ticks(12); check(o_ack, "8b. ACK held through the next DACK cycle");
       @(negedge clk); dack = 0; ticks(2);
-      check(drq, "8b. DRQ once DACK goes false (T2)");
-      check(!o_ack, "8b. ACK released as DACK went false");
-      t_req = 1;
+      check(!o_ack, "8b. ACK released as the next DACK goes false (T10)");
+      t_req = 1; wait_ack(1, 10, ok); check(ok, "8b. the next REQ gets ACK");
+      got[i] = b_db; t_req = 0; ticks(2);
+      check(drq && o_ack, "8b. REQ false: DRQ (T9), ACK held");
     end
-    check(got[0] == 8'hD0 && got[3] == 8'hD3, "8b. the bytes under ACK");
-    t_req = 0; reg_wr(2, 8'h00); ticks(2);
+    check(got[0] == 8'hD0 && got[1] == 8'hD1 && got[3] == 8'hD3, "8b. the bytes under ACK");
+    // the last byte: a dummy DACK cycle releases ACK (10.5.2)
+    @(negedge clk); dack = 1; wdata = 8'h00; @(negedge clk); wr = 1; @(negedge clk); wr = 0; ticks(2);
+    check(o_ack, "8b. the dummy DACK cycle: ACK held while DACK is true");
+    @(negedge clk); dack = 0; ticks(2);
+    check(!o_ack, "8b. ACK released as the dummy DACK goes false (10.5.2)");
+    reg_wr(2, 8'h00); ticks(2);
     reg_wr(1, 8'h00);
 
     // 9. loss of BSY

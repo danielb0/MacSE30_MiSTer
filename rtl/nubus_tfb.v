@@ -49,8 +49,8 @@
 //   buffer's path.  Register, CLUT and status bytes are inverted here.
 //
 // OPEN (14.4): the VBL status level - here 1 during vertical blanking, the
-//   reading under which WaitVBL waits for blanking to begin; the CPU-side
-//   NuBus timing (ack after a fixed latency here; step 3 tunes it).
+//   reading under which WaitVBL waits for blanking to begin; control
+//   space's NuBus timing (the book times only video RAM space).
 
 `timescale 1ns/1ps
 
@@ -59,6 +59,7 @@ module nubus_tfb #(
 ) (
   input             clk,               // clk_sys
   input             reset_n,
+  input             nb_tick,           // one clk per NuBus clock (/CLK), from the NuChip
 
   // the CPU side: one access, sel held until ack
   input             sel,
@@ -242,27 +243,38 @@ module nubus_tfb #(
   assign irq_n = !vbl_pend;
 
   // ------------------------------------------------ the CPU's cycle
-  // Two clocks: the block RAMs' registered reads land on the second.  The
-  // upper VRAM waits for SDRAM.  NuBus's real timing comes in step 3.
+  // Video RAM space, reads and writes alike: the acknowledge in the fourth
+  // NuBus clock - the start cycle, two wait clocks, /ACK (Designing Cards
+  // and Drivers 2nd ed., Figure 11-2; the RAM timing chain on 20M, twice
+  // /CLK).  sel rises with START, so the NuChip, sampling each NuBus clock,
+  // takes an ack raised on the second tick after it at the third.  Block
+  // RAM is ready on the second clk_sys, the upper VRAM when SDRAM answers
+  // (later than the fourth clock only if the SDRAM is).  Control space
+  // (registers, RAMDAC, VBL, ROM) has no figure in the book: acknowledged
+  // in the clock after START, as before (KNOWN ISSUES 61).
   reg  [1:0] cyc;
-  reg        up_busy;
+  reg  [1:0] tk;                       // NuBus clocks since START, to 2
+  reg        up_busy, up_got;
+  wire       vram_due = (tk == 2'd2) || (tk == 2'd1 && nb_tick);
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      cyc <= 0; ack <= 0; rdata <= 0; up_req <= 0; up_we <= 0; up_addr <= 0;
-      up_be <= 0; up_wdata <= 0; up_busy <= 0;
+      cyc <= 0; tk <= 0; ack <= 0; rdata <= 0; up_req <= 0; up_we <= 0; up_addr <= 0;
+      up_be <= 0; up_wdata <= 0; up_busy <= 0; up_got <= 0;
     end else begin
-      if (!sel) begin cyc <= 0; ack <= 0; up_req <= 0; up_busy <= 0; end
+      if (!sel) begin cyc <= 0; tk <= 0; ack <= 0; up_req <= 0; up_busy <= 0; up_got <= 0; end
       else if (!ack) begin
+        if (nb_tick && tk != 2'd2) tk <= tk + 1'b1;
         if (a_vram && !in_bram) begin
           if (!up_busy && !up_ack) begin               // the previous longword's acknowledge has fallen
             up_req <= 1; up_we <= !rw; up_addr <= lw; up_be <= be; up_wdata <= wdata;
             up_busy <= 1;
-          end else if (up_ack) begin
-            up_req <= 0; ack <= 1; rdata <= up_rdata;
+          end else if (up_req && up_ack) begin
+            up_req <= 0; up_got <= 1; rdata <= up_rdata;
           end
+          if (up_got && vram_due) ack <= 1;
         end else begin
-          cyc <= cyc + 1'b1;
-          if (cyc == 2'd1) begin
+          if (cyc != 2'd3) cyc <= cyc + 1'b1;
+          if (cyc != 2'd0 && (!a_vram || vram_due)) begin
             ack <= 1;
             rdata <= in_bram ? cpu_vq :
                      a_rom   ? {rom_q, 24'h0} :

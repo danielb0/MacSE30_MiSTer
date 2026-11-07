@@ -554,7 +554,7 @@ module se30_machine #(
       .card_sel(card_sel), .card_addr(card_addr), .card_rw(card_rw), .card_be(card_be),
       .card_wdata(card_wdata), .card_rdata(card_rdata), .card_ack(card_ack));
     nubus_tfb card (
-      .clk(clk), .reset_n(reset_n),
+      .clk(clk), .reset_n(reset_n), .nb_tick(nb_tick),
       .sel(card_sel), .rw(card_rw), .addr(card_addr), .be(card_be), .wdata(card_wdata),
       .rdata(card_rdata), .ack(card_ack), .irq_n(card_irq_n),
       .rom_we(cardrom_we), .rom_waddr(cardrom_waddr), .rom_wdata(cardrom_wdata),

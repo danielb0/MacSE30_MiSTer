@@ -42,9 +42,12 @@
 //   Send (11.4): Start DMA Send raises DRQ for the first byte; a DACK write
 //   loads the Output Data Register and clears DRQ; REQ true with phase
 //   match asserts ACK with that byte on the bus; REQ false raises DRQ for
-//   the next byte; ACK is released when DACK next goes false (T9, and
-//   10.5.2: "the NCR 5380 requires DACK to cycle before ACK goes
-//   inactive").
+//   the next byte; ACK is released when the next DACK cycle - one that
+//   starts after REQ went false, answering that DRQ - goes false (T9 then
+//   T10, and 10.5.2: "the NCR 5380 requires DACK to cycle before ACK goes
+//   inactive"; "either DACK must be cycled after the last byte is sent or
+//   the DMA MODE bit must be reset").  The DACK that wrote the byte never
+//   releases its ACK, however long it lasts (KNOWN ISSUES 62).
 //   A phase mismatch "prevents the recognition of REQ and removes the chip
 //   from the bus during an initiator send" (8.5); with DMA MODE set, a
 //   mismatch when REQ goes true interrupts.  DRQ "does not reset when a
@@ -113,6 +116,7 @@ module se30_ncr53c80 #(
   reg        dma_ack;                  // ACK the DMA logic asserts
   reg        byte_full;                // send: a byte is in the ODR, not yet taken by the target
   reg        consumed;                 // send: the target has taken the byte under ACK (REQ fell)
+  reg        dack_free;                // send: DACK has been false since then - the next DACK cycle releases ACK
   reg        dack_cycled;              // receive: the CPU has read since this REQ
   reg        drq_due;                  // a byte is wanted (send) or ready (receive), DRQ waits for DACK false
 
@@ -176,7 +180,7 @@ module se30_ncr53c80 #(
       odr <= 8'h00; idr <= 8'h00;
       icr_tm <= 0; icr_ack <= 0; icr_bsy <= 0; icr_sel <= 0; icr_atn <= 0; icr_data <= 0;
       mr <= 8'h00; tcr <= 4'h0; ser <= 8'h00; busy_err <= 0; aip <= 0; la <= 0;
-      dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; byte_full <= 0; consumed <= 0; dack_cycled <= 0;
+      dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; byte_full <= 0; consumed <= 0; dack_free <= 0; dack_cycled <= 0;
       drq <= 0; drq_due <= 0;
     end
   endtask
@@ -211,7 +215,7 @@ module se30_ncr53c80 #(
                   mr <= wdata;
                   if (!wdata[1]) begin                             // 10.5.3: DMA MODE reset halts DMA
                     dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; drq <= 0; drq_due <= 0;
-                    byte_full <= 0; consumed <= 0; dack_cycled <= 0;
+                    byte_full <= 0; consumed <= 0; dack_free <= 0; dack_cycled <= 0;
                   end
                   if (!wdata[0]) begin aip <= 0; la <= 0; end      // AIP "until the ARBITRATE bit is reset"
                 end
@@ -219,7 +223,7 @@ module se30_ncr53c80 #(
           3'd4: ser <= wdata;
           3'd5: if (mr_dma) begin                                  // 6.8.1 Start DMA Send
                   dma_send <= 1; dma_irecv <= 0; dma_ack <= 0;
-                  byte_full <= 0; consumed <= 0; drq_due <= 1;
+                  byte_full <= 0; consumed <= 0; dack_free <= 0; drq_due <= 1;
                 end
           3'd6: ;                                                  // 6.8.2 Start DMA Target Receive: target role, not built
           3'd7: if (mr_dma && !mr_target) begin                    // 6.8.3 Start DMA Initiator Receive
@@ -260,10 +264,12 @@ module se30_ncr53c80 #(
             if (b_req && phase_match && byte_full && !dma_ack) dma_ack <= 1;
             // REQ false: the target has the byte; DRQ asks for the next
             if (dma_ack && req_fall && byte_full && !consumed) begin
-              byte_full <= 0; consumed <= 1; drq_due <= 1;
+              byte_full <= 0; consumed <= 1; dack_free <= 0; drq_due <= 1;
             end
-            // "requires DACK to cycle before ACK goes inactive" (10.5.2)
-            if (dma_ack && consumed && dack_fall) begin dma_ack <= 0; consumed <= 0; end
+            // "requires DACK to cycle before ACK goes inactive" (10.5.2): a
+            // DACK cycle begun after the target took the byte (11.4 T9, T10)
+            if (dma_ack && consumed && !dack) dack_free <= 1;
+            if (dma_ack && consumed && dack_free && dack_fall) begin dma_ack <= 0; consumed <= 0; dack_free <= 0; end
           end
           // DRQ rises with its cause, or when DACK goes false if DACK is
           // still active then (11.4/11.6 T2, "DACK false to DRQ true")
@@ -280,7 +286,7 @@ module se30_ncr53c80 #(
           irq <= 1;
           icr_tm <= 0; icr_ack <= 0; icr_bsy <= 0; icr_sel <= 0; icr_atn <= 0; icr_data <= 0;
           mr[1] <= 0; dma_send <= 0; dma_irecv <= 0; dma_ack <= 0; drq <= 0; drq_due <= 0;
-          byte_full <= 0; consumed <= 0; dack_cycled <= 0;
+          byte_full <= 0; consumed <= 0; dack_free <= 0; dack_cycled <= 0;
         end
 
         // ---------------------------------------------------- selection (8.1)

@@ -7,8 +7,12 @@
 //      (D31-D24): ByteLanes $E1, the test pattern $5A932BC7, length $1000
 //   2. slot $9 is a 32-bit port: DSACK1*/DSACK0* = 00, a longword in one
 //      cycle; VRAM keeps longwords, words and bytes by lane
-//   3. a transaction waits for the NuBus clock (10 MHz) and takes at least
-//      a start and an acknowledge cycle: an access is 5 to 8 C16M clocks
+//   3. a transaction waits for the NuBus clock (10 MHz); video RAM space
+//      acknowledges in the fourth NuBus clock - start, two waits, /ACK
+//      (Designing Cards and Drivers 2nd ed., Figure 11-2; KNOWN ISSUES 61):
+//      the NuChip takes the ack 3 NuBus clocks after START, block RAM and
+//      SDRAM alike, and an access is 8 to 10 C16M clocks; control space
+//      (the ROM; no figure in the book) in the clock after START, 1
 //   4. the NuBus clock: ticks per C16M = 10 / 15.6672 over a long run
 //   5. an empty slot ($FAxxxxxx), super slot space ($9xxxxxxx) and slot
 //      $9's absent super space time out after 256 NuBus clocks (25.6 us):
@@ -90,7 +94,7 @@ module tb_iicx_nubus;
   reg [11:0] rom_waddr = 0;
   reg  [7:0] rom_wdata = 0;
   nubus_tfb card (
-    .clk(clk), .reset_n(reset_n),
+    .clk(clk), .reset_n(reset_n), .nb_tick(nb_tick),
     .sel(card_sel), .rw(card_rw), .addr(card_addr), .be(card_be), .wdata(card_wdata),
     .rdata(card_rdata), .ack(card_ack), .irq_n(card_irq_n),
     .rom_we(rom_we), .rom_waddr(rom_waddr), .rom_wdata(rom_wdata),
@@ -182,6 +186,14 @@ module tb_iicx_nubus;
       @(posedge clk); #1;
     end
   endtask
+  // NuBus clocks from START (card_sel) to the acknowledge the NuChip takes
+  // (it drops card_sel as it does)
+  integer nbk = 0, nbc_run = 0;
+  always @(posedge clk) begin
+    if (card_sel && nb_tick) nbc_run <= nbc_run + 1;
+    if (!card_sel) nbc_run <= 0;
+    if (card_sel && nuchip.st == 3'd2 && nb_tick && card_ack) nbk <= nbc_run + 1;
+  end
   task rd_long(input [31:0] a); begin cycle(1, a, 2'b00, 32'h0, 4000); end endtask
   task wr_long(input [31:0] a, input [31:0] d); begin cycle(0, a, 2'b00, d, 4000); end endtask
   task wr_word(input [31:0] a, input [15:0] d); begin cycle(0, a, 2'b10, {d, d}, 4000); end endtask
@@ -245,8 +257,19 @@ module tb_iicx_nubus;
       if (n > nmax) nmax = n;
       repeat (i % 3) @(posedge clk);
     end
-    check(nmin >= 5 && nmax <= 8, "3 an access: shortest C16M clocks", nmin, 5);
-    check(nmax <= 8, "3 an access: longest C16M clocks", nmax, 8);
+    check(nmin >= 8 && nmax <= 10, "3 an access: shortest C16M clocks", nmin, 8);
+    check(nmax <= 10, "3 an access: longest C16M clocks", nmax, 10);
+    rd_long(32'hF9000020); @(posedge clk);
+    check(nbk == 3, "3 block-RAM VRAM: the ack taken 3 NuBus clocks after START (Figure 11-2)", nbk, 3);
+    wr_long(32'hF9000020, 32'h12345678); @(posedge clk);
+    check(nbk == 3, "3 block-RAM VRAM write: 3 NuBus clocks", nbk, 3);
+    // the next two depend on this bench's clock (C16M, half clk_sys) and its
+    // SDRAM model (5 clocks): at clk_sys the card's 2-clock control cycle
+    // is acknowledged at the first NuBus clock, the SDRAM path at the third
+    rd_long(32'hF904B01C); @(posedge clk);
+    check(nbk >= 3, "3 SDRAM VRAM: no sooner than 3 NuBus clocks", nbk, 3);
+    rd_byte(32'hF9FFFFFC); @(posedge clk);
+    check(nbk <= 2, "3 control space (the ROM): 1-2 NuBus clocks at C16M, unchanged", nbk, 2);
 
     // 4. the NuBus clock's rate: ticks over 15,667 C16M clocks (1 ms) = 10,000
     ticks = 0;

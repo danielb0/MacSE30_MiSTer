@@ -52,6 +52,12 @@
 //       for the last request (the image is checked at once, no settling
 //       time); an unaligned 33-block write and a 1-block write after it;
 //       reads still ask one sector a request
+//   10b. NetBSD's sbc write (sys/arch/mac68k/dev/sbc.c sbc_pdma_out - the
+//       use, KNOWN ISSUES 62): Start DMA Send, per 64 bytes 4 byte writes
+//       through the no-wait window after DRQ and PHASE MATCH, then 60
+//       through the handshake window; after the last byte DRQ and PHASE
+//       MATCH both hold (ACK stays true until DACK cycles, SP-1051 10.5.2,
+//       11.4 T10) until a dummy DACK write; then STATUS GOOD, byte-exact
 //   11-22: the CD-ROM at ID 3, an AppleCD SC (SE30_PLAN.md Section 12; its
 //       firmware's addresses in Docs\cdrom\audit_applecd_sc_firmware.md),
 //       the spin-up shortened to 2^14 clocks.  +NOCD skips them.
@@ -188,12 +194,16 @@ module tb_scsi_seam;
     begin @(negedge clk); cs = 1; rs = r; @(negedge clk); rv = rdata; rd = 1; @(negedge clk); rd = 0; ticks(2); cs = 0; ticks(1); end
   endtask
   // $50F12000 / $50F12060: DACK at once
-  task dma_rd; begin @(negedge clk); dack = 1; @(negedge clk); rv = rdata; rd = 1; @(negedge clk); rd = 0; ticks(2); dack = 0; ticks(1); end endtask
-  task dma_wr(input [7:0] d); begin @(negedge clk); dack = 1; wdata = d; @(negedge clk); wr = 1; @(negedge clk); wr = 0; ticks(2); dack = 0; ticks(1); end endtask
+  // DACK's tail after the strobe, in clocks (+DTAIL=n; GLUE's is 3-4 clk_sys
+  // at 16 MHz, plan 2.11.4); the sweep runs 2 to 8
+  integer dtail = 2;
+  initial if (!$value$plusargs("DTAIL=%d", dtail)) dtail = 2;
+  task dma_rd; begin @(negedge clk); dack = 1; @(negedge clk); rv = rdata; rd = 1; @(negedge clk); rd = 0; ticks(dtail); dack = 0; ticks(1); end endtask
+  task dma_wr(input [7:0] d); begin @(negedge clk); dack = 1; wdata = d; @(negedge clk); wr = 1; @(negedge clk); wr = 0; ticks(dtail); dack = 0; ticks(1); end endtask
   // $50F06000 / $50F06060: wait for DRQ (GLUE holds DSACK*), bus error after 63.3 us
   task hs_wait; integer n; begin berr = 0; n = 0; while (!drq && n < 1984) begin @(negedge clk); n = n + 1; end if (!drq) berr = 1; end endtask
-  task hs_rd; begin hs_wait; if (!berr) begin dack = 1; rd = 1; @(negedge clk); rd = 0; rv = rdata; ticks(2); dack = 0; ticks(1); end end endtask
-  task hs_wr(input [7:0] d); begin hs_wait; if (!berr) begin dack = 1; wdata = d; wr = 1; @(negedge clk); wr = 0; ticks(2); dack = 0; ticks(1); end end endtask
+  task hs_rd; begin hs_wait; if (!berr) begin dack = 1; rd = 1; @(negedge clk); rd = 0; rv = rdata; ticks(dtail); dack = 0; ticks(1); end end endtask
+  task hs_wr(input [7:0] d); begin hs_wait; if (!berr) begin dack = 1; wdata = d; wr = 1; @(negedge clk); wr = 0; ticks(dtail); dack = 0; ticks(1); end end endtask
 
   // waits, as the ROM's loops (bounded here so a failure ends the bench)
   task wait_csr(input integer bitn, input v, input integer limit, output ok);
@@ -301,6 +311,41 @@ module tb_scsi_seam;
         reg_rd(5); while (!rv[6] && rv[3]) reg_rd(5);
         reg_wr(2, 8'h00); reg_wr(1, 8'h00);
       end
+    end
+  endtask
+
+  // NetBSD's sbc_pdma_out (10b); serr: 0 fine, 1 phase gone before a byte,
+  // 2 the end wait lost PHASE MATCH ("timeout waiting for DREQ"), 3 the end
+  // state did not hold, 4 bus error
+  integer serr;
+  task sbc_write(input integer n);
+    integer b, c, k;
+    begin
+      serr = 0; b = 0;
+      wait_csr(5, 1, 100000, ok);
+      reg_wr(3, 8'h00); reg_wr(1, 8'h01); reg_wr(2, 8'h02); reg_wr(5, 8'h00);
+      while (b < n && serr == 0) begin
+        for (c = 0; c < 4 && serr == 0; c = c + 1) begin
+          reg_rd(5); k = 0;
+          while (!rv[6] && rv[3] && k < 100000) begin reg_rd(5); k = k + 1; end
+          if (!rv[3] || !rv[6]) begin serr = 1; $display("     sbc: phase gone before byte %0d, BSR %02x dbg %04x", b, rv, dbg); end
+          else begin dma_wr(wbuf[b]); b = b + 1; end
+        end
+        for (c = 0; c < 60 && serr == 0; c = c + 1) begin
+          hs_wr(wbuf[b]); if (berr) serr = 4; else b = b + 1;
+        end
+      end
+      if (serr == 0) begin
+        // the end wait: DRQ AND PHASE MATCH
+        reg_rd(5); k = 0;
+        while (!(rv[6] && rv[3]) && rv[3] && k < 100000) begin reg_rd(5); k = k + 1; end
+        if (!(rv[6] && rv[3])) begin serr = 2; $display("     sbc: the end wait saw BSR %02x dbg %04x (PHASE MATCH lost)", rv, dbg); end
+      end
+      if (serr == 0) begin
+        ticks(3000); reg_rd(5);
+        if (!(rv[6] && rv[3] && rv[0])) begin serr = 3; $display("     sbc: 3000 clocks on, BSR %02x dbg %04x (want DRQ, PHASE MATCH, ACK)", rv, dbg); end
+      end
+      if (serr == 0) dma_wr(8'h00);                                      // the dummy write releases ACK
     end
   endtask
 
@@ -510,12 +555,31 @@ module tb_scsi_seam;
     check(bad == 0, "10. the blocks either side of the 33 (LBA 6 and 40) untouched");
     $display("     33 blocks from LBA 7, 9.6 ms requests: %0d requests, %0d sectors, the largest %0d", wr_reqs, wr_secs, wr_max);
     check(wr_secs == 33, "10. 33 blocks at 9.6 ms: every sector sent exactly once");
-    check(wr_max >= 30 && wr_max <= 32, "10. 33 blocks at 9.6 ms: the ring filled (a request of 30-32 sectors)");
+    // a throughput check (the Mac outruns the card): with DACK tails past 10
+    // clocks (GLUE's is 3-4) the bytes come too slowly to fill the ring
+    if (dtail <= 10) check(wr_max >= 30 && wr_max <= 32, "10. 33 blocks at 9.6 ms: the ring filled (a request of 30-32 sectors)");
+    else check(wr_max <= 32, "10. 33 blocks at 9.6 ms: no request over 32 sectors (DTAIL > 10: the ring need not fill)");
     do_read(3'd1, 21'd7, 8'd33, 1'b0, "10. the 33 blocks read back polled, byte-exact");
     wr_reqs = 0; wr_secs = 0; wr_max = 0;
     do_write(3'd0, 21'd63, 8'd1, 1'b0, 8'h91);
     check(wr_reqs == 1 && wr_secs == 1, "10. a 1-block write at the last LBA: one request, one sector");
     check(rd_multi == 0, "10. reads still ask one sector a request");
+
+    // 10b: NetBSD's sbc write, 2 blocks to ID 1
+    settle = 4000; wr_latency = 300;
+    for (k = 0; k < 1024; k = k + 1) wbuf[k] = (k * 7 + 8'h2B) ^ (k >> 2);
+    command(3'd1, 0, ok); check(ok, "10b. select for the sbc write");
+    scsi_cmd(rw6(8'h0A, 21'd50, 8'd2), ok); check(ok, "10b. the WRITE(6) command bytes");
+    sbc_write(1024);
+    check(serr == 0, "10b. sbc: every byte sent; after the last, DRQ and PHASE MATCH hold with ACK until the dummy write");
+    wait_csr(5, 1, 100000, ok); reg_rd(4);
+    check(ok && rv[3:2] == 2'b11, "10b. the dummy DACK write releases ACK: the target goes to STATUS");
+    reg_wr(2, 8'h00); reg_wr(1, 8'h00);
+    scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "10b. status GOOD, COMMAND COMPLETE");
+    ticks(settle); bad = 0;
+    for (k = 0; k < 1024; k = k + 1) if (img1[50*512 + k] !== wbuf[k]) bad = bad + 1;
+    check(bad == 0, "10b. the image holds the sbc write, byte-exact");
+    if (bad != 0) $display("     %0d of 1024 bytes wrong", bad);
 
     // ---------------------------------------------------- 11-22: the CD-ROM
     // ID 3, an AppleCD SC (plan 12.2/12.3), its spin-up 2^14 clocks here
