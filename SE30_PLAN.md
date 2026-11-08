@@ -22421,6 +22421,33 @@ Daniel - add to it, move items out when fixed).**
     the clock still runs (the 60 s messages), so it is not spinning in the
     VIA2 handler.
 
+    **SEAM CASE 10c (2026-11-08, Daniel: "Yes, write it"): ncrscsi's
+    sequence PASSES at the seam.** sim/scsi_seam 10c drives the 53C80 and
+    the targets as mac68k5380.c does: VIA2 CA2/CB2 positive-edge flags
+    (PCR $66), transfer_pdma (TCR, clr_ipend, BSY, MODE DMA, IRCV / Start
+    DMA Send), the DRQ handler's handshake moves to the end or GLUE's bus
+    error, the write's forced-phase-change read, pdma_ready's checks and
+    pdma_cleanup. sd0's attach as NetBSD runs it: INQUIRY 36, TEST UNIT
+    READY, START UNIT (this disk refuses $1B: CHECK), AUTO_SENSE's REQUEST
+    SENSE asking 32 (sizeof scsi_sense_data) and getting 18 - the first
+    SHORT transfer, ended by a bus error on byte 19 - READ CAPACITY(10),
+    MODE SENSE, READ(6)/WRITE(6) 2 blocks. All pass, DTAIL 2/4/8/12; full
+    run 334/334. So the chip, targets and handshake agree with the driver;
+    the hang is beyond the seam. LEAD: sd0's attach is where the first
+    short transfer happens, i.e. the first time a 32-bit move.l to the
+    8-bit handshake port takes a BUS ERROR mid-operand, at interrupt level,
+    caught by NetBSD's nofault/longjmp, which reads the count from the
+    frame's fault address (m68k_fault_addr - $50006000). Not covered by any
+    bench: the 68030's bus error inside a dynamically sized long access
+    (which cycle faults, the frame's fault address and SSW, UM Section 8)
+    and the kernel's completion of it. INQUIRY (no short transfer) worked
+    on the board, which fits. NEXT: read UM Section 8 on a bus error during
+    dynamic bus sizing, then a kernel bench (sim/busfault style): move.l
+    (a0)+,(a1)+ from an 8-bit port that bus-errors on byte k, checking the
+    exception is taken once, the frame's fault address/SSW, and that the
+    resume runs on. Also possible, cheaper to rule out: START UNIT is
+    refused by our disk (a real ST225N may take it).
+
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot
     20261108_001254):** one line, `WARNING: lwp 54 (system ioflush) flags
