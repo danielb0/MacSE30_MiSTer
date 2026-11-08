@@ -22448,6 +22448,26 @@ Daniel - add to it, move items out when fixed).**
     resume runs on. Also possible, cheaper to rule out: START UNIT is
     refused by our disk (a real ST225N may take it).
 
+    **CPU BENCH sim/pdma_berr (2026-11-08, Daniel: "Yes, pursue it"): the
+    68030 side PASSES too.** NetBSD's R4 loop (move.l (a0)+,(a1)+ x 8 from
+    the handshake window) through GLUE with DRQ stopping after K bytes, a
+    handler that records the frame and resumes NetBSD's way (SP restored, no
+    RTE). K = 0-32 all pass, and with NetBSD-style translation ($E0006000
+    -> $50006000, cache-inhibited, MMU=1) and both caches on (CACHE=1): one
+    bus error at the faulted byte cycle, format $B, PC the MOVE's, SSW DF/
+    read/FC 5 with SIZE the bytes still to go (4 - K mod 4), the data cycle
+    fault address the faulted cycle's LOGICAL address (base + K = NetBSD's
+    count), K handshake bytes, the whole longs before it stored. UM basis:
+    8.2 (taken after the faulted cycle), 8.2.2 (properly sized data at the
+    fault address, right-justified), 5.5 (SIZ = bytes remaining). So the
+    chip, GLUE and the CPU each do what ncrscsi needs, one at a time. Not
+    yet covered: all of them together under NetBSD (interrupt level, the
+    VIA2 dispatch, the driver's own state). NEXT: evidence from the board -
+    the SE/30 test build carries the probe deck (USE_DBG_PROBES): at the
+    hang, PSCS (the SCSI bus phase, REQ/ACK, the chip's DRQ/IRQ, GLUE waiting
+    for DRQ), PVIA (VIA2 IER/IFR) and PIRQ (level-2 acknowledges, rising or
+    frozen) say which side is waiting for what.
+
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot
     20261108_001254):** one line, `WARNING: lwp 54 (system ioflush) flags

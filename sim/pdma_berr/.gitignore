@@ -1,0 +1,7 @@
+out/
+run.log
+work/
+transcript
+program.hex
+layout.txt
+run_*.log
