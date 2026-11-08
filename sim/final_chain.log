@@ -1,0 +1,16 @@
+[11-01 16:44] final_chain: start on ce907b4 Final chain: sim/final_chain.sh (T0 and T1 SET=all C
+[11-01 22:49] (c) TRACE=0 SET=all CTX=11 SKIPLOG=sweep_c7_t0.log: ==== 2026-11-01 22:49:42 SET=all CTX=11 done: 196 / 196 PASS (364 min, /c/Git/MacSE30_MiSTer/sim/busfault_irq/sweep_all_t0.log)
+[11-02 05:53] (b) TRACE=1 SET=all CTX=11 SKIPLOG=sweep_c7_t1.log: ==== 2026-11-02 05:53:09 SET=all CTX=11 done: 200 / 200 PASS (423 min, /c/Git/MacSE30_MiSTer/sim/busfault_irq/sweep_all_t1.log)
+[11-02 11:32] regression rc=0 after 339 min: ==== regression: 65 / 65 lines pass
+[11-02 11:32] builds started on 2a099c55
+rtl/build_tag.v stamped 2a099c55
+[11-02 12:07] MacSE30: build_only rc=0 after 35 min: Warning (10492): VHDL Process Statement warning at TG68KdotC_Kernel.vhd(7290): signal "trap_addr_error" is read inside the Process Statement but isn't in the Process Statement's sensitivity list File: C:/Git/MacSE30_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 7290 Critical Warning (332148): Timing r
+[11-02 12:08] MacSE30: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): -0.624 ns  *** TIMING NOT MET *** the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacSE30_2a099c55_frozen.rbf
+[11-02 12:08] MacSE30: archived output_files/MacSE30_2a099c55_frozen.rbf md5 aa70f91b
+rtl/build_tag.v stamped 2a099c55
+[11-02 12:45] MacIIcx: build_only rc=0 after 37 min: Warning (10492): VHDL Process Statement warning at TG68KdotC_Kernel.vhd(7290): signal "trap_addr_error" is read inside the Process Statement but isn't in the Process Statement's sensitivity list File: C:/Git/MacSE30_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 7290   Timing (STA)           met — wo
+[11-02 12:46] MacIIcx: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): 0.070 ns  (met at every corner) the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacIIcx_2a099c55_frozen.rbf
+[11-02 12:46] MacIIcx: archived output_files/MacIIcx_2a099c55_frozen.rbf md5 aa37a8b1
+[11-02 12:46] final_chain: done

@@ -1,0 +1,45 @@
+[11-05 02:39] night59: start on ff633ce KNOWN ISSUES 59: KNOWN ISSUES 46's CCR restore fired
+[11-05 02:39] builds started on ff633cee
+rtl/build_tag.v stamped ff633cee
+[11-05 03:15] MacSE30: build_only rc=0 after 36 min: Warning (10492): VHDL Process Statement warning at TG68KdotC_Kernel.vhd(7298): signal "trap_addr_error" is read inside the Process Statement but isn't in the Process Statement's sensitivity list File: C:/Git/MacSE30_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 7298 Critical Warning (332148): Timing r
+[11-05 03:16] MacSE30: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): -0.100 ns  *** TIMING NOT MET *** the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacSE30_ff633cee_ki59.rbf
+[11-05 03:16] MacSE30: archived output_files/MacSE30_ff633cee_ki59.rbf md5 39a78982
+rtl/build_tag.v stamped ff633cee
+[11-05 04:18] MacIIcx: build_only rc=0 after 61 min: Warning (10492): VHDL Process Statement warning at TG68KdotC_Kernel.vhd(7298): signal "trap_addr_error" is read inside the Process Statement but isn't in the Process Statement's sensitivity list File: C:/Git/MacSE30_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 7298   Timing (STA)           met — wo
+[11-05 04:18] MacIIcx: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): 0.117 ns  (met at every corner) the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacIIcx_ff633cee_ki59.rbf
+[11-05 04:18] MacIIcx: archived output_files/MacIIcx_ff633cee_ki59.rbf md5 c9551831
+[11-05 04:18] builds: done
+[11-05 04:20] (pf) dsweep CACR=0x2101 DSW_CCRSET=1 PREBERR=1: ==== dsweep (CACR=0x2101 DSW_CCRSET=1 PREBERR=1): 55 / 55 PASS (1 min)
+[11-05 04:22] (pf) dsweep CACR=0x2101 DSW_CCRSET=1 DSW_WP=1 PREBERR=1: ==== dsweep (CACR=0x2101 DSW_CCRSET=1 DSW_WP=1 PREBERR=1): 55 / 55 PASS (1 min)
+[11-05 04:29] (pf) dsweep CACR=0x2101 PREBERR=1: ==== dsweep (CACR=0x2101 PREBERR=1): 235 / 235 PASS (6 min)
+[11-05 04:35] (pf) dsweep CACR=0x2101 DSW_WP=1 PREBERR=1: ==== dsweep (CACR=0x2101 DSW_WP=1 PREBERR=1): 216 / 216 PASS (6 min)
+[11-05 04:48] (pf) isweep CACR=0x2101 PREBERR=1: ==== isweep: 209 / 209 PASS (13 min)
+[11-05 05:02] (pf) xsweep CACR=0x2101 PREBERR=1: ==== xsweep: 127 / 127 PASS (13 min)
+[11-05 05:05] (pf) ssweep CACR=0x2101 PREBERR=1: ==== ssweep (CACR=0x2101 PREBERR=1): 130 / 130 PASS (3 min)
+[11-05 05:07] (pf) ssweep CACR=0x2101 SSW_WP=1 PREBERR=1: ==== ssweep (CACR=0x2101 SSW_WP=1 PREBERR=1): 65 / 65 PASS (1 min)
+[11-05 05:09] (pf) selfst CACR=0x2101 PREBERR=1: ==== selfst (CACR=0x2101 PREBERR=1): 9 / 9 parts PASS (132 cases) (1 min)
+[11-05 05:10] (pf) dsweep CACR=0 DSW_CCRSET=1 PREBERR=1: ==== dsweep (CACR=0 DSW_CCRSET=1 PREBERR=1): 55 / 55 PASS (1 min)
+[11-05 05:12] (pf) dsweep CACR=0 DSW_CCRSET=1 DSW_WP=1 PREBERR=1: ==== dsweep (CACR=0 DSW_CCRSET=1 DSW_WP=1 PREBERR=1): 55 / 55 PASS (1 min)
+[11-05 05:19] (pf) dsweep CACR=0 PREBERR=1: ==== dsweep (CACR=0 PREBERR=1): 235 / 235 PASS (6 min)
+[11-05 05:25] (pf) dsweep CACR=0 DSW_WP=1 PREBERR=1: ==== dsweep (CACR=0 DSW_WP=1 PREBERR=1): 216 / 216 PASS (6 min)
+[11-05 05:40] (pf) isweep CACR=0 PREBERR=1: ==== isweep: 209 / 209 PASS (14 min)
+[11-05 05:56] (pf) xsweep CACR=0 PREBERR=1: ==== xsweep: 127 / 127 PASS (15 min)
+[11-05 05:59] (pf) ssweep CACR=0 PREBERR=1: ==== ssweep (CACR=0 PREBERR=1): 130 / 130 PASS (3 min)
+[11-05 06:01] (pf) ssweep CACR=0 SSW_WP=1 PREBERR=1: ==== ssweep (CACR=0 SSW_WP=1 PREBERR=1): 65 / 65 PASS (2 min)
+[11-05 06:03] (pf) selfst CACR=0 PREBERR=1: ==== selfst (CACR=0 PREBERR=1): 9 / 9 parts PASS (132 cases) (1 min)
+[11-05 06:03] predec_fault sweeps: done
+[11-05 13:27] night59: STOPPED by Daniel at (a) 194/556 PASS, no failures - the chain is revised first (plan, Sweep classes left)
+[11-05 13:52] night59b: restart on 5271070 SE30 plan: busfault_irq measured - an iteration is t
+[11-05 22:13] night59b: found DEAD at 22:13 - every simulator and the script gone at 19:21 (event log: Kernel-Power 566 at 19:18:59, services at 19:21; a sleep or the app closed), (a) 317/556 PASS, no failures; restarted (RESUME=1)
+[11-05 22:13] night59b: restart on 6efe4e0 SE30 plan: a second measured real SE/30 for Speedome
+[11-05 22:30] night59b: the 22:14 restart is gone too (the Claude app's update kills its children); nothing running - the other session relaunches night59b.sh via the Windows Task Scheduler (Daniel 22:2x); RESUME keeps (a)'s passes
+[11-05 22:30] night59b: STOPPED and relaunched through Windows Task Scheduler (task SE30_night59b) - the 19:21 death was the Claude app's auto-update (4.16336 -> 4.23118) destroying its AppX container and every process the app's shell had started, not sleep (sleep = Never; Kernel-Power 566 at 19:18:59 was SessionUnlock); (a) at 326 records, RESUME=1
+[11-05 22:30] night59b: restart on 7f3bc18 SE30 plan: the IIcx's Norton FPU under 7.5.5, 1.65 (
+[11-06 08:18] (a) SET=all CTX=00 11 i11: ==== 2026-11-06 08:18:25 SET=all CTX=00 11 i11 done: 556 / 556 PASS (587 min, /c/Git/MacSE30_MiSTer/sim/busfault_irq/sweep_all.log)
+[11-06 17:27] (b) TRACE=1 SET=all CTX=11: ==== 2026-11-06 17:27:51 SET=all CTX=11 done: 228 / 228 PASS (549 min, /c/Git/MacSE30_MiSTer/sim/busfault_irq/sweep_all_t1.log)
+[11-07 01:18] (c) TRACE=0 SET=all CTX=11: ==== 2026-11-07 01:18:48 SET=all CTX=11 done: 224 / 224 PASS (470 min, /c/Git/MacSE30_MiSTer/sim/busfault_irq/sweep_all_t0.log)
+[11-07 08:04] (d) SET=bus LEVELS=4 CTX=11: ==== 2026-11-07 08:04:46 SET=bus CTX=11 done: 190 / 190 PASS (405 min, /c/Git/MacSE30_MiSTer/sim/busfault_irq/sweep_bus.log)
+[11-07 14:07] regression rc=0 after 362 min: ==== regression: 67 / 67 lines pass
+[11-07 14:07] night59b: done

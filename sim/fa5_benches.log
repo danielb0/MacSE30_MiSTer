@@ -1,0 +1,4 @@
+machine SE30 rc=0 101s: # ==== PASS: 17 checks, the machine runs the ROM from reset into its RAM tests, none failed
+machine IIcx rc=0 105s: # ==== PASS: 17 checks, the machine runs the ROM from reset into its RAM tests, none failed
+gcrread rc=143 1156s: 
+fa5_benches done

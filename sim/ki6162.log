@@ -1,0 +1,14 @@
+[11-07 20:56] ki6162: start on b130a75 KNOWN ISSUES 61 and 62: the Toby card acknowledges v, revisions MacIIcx
+rtl/build_tag.v stamped b130a755
+[11-07 21:31] MacIIcx: build_only rc=0 after 35 min: Warning (10492): VHDL Process Statement warning at TG68KdotC_Kernel.vhd(7298): signal "trap_addr_error" is read inside the Process Statement but isn't in the Process Statement's sensitivity list File: C:/Git/MacSE30_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 7298   Timing (STA)           met — wo
+[11-07 21:32] MacIIcx: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): 0.036 ns  (met at every corner) the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacIIcx_b130a755_ki6162.rbf
+[11-07 21:32] MacIIcx: archived output_files/MacIIcx_b130a755_ki6162.rbf
+[11-07 21:32] ki6162: done; tree status: 
+[11-08 01:32] ki6162: start on fcad049 SE30 plan: KNOWN ISSUES 62 - root login on NetBSD 11, revisions MacSE30
+rtl/build_tag.v stamped fcad049d
+[11-08 02:08] MacSE30: build_only rc=0 after 36 min: Warning (10492): VHDL Process Statement warning at TG68KdotC_Kernel.vhd(7298): signal "trap_addr_error" is read inside the Process Statement but isn't in the Process Statement's sensitivity list File: C:/Git/MacSE30_MiSTer/rtl/tg68k/TG68KdotC_Kernel.vhd Line: 7298 Critical Warning (332148): Timing r
+[11-08 02:09] MacSE30: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): -0.167 ns  *** TIMING NOT MET *** the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacSE30_fcad049d_ki6162.rbf
+[11-08 02:09] MacSE30: archived output_files/MacSE30_fcad049d_ki6162.rbf
+[11-08 02:09] ki6162: done; tree status: 

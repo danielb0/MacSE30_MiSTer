@@ -1,0 +1,7 @@
+[11-03 22:34] MacSE30: start on 76d32c8 64 MB wraps: bank B's range repeats bank A, as the R
+rtl/build_tag.v stamped 76d32c89
+[11-03 23:10] MacSE30: build_only rc=0 after 36 min
+[11-03 23:11] MacSE30: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): -0.228 ns  *** TIMING NOT MET *** the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacSE30_76d32c89_ram64b.rbf
+[11-03 23:11] MacSE30: archived output_files/MacSE30_76d32c89_ram64b.rbf md5 9fc33821
+[11-03 23:11] done

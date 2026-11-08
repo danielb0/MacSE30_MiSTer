@@ -1,0 +1,7 @@
+[11-03 23:20] MacIIcx: start on d84f6c3 SE30 plan: 13.6.8 - board, ram64b: 64 MB works (Abou
+rtl/build_tag.v stamped d84f6c30
+[11-03 23:56] MacIIcx: build_only rc=0 after 36 min
+[11-03 23:57] MacIIcx: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): -0.120 ns  *** TIMING NOT MET *** the capture: at every corner at least one of A and B is met on setup and hold 
+archived output_files/MacIIcx_d84f6c30_ram64b.rbf
+[11-03 23:57] MacIIcx: archived output_files/MacIIcx_d84f6c30_ram64b.rbf md5 bd64e165
+[11-03 23:57] done

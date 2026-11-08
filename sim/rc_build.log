@@ -1,0 +1,8 @@
+[11-02 15:48] rc_build: start on release 7576fb3
+[11-02 16:21] MacSE30: compile rc=0 after 32 min: Logic utilization (in ALMs) : 38,187 / 41,910 ( 91 % ) 
+[11-02 16:21] MacSE30: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): 0.052 ns  (met at every corner) the capture: at every corner at least one of A and B is met on setup and hold 
+[11-02 16:21] MacSE30: archived output_files/MacSE30_7576fb3_rc.rbf md5 f82f06ad
+[11-02 16:56] MacIIcx: compile rc=0 after 34 min: Logic utilization (in ALMs) : 39,185 / 41,910 ( 93 % ) 
+[11-02 16:57] MacIIcx: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): 0.070 ns  (met at every corner) the capture: at every corner at least one of A and B is met on setup and hold 
+[11-02 16:57] MacIIcx: archived output_files/MacIIcx_7576fb3_rc.rbf md5 aa37a8b1
+[11-02 16:57] rc_build: done; git status: 
