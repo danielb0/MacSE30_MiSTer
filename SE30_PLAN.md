@@ -22245,8 +22245,9 @@ Daniel - add to it, move items out when fixed).**
     is fixed on the board (GENERICSBC installs and boots multi-user on both
     cores); the GENERIC/ncrscsi hang at sd0's attach is NetBSD's own
     (mac68k finish_req + scsipi_done, see BOARD PROBES + KERNEL STATE
-    below), authentic, no core change; not confirmed with a patched
-    kernel (Daniel declined). It is NOT the INSTALL note's documented
+    below), authentic, no core change; CONFIRMED 2026-11-08 ~14:30 with
+    the patched kernel (GENFIX, below): it gets past the disk attachments
+    and goes on booting (Daniel). It is NOT the INSTALL note's documented
     ncrscsi bug (heavy load, Quantum disks, intermittent): ours is
     deterministic at the first disk's second command, any disk.**
     (Opened 2026-11-06, Daniel installing NetBSD 11.1 mac68k on the IIcx,
@@ -22528,7 +22529,11 @@ Daniel - add to it, move items out when fixed).**
     netbsd-GENERICFIX.gz (md5 5dd07208; unpacked ae6255b6) and
     NetBSD-GENERICFIX.iso (ISO 9660, one file GENFIX.GZ; 1.97 MB is too big
     for a 1.44 MB floppy). EXPECTED: sd0 attaches and GENERIC boots
-    multi-user; a hang elsewhere would be a new lead.
+    multi-user; a hang elsewhere would be a new lead. RESULT (Daniel,
+    2026-11-08 ~14:30, on the board): "The patched kernel seems to be
+    working. It got past the disk attachments and is proceeding to boot" -
+    the diagnosis confirmed: one line in NetBSD's driver, nothing in the
+    core.
 
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot

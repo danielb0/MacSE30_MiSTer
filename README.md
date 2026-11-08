@@ -131,7 +131,8 @@ these machines. This is a NetBSD bug, not the core's: in `sys/arch/mac68k/dev/nc
 `finish_req()` sets `XS_STS_DONE` before calling `scsipi_done()`, and `scsipi_done()` then
 treats the transfer as already completed and never releases the disk, so the second
 command to any disk waits forever (present in NetBSD 9, 10 and 11; the atari port's
-copy of the driver does not set the flag). This is a different problem from the
+copy of the driver does not set the flag; a `GENERIC` kernel with that one line removed
+attaches the disks and boots on the core). This is a different problem from the
 load-dependent `ncrscsi` bug in NetBSD's install notes; their advice to use the SBC
 kernels covers both.
 
