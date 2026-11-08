@@ -22413,6 +22413,13 @@ Daniel - add to it, move items out when fixed).**
     CAPACITY, MODE SENSE with a short reply) on the VIA2 edges; and why the
     first IRQ (likely the attach-time bus reset) is still pending when the
     driver enables interrupts.
+    SE/30 TOO (Daniel 2026-11-08 11:15, screenshot 20261108_111525, the SE/30
+    test build MacSE30_fcad049d_ki6162.rbf): the same trace, the same hang,
+    "waiting for devices: scsibus0 sd0" every 60 s - the common path (53C80,
+    GLUE handshake, VIA2), not the IIcx's NuBus. ncrscsi has no command
+    timeouts ("notyet", ncr5380.c), so a lost interrupt hangs it for good;
+    the clock still runs (the 60 s messages), so it is not spinning in the
+    VIA2 handler.
 
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot
