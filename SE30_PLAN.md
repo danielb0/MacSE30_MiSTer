@@ -22517,6 +22517,18 @@ Daniel - add to it, move items out when fixed).**
     finish_req (drop the OR of XS_STS_DONE) and boot it - it should then
     pass sd0's attach on our core. Sources: scratchpad nbsd_scsi/ (sd.c,
     scsiconf.c, scsipi_base.c, mac68k ncr5380.c, atari ncr5380.c).
+    PATCHED KERNEL FOR THE CHECK (2026-11-08 14:05, Daniel: "Please create
+    the patched kernel"): netbsd-GENERIC from the 11.1 ISO with finish_req's
+    OR of XS_STS_DONE turned into NOP at all eight inlined sites (capstone
+    disassembly; xs_status = $3C(xs), as scsipi_done's own guard reads it):
+    scsi_reset $16248, run_main $177E4 $1796E $17BEE $17CCA $17F8E $18074
+    $1828A - each `or.l d1/d3,d0` (2 bytes) -> $4E71; 16 bytes changed, the
+    status stored back unchanged, no register altered. scsipi_done then
+    sets DONE itself, as for the atari copy. Files: C:\temp\Mac\
+    netbsd-GENERICFIX.gz (md5 5dd07208; unpacked ae6255b6) and
+    NetBSD-GENERICFIX.iso (ISO 9660, one file GENFIX.GZ; 1.97 MB is too big
+    for a 1.44 MB floppy). EXPECTED: sd0 attaches and GENERIC boots
+    multi-user; a hang elsewhere would be a new lead.
 
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot
