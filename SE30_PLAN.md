@@ -22468,6 +22468,47 @@ Daniel - add to it, move items out when fixed).**
     for DRQ), PVIA (VIA2 IER/IFR) and PIRQ (level-2 acknowledges, rising or
     frozen) say which side is waiting for what.
 
+    **BOARD PROBES + KERNEL STATE AT THE GENERIC HANG (2026-11-08 12:53,
+    SE/30 test build fcad049d, netbsd-GENERIC from the 11.1 ISO): NOT OUR
+    CORE - A NETBSD BUG.** Probe deck: PACT advancing, PIFA = idle_loop+$BC
+    and cpu_idle (symbols from the ISO's netbsd-GENERIC): the kernel is
+    IDLE. PSCS: bus free (no BSY/REQ/SEL), the chip's DRQ=0 IRQ=0, GLUE not
+    waiting; VIA2 IER=$09 (CA2 DRQ, CB2 IRQ armed) IFR=$60 (no SCSI flag);
+    bus errors frozen at 4129; disk sectors frozen. (PIRQ's "level-2" count
+    rises ~85/s with nothing pending: the counter matches FC 7 A3-A1 = 2,
+    which the 68882's save CIR ($04, FSAVE at each context switch) also
+    hits - under NetBSD PIRQ is not an interrupt count.) Then one `peeks`
+    session read the driver's RAM (kernel VA = PA): connected, issue_q,
+    discon_q all NULL, main_running 0, all 18 req_queue slots on the free
+    list; the last request used = INQUIRY 36 (status good, phase MSG IN,
+    xdata_len 0); pdma_5380_sends 2, bytes 72 (two INQUIRYs: scsi_report_luns'
+    and scsi_probe_device's); last_hit (the driver's PID trace) ends drq (in)
+    -> end drq -> irq -> pdma_ready -> pdma_cleanup -> status (tpio) ->
+    COMMAND COMPLETE (hmessage1, cautos1/3) -> scsi_main2/4/5. So the 5380,
+    GLUE and the 68030 did the INQUIRY right and the driver finished it;
+    NO further command ever reached it. sdattach's first command (sd.c:327,
+    TEST UNIT READY on the same periph) is held in scsipi's queue.
+    WHY (source, netbsd-11; identical in netbsd-9 and -10): mac68k's
+    ncr5380.c finish_req sets `xs->xs_status |= XS_STS_DONE` (line 162)
+    BEFORE calling scsipi_done; scsipi_done (scsipi_base.c:1622) treats an
+    already-DONE xfer as a duplicate ("done'd again by scsibusdetach") and
+    returns at once - no scsipi_put_resource, no periph_sent--, PERIPH_UNTAG
+    never cleared, no cv_broadcast. The caller still sees DONE (the command
+    ran synchronously, or it would have hung right there), but
+    scsipi_run_queue then skips every later xfer on that periph (UNTAG set)
+    - the SECOND command on any periph hangs. Each periph here got exactly
+    one: report_luns' temporary periph one INQUIRY, the probe periph one
+    INQUIRY, then sd0's TUR is the second -> "waiting for devices: scsibus0
+    sd0" forever. The atari port's copy of ncr5380.c does NOT set the flag
+    in finish_req. On a real Mac the same code hangs the same way; the
+    INSTALL note's advice (use the SBC kernels) covers it in practice.
+    VERDICT: authentic (replicate-bugs rule: NetBSD's behaviour, not the
+    machine's); KI 62's core part (the write fault) is fixed and GENERICSBC
+    is the kernel. A decisive check if wanted: patch netbsd-GENERIC's
+    finish_req (drop the OR of XS_STS_DONE) and boot it - it should then
+    pass sd0's attach on our core. Sources: scratchpad nbsd_scsi/ (sd.c,
+    scsiconf.c, scsipi_base.c, mac68k ncr5380.c, atari ncr5380.c).
+
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot
     20261108_001254):** one line, `WARNING: lwp 54 (system ioflush) flags
