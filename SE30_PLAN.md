@@ -22388,6 +22388,32 @@ Daniel - add to it, move items out when fixed).**
     KI 62 build. Boots and only fails under load = close as authentic;
     hangs at the probe again = ours (seam bench against ncrscsi's path).
 
+    **BOARD: GENERIC (NCRSCSI) STILL HANGS AT THE PROBE (Daniel 2026-11-08
+    11:11, IIcx test build; screenshot 20261108_111112):** the driver's PID
+    trace (DBG_PID) shows its first IRQ: irq, pdma_ready0, pdma_ready4 (not in
+    PDMA) -> check_intr "ncrscsi0: Spurious interrupt." (no reselection, no
+    DMA connected); then "scsibus0: waiting 2 seconds", a second
+    "timecounter went backwards" (lwp 17 scsibus0-d, in mi_switch), adb,
+    "sd0 at scsibus0 target 0 lun 0: <SEAGATE, ST225N, > disk fixed" - and
+    nothing after: no "sd0: N MB" line (READ CAPACITY / MODE SENSE), no
+    target 1; later "Waiting for devices - scsi0" (the root mount waiting for
+    the discovery thread). Per the rule above: ours. ncrscsi vs sbc (NetBSD
+    11 sys/arch/mac68k/dev/mac68k5380.c, read 2026-11-08): interrupt-driven
+    PDMA - transfer_pdma sets TCR, MODE DMA, IRCV / DMSTAT start, enables
+    the VIA2 interrupts and RETURNS; the data moves in the DRQ handler (VIA2
+    CA2, PCR $66 = CA2 and CB2 independent interrupt, positive edge) as
+    32-bit moves at incrementing addresses from $50006000 (MIN_PHYS $2000),
+    ending early on GLUE's BERR (fault address - base = bytes moved); the
+    end is the 53C80's phase-mismatch IRQ (VIA2 CB2) -> pdma_ready, which
+    wants BSR & ~ATN == IRQ only and CSBSR BSY|REQ, else "Unexpected phase
+    change" (an error, not a hang) or panic. A data-out ends with a read
+    of $50006000 "to force a phase change". Every piece exists in the core
+    (VIA PCR modes, 53C80 8.5 mismatch IRQ, UI6 BERR); the sequence is
+    untested. NEXT: a seam case running ncrscsi's sequence (INQUIRY, READ
+    CAPACITY, MODE SENSE with a short reply) on the VIA2 edges; and why the
+    first IRQ (likely the attach-time bus reset) is still pending when the
+    driver enables interrupts.
+
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot
     20261108_001254):** one line, `WARNING: lwp 54 (system ioflush) flags
