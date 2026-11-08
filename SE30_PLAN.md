@@ -22184,8 +22184,11 @@ Daniel - add to it, move items out when fixed).**
     operands outside the reduction range ("-9...+9" in the scan, read
     +-pi) ADD the FREM time - it can only make the real chip SLOWER, the
     wrong direction for a core that is 6 % slow. So the documentation
-    cannot explain KI 60; what remains is the reference itself (machine,
-    clock, setup unknown) or the MPU/protocol side, and only a measurement
+    cannot explain KI 60; what remains is the reference unit itself (its
+    machine and setup ARE documented by Norton - Daniel 2026-11-08, to
+    check; a stock IIcx at 15.67 MHz, System 7.1, as far as he recalls:
+    so one real unit's measurement, not an unknown setup) or the
+    MPU/protocol side, and only a measurement
     on a real 68882 (our own timing program, run by a forum owner) can
     tell. Not Mac-affecting
     (FPU-heavy work 5-8 % slower), so after the release (the pre-release
