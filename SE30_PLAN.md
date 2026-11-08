@@ -22396,8 +22396,8 @@ Daniel - add to it, move items out when fixed).**
     "timecounter went backwards" (lwp 17 scsibus0-d, in mi_switch), adb,
     "sd0 at scsibus0 target 0 lun 0: <SEAGATE, ST225N, > disk fixed" - and
     nothing after: no "sd0: N MB" line (READ CAPACITY / MODE SENSE), no
-    target 1; later "Waiting for devices - scsi0" (the root mount waiting for
-    the discovery thread). Per the rule above: ours. ncrscsi vs sbc (NetBSD
+    target 1; later waiting for devices "scsibus0 sd0" (the root mount waiting for sd0's attach -
+    its TEST UNIT READY / READ CAPACITY / MODE SENSE never completes). Per the rule above: ours. ncrscsi vs sbc (NetBSD
     11 sys/arch/mac68k/dev/mac68k5380.c, read 2026-11-08): interrupt-driven
     PDMA - transfer_pdma sets TCR, MODE DMA, IRCV / DMSTAT start, enables
     the VIA2 interrupts and RETURNS; the data moves in the DRQ handler (VIA2
