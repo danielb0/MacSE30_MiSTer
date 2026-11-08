@@ -122,6 +122,19 @@ has not been tried.
   CommandShell handles one line per command; put longer commands in a script and run it
   with `sh`. A/UX's `cc` is K&R C.
 
+## NetBSD
+
+NetBSD 11.1 (mac68k) installs and boots multi-user on both cores. Use the **SBC** kernels
+(`INSTALLSBC` to install, `GENERICSBC` to run). The default `GENERIC` and `INSTALL`
+kernels use the `ncrscsi` driver, which hangs at "waiting for devices: scsibus0 sd0" on
+these machines. This is a NetBSD bug, not the core's: in `sys/arch/mac68k/dev/ncr5380.c`,
+`finish_req()` sets `XS_STS_DONE` before calling `scsipi_done()`, and `scsipi_done()` then
+treats the transfer as already completed and never releases the disk, so the second
+command to any disk waits forever (present in NetBSD 9, 10 and 11; the atari port's
+copy of the driver does not set the flag). This is a different problem from the
+load-dependent `ncrscsi` bug in NetBSD's install notes; their advice to use the SBC
+kernels covers both.
+
 ## PRAM
 
 Copy the blank `MacSE30.nvr` from [releases](releases) to `games/MACSE30` (on the IIcx,
