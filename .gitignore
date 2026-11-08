@@ -53,3 +53,7 @@ scripts/local.env
 sim/cpfpu_cpt*/
 # simulation scratch: per-run bench copies, traces and ModelSim work libraries
 sim/_*
+
+# sweep resume files (sim/sweep_lib.sh RESUME=1) and chain launch stubs
+*.part
+*.nohup
