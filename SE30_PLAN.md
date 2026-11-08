@@ -22360,6 +22360,19 @@ Daniel - add to it, move items out when fixed).**
     a like-for-like gap. What remains undocumented: the NuChip's own
     latency. What would settle it: a real Toby's Norton Video (68kmla).
 
+    **NCRSCSI, WHAT IS DOCUMENTED (Daniel 2026-11-08; NetBSD 11.1 mac68k
+    INSTALL, "SCSI driver problems"):** ncrscsi (the GENERIC kernels) "contains
+    a recognized but as yet unfixed bug" with some drive/controller pairs,
+    usually Quantum disks (Apple shipped Quantums in the SE/30 and IIcx):
+    under heavy load a hang or file-system corruption, or erratic
+    segmentation faults / illegal instructions, worse with little RAM; the
+    advice is the SBC kernels; Centris/Quadra (53C96) are unaffected. So an
+    intermittent fault UNDER LOAD with GENERIC is authentic. Our old symptom
+    was different: a deterministic hang right after the boot-time INQUIRY,
+    before any load - not covered by that note. NEXT: boot GENERIC on the
+    KI 62 build. Boots and only fails under load = close as authentic;
+    hangs at the probe again = ours (seam bench against ncrscsi's path).
+
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot
     20261108_001254):** one line, `WARNING: lwp 54 (system ioflush) flags
