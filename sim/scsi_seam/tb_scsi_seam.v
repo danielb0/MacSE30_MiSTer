@@ -58,6 +58,14 @@
 //       through the handshake window; after the last byte DRQ and PHASE
 //       MATCH both hold (ACK stays true until DACK cycles, SP-1051 10.5.2,
 //       11.4 T10) until a dummy DACK write; then STATUS GOOD, byte-exact
+//   10c. NetBSD's ncrscsi (sys/arch/mac68k/dev/mac68k5380.c, netbsd-11 -
+//       KNOWN ISSUES 62, the GENERIC kernel's hang at sd0's attach):
+//       interrupt-driven pseudo-DMA on VIA2's CA2/CB2 positive edges (PCR
+//       $66); INQUIRY 36, TEST UNIT READY, START UNIT (refused: CHECK),
+//       REQUEST SENSE 32 asked and 18 sent (GLUE's bus error ends the moves,
+//       the phase-mismatch interrupt the transfer), READ CAPACITY(10), MODE
+//       SENSE, READ(6) and WRITE(6) 2 blocks; pdma_ready's checks (BSR & ~ATN
+//       == IRQ, CSBSR BSY and REQ) at every end
 //   11-22: the CD-ROM at ID 3, an AppleCD SC (SE30_PLAN.md Section 12; its
 //       firmware's addresses in Docs\cdrom\audit_applecd_sc_firmware.md),
 //       the spin-up shortened to 2^14 clocks.  +NOCD skips them.
@@ -349,6 +357,87 @@ module tb_scsi_seam;
     end
   endtask
 
+  // ---- NetBSD's ncrscsi (10c; sys/arch/mac68k/dev/mac68k5380.c + ncr5380.c,
+  // netbsd-11): interrupt-driven pseudo-DMA. VIA2's CA2 (SCSI DRQ) and CB2
+  // (SCSI IRQ) are independent-interrupt inputs, positive edge (via.c: PCR
+  // $66); their IFR flags latch whatever IER says, as a 6522's do.
+  reg via_drq_f = 0, via_irq_f = 0, drq_q = 0, irq_q = 0;
+  always @(posedge clk) begin
+    drq_q <= drq; irq_q <= irq;
+    if (drq && !drq_q) via_drq_f <= 1;
+    if (irq && !irq_q) via_irq_f <= 1;
+  end
+  // nerr: 0 fine, 1 no interrupt came (the board's hang: ncrscsi has no
+  // command timeout), 2 pdma_ready's checks failed ("Unexpected phase
+  // change"), 3 no BSY at transfer_pdma, 4 a bus error moved a wrong count
+  integer nerr, nmoved, nberr;
+  // transfer_pdma, then the interrupts until pdma_ready's cleanup:
+  // dir 2 = DATA IN (rbuf), 1 = DATA OUT (wbuf); n = the bytes asked
+  task nc_pdma(input integer dir, input integer n);
+    integer pend, k, w, b0;
+    reg done;
+    begin
+      nerr = 0; nmoved = 0; nberr = 0; pend = n; done = 0;
+      reg_wr(3, dir == 2 ? 8'h01 : 8'h00);                 // TCR: match the target's phase
+      reg_rd(7); via_irq_f = 0;                            // scsi_clr_ipend
+      k = 0; reg_rd(4); while (!rv[6] && k < 1000) begin reg_rd(4); k = k + 1; end
+      if (!rv[6]) begin nerr = 3; done = 1; end
+      if (!done) begin
+        if (dir == 1) begin
+          reg_rd(1); reg_wr(1, rv | 8'h01);                // ICOM |= ASSERT DATA BUS
+          reg_rd(2); reg_wr(2, rv | 8'h02);                // MODE |= DMA
+          reg_wr(5, 8'h00);                                // Start DMA Send
+        end else begin
+          reg_wr(1, 8'h00);
+          reg_rd(2); reg_wr(2, rv | 8'h02);
+          reg_wr(7, 8'h00);                                // Start DMA Initiator Receive
+        end
+        // scsi_ienable; splx: the VIA2 interrupts from here
+      end
+      while (!done) begin
+        w = 0;
+        while (!via_drq_f && !via_irq_f && w < 200000) begin @(negedge clk); w = w + 1; end
+        if (!via_drq_f && !via_irq_f) begin
+          nerr = 1; done = 1;
+          reg_rd(5); $display("     ncrscsi: no interrupt for 200000 clocks after %0d of %0d bytes, BSR %02x dbg %04x", nmoved, n, rv, dbg);
+        end else if (via_drq_f) begin
+          // ncr5380_drq_intr: while (BSR & DMA REQ) { do_ncr5380_drq_intr; scsi_clear_drq }
+          reg_rd(5);
+          while (rv[6] && !done) begin
+            b0 = nmoved;
+            // the 32-bit moves at $50006000+: GLUE's handshake a byte at a
+            // time, a bus error when DRQ never comes (fault address - base =
+            // the count moved)
+            for (k = 0; k < pend && !berr; k = k + 1) begin
+              if (dir == 2) begin hs_rd; if (!berr) begin rbuf[nmoved] = rv; nmoved = nmoved + 1; end end
+              else begin hs_wr(wbuf[nmoved]); if (!berr) nmoved = nmoved + 1; end
+            end
+            if (berr) begin nberr = nberr + 1; pend = pend - (nmoved - b0); berr = 0; end
+            else begin
+              pend = 0;
+              // a write ends with "read a byte to force a phase change"
+              if (dir == 1) begin hs_rd; if (berr) begin nberr = nberr + 1; berr = 0; end end
+            end
+            via_drq_f = 0;                                 // scsi_clear_drq
+            reg_rd(5);
+          end
+          via_drq_f = 0;
+        end else begin
+          // ncr5380_irq_intr -> pdma_ready: BSR & ~ATN == IRQ only, CSBSR BSY and REQ
+          via_irq_f = 0;
+          reg_rd(5); k = rv; reg_rd(4);
+          if (((k & 8'hFD) == 8'h10) && rv[6] && rv[5]) ;
+          else begin nerr = 2; $display("     ncrscsi: pdma_ready saw BSR %02x CSBSR %02x after %0d of %0d bytes", k[7:0], rv, nmoved, n); end
+          // pdma_cleanup
+          reg_rd(2); reg_wr(2, rv & 8'hFD);
+          reg_rd(7); via_irq_f = 0;
+          reg_wr(2, 8'h00); reg_wr(1, 8'h00);
+          done = 1;
+        end
+      end
+    end
+  endtask
+
   // the command bytes of a CDB of any length (left-aligned in 80 bits);
   // nsent: how many went before the target left the command phase
   integer nsent;
@@ -580,6 +669,46 @@ module tb_scsi_seam;
     for (k = 0; k < 1024; k = k + 1) if (img1[50*512 + k] !== wbuf[k]) bad = bad + 1;
     check(bad == 0, "10b. the image holds the sbc write, byte-exact");
     if (bad != 0) $display("     %0d of 1024 bytes wrong", bad);
+
+    // 10c: NetBSD's ncrscsi - sd0's attach (INQUIRY 36, TEST UNIT READY,
+    // READ CAPACITY(10) 8, MODE SENSE(6) page 4), then a read and a write,
+    // each data phase interrupt-driven through VIA2's edges
+    command(3'd0, 0, ok); scsi_cmdn(cdb6(8'h12, 8'h00, 8'h00, 8'h00, 8'd36), 6, ok); check(ok, "10c. INQUIRY's command bytes");
+    nc_pdma(2, 36); check(nerr == 0 && nmoved == 36, "10c. ncrscsi INQUIRY: 36 bytes, the end interrupt, pdma_ready's checks");
+    check(rbuf[9] == "S", "10c. INQUIRY: the vendor (\" SEAGATE\", the MacPlus target's)");
+    scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "10c. INQUIRY: GOOD, COMMAND COMPLETE");
+    command(3'd0, 0, ok); scsi_cmd(48'h0, ok);
+    scsi_complete(st, msg, ok); check(ok && st == 8'h00, "10c. TEST UNIT READY: GOOD");
+    // sdattach's START UNIT: this disk refuses $1B (CHECK), so ncrscsi's
+    // AUTO_SENSE asks REQUEST SENSE with sizeof(struct scsi_sense_data) =
+    // 32 and the target sends its 18: a short transfer, ended by GLUE's bus
+    // error on the 19th byte and the phase-mismatch interrupt
+    command(3'd0, 0, ok); scsi_cmdn(cdb6(8'h1B, 8'h00, 8'h00, 8'h00, 8'h01), 6, ok);
+    scsi_complete(st, msg, ok); check(ok && st == 8'h02, "10c. START UNIT: CHECK CONDITION on this disk");
+    command(3'd0, 0, ok); scsi_cmdn(cdb6(8'h03, 8'h00, 8'h00, 8'h00, 8'd32), 6, ok); check(ok, "10c. REQUEST SENSE's command bytes");
+    nc_pdma(2, 32);
+    $display("     ncrscsi REQUEST SENSE 32 asked: %0d moved, %0d bus errors, nerr %0d", nmoved, nberr, nerr);
+    check(nerr == 0 && nmoved == 18 && nberr >= 1, "10c. ncrscsi REQUEST SENSE short (18 of 32): a bus error, the end interrupt, pdma_ready's checks");
+    check(rbuf[2][3:0] == 4'h5 && rbuf[12] == 8'h20, "10c. REQUEST SENSE: ILLEGAL REQUEST / $20");
+    scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "10c. REQUEST SENSE: GOOD, COMMAND COMPLETE");
+    command(3'd0, 0, ok); scsi_cmdn({8'h25, 72'h0}, 10, ok); check(ok, "10c. READ CAPACITY(10)'s command bytes");
+    nc_pdma(2, 8); check(nerr == 0 && nmoved == 8, "10c. ncrscsi READ CAPACITY: 8 bytes, the end interrupt, pdma_ready's checks");
+    check({rbuf[2], rbuf[3]} == BLOCKS - 1 && rbuf[6] == 8'h02, "10c. READ CAPACITY: the last block and 512");
+    scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "10c. READ CAPACITY: GOOD, COMMAND COMPLETE");
+    command(3'd0, 0, ok); scsi_cmdn(cdb6(8'h1A, 8'h00, 8'h04, 8'h00, 8'd32), 6, ok);
+    nc_pdma(2, 32); check(nerr == 0 && nmoved == 32, "10c. ncrscsi MODE SENSE page 4: 32 bytes, the end interrupt");
+    scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "10c. MODE SENSE: GOOD, COMMAND COMPLETE");
+    command(3'd0, 0, ok); scsi_cmd(rw6(8'h08, 21'd40, 8'd2), ok);
+    nc_pdma(2, 1024); bad = 0; for (k = 0; k < 1024; k = k + 1) if (rbuf[k] !== img0[40*512 + k]) bad = bad + 1;
+    check(nerr == 0 && nmoved == 1024 && bad == 0, "10c. ncrscsi READ(6) 2 blocks: byte-exact, the end interrupt");
+    scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "10c. READ(6): GOOD, COMMAND COMPLETE");
+    for (k = 0; k < 1024; k = k + 1) wbuf[k] = (k * 3 + 8'h61) ^ (k >> 4);
+    command(3'd1, 0, ok); scsi_cmd(rw6(8'h0A, 21'd52, 8'd2), ok);
+    nc_pdma(1, 1024); check(nerr == 0 && nmoved == 1024, "10c. ncrscsi WRITE(6) 2 blocks: every byte, the forced phase change, the end interrupt");
+    scsi_complete(st, msg, ok); check(ok && st == 8'h00 && msg == 8'h00, "10c. WRITE(6): GOOD, COMMAND COMPLETE");
+    ticks(settle); bad = 0;
+    for (k = 0; k < 1024; k = k + 1) if (img1[52*512 + k] !== wbuf[k]) bad = bad + 1;
+    check(bad == 0, "10c. the image holds the ncrscsi write, byte-exact");
 
     // ---------------------------------------------------- 11-22: the CD-ROM
     // ID 3, an AppleCD SC (plan 12.2/12.3), its spin-up 2^14 clocks here
