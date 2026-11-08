@@ -22240,7 +22240,15 @@ Daniel - add to it, move items out when fixed).**
     figure for the upper VRAM is worth one probe read; sim/nubus check 3
     ("5 to 8 C16M clocks") moves with the fix.
 
-62. **OPEN (2026-11-06, Daniel installing NetBSD 11.1 mac68k on the IIcx,
+62. **CLOSED 2026-11-08 (Daniel: "No, close it"): the core's write fault
+    is fixed on the board (GENERICSBC installs and boots multi-user on both
+    cores); the GENERIC/ncrscsi hang at sd0's attach is NetBSD's own
+    (mac68k finish_req + scsipi_done, see BOARD PROBES + KERNEL STATE
+    below), authentic, no core change; not confirmed with a patched
+    kernel (Daniel declined). It is NOT the INSTALL note's documented
+    ncrscsi bug (heavy load, Quantum disks, intermittent): ours is
+    deterministic at the first disk's second command, any disk.**
+    (Opened 2026-11-06, Daniel installing NetBSD 11.1 mac68k on the IIcx,
     64 MB): the INSTALL kernel's `ncrscsi` driver hangs after sd0's
     INQUIRY.** Everything else probed right: IIcx/68030/68882, total memory
     65536 KB, ASC, IWM, both SCC channels, NuBus, ADB (keyboard at 2, mouse
