@@ -22143,7 +22143,7 @@ Daniel - add to it, move items out when fixed).**
     Board (Daniel, morning of 2026-11-06): `cc -o hello hello.c` bare and
     zflag on both ki59 builds at 64 and 16 MB; then KNOWN ISSUES 54.
 
-60. **OPEN, AFTER THE RELEASE (2026-11-05, Daniel's Norton run): the FPU
+60. **PARKED 2026-11-08 (Daniel: "Yes. I think we've done what we can"): compliant with the documentation; Norton's reference configuration is documented and enforced by the benchmark, so the residual gap can only be settled by timing real hardware (a real 68882). Not work to do; reopen only with such data.** (Opened 2026-11-05, Daniel's Norton run.) **The FPU
     reads 5-8 % SLOW on two benchmarks, both cores.** Norton Utilities
     (IIcx core, System 7.1): FPU 1.66 against Norton's reference IIcx 1.74
     (0.95). Speedometer 4.02's FPU benchmarks against the real SE/30
@@ -22194,7 +22194,7 @@ Daniel - add to it, move items out when fixed).**
     (FPU-heavy work 5-8 % slower), so after the release (the pre-release
     rule, the freeze).
 
-61. **OPEN, AFTER THE RELEASE (2026-11-05, Daniel: "Yes, record it"): the
+61. **PARKED 2026-11-08 (Daniel: "Yes. I think we've done what we can"): compliant with the documentation; Norton's reference configuration is documented and enforced by the benchmark, so the residual gap can only be settled by timing real hardware (a real Toby card's Norton Video; the fix to Figure 11-2's two wait states is on the board). Not work to do; reopen only with such data.** (Opened 2026-11-05, Daniel: "Yes, record it".) **The
     IIcx's Toby card acknowledges VRAM with NO wait states; the real card
     takes TWO - documented.** *Designing Cards and Drivers*, 2nd ed.,
     Chapter 11, **Figure 11-2 "Access to video RAM space"** (book p. 235,
