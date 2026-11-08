@@ -22533,7 +22533,9 @@ Daniel - add to it, move items out when fixed).**
     2026-11-08 ~14:30, on the board): "The patched kernel seems to be
     working. It got past the disk attachments and is proceeding to boot" -
     the diagnosis confirmed: one line in NetBSD's driver, nothing in the
-    core.
+    core. Then (14:55, screenshot 20261108_145456): sd0 (ID 0), sd1 (ID 1)
+    and cd0 (ID 3) all attach, root on sd1a clean, swap on sd1b, and it
+    boots MULTI-USER ("it works", Daniel) - GENERIC with the fix runs.
 
     **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
     test build, near the end of base.tgz's extraction; screenshot
