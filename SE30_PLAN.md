@@ -22175,7 +22175,19 @@ Daniel - add to it, move items out when fixed).**
     lead: FSIN/FCOS/FTAN/FATAN on Norton's arguments - the real 68882
     ~6 % faster there than the typical figure. Next: Norton's FPU operands
     (a MAME tap of its FPU opcodes and source values) against Table 8-15's
-    argument-dependent times, before any change. Not Mac-affecting
+    argument-dependent times, before any change. **LEAD CLOSED 2026-11-08
+    (Table 8-15 rendered, NXP UM p. 8-34, and Table 8-3 p. 8-15): the manual
+    has NO argument-dependent times for normalized operands** - one figure
+    per operand class (FSIN 360, FCOS 360, FTAN 442, FATAN 372 calculation
+    clocks; Table 8-3 FPn-to-FPn totals 394/394/476/406, consistent with
+    them). The only argument dependence documented is note 3: trig
+    operands outside the reduction range ("-9...+9" in the scan, read
+    +-pi) ADD the FREM time - it can only make the real chip SLOWER, the
+    wrong direction for a core that is 6 % slow. So the documentation
+    cannot explain KI 60; what remains is the reference itself (machine,
+    clock, setup unknown) or the MPU/protocol side, and only a measurement
+    on a real 68882 (our own timing program, run by a forum owner) can
+    tell. Not Mac-affecting
     (FPU-heavy work 5-8 % slower), so after the release (the pre-release
     rule, the freeze).
 
