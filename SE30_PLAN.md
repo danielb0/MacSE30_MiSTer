@@ -22360,6 +22360,19 @@ Daniel - add to it, move items out when fixed).**
     a like-for-like gap. What remains undocumented: the NuChip's own
     latency. What would settle it: a real Toby's Norton Video (68kmla).
 
+    **BOARD: NETBSD 11.1 INSTALLED AND BOOTED MULTI-USER (Daniel 2026-11-08,
+    IIcx test build MacIIcx_b130a755_ki6162.rbf; screenshots 20261108_001254,
+    20261108_012053):** INSTALLSBC kernel; sysinst wrote the map, newfs'd
+    sd1a (1372 MB FFSv1) and extracted the minimal sets (base at ~36 KiB/s,
+    CPU-bound gzip - authentic), MAKEDEV and certctl ran. First boot
+    GENERICSBC single-user: fsck clean, mount -uw fine; then multi-user to
+    "NetBSD/mac68k (Amnesiac) (constty) login:" (Sun Nov 8 09:20 UTC 2026).
+    The two rc failures are configuration, not the core: fsck_root ("mounted
+    read-write on /: not checking", we had mount -uw'd it in single user)
+    and postfix (no hostname: sysinst's config menu failed to write some
+    rc.conf items). KNOWN ISSUES 62's write fault: FIXED ON THE BOARD (SBC
+    path). Open: GENERIC (ncrscsi) - the test below.
+
     **NCRSCSI, WHAT IS DOCUMENTED (Daniel 2026-11-08; NetBSD 11.1 mac68k
     INSTALL, "SCSI driver problems"):** ncrscsi (the GENERIC kernels) "contains
     a recognized but as yet unfixed bug" with some drive/controller pairs,
