@@ -22360,6 +22360,20 @@ Daniel - add to it, move items out when fixed).**
     a like-for-like gap. What remains undocumented: the NuChip's own
     latency. What would settle it: a real Toby's Norton Video (68kmla).
 
+    **WATCH: "timecounter went backwards" (Daniel 2026-11-08 00:12, IIcx
+    test build, near the end of base.tgz's extraction; screenshot
+    20261108_001254):** one line, `WARNING: lwp 54 (system ioflush) flags
+    0x20020020: timecounter went backwards from (1942 + ...`. The kernel
+    read an uptime at a context switch earlier than the one it stored when
+    the thread started running; it clamps the thread's runtime and carries on. mac68k's
+    timecounter is VIA1 Timer 1 (counter read a byte at a time) plus the
+    tick count, so a counter wrap mid-read, or a reload seen before its
+    tick is counted, can step it back by part of a tick - the same race
+    exists on a real 6522, and the warning is reported now and then on
+    real 68k hardware. One in 200 MB: not a lead. IF IT RECURS OFTEN
+    (especially after boot): check our VIA Timer 1 reload against the T1
+    interrupt flag (IFR bit 6) timing in the 6522 datasheet.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
