@@ -22366,7 +22366,9 @@ Daniel - add to it, move items out when fixed).**
     sd1a (1372 MB FFSv1) and extracted the minimal sets (base at ~36 KiB/s,
     CPU-bound gzip - authentic), MAKEDEV and certctl ran. First boot
     GENERICSBC single-user: fsck clean, mount -uw fine; then multi-user to
-    "NetBSD/mac68k (Amnesiac) (constty) login:" (Sun Nov 8 09:20 UTC 2026).
+    "NetBSD/mac68k (Amnesiac) (constty) login:" (Sun Nov 8 09:20 UTC 2026);
+    root logged in at 09:23, banner "NetBSD 11.1 (GENERICSBC) #0: Mon Nov 2
+    16:34:32 UTC 2026", shell prompt (screenshot 20261108_012404).
     The two rc failures are configuration, not the core: fsck_root ("mounted
     read-write on /: not checking", we had mount -uw'd it in single user)
     and postfix (no hostname: sysinst's config menu failed to write some
