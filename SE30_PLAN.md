@@ -22661,8 +22661,11 @@ Daniel - add to it, move items out when fixed).**
     loading); by 18:09 it moves, slowly - the pointer is a software
     cursor redrawn through wsfb's shadow framebuffer on a 16 MHz 68030,
     the machine's speed, not the core. Daniel: "not practical or
-    usable, but it is working". X11 ON THE IIcx CORE = DONE, for the
-    record only. Not tried on the SE/30 build (1-bit; the console
+    usable, but it is working". 18:12: xeyes started from the uxterm and
+    dragged round the screen with the mouse - window moves, pointer
+    tracking and client drawing all work (screenshot _181204). X11 ON
+    THE IIcx CORE = DONE, for the record only. Daniel left the session
+    running to continue later (2026-11-09 18:12). Not tried on the SE/30 build (1-bit; the console
     scrolling question there is still open).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
