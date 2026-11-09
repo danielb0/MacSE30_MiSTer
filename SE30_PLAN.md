@@ -22685,7 +22685,10 @@ Daniel - add to it, move items out when fixed).**
     `startx -- -flipPixels` so X's black pixel is the Mac's 1 = black;
     1/8 of the framebuffer traffic, so X and the pointer should also be
     several times faster. Caveat: 1-bit on the Toby card is untested
-    under NetBSD here.
+    under NetBSD here. Daniel 2026-11-09 23:40: "Yes, next time" - TO
+    DO at his next X session: Monitors -> Black & White, Booter, then
+    `startx -- -flipPixels`; record the time to the first window, a
+    screenshot, and whether the pointer is usable.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
