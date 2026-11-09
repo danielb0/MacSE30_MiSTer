@@ -22619,6 +22619,15 @@ Daniel - add to it, move items out when fixed).**
     getenvvars, locore.s (the vector: 6 words after the count), the Booter
     HTML manual 12 + ChangeLog from the 11.1 ISO; bench and generator in
     sim/wsfb_replay (uncommitted).
+    PATCHED KERNEL BUILT 2026-11-09 (Daniel: "Yes, patch it"):
+    C:/temp/Mac/netbsd-WSFBSBC-nopoke.gz = the ISO's netbsd-WSFBSBC with
+    exactly two bytes changed, both in .strtab (file offsets $437C32 and
+    $449A5F): the names are now `mac68k_vrsrc_veX` and `mac68k_vrsrc_cnX`,
+    so the Booter's lookup fails and it pokes nothing; code, data and
+    every other symbol untouched (verified by reparsing the ELF; gunzip
+    round-trips). To test: copy it to the Mac side beside the Booter,
+    select it as the kernel, boot; expected: past dk_getdisklabel to
+    multi-user, then startx. NOT YET BOOTED ON THE BOARD.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
