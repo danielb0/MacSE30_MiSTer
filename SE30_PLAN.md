@@ -22567,6 +22567,59 @@ Daniel - add to it, move items out when fixed).**
     (especially after boot): check our VIA Timer 1 reload against the T1
     interrupt flag (IFR bit 6) timing in the 6522 datasheet.
 
+63. **OPEN 2026-11-09 (cause found, not a core bug; workaround to choose):
+    NetBSD 11.1's WSFBSBC kernel (the one X11 needs: genfb + wsfb; GENERIC's
+    macfb has no WSDISPLAYIO_LINEBYTES, so Xorg's wsfb finds "no screens")
+    panics 5.8 s into the boot on both cores (MMU fault v=$FFFFFFE8, pc
+    $25E22E in dk_getdisklabel) because the BSD/Mac68k Booter 2.0.0
+    overwrites two bytes of kernel text BEFORE the kernel runs.** The
+    SE/30 JTAG peek found RAM $1D607-$1D608 = `80 0E` where the file has
+    `2E 2C` (`lea $1D434(pc),a4` in readdisklabel + `move.l d2,d6`:
+    a4 then points past whichType's LINK, and the corrupt code faults
+    exactly as the board did); the IIcx (ddb) has `80 09` at the same
+    address, twice, Extensions Manager All Off + MODE32 only. The CPU
+    executed the corrupt code correctly (sim/wsfb_replay: readdisklabel
+    replayed from the board's state on tg68k + GLUE, 16 variants, PASS).
+    THE CAUSE, from the kernel's own ELF symbol table (2026-11-09):
+    - The written word is `(sRsrc id << 8) | slot` = the video-mode
+      resource of the console display: $80 = NUBUS_RSRC_FIRSTMODE (1-bit)
+      with slot $E (the SE/30's pseudo-slot video) or slot $9 (the IIcx's
+      card). That is exactly the entry the Booter sets in the kernel's
+      `mac68k_vrsrc_vec[]` ("Set _mac68k_vrsrc_vec to ..." in its log;
+      `nubus_video_resource()` in sys/arch/mac68k/nubus/nubus.c reads it),
+      which it does by looking the symbol up in the kernel's symbol table
+      and poking the value into the loaded image (Booter ChangeLog 1.8:
+      "routines to set variables directly in the kernel namespace").
+    - In netbsd-WSFBSBC the Elf32_Sym of `mac68k_vrsrc_vec` is
+      `00 01 D6 07 | 00 37 6C 58 | 00 00 00 00 | 10 00 00 0A`: st_name
+      (the .strtab offset of the name) = $1D607, st_value = $376C58. The
+      Booter wrote the word at st_name - an a.out `struct nlist` has the
+      value where ELF has nothing comparable, and the Booter took the
+      first field. $1D607 occurs in the whole 4.5 MB file only in that
+      symbol entry; the chance of coincidence is nil.
+    - The same poke explains why GENERICSBC boots: there `mac68k_vrsrc_vec`
+      has st_name $1DB70 and the write turns `lea $2C6296,a0` (an error
+      string, readdisklabel's "no disk label" path) into `lea $2C800E,a0`
+      - harmless. The second poke, `mac68k_vrsrc_cnt` (a .long, value 1),
+      lands at st_name too: WSFBSBC $2F434 (sendsig_siginfo + $12A - would
+      break signal delivery later), GENERICSBC $2F848 (regdump, a
+      panic-only routine). None of the real vector is ever set, so the
+      kernel always falls back to probing the card's resources.
+    PREDICTIONS TO CHECK ON THE BOARD (one peek each, before any reboot):
+    WSFBSBC RAM $2F434-$2F437 = `00 00 00 01` (file: `E8 80 B1 FC`);
+    GENERICSBC $1DB70-$1DB71 = `80 0E` / `80 09`, $2F848-$2F84B =
+    `00 00 00 01`; and the Booter's log should show the "Set
+    _mac68k_vrsrc_vec to 0x800E" line. WORKAROUND (not done, Daniel to
+    choose): rename the two symbols in the kernel's .strtab (same length,
+    e.g. `mac68k_vrsrc_veX` / `..._cnX`) so the Booter finds neither and
+    pokes nothing - the kernel loses nothing it ever had; or fix the Booter
+    (Mac OS CodeWarrior source, not practical here). Not a Mac OS leftover,
+    not the ROM glue, not the core; the 1-bit console's scrolling on the
+    SE/30 is a separate question (open). Sources: nubus.c, machdep.c
+    getenvvars, locore.s (the vector: 6 words after the count), the Booter
+    HTML manual 12 + ChangeLog from the 11.1 ISO; bench and generator in
+    sim/wsfb_replay (uncommitted).
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
