@@ -22653,11 +22653,17 @@ Daniel - add to it, move items out when fixed).**
     Daniel's run: the Xorg.0.log tail (timestamps = the startup
     timeline) and dmesg's genfb/wsdisplay lines. Daniel will likely not
     run X again at this speed; X11 is outside the completion criteria.
-    MOUSE (18:05): the X cursor is drawn but does not follow the mouse.
-    The keyboard worked at the shell (startx typed), so ADB transactions
-    work under NetBSD's adb_direct; whether wsmouse attached (dmesg
-    ams0/wsmouse0) and whether Xorg opened /dev/wsmouse (Xorg.0.log
-    "config/wscons" lines) is the next thing to read. OPEN.
+    SESSION COMPLETE 18:07 (~18 min from startx): ctwm with its icon
+    manager, workspace manager and clock, an iconified xclock, and a
+    uxterm with a shell - ls, pwd typed into it work, so the keyboard
+    reaches X (screenshots _180646, _180725, _180918). MOUSE: the X
+    cursor did not seem to move at first (the server was still
+    loading); by 18:09 it moves, slowly - the pointer is a software
+    cursor redrawn through wsfb's shadow framebuffer on a 16 MHz 68030,
+    the machine's speed, not the core. Daniel: "not practical or
+    usable, but it is working". X11 ON THE IIcx CORE = DONE, for the
+    record only. Not tried on the SE/30 build (1-bit; the console
+    scrolling question there is still open).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
