@@ -22666,7 +22666,23 @@ Daniel - add to it, move items out when fixed).**
     tracking and client drawing all work (screenshot _181204). X11 ON
     THE IIcx CORE = DONE, for the record only. Daniel left the session
     running to continue later (2026-11-09 18:12). Not tried on the SE/30 build (1-bit; the console
-    scrolling question there is still open).
+    scrolling question there is still open). 23:28: still up (top:
+    uptime 6h51, X 37M, 79 % idle; screenshot _232859).
+    THE PALETTE (Daniel 23:28: "terrible. Is there a way to change
+    this?"): confirmed from netbsd-11 sources - genfb_grfbus.c passes a
+    colormap callback only if the grf driver supplies ga_set_mapreg,
+    and NO mac68k grf driver does (grf_nubus.c = the Toby card,
+    grf_obio.c = internal video: no set_mapreg anywhere); dmesg says
+    "genfb0 ...: colormap callback not provided". So the CLUT stays as
+    Mac OS left it and X's dynamically allocated 8-bit palette lands on
+    Mac OS's index order. A fix = a CLUT writer for the Toby's DAC in
+    grf_nubus.c + a kernel rebuild (NetBSD work, not ours). PRACTICAL
+    ROUTE, untested: set Monitors to Black & White before launching
+    the Booter (genfb takes the depth from the Mac OS mode), then
+    `startx -- -flipPixels` so X's black pixel is the Mac's 1 = black;
+    1/8 of the framebuffer traffic, so X and the pointer should also be
+    several times faster. Caveat: 1-bit on the Toby card is untested
+    under NetBSD here.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
