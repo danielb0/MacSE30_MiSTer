@@ -22627,7 +22627,11 @@ Daniel - add to it, move items out when fixed).**
     every other symbol untouched (verified by reparsing the ELF; gunzip
     round-trips). To test: copy it to the Mac side beside the Booter,
     select it as the kernel, boot; expected: past dk_getdisklabel to
-    multi-user, then startx. NOT YET BOOTED ON THE BOARD.
+    multi-user, then startx. NOT YET BOOTED ON THE BOARD. On a CD image
+    too, as GENFIX was: C:/temp/Mac/NetBSD-WSFBFIX.iso (ISO 9660, one
+    file WSFBFIX.GZ, 997 blocks; tools/iso/mkiso_one.py reproduces the
+    GENERICFIX layout - PVD 16, path tables 18/19, root 20, data from 21;
+    7-Zip extracts the file with the same md5 1ec3bc1f).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
