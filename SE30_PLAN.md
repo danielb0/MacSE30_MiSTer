@@ -22671,12 +22671,15 @@ Daniel - add to it, move items out when fixed).**
     THE PALETTE (Daniel 23:28: "terrible. Is there a way to change
     this?"): confirmed from netbsd-11 sources - genfb_grfbus.c passes a
     colormap callback only if the grf driver supplies ga_set_mapreg,
-    and NO mac68k grf driver does (grf_nubus.c = the Toby card,
-    grf_obio.c = internal video: no set_mapreg anywhere); dmesg says
+    and grf_nubus.c (every NuBus card, the Toby included) never does;
+    only grf_obio.c's onboard video of later Macs (DAFB, Civic,
+    Valkyrie, RBV) has set_mapreg routines - neither the IIcx (no
+    onboard video) nor the SE/30 (1-bit) has one. dmesg says
     "genfb0 ...: colormap callback not provided". So the CLUT stays as
     Mac OS left it and X's dynamically allocated 8-bit palette lands on
     Mac OS's index order. A fix = a CLUT writer for the Toby's DAC in
-    grf_nubus.c + a kernel rebuild (NetBSD work, not ours). PRACTICAL
+    grf_nubus.c modelled on grf_obio.c's rbv_set_mapreg (~30 lines) + a
+    NetBSD kernel cross-build (not done; NetBSD work). PRACTICAL
     ROUTE, untested: set Monitors to Black & White before launching
     the Booter (genfb takes the depth from the Mac OS mode), then
     `startx -- -flipPixels` so X's black pixel is the Mac's 1 = black;
