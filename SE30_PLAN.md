@@ -22787,6 +22787,34 @@ Daniel - add to it, move items out when fixed).**
     panicstr `peeks ea9d4 1`, db_active `peeks de7c1 1`; msgbufp
     `peeks ea6c2 1` then the buffer it points to (~1024 longs) for the
     kernel's own dmesg of that boot. Then the Mac OS test program.
+    BOARD 2026-11-10 01:15 (SE/30 core, Black & White, WSFBSBC-nopoke,
+    sitting at the cursor): mac68k_video = kvaddr $05A60040, stride 64,
+    depth 1, width 512, height 342, log 0, phys $FEE08040, len $5580 -
+    THE GEOMETRY IS RIGHT. panicstr = 0, db_active = 0: NO PANIC, NOT IN
+    DDB - the kernel is at an ordinary prompt (root device? login?) with
+    a console that does not draw. msgbufp = msgbufaddr = $774000 (an
+    8 MB machine; lw $1DD000); the buffer was read in a second session
+    and was already the ROM's RAM-test pattern ($B6DB6DB6) - the
+    release resets the machine and Mac OS's boot overwrites it. NEXT
+    TIME read `peeks e4e75 8 ea9d4 1 de7c1 1 1DD000 2048` in ONE session.
+    RTL REVIEW of the write path a 1-bit glyph takes (plain byte stores,
+    rasops1_putchar8): the SE/30 video is an 8-bit port on D31-D24
+    (se30_video.v; dev_wdata = cpu_dout[31:24], se30_glue.v:337; addr =
+    cpu_addr[16:0], the full byte address); the kernel drives a byte
+    write's OP3 on every lane (TG68KdotC_Kernel.vhd:3147, as UM Table
+    7-5); the posted-write buffer sends one beat for a byte (tg68k.v:273
+    w_nb = 1). So a byte store at ANY A1A0 should land - by the RTL the
+    symptom should not happen, which means the kernel is not storing
+    where rasops thinks, or something in NetBSD's environment (MMU-
+    translated supervisor stores through a cache-inhibited page) takes a
+    path this review did not cover. Mac OS draws VRAM with QuickDraw's
+    long RMWs and almost never byte-stores it, so it is no witness for
+    byte stores at A1A0 != 0. DECIDE BY EXPERIMENT: (1) sim: a bench of
+    byte stores to VRAM at offsets 0-3 through the whole machine (does
+    sim/system's vramtest cover them? - check); (2) the Mac OS test
+    program on the board: byte stores at offsets 0-79 of a scanline, a
+    pattern visible on screen (e.g. a ramp), then the same under an MMU
+    CI mapping if (1) and the plain run pass.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
