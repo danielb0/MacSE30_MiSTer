@@ -22950,7 +22950,11 @@ Daniel - add to it, move items out when fixed).**
     videocard.c writing the vector at the .strtab offset - PR 2 stands.
     Details and the rewritten drafts in netbsd_pr_drafts.md. 16:10:
     `startx -- -flipPixels` on the SE/30 core in 1-bit: X server up (root
-    stipple + cursor), windows pending.
+    stipple + cursor), then the xclock window (white on black) - X11 RUNS
+    ON THE SE/30 CORE TOO, in 1-bit, with the nopoke-mono kernel (Daniel
+    16:25: "far too slow to be useful, but it is nice to see it working").
+    Both cores, both depths: NetBSD's console and X run on the stock 11.1
+    kernel plus the two byte patches; nothing core-side remains.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
