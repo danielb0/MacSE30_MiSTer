@@ -22726,6 +22726,42 @@ Daniel - add to it, move items out when fixed).**
     ($379F04 -> lw $DE7C1) of netbsd-WSFBSBC-nopoke; a non-zero
     panicstr names the panic. Add to FUTURE BOARD TESTS.
 
+64. **OPEN 2026-11-10 (both cores; not Mac-affecting; after the release):
+    NetBSD's console in 1-bit mode draws only the bottom text row, and
+    garbled.** Daniel (00:50): with the Mac in Black & White, the WSFBSBC
+    kernel's boot messages never appear as lines; text is written only
+    on the bottom row of the screen and is illegible, the most frequent
+    shape being "[" - the first character of every dmesg line ("[ 1.00..]"
+    timestamps). After a while the screen stops with a block cursor;
+    Enter returns the cursor to column 0 and nothing legible is written.
+    Seen on the SE/30 (internal video) AND on the IIcx (Toby card) in
+    1-bit; 8-bit on the same IIcx disk boots to X with a clean console.
+    READING: every line lands on the same row because the scroll
+    (rasops copyrows: VRAM read -> VRAM write) does nothing visible, and
+    the row is garbled because successive glyph writes ACCUMULATE instead
+    of replacing - only column 0, the same "[" every time, stays crisp.
+    Accumulation means the read-modify-write that rasops1 does on the
+    framebuffer (rasops1.c: 32-bit rp pointers, masked `(*rp & ~m) | bits`
+    at arbitrary bit offsets; copyrows via rasops_bitops.h) keeps the old
+    bits: the READ side of the RMW is returning something other than
+    what was written, on both video blocks. Candidates: (a) the CPU on
+    the exact instruction forms rasops1/bitops compile to (misaligned
+    32-bit RMW to VRAM, and/or the 030's handling of a long access that
+    straddles a VRAM word), common to both cores - Mac OS's QuickDraw
+    uses other forms and is fine; (b) a shared VRAM read-path property
+    (both blocks sit behind the same bus glue) for misaligned/partial
+    longs; (c) NetBSD itself (rasops1 on a big-endian 1-bit Mac frame
+    buffer is rare today) - decided by a real SE/30 or an emulator, and
+    MAME cannot boot the kernel (KI 63). Not the Booter (8-bit fine).
+    NEXT: (1) a Mac OS test program on the board doing exactly rasops1's
+    RMW sequence to VRAM (misaligned longs across word boundaries, read
+    back and compare) - 20 min, no NetBSD needed, splits (a)/(b) from
+    (c); (2) when NetBSD sits at the cursor, JTAG-peek panicstr
+    ($3AA750 -> lw $EA9D4) and db_active ($379F04 -> lw $DE7C1) to name
+    the prompt (KI 63); (3) if (a)/(b): a seam bench of the SE/30 video
+    block with the kernel doing misaligned long RMW. Outside the
+    completion criteria; stays on dev.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
