@@ -22841,6 +22841,18 @@ Daniel - add to it, move items out when fixed).**
     ri_stride 64, ri_cols/ri_rows, ri_bits, ri_xscale/yscale, the font
     pointer) - what the kernel is really drawing with. The Mac OS test
     program is no longer needed (the bench covers it).
+    WHY GENERICSBC'S CONSOLE WORKS IN 1-BIT ON THE SAME SCREEN (Daniel's
+    question, 01:05): GENERIC's display driver is macfb (mac68k/dev/
+    macfb.c), which draws through the OLD rcons/raster console code
+    (struct raster, rcons_cursor) - mac68k-specific, written in the
+    1990s for exactly these 1-bit Mac screens and used ever since.
+    WSFB.common removes macfb ('no macfb* at intvid?') and attaches
+    genfb, the machine-independent driver, which draws through rasops +
+    wsdisplay_vcons (vcons_init_screen, vcons_redraw_screen, the deferred
+    cursor) - code written for cards with colour maps and barely exercised
+    on a big-endian 1-bit framebuffer. Same hardware, same core, two
+    drivers: the one that fails is the new one. The MI genfb path is the
+    one X needs (WSDISPLAYIO_LINEBYTES), hence the trade.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
