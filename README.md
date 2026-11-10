@@ -136,6 +136,12 @@ attaches the disks and boots on the core). This is a different problem from the
 load-dependent `ncrscsi` bug in NetBSD's install notes; their advice to use the SBC
 kernels covers both.
 
+At 1 bit per pixel (the SE/30's screen, or the IIcx in black and white) NetBSD 11.1's
+console stays blank: `rasops_allocattr_mono()` returns a foreground of 0xff that 11.1's
+8-bit attribute masks turn into the background colour, so every glyph is drawn invisible.
+This is a NetBSD 11.1 bug, fixed on NetBSD's development branch (`rasops.c` 1.130) but
+not on netbsd-11; the core draws the console once the kernel is patched.
+
 ## PRAM
 
 Copy the blank `MacSE30.nvr` from [releases](releases) to `games/MACSE30` (on the IIcx,
