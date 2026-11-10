@@ -57,3 +57,7 @@ sim/_*
 # sweep resume files (sim/sweep_lib.sh RESUME=1) and chain launch stubs
 *.part
 *.nohup
+
+# NetBSD readdisklabel replay bench: generated image and run logs
+sim/wsfb_replay/ram.hex
+sim/wsfb_replay/*.log

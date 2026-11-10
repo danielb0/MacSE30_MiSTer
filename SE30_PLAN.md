@@ -27471,6 +27471,33 @@ estimate-and-consult rule, the release comment policy) are in the local
 notes of the Claude installation on this PC, not in the repo. HANDOFF.md
 says where.
 
+**END OF SESSION 2026-11-10 (~17:00, Daniel closed it) - READ THIS TO RESUME.**
+The NetBSD chapter is finished on the core side. KNOWN ISSUES 62, 63 and 64
+are all NetBSD's: 62 ncrscsi's finish_req (GENERIC hangs at sd0; the SBC
+kernels avoid it), 63 the Booter 2.0.0 poking mac68k_vrsrc_vec/_cnt at the
+ELF symbol's st_name (the WSFB panic), 64 rasops_allocattr_mono's fg 0xff
+against the 11.1 8-bit attribute masks (the blank 1-bit console). One
+kernel, C:/temp/Mac/netbsd-WSFBSBC-nopoke-mono(.gz) (ISO NetBSD-WSFBMONO.iso),
+carries the two byte patches and runs NetBSD's console AND X11 on BOTH
+cores: the IIcx in 8-bit (2026-11-09, palette = Mac OS's, no CLUT hook) and
+the SE/30 in 1-bit (today, `startx -- -flipPixels`, ctwm + uxterm); both far
+too slow to use, both authentic. The only core change NetBSD ever needed
+was KI 62's 53C80 ACK hold (b130a75). Benches kept: sim/system lanetest
+(+LANETEST, gen_lane_program.py; byte stores to VRAM at every lane, PASS)
+and sim/wsfb_replay (tb_wsfb_replay.v, gen_replay.py: readdisklabel replay
+from the ELF + disk; its logs and ram.hex ignored). NetBSD reports: three
+drafts in netbsd_pr_drafts.md (repo root) with today's prior-art check -
+rasops is FIXED ON TRUNK (rasops.c 1.130, tnn 2026-01-01) but NOT on
+netbsd-11 and has no pull-up ticket, so draft 3 is a pull-up request; the
+mac68k ncr5380.c finish_req is unfixed (the atari copy lost the line in
+2008); the Booter is outside the tree (its 2.0.0a10 plain-text source
+confirms videocard.c's .strtab-offset poke). Daniel files them on the
+send-pr web form (GNATS; no GitHub PRs; his name and email become public).
+Open elsewhere: KI 60/61 parked (need real-hardware timing), the Quadra
+core polish (Dani's OK pending), FUTURE ADDITIONS. The 20261107 release
+stays public; dev not pushed since. Stray file for Daniel to delete by
+hand: the Git for Windows root's /ki63fix.py.
+
 **END OF SESSION 2026-10-24 (~20:30, Daniel closed it) - READ THIS TO RESUME.**
 Released (above); dev pushed (3de0e32). Forum: Daniel posts the short "new
 release, update_all soon" notes to the SE/30 and IIcx threads (drafted this
