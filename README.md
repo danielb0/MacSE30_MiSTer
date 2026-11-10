@@ -110,6 +110,14 @@ either core.
 - QuarkXPress 3.32 reports "Unable to access network" and quits. Turn AppleTalk off (Chooser:
   Inactive, and `/etc/appletalk -d` as root) and it runs.
 
+## NetBSD
+
+NetBSD 11.1 (mac68k) installs and runs on both cores with the **SBC** kernels (`INSTALLSBC`
+to install, `GENERICSBC` to run). The `GENERIC` and `INSTALL` kernels hang at "waiting for
+devices: scsibus0 sd0"; this is a bug in NetBSD's `ncrscsi` driver. At 1 bit per pixel
+(the SE/30's screen, or the IIcx in black and white) NetBSD 11.1's console is blank; this
+is a NetBSD 11.1 bug, fixed in NetBSD's development branch.
+
 ## PRAM
 
 Copy the blank `MacSE30.nvr` from [releases](releases) to `games/MACSE30` (on the IIcx,
