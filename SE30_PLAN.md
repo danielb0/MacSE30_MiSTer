@@ -22698,6 +22698,30 @@ Daniel - add to it, move items out when fixed).**
     1-bit). DECIDING TEST (not done): boot the same WSFBSBC kernel in
     MAME's macse30 set to Black & White and watch the console scroll -
     MAME mis-scrolls = NetBSD; MAME scrolls = ours. OPEN.
+    MAME RUN 2026-11-10 00:00-00:30 (Daniel at the window, the Booter
+    by hand; C:/temp/Mac/mame/netbsd/: work755.chd = his Mac OS disk at
+    SCSI 0, netbsd.chd = the NetBSD disk at SCSI 1, -ramsize 32M - the
+    Booter needs >= 20 MB; pcsample.lua / pcdump.lua log the PC every 2 s
+    and dump RAM when it sits in cngetc). Daniel's correction of the
+    core symptom: in 1-bit the screen STOPS with a block cursor; Enter
+    returns the cursor to column 0 and nothing is written - the kernel
+    is at a prompt whose text is not drawn, not a scrolling fault.
+    MAME: the Booter runs to its "Bye-bye" (no "Set _mac68k_vrsrc_vec"
+    line - the patched kernel has no such symbol), the kernel runs
+    (PC in kernel text, SR $2704) and sits in cngetc <- db_putchar:
+    DDB. From the RAM dump: panicstr = "Cannot work with the current
+    memory mappings." (machdep.c get_mapping, the walk of Mac OS's MMU
+    tables), cold = 1, msgbuf not yet set up, db_active = 1,
+    mac68k_video = $FE008040. So in MAME the kernel dies at the very
+    first step, before any console output - a different, earlier stop
+    than the core's. Likely cause: MAME's fresh PRAM = 24-bit
+    addressing with 32 MB (the core's PRAM has 32-bit addressing on
+    with MODE32). TO TRY: Memory control panel -> 32-bit addressing
+    On, restart, Booter again. MAME is NOT yet a NetBSD cross-check.
+    BOARD CHECK for the core's 1-bit stop (JTAG, when it sits with the
+    cursor): peek panicstr ($3AA750 -> lw $EA9D4) and db_active
+    ($379F04 -> lw $DE7C1) of netbsd-WSFBSBC-nopoke; a non-zero
+    panicstr names the panic. Add to FUTURE BOARD TESTS.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
