@@ -5,17 +5,19 @@
 #
 #   MODELSIM  the win32aloem bin directory
 #
-# Ten runs (the bench's header): plain - sim/kernel_bus's program, which
+# Eleven runs (the bench's header): plain - sim/kernel_bus's program, which
 # gen_program.py writes there first; cacheon - the same with both caches
 # enabled first, in cacheon/; cachewa - with WA too, in cachewa/;
 # cachetest - gen_cache_program.py's, in cachetest/; vramtest -
-# gen_vram_program.py's video-RAM measurement, in vramtest/; berrtest -
+# gen_vram_program.py's video-RAM measurement, in vramtest/; lanetest -
+# gen_lane_program.py's byte stores to the video RAM at every lane, checked
+# against want.hex (KNOWN ISSUES 64), in lanetest/; berrtest -
 # gen_berr_program.py's SCSI handshake bus errors, in berrtest/; timetest -
 # gen_time_program.py's timing windows, in timetest/ (report_time.py prints
 # them against the MC68030 UM); clrtest - gen_clr_program.py's CLR, Scc and
 # MOVE from SR/CCR, in clrtest/; tracetest and tracecache - gen_trace_program.py's
 # single-stepping, caches off and on.  Logs run.log and run_<name>.log.  Exit
-# status: 0 when all ten say "==== PASS".
+# status: 0 when all eleven say "==== PASS".
 set -u
 cd "$(dirname "$0")"
 
@@ -32,6 +34,7 @@ python gen_time_program.py || exit 1
 python gen_clr_program.py || exit 1
 python gen_trace_program.py || exit 1
 python gen_trace_program.py cache || exit 1
+python gen_lane_program.py || exit 1
 rm -rf work
 "$MODELSIM/vlib.exe" work >/dev/null || exit 1
 for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; do
@@ -39,13 +42,14 @@ for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; d
 done
 "$MODELSIM/vlog.exe" -quiet -work work "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" "$RTL/se30_video.v" tb_se30_system.v || exit 1
 ok=0
-for run in plain cacheon cachewa cachetest vramtest berrtest timetest clrtest tracetest tracecache; do
+for run in plain cacheon cachewa cachetest vramtest lanetest berrtest timetest clrtest tracetest tracecache; do
   case $run in
     plain)     log=run.log;           args="" ;;
     cacheon)   log=run_cacheon.log;   args="+PROG=cacheon +CACHEON" ;;
     cachewa)   log=run_cachewa.log;   args="+PROG=cachewa +CACHEON" ;;
     cachetest) log=run_cachetest.log; args="+PROG=cachetest +CACHETEST" ;;
     vramtest)  log=run_vramtest.log;  args="+PROG=vramtest +VRAMTEST" ;;
+    lanetest)  log=run_lanetest.log;  args="+PROG=lanetest +LANETEST" ;;
     berrtest)  log=run_berrtest.log;  args="+PROG=berrtest +BERRTEST" ;;
     timetest)  log=run_timetest.log;  args="+PROG=timetest +TIMETEST" ;;
     clrtest)   log=run_clrtest.log;   args="+PROG=clrtest +CLRTEST" ;;

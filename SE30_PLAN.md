@@ -22815,6 +22815,32 @@ Daniel - add to it, move items out when fixed).**
     program on the board: byte stores at offsets 0-79 of a scanline, a
     pattern visible on screen (e.g. a ramp), then the same under an MMU
     CI mapping if (1) and the plain run pass.
+    SIM 2026-11-10 01:00 - (1) DONE, PASS: sim/system/gen_lane_program.py +
+    tb_se30_system.v +LANETEST (run_lane.sh alone, or run.sh's eleventh
+    run): the whole SE/30 machine (kernel, wrapper, GLUE, se30_video)
+    stores to VRAM at every A1A0 three ways - a 256-byte MOVE.B ramp,
+    MOVE.L longs, rasops1_putchar8's shape (one byte a scanline, stride
+    64, column 1) and MOVE.B d16(An) at offsets 1/2/3/5/6/7 - in three
+    cache states: data cache off; data cache on with $FExxxxxx cache-
+    inhibited through TT0 (NetBSD's mapping); data cache on and the video
+    cacheable. 526 bytes a phase compared against the video module's
+    array: 0 wrong in every phase. THE CORE'S BYTE-STORE PATH TO THE VIDEO
+    RAM IS CLEAN AT EVERY LANE. What the bench does not cover: MMU table
+    translation of the address (address-only, no reason to differ) and
+    NetBSD's own code. So the kernel is not issuing those stores where
+    rasops' geometry says. Daniel's account: on the SE/30 the text WAS
+    visible and moving at first, then stopped - i.e. the early console
+    (genfb's rasops before autoconf) drew, and after wsdisplay/vcons took
+    the console over only column 0 draws. That points at the MI vcons/
+    wsdisplay path on a 1-bit screen (8-bit is fine on the IIcx), NetBSD's
+    side. NEXT BOARD CHECK (two 1-bit boots): boot 1, in one session:
+    `peeks e4e75 8 ea9d4 1 de7c1 1 1DD000 2048 DFD10 1` (the last = the
+    genfb_softc pointer, $37F440); boot 2: dump 512 longs from that
+    pointer (kernel mallocs repeat boot to boot) and find the console
+    screen's rasops_info by its values (ri_width 512, ri_height 342,
+    ri_stride 64, ri_cols/ri_rows, ri_bits, ri_xscale/yscale, the font
+    pointer) - what the kernel is really drawing with. The Mac OS test
+    program is no longer needed (the bench covers it).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test

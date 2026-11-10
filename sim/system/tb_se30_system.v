@@ -38,6 +38,9 @@
 //              the first turn) and off (one a turn), and a loop over a
 //              cached operand whose data cycles it counts (the first only).
 //     vramtest  gen_vram_program.py's loops into the 8-bit video RAM
+//     lanetest  gen_lane_program.py's byte stores into the video RAM at
+//              every lane, three cache states, compared with want.hex at
+//              STOP (KNOWN ISSUES 64: NetBSD's 1-bit console)
 //              (se30_video, wired as se30_machine wires it): a measurement,
 //              each window's clocks and every video cycle's length and the
 //              gap before it, against plan 2.12's 5/6/7-clock table
@@ -284,6 +287,10 @@ module tb_se30_system;
   // the clocks, the VRAM cycles, their lengths (S0-S5, C16M clocks) and
   // the gaps before them (clocks from the last cycle's AS* negation)
   reg vramtest = 0;
+  // lanetest (KNOWN ISSUES 64): gen_lane_program.py's stores to the video RAM
+  // at every byte lane, three cache states; at STOP the video module's
+  // array is compared with want.hex ($100 = a byte the program never wrote)
+  reg lanetest = 0; reg [8:0] lane_want [0:8191]; integer lane_n, lane_bad, lane_p;
   integer vw = -1, vw_t0 [0:2], vw_t [0:2], vw_n [0:2], vw_len [0:2], vw_gap [0:2];
   integer vw_h [0:2][0:31], vw_g [0:2][0:15];
   integer vas = 0, vlast_end = 0, vk, vj; reg vas_q = 1; reg vcyc = 0;
@@ -390,6 +397,7 @@ module tb_se30_system;
     cachetest = $test$plusargs("CACHETEST");
     cacheon = $test$plusargs("CACHEON");
     vramtest = $test$plusargs("VRAMTEST");
+    lanetest = $test$plusargs("LANETEST");
     berrtest = $test$plusargs("BERRTEST");
     timetest = $test$plusargs("TIMETEST");
     pace_en  = !$test$plusargs("NOPACE");
@@ -463,6 +471,28 @@ module tb_se30_system;
         else begin fails = fails + 1; $display("FAIL: window %0d never closed", vk); end
       end
       if (fails == 0) $display("==== PASS: %0d checks - the timing windows ran", pass);
+      else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
+      $finish;
+    end
+    if (lanetest) begin                                                 // KNOWN ISSUES 64: the bytes that landed
+      fd = $fopen({prog_dir, "/lane_count.txt"}, "r"); r = $fscanf(fd, "%d", lane_n); $fclose(fd);
+      $readmemh({prog_dir, "/want.hex"}, lane_want, 0, lane_n - 1);
+      for (lane_p = 0; lane_p < 3; lane_p = lane_p + 1) begin
+        lane_bad = 0; kk = 0;
+        for (vk = lane_p * 2048; vk < (lane_p + 1) * 2048 && vk < lane_n; vk = vk + 1)
+          if (lane_want[vk] != 9'h100) begin
+            kk = kk + 1;
+            if (video.vram[vk] !== lane_want[vk][7:0]) begin
+              lane_bad = lane_bad + 1;
+              if (lane_bad <= 12) $display("FAIL: phase %0d VRAM $%04x (A1A0 %0d) holds %02x, expected %02x", lane_p, vk, vk % 4, video.vram[vk], lane_want[vk][7:0]);
+            end
+          end
+        $display("---- phase %0d (%s): %0d bytes checked, %0d wrong", lane_p,
+                 lane_p == 0 ? "data cache off" : lane_p == 1 ? "data cache on, video CI via TT0" : "data cache on, video cacheable",
+                 kk, lane_bad);
+        if (lane_bad == 0) pass = pass + 1; else fails = fails + 1;
+      end
+      if (fails == 0) $display("==== PASS: %0d checks - every byte store reached the video RAM at every lane", pass);
       else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
       $finish;
     end
