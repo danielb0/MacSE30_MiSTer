@@ -22726,9 +22726,10 @@ Daniel - add to it, move items out when fixed).**
     ($379F04 -> lw $DE7C1) of netbsd-WSFBSBC-nopoke; a non-zero
     panicstr names the panic. Add to FUTURE BOARD TESTS.
 
-64. **CAUSE FOUND 2026-11-10 13:40 - A NETBSD 11.1 REGRESSION, NOT THE CORE
-    (patched kernel built, board test pending): NetBSD's console in 1-bit
-    mode draws no text, only the cursor cell.** Daniel (00:50): with the Mac in Black & White, the WSFBSBC
+64. **CLOSED 2026-11-10 - A NETBSD 11.1 REGRESSION, NOT THE CORE (board-
+    verified: the two-byte mono kernel draws the console in 1-bit on the
+    SE/30 core): NetBSD's console in 1-bit mode drew no text, only the
+    cursor cell.** Daniel (00:50): with the Mac in Black & White, the WSFBSBC
     kernel's boot messages never appear as lines; text is written only
     on the bottom row of the screen and is illegible, the most frequent
     shape being "[" - the first character of every dmesg line ("[ 1.00..]"
@@ -22931,8 +22932,13 @@ Daniel - add to it, move items out when fixed).**
     filling 16..255 for depth 1/2/4). Daniel 2026-11-10 13:50: "We should
     definitely file reports on all three patches" (KI 62 ncrscsi, KI 63
     the Booter, KI 64 rasops): drafts in netbsd_pr_drafts.md (repo root,
-    dev) for his review; filing via send-pr is his, after the board test
-    of the mono kernel.
+    dev) for his review; filing via send-pr is his. BOARD RESULT (Daniel,
+    2026-11-10 afternoon, SE/30 core, Black & White, netbsd-WSFBSBC-
+    nopoke-mono): "The patch worked. I can see the text" - the console
+    draws. Closes the issue; with KI 62/63 the kernel now carries both
+    patches (nopoke + mono) and runs on both cores at every depth. Left:
+    `startx -- -flipPixels` in 1-bit (optional, X is outside the
+    completion criteria) and the three PRs (his).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
