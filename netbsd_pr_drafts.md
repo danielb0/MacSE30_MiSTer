@@ -6,6 +6,49 @@ each becomes one PR. Facts from SE30_PLAN.md KNOWN ISSUES 62, 63, 64. All
 three were found on an FPGA SE/30 and IIcx (independent 68030 core) running
 NetBSD 11.1 release kernels; none is machine-specific.
 
+**Prior-art check, 2026-11-10 (Daniel: "check the repo to see that no one has
+already issued fixes for the same problems"):**
+
+- PR 1 (ncrscsi): NOT fixed. trunk sys/arch/mac68k/dev/ncr5380.c (rev 1.72,
+  2023-08-01, last change a comment fix) still has `xs->xs_status |=
+  XS_STS_DONE; scsipi_done(xs)` in finish_req(). The atari copy had the same
+  line and lost it in 2008 after a Falcon freeze report (port-atari
+  2008-10-25/26, pulled up to netbsd-4 2008-11-06: "caused scsipi_done()
+  problems"). GNATS has nothing on the mac68k copy; kern/58452 (Nat Sloss,
+  2024, closed 2025-04) is the ncr5380sbc (sbc) driver's abort path, not
+  this. FILE IT, and cite the atari precedent.
+- PR 2 (the Booter): NOT fixed, and not fixable in-tree: the Booter's source
+  is outside src (distrib/mac68k/stand/Booter2.0.0-src.sea.uue, a StuffIt
+  archive). A plain-text copy of 2.0.0a10 (Hauke Fath, port-mac68k 2024-01-26,
+  ftp.causeuse.org/pub/NetBSD/macbsd_booter/booter-2.0.0a10-src-ascii.tar.gz)
+  shows the mechanism: videocard.c set_video_info() takes `kernOffset =
+  offsetOfKernelString("_mac68k_vrsrc_vec")` - the .strtab OFFSET of the name
+  - and writes the array at `buf + kernOffset`; kernel_parse.c has the right
+  function next to it, kernelStringToAddress(), which walks the Elf32_Sym
+  table and returns st_value, and a10 uses it for the `_mac68k_vrsrc_cnt`
+  poke (setKernelLongVal). On the board the 2.0.0 release puts BOTH values at
+  st_name, so the released kernel_parse.c differs from a10 somewhere; the
+  release source could not be opened here (StuffIt method 13). The 2026
+  port-mac68k PRs by Ray Tran (60692/60694/60695/60717/60722, genfb
+  geometry, adb, via, obio) do not touch the poke. FILE IT against
+  port-mac68k; the fix is a Booter release (2.0.1), so the PR is the only
+  record the port has.
+- PR 3 (rasops mono): ALREADY FIXED ON TRUNK, NOT ON netbsd-11. rasops.c
+  1.130, tnn, 2026-01-01: "rasops_allocattr_mono: fix regression from
+  WSSCREEN_256COL - 0xff was never a valid colormap index, but worked by
+  accident since the previous ATTR_FG implementation clamped the value. Now
+  it results in black text on black background. Use named WSCOL_* constants
+  instead." (fg = WSCOL_LIGHT_WHITE, bg = WSCOL_BLACK; 1.131 of 2026-09-28
+  is unrelated glyph-cache work). The netbsd-11 branch file is still
+  1.128.12.1 (2025-11-14, the 256-colour pull-up, ticket #81) with fg = 0xff,
+  and the netbsd-11 pull-up queue (releng req-11.cgi, 2026-11-10) has no
+  ticket for it. So 11.1 and 11-stable users with a 1/2/4-bit console get a
+  blank screen until it is pulled up. PR 3 is therefore NOT a bug report but
+  a PULL-UP REQUEST: a PR (category kern, class sw-bug, "pullup-11" in the
+  synopsis) asking for rasops.c 1.130 on netbsd-11, with the 11.1 symptom
+  as the justification - developers file pull-ups via releng, users via a
+  PR. The draft below is rewritten to that shape.
+
 ---
 
 ## PR 1 - kern: mac68k ncrscsi (ncr5380 PDMA) hangs at sd0 attach - finish_req marks the xfer done before scsipi_done
@@ -18,7 +61,7 @@ NetBSD 11.1 release kernels; none is machine-specific.
 
 **How to repeat:** Boot GENERIC on an SE/30 or IIcx with a SCSI disk at ID 0 or 1; the boot stops at "waiting for devices: scsibus0 sd0". Boot GENERICSBC on the same machine: it boots.
 
-**Fix:** Do not set XS_STS_DONE in finish_req(); let scsipi_done() do it (as the atari ncr5380 driver does).
+**Fix:** Do not set XS_STS_DONE in finish_req(); let scsipi_done() do it. The atari copy of this driver lost the same line in 2008 after a Falcon SCSI freeze report (port-atari 2008-10-25, "scsipi_done() bails out early if XS_STS_DONE is set"; pulled up to netbsd-4 2008-11-06). The mac68k copy (trunk 1.72) still has it.
 
 ---
 
@@ -32,13 +75,13 @@ NetBSD 11.1 release kernels; none is machine-specific.
 
 **How to repeat:** Boot netbsd-WSFBSBC with Booter 2.0.0 on an SE/30 (1-bit) or a IIcx with a Toby card; panic at ~5.8 s in dk_getdisklabel. Compare bytes at 0x1D607 of the loaded kernel.
 
-**Fix:** In the Booter's ELF symbol lookup use st_value (offset 4 of Elf32_Sym), not st_name (offset 0). Workaround for users: rename the two symbols in .strtab (same length), or use an a.out kernel.
+**Fix:** In the Booter's ELF symbol lookup use st_value (offset 4 of Elf32_Sym), not st_name (offset 0). In the 2.0.0a10 source (the plain-text copy at ftp.causeuse.org/pub/NetBSD/macbsd_booter/) that is videocard.c set_video_info(): it writes the vector at `buf + offsetOfKernelString("_mac68k_vrsrc_vec")`, the string-table offset, where kernel_parse.c's kernelStringToAddress() (st_value) should be used, as the `_mac68k_vrsrc_cnt` poke there does; in the 2.0.0 release both values land at st_name, so the released kernel_parse.c should be checked too. Workaround for users: rename the two symbols in .strtab (same length), or use an a.out kernel.
 
 ---
 
-## PR 3 - kern: rasops monochrome attributes draw every character as a space since the 256-colour change (1-bit/2-bit/4-bit consoles blank)
+## PR 3 - kern: [pullup-11] rasops.c 1.130 (rasops_allocattr_mono regression): 1/2/4-bit consoles draw no text in NetBSD 11.1
 
-**Synopsis:** On depth < 8 rasops consoles (mac68k WSFB kernels in 1-bit, with RASOPS_APPLE_PALETTE depth < 4; any port using rasops_allocattr_mono) NetBSD 11.1 draws no text at all - only the cursor cell is visible, as an inverted glyph.
+**Synopsis:** Please pull up sys/dev/rasops/rasops.c 1.130 (tnn, 2026-01-01, "rasops_allocattr_mono: fix regression from WSSCREEN_256COL") to netbsd-11. On depth < 8 rasops consoles (mac68k WSFB kernels in 1-bit, with RASOPS_APPLE_PALETTE depth < 4; any port using rasops_allocattr_mono) NetBSD 11.1 draws no text at all - only the cursor cell is visible, as an inverted glyph. The netbsd-11 branch has the 256-colour change (1.128.12.1, ticket #81) but not the fix.
 
 **Environment:** NetBSD 11.1 mac68k, kernel WSFBSBC (genfb + wsdisplay, FONT_QVSS8x15, RASOPS_APPLE_PALETTE), SE/30 internal 512x342 1-bit video and IIcx Toby card in 1-bit. 8-bit on the same IIcx is fine.
 
@@ -46,4 +89,4 @@ NetBSD 11.1 release kernels; none is machine-specific.
 
 **How to repeat:** Boot WSFBSBC on any 1-bit mac68k (SE/30 in Black & White): the kernel boots to multi-user with a blank screen and a visible cursor; typing moves the cursor and draws nothing.
 
-**Fix:** Either make rasops_allocattr_mono use fg = 15 (the last of the 16 mono map entries), or have rasops_init_devcmap fill entries 16..255 for depth 1/2/4 (e.g. ri_devcmap[i] = -1 for i >= 1), or mask the index to 0xf when ri_depth < 8. The first is a one-line fix.
+**Fix:** Already in -current: rasops.c 1.130 sets fg = WSCOL_LIGHT_WHITE, bg = WSCOL_BLACK (cvs rdiff -u -r1.129 -r1.130 src/sys/dev/rasops/rasops.c). Pull it up to netbsd-11 (and netbsd-11-1 if a 11.1 patch branch takes it). Verified equivalent here: a two-byte patch of the 11.1 kernel's constants (0xff -> 0x0f) makes the 1-bit console draw on the SE/30.

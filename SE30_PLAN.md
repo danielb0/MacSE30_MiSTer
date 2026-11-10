@@ -22939,7 +22939,18 @@ Daniel - add to it, move items out when fixed).**
     sd1/cd0 attached, root on sd1a, "file system is clean"). Closes the issue; with KI 62/63 the kernel now carries both
     patches (nopoke + mono) and runs on both cores at every depth. Left:
     `startx -- -flipPixels` in 1-bit (optional, X is outside the
-    completion criteria) and the three PRs (his).
+    completion criteria) and the three PRs (his). PRIOR-ART CHECK
+    (Daniel 2026-11-10 16:00, "check the repo to see that no one has
+    already issued fixes"): the rasops bug is FIXED ON TRUNK, rasops.c
+    1.130 (tnn, 2026-01-01, fg = WSCOL_LIGHT_WHITE), NOT on netbsd-11
+    (branch 1.128.12.1 still 0xff, no pull-up ticket in req-11) - PR 3 is
+    now a pull-up request; the mac68k ncr5380.c finish_req (trunk 1.72)
+    is untouched, the atari copy lost the same line in 2008 - PR 1 stands;
+    the Booter's 2.0.0a10 source (plain-text copy, causeuse.org) shows
+    videocard.c writing the vector at the .strtab offset - PR 2 stands.
+    Details and the rewritten drafts in netbsd_pr_drafts.md. 16:10:
+    `startx -- -flipPixels` on the SE/30 core in 1-bit: X server up (root
+    stipple + cursor), windows pending.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
