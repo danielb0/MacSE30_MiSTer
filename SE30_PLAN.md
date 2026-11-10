@@ -22714,10 +22714,13 @@ Daniel - add to it, move items out when fixed).**
     tables), cold = 1, msgbuf not yet set up, db_active = 1,
     mac68k_video = $FE008040. So in MAME the kernel dies at the very
     first step, before any console output - a different, earlier stop
-    than the core's. Likely cause: MAME's fresh PRAM = 24-bit
-    addressing with 32 MB (the core's PRAM has 32-bit addressing on
-    with MODE32). TO TRY: Memory control panel -> 32-bit addressing
-    On, restart, Booter again. MAME is NOT yet a NetBSD cross-check.
+    than the core's. Daniel HAD 32-bit addressing on for that run, so
+    not the PRAM: the dump shows numranges = 0 - pmap_bootstrap's check
+    fails because get_mapping() (machdep.c, the software walk of Mac
+    OS's MMU tables) found NO RAM range at all under MAME. A MAME +
+    NetBSD interaction (MAME's 68030 MMU state as the Booter leaves
+    it), nothing to do with the core; left there. MAME is NOT a NetBSD
+    cross-check as it stands (2026-11-10 00:40).
     BOARD CHECK for the core's 1-bit stop (JTAG, when it sits with the
     cursor): peek panicstr ($3AA750 -> lw $EA9D4) and db_active
     ($379F04 -> lw $DE7C1) of netbsd-WSFBSBC-nopoke; a non-zero
