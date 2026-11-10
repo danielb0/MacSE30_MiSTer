@@ -27471,6 +27471,94 @@ estimate-and-consult rule, the release comment policy) are in the local
 notes of the Claude installation on this PC, not in the repo. HANDOFF.md
 says where.
 
+**THE NEXT RELEASE AND THE REGRESSION REVISED (2026-11-10 evening).**
+Daniel: "let's create the release for the latest core changes", then, on
+the regression: "Let's do the revision in the regression tests and then run
+them. There is a chance this will be the last release of these cores, so
+the revision needs doing first"; "Keep both passes" (CACR 0 and $2101);
+"Go ahead. If the regression passes, then we'll do the release tomorrow."
+- Release tree C:\Git\MacSE30_rc, branch release dd486fb (not pushed):
+  KNOWN ISSUES 61 (nubus_tfb: video RAM space acknowledged in the fourth
+  NuBus clock) and 62 (se30_ncr53c80: dack_free) with release-style
+  comments; every RTL file shared with dev token-identical, MacSE30.sv
+  differing only by the probes; README's NetBSD section (dev 7484953 adds
+  the 1-bit console line to dev's README). No kernel change.
+- Release builds (Task Scheduler SE30_rc6162, sim/rc6162_build.sh, log
+  sim/rc6162.log): MacSE30_dd486fb_rc.rbf md5 df1e1314, 38,375 ALMs, 34 min;
+  worst -0.147 ns = ascal o_vcpt_pre3 at slow -40C (KNOWN ISSUES 6, the
+  framework), the capture met at every corner. MacIIcx_dd486fb_rc.rbf md5
+  8cac4f28, 38,844 ALMs, 37 min, +0.036 ns MET AT EVERY CORNER (as its
+  board-tested test build b130a75).
+- THE REVISION (the regression gaps of 2026-11-05):
+  - Gap 1, the arming preamble (ARM, default on; ARM=0 off; ARM_SANITY=1
+    must FAIL): predec_fault - an external bus error (super-slot B; a read,
+    ARMEXT=w a write), a VIA2 T1 level-2 interrupt, a user page fault on a
+    write (Format $A) and one on a read (page $6000), a trace (TRACEH);
+    cpfpu - the same through its own PMMU tables ($1E000, page $1F000) plus
+    a page fault inside an FPU dialog (FMOVE.L (A0),FP0), then FRESTORE of a
+    null frame and the PMMU off, the mode's vectors and a zeroed register
+    file back, JMP $1000 (tb_cpfpu: a write to $3F60 raises level 2). Each
+    counted and checked. ONE external bus error, not two: GLUE's UI6 times
+    it out on HSYNC (up to ~90 us, ~2,000 clocks) - authentic. Cost
+    measured: a dsweep run 11.8 -> 17.1 s, an fsx run 16.2 -> 25.1 s.
+  - Gap 2, the CCR: dsweep/ssweep (DSW_CCRQ, default on) run the
+    instruction once on a third resident window (DSW_RQ $6A000) to learn its
+    flags R, then the reference and the faulting run both start from
+    R ^ $1F - every defined flag at its opposite. isweep/xsweep: ISW_CCR=v
+    puts MOVE #v,CCR last before the tested instructions; the regression
+    adds a $1F pass (Z stays 1, the branch cases unchanged). selfst: MOVE
+    #q,CCR before and MOVE CCR,D6 after, checked absolutely (MOVE: N, Z from
+    the value, V = C = 0, X kept; MOVES/MOVEM unchanged).
+  - Gap 3, the stacked SR: the handler keeps the last frame's SR and format
+    word (FSRW $6DE00); dsweep/ssweep check a format $A frame's CCR against
+    the reference run's result (UM 8.1.2: the internal copy of the SR when
+    the exception is taken; $A is taken at the boundary). $B not checked -
+    the UM does not define its internal state. DSW_FSRPLANT=1 must FAIL.
+  - Gap 4, nesting: SSW_TRACE=1 (ssweep: T1 set before the MOVES, the
+    trace owed with the fault; the trace count checked); HNEST=1 (the
+    page-fault handler takes an external bus error of its own before its
+    RTE, TT1 $B0xxxxxx transparent; NESTCNT checked). auxfull (the context
+    switch) was already in the regression (uok_all).
+  - The dispatch counter (tb_predec_fault): "---- bus-error dispatches:
+    page faults N immediate, M deferred; K external" and the first eight
+    dispatches with their clocks.
+  - wonly (CASESET=wonly, 2 parts): CLR in every size and mode, Scc, MOVE
+    from CCR, MOVEM to memory - the first access to an invalid operand page
+    must be a write (SSW RW 0; UM 11.6.11 times CLR/Scc <mem> as (0/1/1)).
+    Controls MOVE.L (RW 0) and NEG.L (RW 1). ALL PASS: our CLR does not read.
+    (A false alarm earlier this evening: +UOK reports the kernel's JTRACE
+    records, and the read it showed was the bench's own later read of the
+    same slot; the bus traces show CLR writing only.)
+  - Dedupe: the two DSW_CCRSET PREBERR lines are replaced by DSW_CCRSET
+    HNEST lines (the PREBERR arming is in every run now). No other line is
+    a duplicate: fsweep covers (An), fsxsweep every other EA form; uok_all's
+    case sets run nowhere else. The CACR pairs stay (Daniel).
+- KNOWN ISSUES 59 IN SIM, STILL NOT REPRODUCED (scratch sim/_k59 = dev's
+  RTL with the gate's pmmu_fault/berr_pmmu_fault_valid terms removed):
+  the 2026-11-05 +IRQAT window (4085-4150) ended ~260 clocks before the
+  case's fault (clock 4410); swept again 4360-4412: every fault immediate.
+  The whole dsweep (235, CACR $2101, armed, CCRQ) PASSES on the unfixed
+  kernel; 20 cases DO dispatch deferred (MOVEP.L both ways, MULS.L,
+  MOVE.W 2(A6),(A6), CMPM.L - multi-access microcode), all restart-type
+  resumes, where the pre-instruction CCR is the right one, so the unfixed
+  gate is invisible. A fault on an instruction's last write always
+  dispatches immediately here; SDRAM=1, +RAMLAT 2/6, +NOPOST, the caches,
+  an isweep straddle (1 deferred, a restart) - the same. The board's
+  trigger (deferred dispatch + a completion resume) stays unknown; the fix
+  is board-confirmed.
+- SMOKE (every regression line the preamble touches, 53 runs: all of
+  phase 1's cpfpu programs, one job per uok_all case set, um, zdiv, bfx,
+  selfst, the pointer modes, HNEST, wonly): two cpfpu fixes, both bench -
+  b3c's dialog IRQ fired on the preamble's own come-again (tb_cpfpu
+  arm_done holds the program's triggers until the routine's write to
+  $3F64); b3a read back a stack byte the preamble's frames left (the
+  routine clears $7E00-$7FFF). Then 53/53 and the 26 cpfpu jobs again
+  26/26.
+- RUNNING: the revised regression, Task Scheduler SE30_revreg
+  (sim/rev_regression.sh, log sim/rev_regression.log, ~9 h). If it passes,
+  the release (Daniel, 2026-11-10: "tomorrow"): his board look at both RC
+  builds, releases/<rev>_<date>.rbf, main, push on his OK.
+
 **END OF SESSION 2026-11-10 (~17:00, Daniel closed it) - READ THIS TO RESUME.**
 The NetBSD chapter is finished on the core side. KNOWN ISSUES 62, 63 and 64
 are all NetBSD's: 62 ncrscsi's finish_req (GENERIC hangs at sd0; the SBC

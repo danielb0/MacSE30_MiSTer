@@ -273,6 +273,22 @@ module tb_predec_fault;
     $init_signal_spy("/tb_predec_fault/cpu/kernel/setinterrupt", "/tb_predec_fault/kx_sint", 1);
     $init_signal_spy("/tb_predec_fault/cpu/kernel/berr_exception_active", "/tb_predec_fault/kx_bea", 1);
     $init_signal_spy("/tb_predec_fault/cpu/kernel/trap_berr", "/tb_predec_fault/kx_tb", 1);
+    $init_signal_spy("/tb_predec_fault/cpu/kernel/pmmu_fault", "/tb_predec_fault/kx_pf", 1);
+  end
+  // the bus-error dispatches (regression gap 1, 2026-11-10): IMMEDIATE = setinterrupt on the
+  // edge the fault is seen (make_berr not yet latched), DEFERRED = make_berr already latched
+  // (the fault came mid-instruction and waited for the boundary) - KNOWN ISSUES 59's gate
+  // fired only on the deferred path, which no bench had reached
+  reg kx_pf;
+  integer clk_n = 0;                   // clocks since reset (+IRQAT counts these)
+  integer disp_imm = 0, disp_def = 0, disp_ext = 0;
+  always @(posedge clk) if (kx_lw && kx_sint && !kx_tb) begin
+    if (kx_mb && kx_disp) disp_def = disp_def + 1;       // a page fault's dispatch request latched earlier
+    else if (kx_mb) disp_ext = disp_ext + 1;             // an external bus error (always latched first)
+    else if (kx_pf) disp_imm = disp_imm + 1;
+    if ((kx_mb || kx_pf) && disp_imm + disp_def + disp_ext <= 8)
+      $display("---- dispatch %0d: %s at clock %0d, pc %08x", disp_imm + disp_def + disp_ext,
+               kx_mb ? (kx_disp ? "page fault DEFERRED" : "external") : "page fault immediate", clk_n, kx_pc);
   end
   always @(posedge clk) if ($time >= kt0 && $time < kt1)
     $display("KX %0t lw=%b make_berr=%b disp=%b fvalid=%b f_insn=%b rpend=%b cons=%b bad=%b setopc=%b setint=%b bea=%b trap_berr=%b st=%b pc=%08x epc=%08x op=%04x lor=%04x@%08x obv=%b inpc=%08x gb=%b swt=%b",
@@ -468,7 +484,7 @@ module tb_predec_fault;
   // and the run must have taken it exactly once.  Every run prints the
   // clocks of the first bus error's vector fetch and of the first user fetch
   // after it (the window a sweep of IRQAT walks across).
-  integer     irq_at = -1, clk_n = 0, t_vec2 = -1, t_ures = -1;
+  integer     irq_at = -1, t_vec2 = -1, t_ures = -1;
   integer     irq_every = 0;          // +IRQEVERY=<n> (the random sweep): raised every n clocks, any number taken
   always @(posedge clk) begin
     if (reset_n) clk_n <= clk_n + 1;
@@ -548,6 +564,7 @@ module tb_predec_fault;
     if (halted) begin fails = fails + 1; $display("FAIL: the CPU halted (double bus fault) after %0d clocks", n); end
     if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
     $display("---- %0d clocks, %0d bus-error handler entries, %0d interrupts", n, rd32(32'h3200), rd32(32'h3208));
+    $display("---- bus-error dispatches: page faults %0d immediate, %0d deferred (make_berr latched); %0d external", disp_imm, disp_def, disp_ext);
 `ifdef SDRAM
     $display("---- the SDRAM model saw %0d datasheet violations", chip.errors);
     if (chip.errors != 0) fails = fails + 1;

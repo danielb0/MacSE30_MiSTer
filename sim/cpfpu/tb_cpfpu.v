@@ -151,8 +151,9 @@ module tb_cpfpu;
   reg dlg_seen = 0; reg [31:0] dlg_pc = 0; integer dlg_n = 0, ndlg = 0, irq_skip = 0;   // (mode $FFFFFFFB)
   initial if ($value$plusargs("IRQSKIP=%d", irq_skip)) ;
   reg nest_done = 0;
+  reg arm_done = 1;                    // 0 while the arming routine runs (gen_program.py ARM)
   always @(posedge clk) begin
-    if (irq1_n && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
+    if (irq1_n && arm_done && fpu_sel && cpu_rw_n && fpu_dsack_n != 2'b11 &&
         (((irq_mode == 1 || irq_mode == 32'hFFFFFFFD) && nirq == 0 && cpu_addr[4:0] == 5'd0 && fpu_q[31:16] == 16'h8900) ||
          (irq_mode == 32'hFFFFFFFC && nirq == 0 && cpu_addr[4:0] == 5'd4 && fpu_q[31:24] == 8'h01) ||
          (irq_mode == 1 && nirq == 1 && cpu_addr[4:0] == 5'd4 && fpu_q[31:24] == 8'h01) ||
@@ -171,6 +172,10 @@ module tb_cpfpu;
       irq2_n <= 0; nest_done <= 1;
     end
     if (phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F0C >> 2)) irq2_n <= 1;
+    // the arming interrupt (gen_program.py ARM, regression gap 1): a write to $3F60 raises level 2
+    // and holds the program's own interrupt triggers (arm_done) until the routine's write to $3F64
+    if (phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F60 >> 2)) begin irq2_n <= 0; arm_done <= 0; end
+    if (phi1 && ram_req && !ram_ack && ram_we && ram_addr[14:0] == (32'h3F64 >> 2)) arm_done <= 1;
   end
 
   // A coprocessor that answers what the 68882 never does (B3): the first

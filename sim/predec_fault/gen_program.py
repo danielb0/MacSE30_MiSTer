@@ -128,6 +128,40 @@ ZDIV, ZCOUNT = 0x1FA0, 0x3F24
 # from the DIB, UM 8.2.2), vector 2 -> BERR; PRECOUNT counts the probe's one entry.
 PREBERR = os.environ.get("PREBERR") == "1"
 PROBE, PRECOUNT = 0x1FC0, 0x3F28
+# ARM (regression gap 1, 2026-11-10; default on, ARM=0 off): every bench used to start its
+# cases from reset, so a latch one exception kind sets and another reads was never stale
+# (KNOWN ISSUES 59 passed 2,500 cases).  Before the cases, one exception of each kind the
+# kernel latches state for, each counted and checked:
+#   an EXTERNAL bus error on a supervisor data read (super-slot B, empty: GLUE's UI6 times it
+#     out, one or two HSYNC periods; PROBE clears DF and RTEs) - the ROM's boot-time slot
+#     probing; ARMEXT=w makes it a write instead, so the cases see a write's RW/FC latched
+#   a level-2 interrupt (VIA2 T1, PMMU off: VIA2 physical), taken and RTEd
+#   with the PMMU on, a user-mode PMMU WRITE fault on the last write (Format $A, replayed)
+#     and a user-mode READ fault, both on ARM_P, repaired by the bench's own handler
+#     (ARMEXT=w: the read first) - then COUNT and the handler's log start afresh
+#   a trace exception (T1 for one supervisor instruction; TRACEH clears T1 and RTEs)
+# ARM_SANITY=1 skips the arming but keeps its checks: they must FAIL.
+ARM = os.environ.get("ARM", "1") == "1"            # (ARM=0 PREBERR=1: the old single read probe alone)
+ARMEXT = os.environ.get("ARMEXT", "r")
+ARM_P, TRACEH = 0x6000, 0x1FE0
+ARMSLOT = 0x3F2C                                 # +0 the PMMU arming faults, +4 traces, +8 interrupts
+# The stacked SR (regression gap 3, 2026-11-10): the bus-error handler keeps the last frame's SR
+# and format word at FSRW / FSRW+2.  UM 8.1.2: the frame holds the processor's internal copy of
+# the SR when the exception is taken; a short frame (format $A) is taken at the instruction
+# boundary, so its CCR is the faulted instruction's result - dsweep and ssweep check it against
+# the reference run's (the long format $B's internal state is not defined there: not checked)
+# Nesting (regression gap 4, 2026-11-10):
+#   SSW_TRACE=1 (ssweep): T1 set just before the MOVES, so the instruction whose access
+#     page-faults is traced - the fault and the owed trace together (KNOWN ISSUES 53's class);
+#     TRACEH counts every trace, wanted the arming's one plus one per run
+#   HNEST=1: the page-fault handler makes an EXTERNAL bus error of its own (a supervisor read
+#     of super-slot B) before it returns, so every resume runs with an external bus error's
+#     latches just set (KNOWN ISSUES 59's state); NESTF marks the nested entry, which clears DF
+#     and RTEs, NESTCNT counts them - wanted one per page fault
+SSW_TRACE = os.environ.get("SSW_TRACE") == "1"
+HNEST = os.environ.get("HNEST") == "1"
+NESTF, NESTCNT = 0x3F40, 0x3F44
+FSRW = 0x6DE00                                   # (a page dsweep's user-mode compare may read: named for +UOK)
 ZDIV_CASES = [
     ([0x88D6], 0x2B000, None, 0x00010000, 1, "DIVU.W (A6),D4 by a resident zero"),
     ([0x89D6], 0x2B000, None, 0x00010000, 1, "DIVS.W (A6),D4 by a resident zero"),
@@ -269,6 +303,14 @@ IFETCH = [
 # start holds ILLEGAL.  One case a run: ISW=k (ISWLIST=1 lists them).
 ISW_R, ISW_P = 0x65000, 0x66000                          # the resident page, the faulting page
 ISW_PRE = [0x4DF9, 0x0006, 0x5000, 0x7601, 0x7000]       # lea $65000,a6; moveq #1,d3; moveq #0,d0 (Z=1 at the branch)
+# ISW_CCR=v (regression gap 2, 2026-11-10): MOVE #v,CCR as the last instruction before the
+# tested ones (isweep and xsweep), so their flags start from v; the regression runs v = $1F
+# beside the default (MOVEQ's $04 and X as it was): every N, V, C and X result then meets a
+# start of 0 and of 1, and a resume that restores the pre-instruction CCR shows.  Z stays 1
+# in both, as the branch cases need.
+ISW_CCR = os.environ.get("ISW_CCR")
+def isw_ccr(pre):
+    return pre + ([0x44FC, int(ISW_CCR, 0)] if ISW_CCR else [])
 ISW_FIRST = [                                            # (words, what) - ADDQ.L #1,A2; RTS follow
     ([], "ADDQ.L #1,A2 (1 word)"),
     ([0x382E, 0x000C], "MOVE.W $C(A6),D4 (2 words)"),
@@ -387,7 +429,7 @@ def isw_build_straddle(case):
         else:
             dest = trap                                  # never taken
         ws[1] = (dest - (at + 2)) & 0xFFFF
-    code = pre + ws[:k]
+    code = isw_ccr(pre) + ws[:k]
     entry = ISW_P - 2 * len(code)
     return entry, {trap: [0x4AFC], entry: code, ISW_P: ws[k:] + tail}, what
 
@@ -415,7 +457,7 @@ def isw_build(case):
         pre = pre + [0x2F3C, ISW_P >> 16, ISW_P & 0xFFFF]   # MOVE.L #ISW_P,-(A7): the RTS returns there
     if pw == [0x4E5D]:
         pre = pre + [0x4E55, 0x0000]                     # LINK A5,#0 for the UNLK
-    code = pre + pw
+    code = isw_ccr(pre) + pw
     entry = ISW_P - 2 * len(code)
     page_b = ([0x4AFC] if off else []) + fw + [0x528A, 0x4E75, 0x4AFC]
     return entry, {trap: [0x4AFC], entry: code, ISW_P: page_b}, what
@@ -542,7 +584,7 @@ def xsw_build(case):
         want = {0x23C4: XSW_D4, 0x23FC: 0x13579BDF, 0x06B9: vals.get(X, 0) + 1, 0x42B9: 0,
                 0x23F9: vals.get(X - 8, 0)}[ws[0]]
         tail = chk_m(X, want)
-    code = pre + ws[:k]
+    code = isw_ccr(pre) + ws[:k]
     entry = ISW_P - 2 * len(code)
     blobs = {ISW_R + 0x10: [0x4AFC], entry: code, ISW_P: ws[k:] + tail}
     for a_, ws_ in put.items():
@@ -790,6 +832,13 @@ def rsw_build(seed):
 # the memory-to-memory forms).
 DSW_CODE, DSW_P, DSW_RB = 0x60000, 0x68000, 0x6B000
 DSW_OUT1, DSW_OUT2, DSW_INIT, DSW_RES = 0x6C000, 0x6C100, 0x6C200, 0x6C300
+# The CCR preset (regression gap 2, 2026-11-10; DSW_CCRQ=0 the old fixed 0): a probe run of
+# the instruction on a third resident copy of the window (DSW_RQ, preset 0) learns its flags
+# R, and the reference and the faulting runs both start from Q = R ^ $1F - every flag the
+# instruction defines starts at the opposite of its result, so a resume that restores the
+# pre-instruction CCR (KNOWN ISSUES 59's class) differs from the reference in every one.
+DSW_CCRQ = os.environ.get("DSW_CCRQ", "1") == "1"
+DSW_RQ, DSW_OUTQ, DSW_Q = 0x6A000, 0x6C400, 0x6C4C0
 # Pointer-level faults (the bug-class review's class 6, 2026-10-21): A/UX
 # builds page tables lazily, so a first touch faults at level B (or A) and the
 # handler then writes a whole table; every other sweep invalidates level C
@@ -1025,12 +1074,17 @@ def dsw_build(case):
     def here(): return DSW_CODE + 2 * len(w)
     def L(v): return [(v >> 16) & 0xFFFF, v & 0xFFFF]
     def br(op, t): w.append(op); fix.append((len(w), t)); w.append(0)
-    def run(base, out):
+    def run(base, out, q=False):
         w.extend([0x4DF9] + L(base + adj))               # lea base+adj,a6
         w.extend([0x4CF9, 0x3FFF] + L(DSW_INIT))         # movem.l INIT,d0-d7/a0-a5
         w.extend([0x4BEE, 0x0008])                       # lea 8(a6),a5
         w.extend([0x44FC, 0x001F])                       # move #$1F,ccr, then
-        w.extend([0x44FC, 0x0000])                       # move #0,ccr: the same flags (X!) for both runs - a restart's CCR rollback taken too early shows as $1F
+        if q:
+            w.extend([0x44F9] + L(DSW_Q))                # move DSW_Q,ccr: the probe's flags inverted (DSW_CCRQ)
+        else:
+            w.extend([0x44FC, 0x0000])                   # move #0,ccr: the same flags (X!) for both runs - a restart's CCR rollback taken too early shows as $1F
+        if SSW_TRACE and CASESET == "ssweep":
+            w.extend([0x007C, 0x8000])                   # ori #$8000,sr: T1 - THE INSTRUCTION traced (gap 4)
         w.extend(ws(base + adj) if callable(ws) else ws)   # THE INSTRUCTION
         if (DSW_CCRPLANT and out == DSW_OUT2) or os.environ.get("DSW_CCRPLANT") == "2":
             w.extend([0x44FC, 0x0000])                   # the plant: the faulting run's (2: both runs') CCR cleared
@@ -1039,8 +1093,14 @@ def dsw_build(case):
         w.extend([0x42F9] + L(out + 0x80))              # move.w ccr,out+$80
         w.extend([0x48F9, 0x7FFF] + L(out))              # movem.l d0-d7/a0-a6,out
     w.extend([0x48E7, 0xFFFE])                           # movem.l d0-d7/a0-a6,-(a7)
-    run(DSW_RB + off, DSW_OUT1)                          # the reference
-    run(DSW_P + off, DSW_OUT2)                           # the faulting run
+    if DSW_CCRQ:
+        run(DSW_RQ + off, DSW_OUTQ)                      # the probe, preset 0
+        w.extend([0x3039] + L(DSW_OUTQ + 0x80))          # move.w probe ccr,d0
+        w.extend([0x0A40, 0x001F])                       # eori.w #$1F,d0
+        w.extend([0x33C0] + L(DSW_Q))                    # move.w d0,DSW_Q
+    run(DSW_RB + off, DSW_OUT1, DSW_CCRQ)                # the reference
+    w.extend([0x33FC, 0x0000] + L(FSRW + 2))             # move.w #0,FSRW+2: no frame yet (gap 3)
+    run(DSW_P + off, DSW_OUT2, DSW_CCRQ)                 # the faulting run
     w.extend([0x41F9] + L(DSW_OUT1) + [0x43F9] + L(DSW_OUT2) + [0x700C])   # lea; lea; moveq #12,d0
     lab['r'] = here(); w.append(0xB388); br(0x6600, 'Fr'); br(0x51C8, 'r')  # cmpm.l (a0)+,(a1)+; bne Fr; dbra
     for o in (52, 56):                                   # A5 and A6, each relative to its run's base
@@ -1051,10 +1111,20 @@ def dsw_build(case):
     br(0x6600, 'Fc')
     w.extend([0x41F9] + L(DSW_RB - 32) + [0x43F9] + L(DSW_P - 32) + [0x700F])   # 64 bytes around each operand
     lab['m'] = here(); w.append(0xB388); br(0x6600, 'Fm'); br(0x51C8, 'm')
+    if not DSW_CCRSET:                                   # gap 3: a format $A frame's stacked CCR = the reference's result
+        w.extend([0x3039] + L(FSRW + 2) + [0x0240, 0xF000, 0x0C40, 0xA000])   # move.w fmt,d0; andi.w #$F000,d0; cmpi.w #$A000,d0
+        br(0x6600, 'S')                                  # bne.w S: not a short frame
+        w.extend([0x3039] + L(FSRW) + [0x0240, 0x001F])  # move.w sr,d0; andi.w #$1F,d0
+        w.extend([0x3239] + L(DSW_OUT1 + 0x80) + [0x0241, 0x001F])   # move.w ref ccr,d1; andi.w #$1F,d1
+        if os.environ.get("DSW_FSRPLANT") == "1":
+            w.extend([0x0A41, 0x0001])                   # eori.w #1,d1: a planted difference (must FAIL on a format $A case)
+        w.append(0xB041); br(0x6600, 'Ff')               # cmp.w d1,d0; bne Ff
+        lab['S'] = here()
     w.extend([0x23FC] + L(1) + L(DSW_RES)); br(0x6000, 'E')   # move.l #1,RES; bra E
     # a failure: RES = (which compare << 16) | the loop's D0 - 2 registers (D0 = 12 - index of D0-D7/A0-A4),
-    # 3 A5/A6, 4 the CCR, 5 memory (D0 = 15 - the long's index from operand - 32)
-    for k, code in (('Fr', 2), ('Fa', 3), ('Fc', 4), ('Fm', 5)):
+    # 3 A5/A6, 4 the CCR, 5 memory (D0 = 15 - the long's index from operand - 32), 6 a format $A
+    # frame's stacked CCR (D0 = the stacked CCR)
+    for k, code in (('Fr', 2), ('Fa', 3), ('Fc', 4), ('Fm', 5), ('Ff', 6)):
         lab[k] = here(); w.extend([0x33C0] + L(DSW_RES + 2) + [0x33FC, code] + L(DSW_RES)); br(0x6000, 'E')
     lab['E'] = here(); w.extend([0x4CDF, 0x7FFF] + [0x2479] + L(DSW_RES) + [0x4E75])   # restore; movea.l RES,a2; rts
     for i, t in fix:
@@ -1126,6 +1196,31 @@ MEMIND += [
     ([0x2036, 0x0172, 0x0000, 0x0008, 0x00B4, 0x2440], MI_A6, MI_D, 0x12345678, [0x60000, 0x61000],
      "MOVE.L ([$8.L,A6],$B4),D0 - long bd: both pages invalid"),
 ]
+# wonly (2026-11-10): instructions whose first access to their operand is a WRITE on the
+# 68030 - UM 11.6.11 times CLR <mem> and Scc <mem> as (0/1/1), no read ("calculate effective
+# address" only; the 68000 read before clearing); MOVE from CCR and MOVEM to memory likewise
+# write only.  The operand's page is invalid, so the first access faults, and the SSW's RW bit
+# (UM 8.2.1: 1 = read) must be 0.  Controls: MOVE.L D0,(A6) (a write, RW 0) and NEG.L (A6)
+# (read-modify-write, RW 1).  User mode, one invalid page per case - (words, A6, page, RW wanted, what)
+WONLY_P = 0x5A000
+def wonly_cases():
+    P = WONLY_P
+    out = []
+    for sz, op in (("B", 0x4216), ("W", 0x4256), ("L", 0x4296)):
+        out.append(([op], P + 0x10, "CLR.%s (A6)" % sz))
+    out += [([0x429E], P + 0x10, "CLR.L (A6)+"), ([0x42A6], P + 0x14, "CLR.L -(A6)"),
+            ([0x42AE, 0x0010], P, "CLR.L $10(A6)"), ([0x42B6, 0x0010], P, "CLR.L $10(A6,D0.W)"),
+            ([0x4278, 0x5010], None, "CLR.W $5010.W"), ([0x42B9, 0x0005, 0xA010], None, "CLR.L $5A010.L"),
+            ([0x4236, 0x0130, 0x0005, 0xA010], 0, "CLR.B ($5A010.L,A6,D0.W) (full format)"),
+            ([0x50D6], P + 0x10, "ST (A6)"), ([0x51D6], P + 0x10, "SF (A6)"), ([0x57EE, 0x0010], P, "SEQ $10(A6)"),
+            ([0x42D6], P + 0x10, "MOVE CCR,(A6)"), ([0x48D6, 0x0030], P + 0x10, "MOVEM.L D4/D5,(A6)"),
+            ([0x48A6, 0x0C00], P + 0x14, "MOVEM.W D2/D3,-(A6)")]
+    cases = [(ws, a6, 0x5000 if "$5010.W" in what else P, 0, what) for ws, a6, what in out]
+    cases += [([0x2C80], P + 0x10, P, 0, "MOVE.L D0,(A6) (a write: the control)"),
+              ([0x4496], P + 0x10, P, 1, "NEG.L (A6) (read-modify-write: the control, RW 1)")]
+    return cases
+
+
 # memfull: the full extension word's every form (UM 2.2: BD SIZE x IS x I/IS)
 # under a LASTWRITE write fault - the format $A frame's continuation PC counts
 # the instruction's stream words.  MIPART=d: MOVE.L D0,<ea> faults on <ea>'s
@@ -1385,7 +1480,18 @@ def selfst_cases():
             exp[o - n:o] = (0x5A5AA5A5).to_bytes(4, "big")[4 - n:]
         a2_end = a2 + n if post else a2 - n * (2 if d0 else 1)
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, a2)] + xregs
-        return (regs, code, base_win, init, exp, bad, a2_end, {"A0": 0x77, "A1": 0x55, "super": sup, "wp": wp}, "selfst: %s, %s" % (name, what))
+        # the CCR (regression gap 2, 2026-11-10): MOVE sets N and Z from the stored value, clears
+        # V and C, keeps X (PRM); MOVES and MOVEM change nothing.  The start is every defined
+        # flag's opposite; MOVE CCR,D6 after, checked absolutely (selfst_ccr in main)
+        if rule == "init":
+            nb = (val >> (8 * n - 1)) & 1
+            zb = 0 if val & ((1 << 8 * n) - 1) else 1
+            ccr_want = 0x10 | nb << 3 | zb << 2                 # X kept (1), N, Z, V = C = 0
+            q = 0x10 | (ccr_want ^ 0x0F)                        # X 1; N, Z, V, C each the opposite
+        else:
+            q = ccr_want = 0x1F
+        code = [0x44FC, q] + code + [0x42C6]           # move #q,ccr; the store; move ccr,d6
+        return (regs, code, base_win, init, exp, bad, a2_end, {"A0": 0x77, "A1": 0x55, "super": sup, "wp": wp, "ccr": ccr_want}, "selfst: %s, %s" % (name, what))
     for name, code, sz, post, rule, sup, xregs, d0 in forms:
         n = SZ[sz]
         offs = [0x10, 0x12, 0x11] if n == 4 else ([0x10, 0x11] if n == 2 else [0x10, 0x11])
@@ -1606,6 +1712,8 @@ def main():
         else:
             putbytes(DSW_P - 64, window)
         putbytes(DSW_RB - 64, window if not os.environ.get("DSW_SANITY") else window[:64] + bytes([window[64] ^ 0x5A]) + window[65:])   # DSW_SANITY=1: a planted difference must FAIL
+        putbytes(DSW_RQ - 64, window)                # the CCR probe's copy (DSW_CCRQ)
+        touched.add(FSRW >> 12)                      # the stacked-SR slot the compare reads (gap 3)
         putbytes(DSW_INIT, b"".join(v.to_bytes(4, "big") for v in DSW_INITV))
         code = [0x4EB9, DSW_CODE >> 16, DSW_CODE & 0xFFFF, 0x4E40]   # JSR DSW_CODE.L; TRAP #0
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
@@ -1626,6 +1734,8 @@ def main():
         else:
             putbytes(DSW_P - 64, window)
         putbytes(DSW_RB - 64, window if not os.environ.get("DSW_SANITY") else window[:64] + bytes([window[64] ^ 0x5A]) + window[65:])
+        putbytes(DSW_RQ - 64, window)                # the CCR probe's copy (DSW_CCRQ)
+        touched.add(FSRW >> 12)                      # the stacked-SR slot the compare reads (gap 3)
         putbytes(DSW_INIT, b"".join(v.to_bytes(4, "big") for v in DSW_INITV))
         code = [0x4EB9, DSW_CODE >> 16, DSW_CODE & 0xFFFF, 0x4E40]   # JSR DSW_CODE.L; TRAP #0 - in supervisor mode
         regs = [(0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
@@ -1768,6 +1878,14 @@ def main():
             cases.append((regs, code + [0x4E40], 0, 0x2A000, 0x2A000, 4, bad, None,
                           {"A0": 0x77, "A1": 0x55, "super": True, "wp_pages": wps}, "um: " + what))
             um_extra += ex
+    if CASESET == "wonly":
+        part = int(os.environ.get("WONLY_PART", "0"))   # 10 cases a run (the slots), parts 0 and 1
+        for ws, a6, pg, rw, what in wonly_cases()[10 * part:10 * part + 10]:
+            put32(pg + 0x10, 0x5A5A5A5A)             # the page named (+UOK)
+            regs = [(0x2C7C, a6 if a6 is not None else 0), (0x7000, None),   # A6; MOVEQ #0,D0 (the index)
+                    (0x207C, 0x77), (0x227C, 0x55), (0x72FF, None), (0x247C, 0)]   # A0, A1, MOVEQ #-1,D1, A2
+            cases.append((regs, ws + [0x4E40], 0, 0x2A000, 0x2A000, 4, [pg], None,
+                          {"A0": 0x77, "A1": 0x55, "rw": rw}, "wonly: " + what))
     if CASESET == "zdiv":
         put32(0x2D000, 0x00040000); put32(0x2D010, 4)    # the non-zero divisors (word 4, long 4)
         put32(0x2B000, 0); put32(0x2C000, 0)             # the zero divisors (written, so their pages are named for +UOK)
@@ -1826,6 +1944,7 @@ def main():
                           {"A0": src + len(s), "A1": tbl}, "dcmp: " + what))
 
     w, at, fix = [], {}, []
+    expect = []
 
     def here():
         return ORG + 2 * len(w)
@@ -1840,12 +1959,31 @@ def main():
         fix.append((len(w), name))
         emit(0, 0)
 
-    if PREBERR:                                      # the arming external bus error (PREBERR, above), PMMU off
+    emit(0x203C); l32(CACR)                          # MOVE.L #CACR,D0
+    emit(0x4E7B, 0x0002)                             # MOVEC D0,CACR
+    arm_on = ARM and os.environ.get("ARM_SANITY") != "1"
+    order = ("r", "w") if ARMEXT == "w" else ("w", "r")
+    if PREBERR and not ARM:                          # the old arming: one external bus error on a read
         emit(0x21FC); l32(PROBE); emit(0x0008)       # MOVE.L #PROBE,$8.W: vector 2
         emit(0x2039); l32(0xB0000000)                # MOVE.L $B0000000.L,D0: super-slot B, no card
         emit(0x21FC); l32(BERR); emit(0x0008)        # MOVE.L #BERR,$8.W: the bench's handler back
-    emit(0x203C); l32(CACR)                          # MOVE.L #CACR,D0
-    emit(0x4E7B, 0x0002)                             # MOVEC D0,CACR
+    if arm_on:                                       # the arming, PMMU off (ARM, above)
+        emit(0x21FC); l32(PROBE); emit(0x0008)       # MOVE.L #PROBE,$8.W: vector 2
+        if ARMEXT == "w":
+            emit(0x23C0); l32(0xB0000000)            # MOVE.L D0,$B0000000.L: super-slot B, no card - an external bus error on a write
+        else:
+            emit(0x2039); l32(0xB0000000)            # MOVE.L $B0000000.L,D0: ... on a read
+        emit(0x21FC); l32(BERR); emit(0x0008)        # MOVE.L #BERR,$8.W: the bench's handler back
+        emit(0x46FC, 0x2700)                         # MOVE #$2700,SR
+        for reg, v in ((11, 0x00), (14, 0xC0), (4, 0x02), (5, 0x00)):   # VIA2: ACR one-shot, IER T1, T1 count 2: started
+            emit(0x13FC, v); l32(VIA2 + reg * 0x200)
+        emit(0x46FC, 0x2000)                         # MOVE #$2000,SR: the interrupt taken
+        emit(0x4AB8, IRQCOUNT, 0x67FA)               # TST.L IRQCOUNT.W; BEQ.S *-4
+        emit(0x46FC, 0x2700)                         # MOVE #$2700,SR
+        emit(0x21F8, IRQCOUNT, ARMSLOT + 8)          # MOVE.L IRQCOUNT.W,ARMSLOT+8.W
+        emit(0x42B8, IRQCOUNT)                       # CLR.L IRQCOUNT.W
+    if PREBERR or ARM:
+        expect.append((PRECOUNT, 1, "arming: the external bus error on a supervisor data %s of super-slot B, taken once" % ("write" if ARM and ARMEXT == "w" else "read")))
     emit(0x41F9); l32(CRP_AT)                        # LEA CRP_AT,A0
     emit(0xF010, 0x4C00)                             # PMOVE (A0),CRP
     if TCMODE == "aux":
@@ -1856,12 +1994,34 @@ def main():
     if H_IRQ:
         emit(0x41F9); l32(CRP_AT + 12)               # LEA CRP_AT+12,A0
         emit(0xF010, 0x0800)                         # PMOVE (A0),TT0
+    if HNEST:
+        emit(0x41F9); l32(CRP_AT + 24)               # LEA CRP_AT+24,A0
+        emit(0xF010, 0x0C00)                         # PMOVE (A0),TT1: $B0xxxxxx transparent, so the handler's read reaches the empty slot
     emit(0x41F9); l32(0x9000)                        # LEA $9000,A0
     emit(0x4E60)                                     # MOVE.L A0,USP
     emit(0x7001)                                     # MOVEQ #1,D0
     emit(0x4E7B, 0x0000)                             # MOVEC D0,SFC: user data, A/UX's copy loops'
     emit(0x4E7B, 0x0001)                             # MOVEC D0,DFC
-    expect = []
+    if arm_on:                                       # the arming, PMMU on: a user write fault (Format $A), a user read fault, a trace
+        touched.add(ARM_P >> 12)
+        for kind in order:
+            emit(0x02B9); l32(0xFFFFFFFC); l32(PG_TBL + 4 * (ARM_P >> 12))   # ANDI.L #~3,desc: DT 0
+            emit(0xF000, 0x2400)                     # PFLUSHA
+            emit(0x4BF9); absref("arm_" + kind)      # LEA cont,A5
+            emit(0x41F9); l32(ARM_P + 0x100)         # LEA ARM_P+$100,A0
+            emit(0x46FC, 0x0000)                     # MOVE #0,SR: user mode
+            emit(0x2080 if kind == "w" else 0x2010)  # MOVE.L D0,(A0) (the last write: Format $A) / MOVE.L (A0),D0
+            emit(0x4E40)                             # TRAP #0
+            at["arm_" + kind] = here()
+        emit(0x21F8, COUNT, ARMSLOT)                 # MOVE.L COUNT.W,ARMSLOT.W
+        emit(0x42B8, COUNT)                          # CLR.L COUNT.W
+        emit(0x21FC); l32(LOG); emit(LOGP)           # MOVE.L #LOG,LOGP.W: the handler's log afresh
+        emit(0x007C, 0x8000)                         # ORI #$8000,SR: T1
+        emit(0x4E71)                                 # NOP: traced (TRACEH counts at ARMSLOT+4 and clears T1)
+    if ARM:
+        expect.append((ARMSLOT, 2, "arming: the user PMMU write fault (Format $A) and read fault, each handled once"))
+        expect.append((ARMSLOT + 4, 1, "arming: one trace exception"))
+        expect.append((ARMSLOT + 8, 1, "arming: one level-2 interrupt (VIA2 T1)"))
     handled = 0
     pair_wins = None
     for c in cases:
@@ -1935,6 +2095,16 @@ def main():
             ztraps = sum(c_[8]["traps"] for c_ in cases[:k + 1])
             emit(0x23F8, ZCOUNT); l32(s + 28)        # MOVE.L ZCOUNT.W,s+28: the zero-divide traps so far
             expect.append((s + 28, ztraps, "case %d zero-divide traps so far" % k))
+        if want.get("rw") is not None:               # wonly: the case's fault's SSW RW bit (the log's last entry)
+            emit(0x2078, LOGP)                       # MOVEA.L LOGP.W,A0
+            emit(0x7000, 0x3028, 0xFFFC)             # MOVEQ #0,D0; MOVE.W -4(A0),D0: the SSW
+            emit(0xEC48, 0x0240, 0x0001)             # LSR.W #6,D0; ANDI.W #1,D0: RW
+            emit(0x23C0); l32(s + 28)                # MOVE.L D0,s+28
+            expect.append((s + 28, want["rw"], "case %d the first access's SSW RW (UM 8.2.1; 0 = a write) - %s" % (k, what)))
+        if want.get("ccr") is not None:
+            emit(0x0286); l32(0x1F)                  # ANDI.L #$1F,D6
+            emit(0x23C6); l32(s + 28)                # MOVE.L D6,s+28: the CCR after the store (selfst)
+            expect.append((s + 28, want["ccr"], "case %d the CCR after the store (absolute)" % k))
         if MODECHK:
             emit(0x23F8, MODEW); l32(s + 24)         # MOVE.L MODEW.W,s+24: TRAP #0's stacked S
             expect.append((s + 24, 0x2000 if want.get("super") else 0, "case %d reached TRAP #0 in the mode it started in (S of the stacked SR)" % k))
@@ -1981,6 +2151,11 @@ def main():
             for i in range(0, n, 4):
                 expect.append((dst + i, 0xDEADBEEF, "case %d +%02X want %s" % (k, i, SELFST_REF[k][i:i + 4].hex())))
     expect += um_extra                               # the um cases' descriptor and MMUSR observations
+    if HNEST:
+        expect.append((NESTCNT, handled + (2 if arm_on else 0), "gap 4: one external bus error nested in the handler per page fault (the arming's two included)"))
+    if SSW_TRACE and CASESET == "ssweep":
+        expect = [e for e in expect if e[0] != ARMSLOT + 4]
+        expect.append((ARMSLOT + 4, (1 if ARM else 0) + (3 if DSW_CCRQ else 2), "gap 4: the arming's trace and the traced MOVES in each run"))
     if pair_wins:                                    # the two runs' dumps compared
         nl = (0x40 + sum(n_ for _, n_ in pair_wins)) // 4
         emit(0x41F9); l32(PAIR_DUMP)                 # LEA dump0,A0
@@ -2019,6 +2194,16 @@ def main():
         SAVE = 8
         b(0x48E7, 0x8080)                            # MOVEM.L D0/A0,-(A7)
     FA, SSW, FMT = SAVE + 0x10, SAVE + 0x0A, SAVE + 0x06   # the frame's fault address, SSW and format word from A7
+    if HNEST:
+        assert not H_FULL and not PTRMODE, "HNEST: the plain handlers only"
+        b(0x4A38, NESTF)                             # TST.B NESTF.W
+        b(0x6700, 0)                                 # BEQ.W the page fault (fixed below)
+        nest_beq = len(berr) - 1
+        b(0x08AF, 0x0000, SSW)                       # BCLR #0,SSW(A7): the nested EXTERNAL bus error - DF off, completed by software
+        b(0x52B8, NESTCNT)                           # ADDQ.L #1,NESTCNT.W
+        b(0x4CDF, 0x0101)                            # MOVEM.L (A7)+,D0/A0
+        b(0x4E73)                                    # RTE
+        berr[nest_beq] = 2 * (len(berr) - nest_beq)  # BEQ.W: from its extension word
     if H_FULL:
         FA, SSW, FMT = FA + 44, SSW + 44, FMT + 44   # ... below LINK's saved A6 and its 40-byte frame
     if H_IRQ:
@@ -2037,6 +2222,8 @@ def main():
     b(0x30EF, SSW)                                   # MOVE.W SSW(A7),(A0)+: the SSW
     b(0x30EF, FMT)                                   # MOVE.W FMT(A7),(A0)+: the format word
     b(0x21C8, LOGP)                                  # MOVE.L A0,LOGP.W
+    b(0x33EF, FMT - 6, FSRW >> 16, FSRW & 0xFFFF)    # MOVE.W SR(A7),FSRW.L: the stacked SR (gap 3)
+    b(0x33EF, FMT, (FSRW + 2) >> 16, (FSRW + 2) & 0xFFFF)   # MOVE.W FMT(A7),FSRW+2.L: its format word
     if H_FULL:
         # hardsegflt: the fresh page cleared through the kernel's own mapping
         # (the SRP tree here) by Pg_ptr's MOVEM.L pattern, then its descriptor
@@ -2140,6 +2327,10 @@ def main():
         ifr = VIA2 + 13 * 0x200
         b(0x0839, 0x0006, ifr >> 16, ifr & 0xFFFF)   # BTST #6,IFR: T1 has fired
         b(0x67F6)                                    # BEQ.S the BTST
+    if HNEST:
+        b(0x50F8, NESTF)                             # ST NESTF.W
+        b(0x2039, 0xB000, 0x0000)                    # MOVE.L $B0000000.L,D0: an external bus error inside the handler
+        b(0x51F8, NESTF)                             # SF NESTF.W
     if H_FULL:
         b(0x4E5E)                                    # UNLK A6
         b(0x46FC, 0x2700)                            # MOVE #$2700,SR: ret_user2
@@ -2175,7 +2366,7 @@ def main():
 
     mem[0:4] = [0x0000, 0x8000, 0x0000, ORG]         # SSP, PC
     for v in range(2, 64):
-        t = BERR if v == 2 else ZDIV if v == 5 and CASESET == "zdiv" else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else IRQ1 if v == 25 else TRAPS if v == 46 else EXC
+        t = BERR if v == 2 else TRACEH if v == 9 else ZDIV if v == 5 and CASESET == "zdiv" else TRAP0 if v == 32 else IRQ if v == 26 else TRAPF if v == 47 else IRQ1 if v == 25 else TRAPS if v == 46 else EXC
         mem[2 * v], mem[2 * v + 1] = t >> 16, t & 0xFFFF
     trapf = [0x7000, 0x4E73]                         # TRAP #15: MOVEQ #0,D0; RTE - a syscall's return (rts cases)
     irq1 = [0x52B9, IRQ1COUNT >> 16, IRQ1COUNT & 0xFFFF, 0x4E73]   # ADDQ.L #1,IRQ1COUNT; RTE
@@ -2185,17 +2376,19 @@ def main():
             0x4E73] if CASESET == "zdiv" else []     # RTE (format 2: the next instruction)
     probe = [0x08AF, 0x0000, 0x000A,                 # PREBERR's handler: BCLR #0,$A(A7) - DF cleared, the read completed by software
              0x52B8, PRECOUNT,                       # ADDQ.L #1,PRECOUNT.W
-             0x4E73] if PREBERR else []              # RTE
-    if PREBERR:
-        expect.append((PRECOUNT, 1, "preberr: the arming external bus error (a supervisor data read of super-slot B) was taken once"))
-    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1), (TRAPS, traps), (ZDIV, zdiv), (PROBE, probe)):
+             0x4E73] if (PREBERR or ARM) else []     # RTE
+    traceh = [0x52B8, ARMSLOT + 4,                   # TRACEH: ADDQ.L #1,ARMSLOT+4.W
+              0x0257, 0x3FFF,                        # ANDI.W #$3FFF,(A7): T1/T0 off in the stacked SR
+              0x4E73]                                # RTE
+    assert PROBE + 2 * 6 <= TRACEH and TRACEH + 2 * len(traceh) <= 0x2000
+    for base, code in ((ORG, w), (BERR, berr), (TRAP0, trap0), (LOOPSTOP, loopstop), (EXC, exc), (IRQ, irq), (TRAPF, trapf), (IRQ1, irq1), (TRAPS, traps), (ZDIV, zdiv), (PROBE, probe), (TRACEH, traceh)):
         for i, x in enumerate(code):
             mem[base // 2 + i] = x
     rec[0] = False                                   # the tables and the handler's words are not the cases'
     for c in cases:
         touched.update(pg >> 12 for pg in c[6])      # every invalid page is one the case names
     put32(LOGP, LOG)
-    put32(CRP_AT + 8, TC); put32(CRP_AT + 12, TT0)
+    put32(CRP_AT + 8, TC); put32(CRP_AT + 12, TT0); put32(CRP_AT + 24, 0xB0008507)   # TT1 (HNEST): E, CI, RWM, every FC
     if TCMODE == "aux":
         put32(CRP_AT, 0x7FFF0002); put32(CRP_AT + 4, AUX_U[0])
         put32(CRP_AT + 16, 0x7FFF0002); put32(CRP_AT + 20, AUX_S[0])

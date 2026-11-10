@@ -2771,6 +2771,90 @@ with open('ucheck.hex', 'w') as f:               # 16 code pairs, then 32 data p
     pr = (list(ucheck[0]) + [(0, 0)] * 16)[:16] + (list(ucheck[1]) + [(0, 0)] * 32)[:32]
     assert len(ucheck[0]) <= 16 and len(ucheck[1]) <= 32
     f.write(''.join('%08x\n%08x\n' % (lo, hi) for lo, hi in pr))
+# ARM (regression gap 1, 2026-11-10; default on, ARM=0 off): the bench used to start every
+# program from reset, so a latch one exception kind sets and another reads was never stale
+# (KNOWN ISSUES 59).  The reset vector enters an arming routine at ARM_ORG instead of $1000:
+# an EXTERNAL bus error on a supervisor data read (super-slot B, empty - GLUE's UI6 times it
+# out, one or two HSYNC periods; ARMEXT=w a write instead), a level-2 interrupt (the bench raises it on a
+# write to $3F60 and drops it on the handler's write to $3F0C), then with the PMMU on (its
+# own tables, ARM_T) a page fault on a supervisor write (Format $A), one INSIDE an FPU dialog
+# (FMOVE.L (A0),FP0) and one on a read, each repaired and rerun, a trace exception, the
+# 68882 reset by FRESTORE of a null frame and the PMMU off again; then the mode's vectors,
+# a zeroed register file and SSP $8000 are put back and it jumps to $1000.  Counters at
+# ARM_CNT, each checked.  ARM_SANITY=1 skips the routine but keeps its checks (must FAIL).
+ARM = os.environ.get('ARM', '1') == '1'
+if ARM:
+    ARM_ORG, ARM_CNT, ARM_T, ARM_P = 0x1D000, 0x1D800, 0x1E000, 0x1F000
+    ARM_B = ARM_T + 0x400                     # table B: 256 page descriptors
+    arm_desc = ARM_B + 4 * (ARM_P >> 12)
+    orig = {v: (img[2 * v] << 16) | img[2 * v + 1] for v in (2, 9, 26)}
+    h = Asm(ARM_ORG + 0x600)                  # the handlers
+    h.label('probe')
+    h.emit(0x08AF, 0x0000, 0x000A)            # bclr #0,$A(a7): DF off - the access completed by software
+    h.emit(0x52B9, L(ARM_CNT))                # addq.l #1,cnt+0
+    h.emit(0x4E73)                            # rte
+    h.label('irq')
+    h.emit(0x42B8, 0x3F0C)                    # clr.l $3F0C.w: the bench drops level 2
+    h.emit(0x52B9, L(ARM_CNT + 4))            # addq.l #1,cnt+4
+    h.emit(0x4E73)
+    h.label('pager')
+    h.emit(0x00B9, L(1), L(arm_desc))         # ori.l #1,desc: the page valid
+    h.emit(0xF000, 0x2400)                    # pflusha
+    h.emit(0x52B9, L(ARM_CNT + 8))            # addq.l #1,cnt+8
+    h.emit(0x4E73)
+    h.label('trace')
+    h.emit(0x52B9, L(ARM_CNT + 12))           # addq.l #1,cnt+12
+    h.emit(0x0257, 0x3FFF)                    # andi.w #$3FFF,(a7): T1/T0 off
+    h.emit(0x4E73)
+    hw = h.done()
+    a = Asm(ARM_ORG)
+    a.emit(movel_abs(h.lab['probe'], 0x0008))  # vector 2: the probe
+    a.emit(movel_abs(h.lab['trace'], 0x0024))  # vector 9
+    a.emit(movel_abs(h.lab['irq'], 0x0068))    # vector 26: level 2
+    a.emit([0x23C0] + L(0xB0000000) if os.environ.get('ARMEXT') == 'w' else [0x2039] + L(0xB0000000))   # move.l d0,$B0000000.l / move.l $B0000000.l,d0
+    a.emit(movel_abs(1, 0x3F60))              # the bench raises level 2
+    a.emit(0x46FC, 0x2000)                    # move #$2000,sr
+    a.emit(0x4AB9, L(ARM_CNT + 4), 0x67F8)    # tst.l cnt+4; beq.s *-6
+    a.emit(0x46FC, 0x2700)                    # move #$2700,sr
+    a.emit(movel_abs(h.lab['pager'], 0x0008))  # vector 2: the pager
+    a.emit(0x41F9, L(ARM_ORG + 0x700))        # lea crp,a0
+    a.emit(0xF010, 0x4C00)                    # pmove (a0),crp
+    a.emit(0x41F9, L(ARM_ORG + 0x708))        # lea tc,a0
+    a.emit(0xF010, 0x4000)                    # pmove (a0),tc
+    a.emit(0x41F9, L(ARM_P + 0x100))          # lea page+$100,a0
+    for acc in ([0x2080], [0xF210, 0x4000], [0x2010]):   # move.l d0,(a0) (Format $A); fmove.l (a0),fp0 (inside the dialog); move.l (a0),d0
+        a.emit(0x02B9, L(0xFFFFFFFC), L(arm_desc))       # andi.l #~3,desc: invalid
+        a.emit(0xF000, 0x2400)                # pflusha
+        a.emit(acc)
+    a.emit(0x007C, 0x8000)                    # ori #$8000,sr: T1
+    a.emit(0x4E71)                            # nop: traced
+    a.emit(0x41F9, L(ARM_ORG + 0x70C))        # lea zero,a0
+    a.emit(0xF350)                            # frestore (a0): a null frame, the 68882 reset
+    a.emit(0xF010, 0x4000)                    # pmove (a0),tc: the PMMU off
+    a.emit(0xF000, 0x2400)                    # pflusha
+    for v, at in ((2, 0x0008), (9, 0x0024), (26, 0x0068)):
+        a.emit(movel_abs(orig[v], at))        # the mode's vectors back
+    a.emit(0x41F8, 0x7E00, 0x303C, 0x007F)    # lea $7E00.w,a0; move.w #127,d0: the stack its frames used,
+    a.emit(0x4298, 0x51C8, 0xFFFC)            # clr.l (a0)+; dbra d0,*-2 - cleared, as reset left it (b3a reads it back)
+    a.emit(movel_abs(1, 0x3F64))              # the bench's dialog triggers live again (tb_cpfpu arm_done)
+    a.emit(0x4CF9, 0x7FFF, L(ARM_ORG + 0x70C))   # movem.l zero,d0-d7/a0-a6
+    a.emit(0x2E7C, L(0x8000))                 # movea.l #$8000,a7
+    a.emit(0x4EF9, L(0x1000))                 # jmp $1000
+    aw = a.done()
+    assert ARM_ORG + 2 * len(aw) <= h.org and h.org + 2 * len(hw) <= ARM_ORG + 0x700
+    put(ARM_ORG, aw); put(h.org, hw)
+    put(ARM_ORG + 0x700, L(0x7FFF0002) + L(ARM_T) + L(0x80C84800))   # CRP (short table), TC: E, PS 4 KB, IS 8, TIA 4, TIB 8
+    put(ARM_ORG + 0x70C, [0] * 32)            # zeros: the null frame, TC 0, the register file
+    put(ARM_T, L(ARM_B | 2))                  # A entry 0: table B
+    for i in range(1, 16):
+        put(ARM_T + 4 * i, L((i << 20) | 1))  # the rest: early-termination pages
+    for pg in range(256):
+        put(ARM_B + 4 * pg, L((pg << 12) | 1))
+    if os.environ.get('ARM_SANITY') != '1':
+        put(4, L(ARM_ORG))
+    expect += [(ARM_CNT, 1, 0xFFFFFFFF), (ARM_CNT + 4, 1, 0xFFFFFFFF), (ARM_CNT + 8, 3, 0xFFFFFFFF), (ARM_CNT + 12, 1, 0xFFFFFFFF)]
+    if cps != 0xFFFFFFFF:
+        cps += 1                              # the arming interrupt's IACK
 with open('program.hex', 'w') as f:
     f.write(''.join('%04x\n' % w for w in img))
 with open('inject.txt', 'w') as f:

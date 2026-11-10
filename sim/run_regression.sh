@@ -3,8 +3,13 @@
 # phase 1 the benches, 8 at a time, each in its own directory (the cpfpu
 # programs each in a copy of sim/cpfpu); phase 2 the fault sweeps one after
 # another (each runs 8 at a time), with the caches off and with A/UX's CACR
-# $2101.  About 3 hours.  The log is sim/regression.log; exit status 0 when
-# every line passed.
+# $2101.  The log is sim/regression.log; exit status 0 when every line passed.
+# Revised 2026-11-10 (SE30_PLAN.md, THE REGRESSION REVISED): every predec_fault and
+# cpfpu run starts with the arming preamble (gap 1, ARM, default on) - the external
+# bus error a write in the caches-off pass (ARMEXT=w), a read in the $2101 pass; the
+# CCR checks start every flag at its opposite (gap 2: dsweep/ssweep's probe run,
+# isweep/xsweep's ISW_CCR=$1F pass, selfst absolute); format $A frames' stacked CCR
+# (gap 3); nesting (gap 4: HNEST, SSW_TRACE); wonly.  About 9 hours.
 #   ./run_regression.sh [phase1|phase2]
 set -u
 . "$(dirname "$0")/sweep_lib.sh"   # results to disk per case; RESUME=1 (sweep_lib.sh)
@@ -40,16 +45,19 @@ fi
 if [ "$WHAT" != phase1 ]; then
   {
     for c in 0 0x2101; do
-      for s in "predec_fault ./run_isweep.sh" "predec_fault ./run_dsweep.sh" "predec_fault ./run_dsweep.sh DSW_WP=1" "predec_fault ./run_xsweep.sh"                "predec_fault ./run_ssweep.sh" "predec_fault ./run_ssweep.sh SSW_WP=1"; do   # (the third round: supervisor MOVES, KNOWN ISSUES 34)
+      a=$([ $c = 0 ] && echo w || echo r)   # gap 1: the arming external bus error's direction in this pass
+      for s in "predec_fault ./run_isweep.sh" "predec_fault ./run_isweep.sh ISW_CCR=0x1F" "predec_fault ./run_dsweep.sh" "predec_fault ./run_dsweep.sh DSW_WP=1" \
+               "predec_fault ./run_xsweep.sh" "predec_fault ./run_xsweep.sh ISW_CCR=0x1F" \
+               "predec_fault ./run_ssweep.sh" "predec_fault ./run_ssweep.sh SSW_WP=1"; do   # (the third round: supervisor MOVES, KNOWN ISSUES 34)
         set -- $s; d=$1; shift
-        r=$(cd "$SIM/$d" && "$@" CACR=$c 2>&1 | tail -1); echo "$r CACR=$c $*"
+        r=$(cd "$SIM/$d" && "$@" CACR=$c ARMEXT=$a 2>&1 | tail -1); echo "$r CACR=$c ARMEXT=$a $*"
       done
       for w in 0 1; do
-        r=$(cd "$SIM/cpfpu" && ./run_fsweep.sh B3_CACR=$c FSW_WP=$w 2>&1 | tail -1); echo "$r B3_CACR=$c FSW_WP=$w"
+        r=$(cd "$SIM/cpfpu" && ./run_fsweep.sh B3_CACR=$c FSW_WP=$w ARMEXT=$a 2>&1 | tail -1); echo "$r B3_CACR=$c FSW_WP=$w ARMEXT=$a"
       done
-      r=$(cd "$SIM/cpfpu" && ./run_fifsweep.sh B3_CACR=$c 2>&1 | tail -1); echo "$r"   # (KNOWN ISSUES 38/39: an FPU fetch faulting mid-dialog)
+      r=$(cd "$SIM/cpfpu" && ./run_fifsweep.sh B3_CACR=$c ARMEXT=$a 2>&1 | tail -1); echo "$r"   # (KNOWN ISSUES 38/39: an FPU fetch faulting mid-dialog)
       for w in 0 1; do   # (the FPU sweep gap's item 1: data faults over every EA form)
-        r=$(cd "$SIM/cpfpu" && ./run_fsxsweep.sh B3_CACR=$c FSX_WP=$w 2>&1 | tail -1); echo "$r"
+        r=$(cd "$SIM/cpfpu" && ./run_fsxsweep.sh B3_CACR=$c FSX_WP=$w ARMEXT=$a 2>&1 | tail -1); echo "$r"
       done
     done
     r=$(cd "$SIM/predec_fault" && ./run_uok_all.sh 2>&1 | tail -1); echo "$r"
@@ -61,17 +69,23 @@ if [ "$WHAT" != phase1 ]; then
     for c in 0 0x2101; do   # the fourth round: KNOWN ISSUES 36's other side - a real zero divisor still traps, 8 cases
       job "zdiv zero-divide traps CACR=$c" predec_fault bash -c "d=../_zd_$c; rm -rf \$d; mkdir \$d; cp gen_program.py tb_predec_fault.v run.sh \$d/; cd \$d && CASESET=zdiv TCMODE=aux HANDLER=aux CACR=$c ./run.sh +UOK; r=\$?; cd ..; rm -rf \$d; exit \$r"
     done
-    # KNOWN ISSUES 59: the CCR after a faulted last write, with the latches of an earlier EXTERNAL bus
-    # error armed first (PREBERR=1 - the ROM's slot probing at boot), the page invalid and copy-on-write
+    # KNOWN ISSUES 59's shapes (cc's) with an external bus error nested in every page fault's handler
+    # (gap 4, HNEST: its latches set just before each resume), the page invalid and copy-on-write;
+    # the old PREBERR=1 arming is in every run now (gap 1's preamble)
     for w in "" "DSW_WP=1"; do
-      r=$(cd "$SIM/predec_fault" && ./run_dsweep.sh CACR=0x2101 DSW_CCRSET=1 PREBERR=1 $w 2>&1 | tail -1); echo "$r"
+      r=$(cd "$SIM/predec_fault" && ./run_dsweep.sh CACR=0x2101 DSW_CCRSET=1 HNEST=1 $w 2>&1 | tail -1); echo "$r"
     done
+    # gap 4: the supervisor MOVES traced while its access page-faults (the owed trace with the fault)
+    r=$(cd "$SIM/predec_fault" && ./run_ssweep.sh CACR=0x2101 SSW_TRACE=1 2>&1 | tail -1); echo "$r SSW_TRACE=1"
     for c in 0 0x2101; do   # KNOWN ISSUES 37's class: an address register stored through its own (An)+/-(An), 132 cases
       r=$(cd "$SIM/predec_fault" && ./run_selfst.sh CACR=$c 2>&1 | tail -1); echo "$r"
     done
     # KNOWN ISSUES 46: an interrupt at every clock around an empty-slot bus error (the Pawn's
     # MOVEA.L, abort/rerun/complete), the SE/30's 24-bit row with the caches and the IIcx's NuBus
     r=$(cd "$SIM/busfault_irq" && ./run_sweep.sh SET=pawn CTX="11 i11" 2>&1 | tail -1); echo "$r"
+    for pt in 0 1; do   # the write-only first access (CLR, Scc, MOVE from CCR, MOVEM to memory: SSW RW 0)
+      job "wonly part $pt" predec_fault bash -c "d=../_wo_$pt; rm -rf \$d; mkdir \$d; cp gen_program.py tb_predec_fault.v run.sh \$d/; cd \$d && CASESET=wonly WONLY_PART=$pt TCMODE=aux HANDLER=aux CACR=0x2101 ./run.sh +UOK; r=\$?; cd ..; rm -rf \$d; exit \$r"
+    done
     job "bfx (KNOWN ISSUES 21)" predec_fault bash -c 'd=../_bfx; rm -rf $d; mkdir $d; cp gen_program.py tb_predec_fault.v run.sh $d/; cd $d && CASESET=bfx ./run.sh +UOK; r=$?; cd ..; rm -rf _bfx; exit $r'
   } > "$LOG.2"
   cat "$LOG.2"
