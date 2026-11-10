@@ -22958,6 +22958,12 @@ Daniel - add to it, move items out when fixed).**
     font/geometry matter, not pursued). Both cores, both depths: NetBSD's
     console and X run on the stock 11.1 kernel plus the two byte patches;
     nothing core-side remains.
+    23:57 (Daniel, screenshot 20261110_235700-screen.png): X11 on the IIcx
+    core in 1-bit (black and white), WITHOUT -flipPixels: ctwm, uxterm,
+    xclock and xeyes up, black text on white; Daniel: "The extra
+    resolution makes a big difference. It is very slow of course." The
+    uxterm's `ps -xa` shows X at 4:02 of CPU time; xterm's own time grew
+    0:59.46 -> 1:00.10 across the one ps.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
