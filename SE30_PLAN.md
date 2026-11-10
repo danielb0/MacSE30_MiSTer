@@ -22935,7 +22935,8 @@ Daniel - add to it, move items out when fixed).**
     dev) for his review; filing via send-pr is his. BOARD RESULT (Daniel,
     2026-11-10 afternoon, SE/30 core, Black & White, netbsd-WSFBSBC-
     nopoke-mono): "The patch worked. I can see the text" - the console
-    draws. Closes the issue; with KI 62/63 the kernel now carries both
+    draws (screenshot 20261110_153853: the dmesg scrolling cleanly, sd0/
+    sd1/cd0 attached, root on sd1a, "file system is clean"). Closes the issue; with KI 62/63 the kernel now carries both
     patches (nopoke + mono) and runs on both cores at every depth. Left:
     `startx -- -flipPixels` in 1-bit (optional, X is outside the
     completion criteria) and the three PRs (his).

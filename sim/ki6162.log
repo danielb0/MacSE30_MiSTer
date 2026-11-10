@@ -12,3 +12,6 @@ rtl/build_tag.v stamped fcad049d
 archived output_files/MacSE30_fcad049d_ki6162.rbf
 [11-08 02:09] MacSE30: archived output_files/MacSE30_fcad049d_ki6162.rbf
 [11-08 02:09] ki6162: done; tree status: 
+[11-08 23:59] ki6162: start on 00ada05 SE30 plan: FUTURE ADDITIONS 15 - networking over the, revisions MacSE30
+[11-08 23:59] ki6162: tree dirty - the stamp refuses it
+ M sim/ki6162.log
