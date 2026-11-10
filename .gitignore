@@ -61,3 +61,5 @@ sim/_*
 # NetBSD readdisklabel replay bench: generated image and run logs
 sim/wsfb_replay/ram.hex
 sim/wsfb_replay/*.log
+sim/wsfb_replay/transcript
+sim/wsfb_replay/work/
