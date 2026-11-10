@@ -22853,6 +22853,26 @@ Daniel - add to it, move items out when fixed).**
     on a big-endian 1-bit framebuffer. Same hardware, same core, two
     drivers: the one that fails is the new one. The MI genfb path is the
     one X needs (WSDISPLAYIO_LINEBYTES), hence the trade.
+    BOARD 2026-11-10 10:00-10:30 (SE/30 core, 64 MB in the OSD, 1-bit,
+    two boots, one JTAG session each): mac68k_video the same (64/1/512/
+    342, fb $FEE08040), panicstr 0, db_active 0 again; msgbufp =
+    msgbufaddr = $774000 (the same as the 8 MB night - so the kernel sees
+    8 MB, i.e. Mac OS runs 24-bit here, or the ranges end there);
+    genfb_softc pointer = $850C40. BUT the SDRAM at $774000 (lw $1DD000)
+    and at $850C40 (lw $214310) holds the ROM's memory-test pattern while
+    the kernel is live: those are kernel VIRTUAL addresses above the
+    kernel image, mapped by its page tables to other physical pages -
+    VA = PA holds for the kernel image only. Peeking kernel heap or the
+    message buffer needs a page-table walk (Sysseg) across sessions;
+    not worth it. BETTER ROUTE (no JTAG): the keyboard works at the 1-bit
+    prompt (Enter echoes), so (1) type blind `root` Enter [password]
+    Enter `reboot` Enter - a reboot proves the prompt is login: in
+    multi-user, and syslogd has written that boot's kernel messages to
+    /var/log/messages; (2) boot 8-bit, grep genfb/wsdisplay/wskbd in
+    /var/log/messages and tail it for how far the 1-bit boot got and
+    what genfb/wsdisplay said; (3) in the 8-bit boot `wsconsctl -a` for
+    the console's font and type, to compare with 1-bit by the same
+    command typed blind into a file (`wsconsctl -a > /root/ws1.txt`).
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
