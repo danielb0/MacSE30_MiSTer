@@ -22953,8 +22953,11 @@ Daniel - add to it, move items out when fixed).**
     stipple + cursor), then the xclock window (white on black) - X11 RUNS
     ON THE SE/30 CORE TOO, in 1-bit, with the nopoke-mono kernel (Daniel
     16:25: "far too slow to be useful, but it is nice to see it working").
-    Both cores, both depths: NetBSD's console and X run on the stock 11.1
-    kernel plus the two byte patches; nothing core-side remains.
+    16:35, screenshot 20261110_160146: ctwm + uxterm up, `ls -l /` listed,
+    white on black, the 80x24 uxterm larger than the 512x342 screen (a
+    font/geometry matter, not pursued). Both cores, both depths: NetBSD's
+    console and X run on the stock 11.1 kernel plus the two byte patches;
+    nothing core-side remains.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
