@@ -22928,7 +22928,11 @@ Daniel - add to it, move items out when fixed).**
     EXPECTED on the board in 1-bit: the boot messages visible, black on
     white, scrolling; then `startx -- -flipPixels`. UPSTREAM: worth a
     NetBSD PR (rasops_allocattr_mono fg 0xff -> 15, or init_devcmap
-    filling 16..255 for depth 1/2/4) - Daniel's call.
+    filling 16..255 for depth 1/2/4). Daniel 2026-11-10 13:50: "We should
+    definitely file reports on all three patches" (KI 62 ncrscsi, KI 63
+    the Booter, KI 64 rasops): drafts in netbsd_pr_drafts.md (repo root,
+    dev) for his review; filing via send-pr is his, after the board test
+    of the mono kernel.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
