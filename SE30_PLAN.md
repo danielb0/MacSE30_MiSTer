@@ -22726,9 +22726,9 @@ Daniel - add to it, move items out when fixed).**
     ($379F04 -> lw $DE7C1) of netbsd-WSFBSBC-nopoke; a non-zero
     panicstr names the panic. Add to FUTURE BOARD TESTS.
 
-64. **OPEN 2026-11-10 (both cores; not Mac-affecting; after the release):
-    NetBSD's console in 1-bit mode draws only the bottom text row, and
-    garbled.** Daniel (00:50): with the Mac in Black & White, the WSFBSBC
+64. **CAUSE FOUND 2026-11-10 13:40 - A NETBSD 11.1 REGRESSION, NOT THE CORE
+    (patched kernel built, board test pending): NetBSD's console in 1-bit
+    mode draws no text, only the cursor cell.** Daniel (00:50): with the Mac in Black & White, the WSFBSBC
     kernel's boot messages never appear as lines; text is written only
     on the bottom row of the screen and is illegible, the most frequent
     shape being "[" - the first character of every dmesg line ("[ 1.00..]"
@@ -22887,6 +22887,48 @@ Daniel - add to it, move items out when fixed).**
     type, genfb/wsdisplay lines). Then, from a blind 1-bit login or
     rc.local, `startx -- -flipPixels`: X maps the frame buffer itself,
     bypassing the console path, so 1-bit X may well work.
+    FILES 2026-11-10 13:30 (rc.local, from the 1-bit WSFBSBC boot 13:02):
+    dmesg: 'intvid0 at obio0 @ fee08040: On-board video', '512 x 342,
+    monochrome', 'genfb0 at intvid0: colormap callback not provided',
+    'switching to framebuffer console', 'framebuffer at 0xfee08040, size
+    512x342, depth 1, stride 64', 'wsdisplay0 at genfb0 kbdmux 1: console
+    (default, vt100 emulation)'; the GENERICSBC pair: 'macfb0 at
+    intvid0', 'wsdisplay0 at macfb0 (kbdmux ignored)'. wsconsctl -a gave
+    the keyboard only (-d for the display next time). The IIcx 1-bit
+    cursor cell measures 8 x 15 = FONT_QVSS8x15 (WSFB.common) ->
+    rasops1_putchar8, byte stores (the lanetest's shape).
+    THE CAUSE (from the kernel's own code, netbsd-11 sources +
+    disassembly of netbsd-WSFBSBC): WSFB.common sets RASOPS_APPLE_PALETTE,
+    and with it rasops.c uses rasops_allocattr_mono for depth < 4; that
+    routine sets fg = 0xff, bg = 0. Until 2025 ATTR_FG/ATTR_BG masked the
+    index with 0xf, so 0xff meant devcmap[15] = all ones (black on a Mac
+    1-bit screen). NetBSD's 256-colour VT100 change (rasops.h 1.52 /
+    rasops.c 1.129, 2025-07; pulled into netbsd-11 2025-11-14, ticket
+    #81, PR kern/59544 - IN 11.1) widened the masks to 0xff and devcmap to
+    256 entries, but rasops_init_devcmap still fills only entries 0-15
+    for depth 1, and allocattr_mono still says 0xff: so fg = devcmap[255]
+    = 0 = bg, and rasops1_putchar8 (rasops1_putchar_width.h: 'if fg == bg
+    this becomes a space') draws EVERY character as a blank. The
+    disassembly confirms it: rasops1_putchar8 at $DA66A takes bg by
+    bfextu {8:8} and fg by lsr #24 (8-bit indices into devcmap at ri+$9c),
+    compares them and takes the space path. The cursor shows because
+    vcons_cursor_noread redraws the cell with attr ^ $0F0F0000: fg =
+    devcmap[240] = 0, bg = devcmap[15] = ones -> an inverted glyph (the
+    black box with a white '[' in the IIcx screenshot). Every mono rasops
+    console in NetBSD 11.1 (1-bit Macs with WSFB, and any port with
+    depth < 8 without the Apple palette) draws blank text; nobody tested
+    it. 8-bit is unaffected (allocattr_color, indices < 16). Not the
+    core, not the Booter, not the card: two bytes of NetBSD.
+    PATCHED KERNEL BUILT 13:38: C:/temp/Mac/netbsd-WSFBSBC-nopoke-mono.gz
+    (md5 4a42e692) = the nopoke kernel + two bytes in
+    rasops_allocattr_mono ($D8D7E, $D8D8B: the constants $FF000000 and
+    $00FF0000 -> $0F000000 / $000F0000, i.e. fg = bg = 15 as before the
+    change; file offsets $D8DFE, $D8E0B); four bytes differ from the ISO's
+    kernel in all. ISO: C:/temp/Mac/NetBSD-WSFBMONO.iso (WSFBMONO.GZ).
+    EXPECTED on the board in 1-bit: the boot messages visible, black on
+    white, scrolling; then `startx -- -flipPixels`. UPSTREAM: worth a
+    NetBSD PR (rasops_allocattr_mono fg 0xff -> 15, or init_devcmap
+    filling 16..255 for depth 1/2/4) - Daniel's call.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
