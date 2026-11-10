@@ -22873,6 +22873,20 @@ Daniel - add to it, move items out when fixed).**
     what genfb/wsdisplay said; (3) in the 8-bit boot `wsconsctl -a` for
     the console's font and type, to compare with 1-bit by the same
     command typed blind into a file (`wsconsctl -a > /root/ws1.txt`).
+    BOARD 2026-11-10 11:00 (Daniel): the 1-bit boot CONTINUES after the
+    cursor stops - disk activity for minutes, the kernel's '[' lines give
+    way to rc output nobody can see, the cursor moves along as he types,
+    and the next boot fsck'd the root (mounted read-write = past single-
+    user). So the 1-bit boot reaches multi-user with a BLIND console;
+    nothing is stuck. A blind login + save did not take (no files). NEXT
+    (Daniel, later): in the 8-bit boot, as root, append to /etc/rc.local:
+      S=$(date +%H%M%S); /sbin/wsconsctl -a > /root/ws-$S.txt 2>&1;
+      /sbin/dmesg > /root/dmesg-$S.txt; /bin/sync
+    then boot 1-bit, wait for the disk to settle + 1 min, reset; read the
+    pair whose wsconsctl says depth 1 from the 8-bit boot (font, display
+    type, genfb/wsdisplay lines). Then, from a blind 1-bit login or
+    rc.local, `startx -- -flipPixels`: X maps the frame buffer itself,
+    bypassing the console path, so 1-bit X may well work.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
