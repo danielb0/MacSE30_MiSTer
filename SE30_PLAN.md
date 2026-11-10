@@ -22761,6 +22761,32 @@ Daniel - add to it, move items out when fixed).**
     the prompt (KI 63); (3) if (a)/(b): a seam bench of the SE/30 video
     block with the kernel doing misaligned long RMW. Outside the
     completion criteria; stays on dev.
+    SCREENSHOT (IIcx, 1-bit, 2026-11-09 12:44, Screenshots/20261109_
+    124459): the whole 640x480 is white except ONE cell at the bottom
+    left: a black box with a white "[" = the cursor (inverted cell) over
+    a "[" drawn at column 0 of the bottom text row, an 8x16 font. Nothing
+    else is drawn anywhere - not garbage, not the rest of the line. So:
+    the screen clear (32-bit stores) works, the glyph at column 0 and the
+    cursor there work, columns 1+ of the same row never appear, and the
+    rows above are blank (copyrows leaves nothing). The 1-bit glyph
+    writer for an 8-wide font (rasops1_putchar_width.h, SUBST_UNIT =
+    uint8_t) is plain BYTE STORES, one per scanline at ri_bits +
+    row*ri_yscale + col - no RMW at all - so "accumulation" above is
+    superseded: the fault is that byte stores to columns 1..79 (byte
+    offsets 1..79 of each 80-byte scanline) do not reach the visible
+    VRAM while offset 0 does, or the kernel's geometry (ri_cols/ri_stride
+    from the Booter's mac68k_video) makes it draw only column 0. Both
+    cores' VRAMs take the glue's UM Table 7-7 byte enables (se30_glue.v
+    be[], nubus_tfb.v be[ln]) and Mac OS byte-writes VRAM constantly, so
+    the lane logic itself is not the first suspect; the NetBSD mapping
+    (cache-inhibited pages, 32-bit addresses) or the geometry is.
+    BOARD CHECK FIRST (next 1-bit boot, when it sits at the cursor; one
+    quartus_stp peeks call each, before any reboot): mac68k_video at
+    $3939D4 -> `peeks e4e75 8` = kvaddr, stride, depth, width, height,
+    log, phys, len (expect IIcx 80/1/640/480, SE/30 64/1/512/342);
+    panicstr `peeks ea9d4 1`, db_active `peeks de7c1 1`; msgbufp
+    `peeks ea6c2 1` then the buffer it points to (~1024 longs) for the
+    kernel's own dmesg of that boot. Then the Mac OS test program.
 
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
