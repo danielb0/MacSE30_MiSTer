@@ -1,6 +1,6 @@
 # The SE/30 core's 68030: changes to the TG68K kernel, the PMMU, and a new 68882
 
-Daniel Baum, 2026-10-24, updated 2026-11-05 (fixes 37-46, the known-open list). The CPU of the Macintosh SE/30
+Daniel Baum, 2026-10-24, updated 2026-11-11 (fixes 37-46, the known-open list, how it was tested). The CPU of the Macintosh SE/30
 and IIcx MiSTer cores, measured against where it came from:
 
 | file | baseline |
@@ -207,8 +207,14 @@ off, interrupts at every clock around a fault, copy-on-write straddles, page-tab
 invalid or write-protected, random programs compared run against run; an interrupt at every
 clock of every external bus-error and trap shape, under handlers that abort, rerun and
 complete, with trace on and off, on the SE/30 and the IIcx's NuBus timeout); the 68882 against
-WinUAE's corpus and a bit-exact model. On the board: Mac OS 6.0.5-7.5.5 and A/UX 3.1 with its
-X11 clients, for days under load; The Pawn's empty-slot read (fix 37) on both cores. The
+WinUAE's corpus and a bit-exact model. Since 2026-11-10 the fault sweeps start each case after a
+preamble of earlier exceptions (an external bus error, a level-2 interrupt, page faults including
+a format $A write and one inside an FPU dialog, a trace), so a latch one exception sets and a
+later one reads is never fresh from reset (fix 46 had passed benches that started from reset);
+the condition codes start from every flag's opposite, a bus error is nested in every page
+fault's handler, and a traced MOVES faults with its trace owed. On the board: Mac OS 6.0.5-7.5.5
+and A/UX 3.1 with its X11 clients, for days under load; NetBSD 11.1 multi-user on both cores;
+The Pawn's empty-slot read (fix 37) on both cores. The
 benches belong to the SE/30 project and can be shared.
 
 ## Licence
