@@ -27839,6 +27839,27 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   ROM. IIci only: the IIcx has no cache connector. Norton's reference
   IIci figures (and whether its machine had the card) are wanted from
   Daniel as the target.
+- *NORTON'S REFERENCE IIci (Daniel, 2026-11-11) - the IIci's target:*
+
+  | test | IIci | IIcx (ref) | ratio | SE/30 (ref) |
+  |---|---|---|---|---|
+  | Overall | 11.3 | 7.98 | 1.42 | 8.27 |
+  | CPU | 9.95 | 7.14 | 1.39 | 7.13 |
+  | Video | 25.4 | 14.8 | 1.72 | 26.9 |
+  | FPU | 2.7 | 1.74 | 1.55 | 1.74 |
+  | Disk | 104 | 93.1 | 1.12 | 96.5 |
+
+  The clock ratio is 25 / 15.6672 = 1.60. FPU 1.55 is near it (compute-
+  bound, the 68882 at 25 MHz). CPU 1.39 is well under it: the IIci's
+  memory costs more clocks per access than the IIcx's (the MDU's wait
+  states, the RBV's screen refresh in bank A) - the figure the MDU's
+  timing must reproduce. It also suggests no cache card in Norton's
+  machine (Low End Mac's Speedometer: IIci CPU 0.38 / IIcx 0.26 = 1.46,
+  with the card 0.40 = 1.54) - to confirm from Norton's own description
+  if it gives one. Video 25.4 = built-in video on the processor bus, no
+  NuBus (the SE/30's built-in 26.9; the IIcx's NuBus card 14.8). The
+  completion yardstick (within ~2 %) applies to the IIci with the cache
+  card OFF.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
