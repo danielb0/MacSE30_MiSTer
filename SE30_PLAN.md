@@ -27858,8 +27858,16 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   with the card 0.40 = 1.54) - to confirm from Norton's own description
   if it gives one. Video 25.4 = built-in video on the processor bus, no
   NuBus (the SE/30's built-in 26.9; the IIcx's NuBus card 14.8). The
-  completion yardstick (within ~2 %) applies to the IIci with the cache
-  card OFF.
+  completion yardstick (within ~2 %) applies to the IIci as Norton's
+  reference machine was set up.
+  Norton's details (Daniel): "128K cache" - most likely the Memory control
+  panel's disk cache (the IIcx run's setup reads "128 K cache" the same
+  way), not a card (Apple's IIci card is 32 KB; third-party cards came
+  larger) - Daniel to check the wording and the screen depth. And:
+  performance "significantly higher" in 1-bit video - the RBV's refresh
+  of bank A and the drawing both scale with depth, so the IIci's memory
+  model must carry a depth-dependent refresh cost; the reference's depth
+  decides the target.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
