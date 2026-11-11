@@ -27794,6 +27794,28 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   Recommended: (B) - timing exact by construction, behaviour checked by
   the tests that exist. No RTL changed; the EARLYMON result stands for
   either.
+- *Daniel chose (B), 2026-11-11.* Built as an option (3414fb9): tg68k.v
+  and se30_machine.v parameter KCLK (default 0 = the released logic; the
+  one changed line folds to a constant), port clk_k; the kernel's clock
+  and clkena by generate; w_ack held to the phi1 edge under KCLK.
+  MacSE30.sv/pll: SE30_KCLK (test only) = PLL 50 / 150 / 25 MHz (clk_k on
+  output 5), phi from clk_k (tk toggled on clk_k, copied on clk_sys:
+  phi2 = they differ). sim/machine KCLK=1 (run.sh): the SE/30 and IIcx
+  boots give the same 80 result lines as today's, KCLK=0 unchanged (the
+  boot does no table walk - the regression is still owed). SDC: output 5
+  asynchronous only at the card's period (< 35 ns), so clk_k is timed as
+  a related clock. TEST COMPILE 2 (SE30_KCLK, real 50/25 clocks) started
+  21:13.
+- *REPOSITORY LAYOUT (Daniel, 2026-11-11: "same repo").* The IIci stays in
+  this repository, but where it differs it gets files of its own:
+  MacIIci.qpf/.qsf/.sv, an iici_machine.v, its MDU, RBV and SDRAM
+  controller variant (50 MHz clk_sys cannot take the 3 x clk_mem; likely
+  2 x). Shared modules (CPU, FPU, VIA1, SCC, SCSI, SWIM, ASC, ADB/RTC,
+  floppy, CD-ROM) are used unchanged or changed only through parameters
+  whose defaults keep the released behaviour. A change to a shared file
+  merges only after an identical-build check on the SE/30 and the IIcx
+  (same ALMs, same timing) and their benches. Not in se30_machine.v or
+  MacSE30.sv as switches beyond the test build's.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
