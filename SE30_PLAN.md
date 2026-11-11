@@ -27668,6 +27668,36 @@ proving the kernel closes timing at the clk_sys a paced 25 MHz 68030 needs
 (today 31.3344 MHz with a 16 MHz enable). Proposed: the work on a branch
 `iici` from dev, as the IIcx had.
 
+**IIci TIMING TEST 1 (2026-11-11, Daniel's go-ahead; branch `iici`, 71b67aa).**
+A paced 25 MHz 68030 on our grid (two clk_sys per CPU clock, k_clkena =
+phi1) needs clk_sys = 50 MHz, 20 ns.
+- *Before (the 2026-11-08 SE/30 fit, STA only):* the kernel's own cone is
+  ~30.3 ns at the slow 100C corner, so a frequency-only build misses by
+  ~10.4 ns; kernel -> cache/FPU ~27 ns, -> ASC/SWIM/SCC ~25-26 ns.
+- *The test:* MacSE30.sdc only (PLL and SDRAM crossings unchanged): every
+  clk_sys path into emu:emu (the SDRAM controller excepted) held to 20 ns;
+  the kernel's own paths and the FPU APU's to 40 ns (they move only on
+  the every-other-clock enable; the max delay overrides the APU's
+  multicycle, so it is restated). On the old placement the APU's own path
+  was ~50 ns (-9.7 at 40).
+- *Result (SE/30 revision, 42 min, 40,411 ALMs / 96 %, 363 M10K):* fast
+  corners MET (design setup +2.0 / +2.4); slow corners NOT MET, -9.508
+  (100C) / -9.707 (-40C), 3,715 clk_sys endpoints. The kernel's own paths
+  and the APU closed inside 40 ns. 3,339 of the failures start at ONE
+  register, the pace's r_ea_h (rtl/tg68k/tg68k.v ~516): r_ea_h -> p_ov_ea
+  -> p_budget -> p_due -> p_go -> pace_stall -> k_internal -> k_clkena ->
+  every kernel register's enable (-9.5 into the kernel, -7.7 ALU, -6.8
+  PMMU). The rest: dsack_r -> kernel -4.5, cache -> kernel -4.1, and
+  kernel -> SWIM/cache/FPU/SCC/ASC within -1.6 to -0.07.
+- *Reading:* the 25 MHz kernel is reachable. The blocker is the pace's
+  budget arithmetic in the enable cone, an RTL fix (register the budget
+  and p_due a clock ahead; the decoder's answer is already registered two
+  clocks before the earliest decision), then dsack_r and the cache-hit
+  paths into the enable (~4.5 ns), then the ~1.6 ns tail. The SDRAM side
+  (3 x 50 = 150 MHz exceeds the CL2 controller and its capture) is a
+  separate IIci design question. Logs: output_files/sta_corners_MacSE30_iici_t20.log,
+  build_20261111_184855.log.
+
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
   commit); release 38f582a; the regression passed every line; both RCs
