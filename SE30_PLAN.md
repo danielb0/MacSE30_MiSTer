@@ -27766,6 +27766,34 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   Order proposed: items 1, 5, 6 and the SDC first (no timing change by
   design; benches must show identical release clocks), then a test
   compile, then 3 and 4 with their measurements.
+  Daniel 2026-11-11: go ahead; cache hits by MLAB (item 3) accepted.
+- *STOPPED BEFORE RTL, same evening: the two-clock premise is only partly
+  true.* The design (and timing test 1's "the kernel's own paths fit 40
+  ns") assumed every kernel register moves only on clkena. Not so: of the
+  kernel's clocked processes about 19 of 33 are not gated by clkena in
+  their first lines, all 6 of TG68K_PMMU_030's run every clk (the walker,
+  the fast set, the register edge detectors), and 1 of the ALU's 5 (a
+  first-lines scan; deeper gating not yet read). A multicycle to or from
+  those registers is false, and test 1's 40 ns kernel -> kernel figure
+  includes such paths, so it is optimistic by an unknown amount (before
+  the test: 2,631 kernel -> kernel, 2,590 PMMU -> PMMU, 431 kernel ->
+  PMMU and 73 PMMU -> kernel endpoints over ~19.5 ns at 31.9 MHz).
+  Two ways on, Daniel's choice:
+  (A) Audit: classify every kernel/PMMU/ALU register as stepped-only or
+      every-clock, constrain each class exactly, and shorten the
+      every-clock paths over 20 ns (kernel changes). Exact, but large,
+      and a wrong entry is silent corruption on the board; every later
+      kernel edit must keep the lists true.
+  (B) The kernel on its own clock at half clk_sys (25 MHz, the same PLL,
+      phase-aligned): every kernel/PMMU path is 40 ns exactly with no
+      lists; the wrapper's crossings (its own code) carry the multicycles,
+      by stage 1's rule. But the every-clock logic (PMMU walker, fast set,
+      edge detectors) then runs one step per CPU clock instead of two - a
+      CPU behaviour change, so the batching rule and the regression
+      (~9 h) apply, plus timetest and Norton for the walker's speed.
+  Recommended: (B) - timing exact by construction, behaviour checked by
+  the tests that exist. No RTL changed; the EARLYMON result stands for
+  either.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
