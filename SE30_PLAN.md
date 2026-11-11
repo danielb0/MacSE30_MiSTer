@@ -27806,6 +27806,15 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   asynchronous only at the card's period (< 35 ns), so clk_k is timed as
   a related clock. TEST COMPILE 2 (SE30_KCLK, real 50/25 clocks) started
   21:13.
+  RESULT: NO FIT (41 min; quartus exit 3, Error 11802 after routing
+  congestion, Warning 16618). Placement succeeded, 41,019 ALMs (98 %), 358
+  M10K; the router's average interconnect use 55 % (peak 89 %) against
+  43-45 % (68-70 %) on the 2026-11-08 and test-1 fits; hold padding about
+  the same (8e3 ns against 7e3; JTAG's tck 4.7e3 of it, clk_sys 2.9e3,
+  clk_k -> clk_sys 1.9e3). The build carried the dev qsf's probe deck
+  (USE_DBG_PROBES) - ~2,000+ ALMs and its JTAG hold padding that no IIci
+  build would ship. Next: the same test without the deck (release-like),
+  ~45 min, Daniel's go-ahead (over 30 min). Logs: build_20261111_211322.log.
 - *REPOSITORY LAYOUT (Daniel, 2026-11-11: "same repo").* The IIci stays in
   this repository, but where it differs it gets files of its own:
   MacIIci.qpf/.qsf/.sv, an iici_machine.v, its MDU, RBV and SDRAM
