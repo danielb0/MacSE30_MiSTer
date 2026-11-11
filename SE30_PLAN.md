@@ -27577,6 +27577,8 @@ the revision needs doing first"; "Keep both passes" (CACR 0 and $2101);
   boots with the patched kernel in colour and in 1-bit (X not rerun);
   Norton Video 17.8 against the real IIcx's 14.8 (1.20) - the test build's
   17.9 within a run's spread, KNOWN ISSUES 61's parked residual, unchanged.
+- **BOARD, SE/30 RC (MacSE30_dd486fb_rc.rbf, Daniel 2026-11-11):** NetBSD
+  boots with the patched kernel (1-bit console). Both RC builds board-checked.
 
 **END OF SESSION 2026-11-10 (~17:00, Daniel closed it) - READ THIS TO RESUME.**
 The NetBSD chapter is finished on the core side. KNOWN ISSUES 62, 63 and 64
