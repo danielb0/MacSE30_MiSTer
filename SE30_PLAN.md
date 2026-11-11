@@ -27573,6 +27573,10 @@ the revision needs doing first"; "Keep both passes" (CACR 0 and $2101);
   non-PASS line that RESUME counts as done). sim/isw_rerun.sh reran that
   line alone, 13:46-14:00: **209/209 PASS. Every line of the revised
   regression passes on dev 097c8e4** - next: the release as above.
+- **BOARD, IIcx RC (MacIIcx_dd486fb_rc.rbf, Daniel 2026-11-11):** NetBSD
+  boots with the patched kernel in colour and in 1-bit (X not rerun);
+  Norton Video 17.8 against the real IIcx's 14.8 (1.20) - the test build's
+  17.9 within a run's spread, KNOWN ISSUES 61's parked residual, unchanged.
 
 **END OF SESSION 2026-11-10 (~17:00, Daniel closed it) - READ THIS TO RESUME.**
 The NetBSD chapter is finished on the core side. KNOWN ISSUES 62, 63 and 64
