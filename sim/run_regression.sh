@@ -44,7 +44,7 @@ if [ "$WHAT" != phase2 ]; then
 fi
 if [ "$WHAT" != phase1 ]; then
   {
-    for c in 0 0x2101; do
+    for c in ${CACRS:-0 0x2101}; do   # (CACRS: a resume runs only the passes left)
       a=$([ $c = 0 ] && echo w || echo r)   # gap 1: the arming external bus error's direction in this pass
       for s in "predec_fault ./run_isweep.sh" "predec_fault ./run_isweep.sh ISW_CCR=0x1F" "predec_fault ./run_dsweep.sh" "predec_fault ./run_dsweep.sh DSW_WP=1" \
                "predec_fault ./run_xsweep.sh" "predec_fault ./run_xsweep.sh ISW_CCR=0x1F" \
