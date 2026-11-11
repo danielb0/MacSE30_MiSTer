@@ -27902,6 +27902,35 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   size (32 KB Apple / 128 KB, the reference's) - CONFIRMED by Daniel
   2026-11-11: OSD Off / 32 KB / 128 KB, one design, the size a setting.
 
+**END OF SESSION 2026-11-11 (night, ~23:45, Daniel closed it) - READ THIS TO RESUME.**
+- Branch `iici` (from dev 9666a1d), all committed, NOT pushed. Read the
+  "IIci TIMING TEST 1" block above top to bottom: it holds the whole
+  chapter (test 1, the corrections, way B, the layout, Norton's reference,
+  the cache card, test compiles 2 and 3).
+- PROVEN: the kernel on its own clock (KCLK, clk_k = 25 MHz) meets timing
+  inside itself (+5.7 ns, test compile 3, 38,593 ALMs without the deck).
+- NEXT SESSION = STAGE 1, wrapper only (rtl/tg68k/tg68k.v, all under KCLK
+  so the SE/30 and IIcx stay token-identical in effect):
+  (1) latch din/dsack/berr/ack at the phi1 edge s 4 -> 5 (EARLYMON proved
+      it safe); the berr-in-wait-state case one CPU clock later via a
+      holding state; berr_hold only at phi1 edges;
+  (5) the pace's credits at that edge and p_due registered at phi1 edges
+      (assert in the benches that no decode beat falls on the first phi1
+      after a release);
+  (7) register the kernel's bus outputs (address, data, FC, SIZ, R/W) in
+      the wrapper - devices, cache and SDRAM see wrapper registers;
+  (3) the I/D caches in MLAB with asynchronous read (Daniel approved);
+  (4) posted writes: decide from phi1-launched terms or one clock later -
+      measure;
+  then the SDC multicycles from the phi1-only wrapper registers to clk_k,
+  the benches (machine KCLK=0/1 both machines, system timetest - release
+  clocks identical where the design says so), and test compile 4.
+- Then the IIci machine itself (own files, the layout block): MacIIci top,
+  iici_machine.v, MDU, RBV (screen scanned from SDRAM), the SDRAM variant
+  for a 50 MHz clk_sys, the cache card (OSD Off / 32 KB / 128 KB). Target:
+  Norton's reference IIci (128K card, 8-bit) within ~2 %.
+- Still pending with Daniel from earlier: the NetBSD PR filing decisions.
+
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
   commit); release 38f582a; the regression passed every line; both RCs
