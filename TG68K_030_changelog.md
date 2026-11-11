@@ -213,8 +213,8 @@ a format $A write and one inside an FPU dialog, a trace), so a latch one excepti
 later one reads is never fresh from reset (fix 46 had passed benches that started from reset);
 the condition codes start from every flag's opposite, a bus error is nested in every page
 fault's handler, and a traced MOVES faults with its trace owed. On the board: Mac OS 6.0.5-7.5.5
-and A/UX 3.1 with its X11 clients, for days under load; NetBSD 11.1 multi-user on both cores;
-The Pawn's empty-slot read (fix 37) on both cores. The
+and A/UX 3.1 with its X11 clients, A/UX among them under memory pressure (paging); NetBSD 11.1
+multi-user on both cores; The Pawn's empty-slot read (fix 37) on both cores. The
 benches belong to the SE/30 project and can be shared.
 
 ## Licence
