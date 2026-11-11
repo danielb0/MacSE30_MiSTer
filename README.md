@@ -18,6 +18,7 @@ See [Credits](#credits) for the people whose work this builds on.
 
 - Boots **System 6.0.5, 6.0.8, 7.1 and 7.5.5** from floppy or SCSI, in 24-bit or 32-bit mode
 - Runs **A/UX 3.1**, Apple's Unix, with its X11 clients (see [A/UX](#aux))
+- Runs **NetBSD 11.1** (mac68k) with its SBC kernels (see [NetBSD](#netbsd))
 - **68030 CPU with PMMU and caches** at the SE/30's 15.67 MHz, timed to match a real machine
 - **68882 FPU**
 - **Memory:** 8, 16, 32 or 64 MB (32 MB needs a 64 MB SDRAM module, 64 MB a 128 MB one)
@@ -109,6 +110,14 @@ either core.
 - When a Mac program crashes, A/UX restarts its Mac environment; Unix runs on.
 - QuarkXPress 3.32 reports "Unable to access network" and quits. Turn AppleTalk off (Chooser:
   Inactive, and `/etc/appletalk -d` as root) and it runs.
+
+## NetBSD
+
+NetBSD 11.1 (mac68k) installs and runs on both cores with the **SBC** kernels (`INSTALLSBC`
+to install, `GENERICSBC` to run). The `GENERIC` and `INSTALL` kernels hang at "waiting for
+devices: scsibus0 sd0"; this is a bug in NetBSD's `ncrscsi` driver. At 1 bit per pixel
+(the SE/30's screen, or the IIcx in black and white) NetBSD 11.1's console is blank; this
+is a NetBSD 11.1 bug, fixed in NetBSD's development branch.
 
 ## PRAM
 

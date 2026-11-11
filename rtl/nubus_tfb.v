@@ -18,6 +18,7 @@ module nubus_tfb #(
 ) (
   input             clk,               // clk_sys
   input             reset_n,
+  input             nb_tick,           // one clk per NuBus clock (/CLK), from the NuChip
 
   // the CPU side: one access, sel held until ack
   input             sel,
@@ -188,26 +189,31 @@ module nubus_tfb #(
   assign irq_n = !vbl_pend;
 
   // ------------------------------------------------ the CPU's cycle
-  // two clocks: the block RAMs' registered reads land on the second; the upper VRAM waits for SDRAM
+  // video RAM space acknowledges in the fourth NuBus clock: start, two waits, /ACK (Designing Cards
+  // and Drivers 2nd ed., Figure 11-2); control space, untimed in the book, in the clock after START
   reg  [1:0] cyc;
-  reg        up_busy;
+  reg  [1:0] tk;                       // NuBus clocks since START, to 2
+  reg        up_busy, up_got;
+  wire       vram_due = (tk == 2'd2) || (tk == 2'd1 && nb_tick);
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      cyc <= 0; ack <= 0; rdata <= 0; up_req <= 0; up_we <= 0; up_addr <= 0;
-      up_be <= 0; up_wdata <= 0; up_busy <= 0;
+      cyc <= 0; tk <= 0; ack <= 0; rdata <= 0; up_req <= 0; up_we <= 0; up_addr <= 0;
+      up_be <= 0; up_wdata <= 0; up_busy <= 0; up_got <= 0;
     end else begin
-      if (!sel) begin cyc <= 0; ack <= 0; up_req <= 0; up_busy <= 0; end
+      if (!sel) begin cyc <= 0; tk <= 0; ack <= 0; up_req <= 0; up_busy <= 0; up_got <= 0; end
       else if (!ack) begin
+        if (nb_tick && tk != 2'd2) tk <= tk + 1'b1;
         if (a_vram && !in_bram) begin
           if (!up_busy && !up_ack) begin               // the previous longword's acknowledge has fallen
             up_req <= 1; up_we <= !rw; up_addr <= lw; up_be <= be; up_wdata <= wdata;
             up_busy <= 1;
-          end else if (up_ack) begin
-            up_req <= 0; ack <= 1; rdata <= up_rdata;
+          end else if (up_req && up_ack) begin
+            up_req <= 0; up_got <= 1; rdata <= up_rdata;
           end
+          if (up_got && vram_due) ack <= 1;                // SDRAM later than the fourth clock delays it
         end else begin
-          cyc <= cyc + 1'b1;
-          if (cyc == 2'd1) begin
+          if (cyc != 2'd3) cyc <= cyc + 1'b1;
+          if (cyc != 2'd0 && (!a_vram || vram_due)) begin  // block RAM's read lands on the second clock
             ack <= 1;
             rdata <= in_bram ? cpu_vq :
                      a_rom   ? {rom_q, 24'h0} :
