@@ -27815,6 +27815,30 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   (USE_DBG_PROBES) - ~2,000+ ALMs and its JTAG hold padding that no IIci
   build would ship. Next: the same test without the deck (release-like),
   ~45 min, Daniel's go-ahead (over 30 min). Logs: build_20261111_211322.log.
+  TEST COMPILE 3 (Daniel's go-ahead; SE30_KCLK, the deck out): 38 min,
+  ROUTED, 38,593 ALMs (92 %), 358 M10K, router 43 % (peak 78 %), hold
+  padding 2e3 ns. Slow 100C, per clock pair (clk_sys 50, clk_k 25, clk_mem
+  150):
+  - clk_k -> clk_k (the whole kernel, PMMU and ALU, every-clock logic
+    included): MET, +5.683 ns at 40 ns. WAY B HOLDS: the CPU itself runs
+    at 25 MHz on this device.
+  - clk_sys -> clk_k: -6.809, 3,113 endpoints: r_ea_h (the pace) -6.8 and
+    dsack_r -5.6 into the kernel, the cache -1.1 - exactly stage 1's
+    items 1 and 5 (latch at the phi1 edge, p_due registered there, then
+    a multicycle).
+  - clk_k -> clk_sys: -4.292, 4,654 endpoints: the kernel's outputs into
+    the cache (-4.3), the FPU (-3.9), din_r, SWIM, SCC, ASC, SCSI, VIAs,
+    GLUE, video (-0.8). STA sees the address/data/FC/SIZ cone reach every
+    device register in one clk_sys; the bus holds them for clocks before
+    any strobe. NEW stage-1 item 7: register the kernel's bus outputs in
+    the wrapper (the 68030's own S0/S1 timing has the address valid a
+    half clock before AS*), so the devices see wrapper registers.
+  - clk_k -> clk_mem: -13.0, the kernel's write data into the SDRAM
+    controller's xs_wdata - the xs_ multicycle names clk_sys as its
+    source; item 7's registers make it clk_sys again.
+  - clk_sys -> clk_sys: -0.929, 13 endpoints inside the FPU. clk_mem
+    internal (-3.1) is the undesigned 150 MHz SDRAM, not this test's.
+  Log: output_files/sta_corners_MacSE30_iici_kclk2.log.
 - *REPOSITORY LAYOUT (Daniel, 2026-11-11: "same repo").* The IIci stays in
   this repository, but where it differs it gets files of its own:
   MacIIci.qpf/.qsf/.sv, an iici_machine.v, its MDU, RBV and SDRAM
