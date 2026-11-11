@@ -27583,9 +27583,10 @@ the revision needs doing first"; "Keep both passes" (CACR 0 and $2101);
   release 7a2a5a5 = releases/MacSE30_20261110.rbf (df1e1314) and
   MacIIcx_20261110.rbf (8cac4f28), the dd486fb RC builds; main 220748d
   'Release 20261110: NetBSD, IIcx video card timing', one squashed commit,
-  tree = release's minus the old prerelease rbf (as 20261107). NOT PUSHED:
-  danielb0 (main, release, dev) and MiSTer-devel (`git push mister
-  main:master`) on Daniel's OK; then the forum note, the completion block.
+  tree = release's minus the old prerelease rbf (as 20261107). PUSHED TO
+  danielb0 (main, release, dev) 2026-11-11 on Daniel's OK; MiSTer-devel
+  (`git push mister main:master`) on his later OK; then the forum note, the
+  completion block. Then the README's Working list: NetBSD 11.1 (Daniel).
 
 **END OF SESSION 2026-11-10 (~17:00, Daniel closed it) - READ THIS TO RESUME.**
 The NetBSD chapter is finished on the core side. KNOWN ISSUES 62, 63 and 64
