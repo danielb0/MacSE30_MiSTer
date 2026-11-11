@@ -1,5 +1,7 @@
 # NetBSD problem-report drafts (three kernel findings from the SE/30 core)
 
+**Daniel, 2026-11-11: report the bugs, submit no code.** Each Fix section describes the change or points to NetBSD's own (the atari driver's 2008 change; tnn's rasops.c 1.130); no patches are attached.
+
 Daniel, 2026-11-10: "We should definitely file reports on all three patches."
 Drafts for the NetBSD send-pr form (https://www.netbsd.org/support/send-pr.html);
 each becomes one PR. Facts from SE30_PLAN.md KNOWN ISSUES 62, 63, 64. All
@@ -88,7 +90,7 @@ already issued fixes for the same problems"):**
 
 **How to repeat:** Boot GENERIC on an SE/30 or IIcx with a SCSI disk at ID 0 or 1; the boot stops at "waiting for devices: scsibus0 sd0". Boot GENERICSBC on the same machine: it boots.
 
-**Fix:** Do not set XS_STS_DONE in finish_req(); let scsipi_done() do it. The atari copy of this driver lost the same line in 2008 after a Falcon SCSI freeze report (port-atari 2008-10-25, "scsipi_done() bails out early if XS_STS_DONE is set"; pulled up to netbsd-4 2008-11-06). The mac68k copy (trunk 1.72) still has it.
+**Fix:** No patch attached. The fix appears to be the change NetBSD already made to the atari copy of this driver in 2008, after a Falcon SCSI freeze report (port-atari 2008-10-25, "scsipi_done() bails out early if XS_STS_DONE is set"; pulled up to netbsd-4 2008-11-06): leave XS_STS_DONE to scsipi_done() instead of setting it in finish_req(). The mac68k copy (trunk 1.72) still sets it. Tested: the 11.1 release GENERIC kernel with that one statement disabled attaches sd0 and boots multi-user on the same machines.
 
 ---
 
@@ -102,7 +104,7 @@ already issued fixes for the same problems"):**
 
 **How to repeat:** Boot netbsd-WSFBSBC with Booter 2.0.0 on an SE/30 (1-bit) or a IIcx with a Toby card; panic at ~5.8 s in dk_getdisklabel. Compare bytes at 0x1D607 of the loaded kernel.
 
-**Fix:** In the Booter's ELF symbol lookup use st_value (offset 4 of Elf32_Sym), not st_name (offset 0). In the 2.0.0a10 source (the plain-text copy at ftp.causeuse.org/pub/NetBSD/macbsd_booter/) that is videocard.c set_video_info(): it writes the vector at `buf + offsetOfKernelString("_mac68k_vrsrc_vec")`, the string-table offset, where kernel_parse.c's kernelStringToAddress() (st_value) should be used, as the `_mac68k_vrsrc_cnt` poke there does; in the 2.0.0 release both values land at st_name, so the released kernel_parse.c should be checked too. Workaround for users: rename the two symbols in .strtab (same length), or use an a.out kernel.
+**Fix:** No patch attached. The Booter's ELF symbol lookup should use the symbol's st_value (offset 4 of Elf32_Sym), not st_name (offset 0). In the 2.0.0a10 source (the plain-text copy at ftp.causeuse.org/pub/NetBSD/macbsd_booter/) that is videocard.c set_video_info(): it writes the vector at `buf + offsetOfKernelString("_mac68k_vrsrc_vec")`, the string-table offset, where kernel_parse.c's kernelStringToAddress() (st_value) should be used, as the `_mac68k_vrsrc_cnt` poke there does; in the 2.0.0 release both values land at st_name, so the released kernel_parse.c should be checked too. Workaround for users: rename the two symbols in .strtab (same length), or use an a.out kernel. Possibly the same bug: port-mac68k 2026-05-21 ("Disk errors on PowerBook 180"), a kernel built -Os that panics at startup only with an external monitor connected, and works built -O2 - a layout-dependent panic tied to a second display, as a stray write into kernel text would give.
 
 ---
 
@@ -116,4 +118,4 @@ already issued fixes for the same problems"):**
 
 **How to repeat:** Boot WSFBSBC on any 1-bit mac68k (SE/30 in Black & White): the kernel boots to multi-user with a blank screen and a visible cursor; typing moves the cursor and draws nothing.
 
-**Fix:** Already in -current: rasops.c 1.130 sets fg = WSCOL_LIGHT_WHITE, bg = WSCOL_BLACK (cvs rdiff -u -r1.129 -r1.130 src/sys/dev/rasops/rasops.c). Pull it up to netbsd-11 (and netbsd-11-1 if a 11.1 patch branch takes it). Verified equivalent here: a two-byte patch of the 11.1 kernel's constants (0xff -> 0x0f) makes the 1-bit console draw on the SE/30.
+**Fix:** No patch needed - already in -current: rasops.c 1.130 sets fg = WSCOL_LIGHT_WHITE, bg = WSCOL_BLACK (cvs rdiff -u -r1.129 -r1.130 src/sys/dev/rasops/rasops.c). Pull it up to netbsd-11 (and netbsd-11-1 if a 11.1 patch branch takes it). Verified equivalent here: a two-byte patch of the 11.1 kernel's constants (0xff -> 0x0f) makes the 1-bit console draw on the SE/30.
