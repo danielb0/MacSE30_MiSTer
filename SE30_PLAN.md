@@ -27668,6 +27668,21 @@ proving the kernel closes timing at the clk_sys a paced 25 MHz 68030 needs
 (today 31.3344 MHz with a 16 MHz enable). Proposed: the work on a branch
 `iici` from dev, as the IIcx had.
 
+**END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
+- RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
+  commit); release 38f582a; the regression passed every line; both RCs
+  board-checked. The forum note is drafted and approved - Daniel posts it
+  once update_all has the release. Task Scheduler: no SE30_ tasks left.
+- STATE AT RELEASE 20261110 (above) is the SE/30 and IIcx baseline.
+- NEXT PROJECT: the IIci, a third machine in this repository (FUTURE
+  ADDITIONS 8). First step: one test compile proving the kernel closes
+  timing at the clk_sys a paced 25 MHz 68030 needs. Proposed branch `iici`.
+  Not started. NetBSD on a IIci hits PR 58164 (RBV memory mapping).
+- NetBSD reports (netbsd_pr_drafts.md): report the bugs, submit no code
+  (Daniel). PRs only, no mailing-list post. Still Daniel's to decide: a
+  "reported for information, no further testing" closing line, and whether
+  to mention the AI help. He files.
+
 **END OF SESSION 2026-11-10 (~17:00, Daniel closed it) - READ THIS TO RESUME.**
 The NetBSD chapter is finished on the core side. KNOWN ISSUES 62, 63 and 64
 are all NetBSD's: 62 ncrscsi's finish_req (GENERIC hangs at sd0; the SBC
