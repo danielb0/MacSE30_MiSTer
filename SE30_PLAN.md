@@ -27587,6 +27587,12 @@ the revision needs doing first"; "Keep both passes" (CACR 0 and $2101);
   danielb0 (main, release, dev) 2026-11-11 on Daniel's OK; MiSTer-devel
   (`git push mister main:master`) on his later OK; then the forum note, the
   completion block. Then the README's Working list: NetBSD 11.1 (Daniel).
+- **RELEASED 20261110 (2026-11-11, Daniel's OK):** main squashed to ONE
+  commit 82aff53 (the release, the README line, the changelog's testing
+  section - tree unchanged), force-pushed to danielb0, pushed to MiSTer-devel
+  master (550614c..82aff53, 8 commits). Next: the forum note, the STATE AT
+  COMPLETION block, the Task Scheduler clean-up (SE30_revreg, SE30_revreg2,
+  SE30_iswrerun) on Daniel's OK.
 
 **END OF SESSION 2026-11-10 (~17:00, Daniel closed it) - READ THIS TO RESUME.**
 The NetBSD chapter is finished on the core side. KNOWN ISSUES 62, 63 and 64
