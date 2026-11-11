@@ -27875,7 +27875,8 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   (3) M10K: a 128 KB card is ~105 M10K + tags; with the screen also in
   block RAM (~300) it exceeds 553, so the RBV scans its screen from
   SDRAM, as the real IIci reads bank A. The cache-card OSD option gets a
-  size (32 KB Apple / 128 KB, the reference's) - Daniel's to confirm.
+  size (32 KB Apple / 128 KB, the reference's) - CONFIRMED by Daniel
+  2026-11-11: OSD Off / 32 KB / 128 KB, one design, the size a setting.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
