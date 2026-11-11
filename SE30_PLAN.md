@@ -27825,6 +27825,20 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   merges only after an identical-build check on the SE/30 and the IIcx
   (same ALMs, same timing) and their benches. Not in se30_machine.v or
   MacSE30.sv as switches beyond the test build's.
+- *THE CACHE CARD IN THE FIRST IIci RELEASE (Daniel, 2026-11-11), an OSD
+  option, on/off.* Apple's 32 KB IIci Cache Card on the 120-pin cache
+  connector (Guide 2e ch. 5 pp. 223-227, Table 5-8): CACHE inhibits the
+  MDU; a hit is 2 clocks; a miss asserts BERR + HALT (the 68030's retry)
+  and costs 7 more clocks, the card filling as the CPU rereads from RAM
+  (burst 5-2-2-2); writes go to RAM, the card updating or invalidating;
+  enable/disable/flush by RBV VIA2 PB bits via HWPriv selectors 4-6;
+  registers and test space $52000000-$52FFFFFF, 32-bit map only. Built
+  in the IIci's memory logic, not as a bus retry: a miss is answered 7
+  clocks later with RAM's data - the same timing and result, no CPU
+  change. ~30 M10K (32 KB data + tags), from the freed Toby VRAM and IIcx
+  ROM. IIci only: the IIcx has no cache connector. Norton's reference
+  IIci figures (and whether its machine had the card) are wanted from
+  Daniel as the target.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
