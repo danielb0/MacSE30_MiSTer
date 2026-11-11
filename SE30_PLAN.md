@@ -27697,6 +27697,23 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   (3 x 50 = 150 MHz exceeds the CL2 controller and its capture) is a
   separate IIci design question. Logs: output_files/sta_corners_MacSE30_iici_t20.log,
   build_20261111_184855.log.
+- *CORRECTION, same evening (full paths read before any RTL change):* the
+  pace is only the first third of the worst path. r_ea_h reaches
+  pace_stall at 15.0 ns, then k_beat_valid -> the kernel's clkena_lw ->
+  memaddr_a -> the register file -> ALU -> OP1out: 17 ns INSIDE the kernel
+  from its step enable. dsack_r -> room/n -> trapmake -> setstate is the
+  same shape (-4.5), and the cache's data -> k_din -> fetch_lane ->
+  data_read -> v_regfile is 24.5 ns from the cache register. The kernel
+  uses its inputs (clkena, beat_valid, dsack, din) deep in its own
+  combinational cones, and a wrapper register launched at a phi2 edge
+  meets them at the next phi1 edge: one 20 ns clock, of which those cones
+  take 17-20. Registering p_due alone gains ~9 ns and leaves ~-4.5. The
+  real job is the kernel's input boundary: either its inputs launched at
+  the phi1 edge (stable the whole CPU clock, a true 40 ns two-clock path;
+  costs an acknowledge one clk_sys earlier in the wrapper's S-state
+  pipeline, to keep bus timing) or the kernel's input cones registered
+  (a kernel change: the CPU-change batching rule and its sweep chain).
+  Daniel's decision; no RTL changed.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
