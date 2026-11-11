@@ -27859,15 +27859,23 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   if it gives one. Video 25.4 = built-in video on the processor bus, no
   NuBus (the SE/30's built-in 26.9; the IIcx's NuBus card 14.8). The
   completion yardstick (within ~2 %) applies to the IIci as Norton's
-  reference machine was set up.
-  Norton's details (Daniel): "128K cache" - most likely the Memory control
-  panel's disk cache (the IIcx run's setup reads "128 K cache" the same
-  way), not a card (Apple's IIci card is 32 KB; third-party cards came
-  larger) - Daniel to check the wording and the screen depth. And:
-  performance "significantly higher" in 1-bit video - the RBV's refresh
-  of bank A and the drawing both scale with depth, so the IIci's memory
-  model must carry a depth-dependent refresh cost; the reference's depth
-  decides the target.
+  reference machine was set up (below).
+  NORTON'S REFERENCE MACHINE, from its own Info window (Daniel's
+  screenshot, C:/temp/Mac/Screenshots/20261111_231825-screen.png; System
+  Info 3.0, 6/22/94): "Has 128K cache card"; built-in video, 640 x 480,
+  8 bit; 68030 @ 25 MHz, 68882; 32-bit; VM off; Modern Memory Manager off;
+  disk (RAM) cache 128 K; AppleTalk inactive. Its notes: "performance on
+  all benchmarks is significantly poorer than when using 1 bit video",
+  and the depth of built-in video "can affect all test results on some
+  machines, not just video tests". So: (1) the target is a IIci WITH a
+  128 KB card (larger than Apple's 32 KB; the Guide's timing - hit 2
+  clocks, miss +7 - is its "typical cache card"'s, capacity aside);
+  (2) CPU 9.95 = 1.39x the IIcx even with the card - the 8-bit RBV
+  refresh's memory cost is large and must be modelled, depth-dependent;
+  (3) M10K: a 128 KB card is ~105 M10K + tags; with the screen also in
+  block RAM (~300) it exceeds 553, so the RBV scans its screen from
+  SDRAM, as the real IIci reads bank A. The cache-card OSD option gets a
+  size (32 KB Apple / 128 KB, the reference's) - Daniel's to confirm.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
