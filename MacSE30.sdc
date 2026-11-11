@@ -181,22 +181,10 @@ set_multicycle_path -hold  -end 1 -from $fpu_apu1 -to $fpu_apu1
 # requirement the timing-driven placer and router can never meet and, under
 # High Performance Effort, never stop trying to (the post-map TimeQuest run
 # of 2026-10-10, plan 14.3).  The SE/30 build has no such clock and skips this.
-if {[llength [get_clocks -nowarn {emu|pll|pll_inst|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk}]] > 0} {
+# (The iici branch's SE30_KCLK test build puts the kernel's clk_k, 25 MHz,
+# on the same output: a related clock, timed as such - told apart from the
+# card's 30.2 MHz by its period.)
+set pix_c [get_clocks -nowarn {emu|pll|pll_inst|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk}]
+if {[llength $pix_c] > 0 && [get_clock_info -period $pix_c] < 35.0} {
   set_clock_groups -asynchronous -group [get_clocks {emu|pll|pll_inst|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk}]
 }
-
-# IIci TIMING TEST (branch iici only, 2026-11-11; SE30_PLAN.md FUTURE
-# ADDITIONS 8): does the core close at the clk_sys a paced 25 MHz 68030
-# needs - 50 MHz, a 20 ns period - without moving the PLL?  Every clk_sys
-# path into the core (emu:emu, not the framework's sys/ side) is held to
-# 20 ns; the kernel's own paths and the FPU APU's get two periods, 40 ns,
-# because they advance only on an enable every other clk_sys (k_clkena =
-# phi1; the APU's multicycle above, which a max delay would override).
-# The SDRAM crossings keep their constraints: the IIci's memory clock is
-# its own design question.  Not for any release.
-set clk_sys_c [get_clocks {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
-set iici_kern [get_keepers {emu:emu|se30_machine:machine|tg68k:cpu|TG68KdotC_Kernel:kernel|*}]
-set iici_core [remove_from_collection [get_keepers {emu:emu|*}] [get_keepers {emu:emu|se30_sdram:sdram|*}]]
-set_max_delay 20.0 -from $clk_sys_c -to $iici_core
-set_max_delay 40.0 -from $iici_kern -to $iici_kern
-set_max_delay 40.0 -from $fpu_apu1 -to $fpu_apu1

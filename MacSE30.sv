@@ -305,6 +305,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 // C16M's edges, one clk_sys each, alternating.
 
 wire clk_sys, clk_mem, clk_sdc, clk_capa, clk_capb, pll_locked;
+wire clk_k;                 // SE30_KCLK only: the CPU kernel's clock (below)
 // The IIcx card's dot clock, clk_pix: the book's 30.24 MHz (864 x 525 at
 // 66.67 Hz) as near as the main PLL gives it - 30.2153 MHz, its sixth
 // output (rtl/pll; -0.082 %, the card's frame 66.61 Hz).  A PLL of its own
@@ -324,14 +325,31 @@ pll pll
 	.outclk_2(clk_sdc),
 	.outclk_3(clk_capa),
 	.outclk_4(clk_capb),
-`ifdef MACIICX
+`ifdef SE30_KCLK
+	.outclk_5(clk_k),
+`elsif MACIICX
 	.outclk_5(clk_pix),
 `endif
 	.locked(pll_locked)
 );
 
+// SE30_KCLK (branch iici, the IIci timing test; tg68k.v CLOCKING): the
+// kernel runs on clk_k, the CPU clock at half clk_sys from the same PLL,
+// and phi follows it: phi2 is the clk_sys clock after a clk_k rising edge
+// (tk toggled at that edge, not yet copied), phi1 the clock that ends at
+// the next one.
+`ifdef SE30_KCLK
+localparam KCLK = 1;
+reg tk = 0, tk_q = 0;
+always @(posedge clk_k) tk <= ~tk;
+always @(posedge clk_sys) tk_q <= tk;
+wire phi = tk ^ tk_q;
+`else
+localparam KCLK = 0;
+assign clk_k = 1'b0;
 reg phi = 0;
 always @(posedge clk_sys) phi <= ~phi;
+`endif
 wire phi1 = ~phi;
 wire phi2 = phi;
 
@@ -839,9 +857,9 @@ end
 // before the ADB mouse takes them (rtl/se30_adb_dev.v, se30_mouse_speed).
 se30_mouse_speed mouse_speed (.clk(clk_sys), .speed(status[7:6]), .ps2_in(ps2_mouse), .ps2_out(ps2_mouse_s));
 
-se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .IICX(IICX)) machine
+se30_machine #(.EXT_DRIVE(EXT_DRIVE), .CDROM_EN(CDROM_EN), .KCLK(KCLK), .IICX(IICX)) machine
 (
-	.clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram_size(ram_size),
+	.clk(clk_sys), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(machine_reset_n), .ram_size(ram_size),
 	.mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
 	.mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
 	.declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),

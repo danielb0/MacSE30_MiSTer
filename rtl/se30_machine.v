@@ -80,9 +80,11 @@ module se30_machine #(
   parameter FPU_UCODE   = "rtl/fpu/ucode/",  // the 68882's microcode images (the benches: ../../rtl/fpu/ucode/)
   parameter EXT_DRIVE   = 1,                 // the external FDHD on /ENBL2 (plan 5.14; a build option, 10.4 item 3: MacSE30.sv passes 0 unless SE30_EXT_DRIVE is defined)
   parameter CDROM_EN    = 1,                 // the CD-ROM at SCSI ID 3 (plan Section 12; MacSE30.sv passes 0 when SE30_NO_CDROM is defined)
+  parameter KCLK        = 0,                 // 1: the CPU kernel on clk_k (tg68k.v CLOCKING; the IIci's 25 MHz)
   parameter IICX        = 0                  // the Macintosh IIcx build (plan Section 14): the card in slot $9 for the 1-bit video, its identity lines
 ) (
   input         clk,
+  input         clk_k,                 // KCLK: the CPU clock, clk / 2, rising at the end of each phi1 clk
   input         phi1,
   input         phi2,
   input         reset_n,
@@ -252,8 +254,8 @@ module se30_machine #(
   wire  [1:0] cpu_siz, dsack_n;
   wire        cpu_cdis;                // CDIS*: VIA2 PB0 low disables the caches (below, plan 1.16)
 
-  tg68k cpu (
-    .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
+  tg68k #(.KCLK(KCLK)) cpu (
+    .clk(clk), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(cpu_cdis), .coff(dbg_coff), .pace_en(pace_en), .post_en(1'b1), .reset_out_n(reset_out_n), .halted(halted),

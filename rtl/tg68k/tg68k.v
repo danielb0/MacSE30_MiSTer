@@ -70,11 +70,21 @@
 //   clk is 2 x C16M; phi1 marks C16M's rising edge and phi2 its falling
 //   edge, one clk each, alternating.  The kernel is clocked by clk and
 //   advanced by clkena.  GLUE runs on clk with c16_en = phi1.
+//   KCLK = 1 (the IIci's 25 MHz, SE30_PLAN.md IIci TIMING TEST 1, way B):
+//   the kernel, its PMMU and ALU run on clk_k, the CPU clock itself - half
+//   clk, phase-aligned, its rising edge the end of each phi1 clk - so every
+//   path inside them has a whole CPU clock, and logic of theirs that ran
+//   every clk (the PMMU's walker and fast set) now runs every CPU clock.
+//   clkena is the same terms without phi1 (the kernel samples them only at
+//   its own edges); a pulse to the kernel lasts until the next phi1 edge.
 
 `timescale 1ns/1ps
 
-module tg68k (
+module tg68k #(
+  parameter KCLK = 0                   // 1: the kernel on clk_k (CLOCKING above)
+) (
   input         clk,                   // 2 x C16M
+  input         clk_k,                 // KCLK: the CPU clock, clk / 2, rising at the end of each phi1 clk
   input         phi1,                  // C16M rising edge
   input         phi2,                  // C16M falling edge
   input         reset_n,
@@ -123,6 +133,12 @@ module tg68k (
 
   // ------------------------------------------------------------- kernel
   wire        k_clkena, k_beat_valid;
+  wire        k_clk, k_clkena_in, k_go;
+  generate if (KCLK) begin : g_kclk
+    assign k_clk = clk_k; assign k_clkena_in = k_go;
+  end else begin : g_kclk
+    assign k_clk = clk;   assign k_clkena_in = k_clkena;
+  end endgenerate
   wire [31:0] k_din, k_dout, k_addr, k_addr_log, k_cacr, k_cache_op_addr;
   wire        k_ci, k_rmc, k_wronly, k_dibsub;
   wire  [1:0] k_dsack, k_busstate, k_siz;
@@ -150,7 +166,7 @@ module tg68k (
     .SR_Read(2), .VBR_Stackframe(2), .extAddr_Mode(2), .MUL_Mode(2), .DIV_Mode(2),
     .BitField(2), .BarrelShifter(2), .MUL_Hardware(1), .DATA_WIDTH(32)
   ) kernel (
-    .clk(clk), .nReset(reset_n), .clkena_in(k_clkena), .beat_valid(k_beat_valid),
+    .clk(k_clk), .nReset(reset_n), .clkena_in(k_clkena_in), .beat_valid(k_beat_valid),
     .data_in(k_din), .dsack(k_dsack), .IPL(ipl_n), .IPL_autovector(1'b1), .berr(k_berr), .CPU(2'b10),
     .addr_out(k_addr), .addr_log_out(k_addr_log), .data_write(k_dout), .siz(k_siz), .nWr(k_nwr),
     .CACR_out(k_cacr), .cache_op_addr(k_cache_op_addr), .pmmu_cache_inhibit(k_ci), .rmc_out(k_rmc), .wronly_rd_out(k_wronly), .dib_sub_out(k_dibsub),
@@ -359,7 +375,7 @@ module tg68k (
       hit_ack <= 0; hit_d <= 0; hit_z <= 0; cyc_fill <= 0; cyc_dfill <= 0; cyc_la <= 0; cyc_fc <= 0;
       post <= 0; post_ack <= 0; pb_addr <= 0; pb_dout <= 0; pb_lanes <= 0; pb_lane <= 0; pb_n <= 0; pb_rem <= 0; pb_fc <= 0;
     end else begin
-      w_ack <= 0;
+      if (!KCLK || phi1) w_ack <= 0;                                   // KCLK: held to the kernel's edge
       if (phi1) begin
         ack_pending <= 0; ack_berr <= 0; hit_ack <= 0; post_ack <= 0;
         // a completed walker beat: more beats, or the descriptor is in
@@ -436,7 +452,8 @@ module tg68k (
   wire k_cycle_ack = (ack_pending || hit_ack || post_ack) && !walk;
   wire k_internal  = (k_busstate == 2'b01) && !k_pmmu_busy && !w_req && !walk && !pace_stall;
   wire k_force     = k_pmmu_fault && !walk && (s == 3'd0) && !ack_pending && !post;
-  assign k_clkena     = phi1 && (k_cycle_ack || k_internal || k_force);
+  assign k_go         = k_cycle_ack || k_internal || k_force;
+  assign k_clkena     = phi1 && k_go;
   assign k_beat_valid = k_cycle_ack || k_internal;
   assign k_din   = !hit_ack ? din_r : hit_z ? 32'h0 : hit_d ? d_q : i_q;
   // JTRACE (KNOWN ISSUES 22): every beat the kernel takes, with where its

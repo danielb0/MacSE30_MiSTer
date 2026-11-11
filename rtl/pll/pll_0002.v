@@ -32,6 +32,12 @@ module  pll_0002(
 	// interface 'outclk4'
 	output wire outclk_4,
 `ifdef MACIICX
+`define SE30_PLL6
+`endif
+`ifdef SE30_KCLK
+`define SE30_PLL6
+`endif
+`ifdef SE30_PLL6
 	// interface 'outclk5' - the IIcx card's dot clock (KNOWN ISSUES 24)
 	output wire outclk_5,
 `endif
@@ -43,39 +49,72 @@ module  pll_0002(
 		.fractional_vco_multiplier("true"),
 		.reference_clock_frequency("50.0 MHz"),
 		.operation_mode("direct"),
-`ifdef MACIICX
+`ifdef SE30_KCLK
+		.number_of_clocks(6),
+`elsif MACIICX
 		.number_of_clocks(6),
 `else
 		.number_of_clocks(5),
 `endif
+`ifdef SE30_KCLK
+		// IIci TIMING TEST (branch iici, SE30_PLAN.md): clk_sys 50, the
+		// kernel's clk_k 25 (output 5), the SDRAM's 150 - for STA only, the
+		// SDRAM's phases not designed (its timing is not this test's)
+		.output_clock_frequency0("50.000000 MHz"),
+`else
 		.output_clock_frequency0("31.334400 MHz"),
+`endif
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
+`ifdef SE30_KCLK
+		.output_clock_frequency1("150.000000 MHz"),
+`else
 		.output_clock_frequency1("94.003200 MHz"),
+`endif
 		.phase_shift1("0 ps"),
 		.duty_cycle1(50),
+`ifdef SE30_KCLK
+		.output_clock_frequency2("150.000000 MHz"),
+`else
 		.output_clock_frequency2("94.003200 MHz"),
-`ifdef MACIICX
+`endif
+`ifdef SE30_KCLK
+		.phase_shift2("1042 ps"),
+`elsif MACIICX
 		.phase_shift2("1034 ps"),
 `else
 		.phase_shift2("1064 ps"),
 `endif
 		.duty_cycle2(50),
+`ifdef SE30_KCLK
+		.output_clock_frequency3("150.000000 MHz"),
+`else
 		.output_clock_frequency3("94.003200 MHz"),
-`ifdef MACIICX
+`endif
+`ifdef SE30_KCLK
+		.phase_shift3("4167 ps"),
+`elsif MACIICX
 		.phase_shift3("10342 ps"),
 `else
 		.phase_shift3("10372 ps"),
 `endif
 		.duty_cycle3(50),
+`ifdef SE30_KCLK
+		.output_clock_frequency4("150.000000 MHz"),
+`else
 		.output_clock_frequency4("94.003200 MHz"),
-`ifdef MACIICX
+`endif
+`ifdef SE30_KCLK
+		.phase_shift4("6250 ps"),
+`elsif MACIICX
 		.phase_shift4("8419 ps"),
 `else
 		.phase_shift4("8377 ps"),
 `endif
 		.duty_cycle4(50),
-`ifdef MACIICX
+`ifdef SE30_KCLK
+		.output_clock_frequency5("25.000000 MHz"),
+`elsif MACIICX
 		.output_clock_frequency5("30.2153142857 MHz"),
 `else
 		.output_clock_frequency5("0 MHz"),
@@ -122,7 +161,7 @@ module  pll_0002(
 		.pll_subtype("General")
 	) altera_pll_i (
 		.rst	(rst),
-`ifdef MACIICX
+`ifdef SE30_PLL6
 		.outclk	({outclk_5, outclk_4, outclk_3, outclk_2, outclk_1, outclk_0}),
 `else
 		.outclk	({outclk_4, outclk_3, outclk_2, outclk_1, outclk_0}),

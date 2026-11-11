@@ -51,6 +51,9 @@ module tb_se30_machine;
   // the IIcx build (plan 14.3 step 4): run.sh's IICX=1 sets this; the same
   // ROM, the same checks, the card in slot $9 in place of the 1-bit video
   parameter IICX = 0;
+  // KCLK=1 (run.sh): the kernel on its own clock, clk_k = clk_sys / 2 (tg68k.v
+  // CLOCKING; the IIci work), phi from it as MacSE30.sv's SE30_KCLK makes it
+  parameter KCLK = 0;
   // the memory (plan 13.6): RAM_SIZE 0-3 = 8/16/32/64 MB, on a MODULE_MB
   // 32/64/128 MB module (64 and 128: 1024-column chips; 128: a second chip
   // on the inverted nCS, as tb_se30_sdram has it)
@@ -60,8 +63,8 @@ module tb_se30_machine;
 
   reg clk_mem = 0;
   always #5.319 clk_mem = ~clk_mem;
-  reg clk_sys = 0;
-  always #15.957 clk_sys = ~clk_sys;
+  reg clk_sys = 0, clk_k = 0;
+  always begin #15.957 clk_sys = ~clk_sys; if (clk_sys) clk_k = ~clk_k; end   // one process: no race between the two
   // transport delays (an assign's delay is inertial and would swallow a
   // 5.3 ns pulse behind a delay longer than that)
   reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
@@ -70,8 +73,11 @@ module tb_se30_machine;
     clk_capa <= #(10.372) clk_mem;                     // 0.266 ns before the next clk_mem edge
     clk_capb <= #(8.377)  clk_mem;                     // 2.261 ns before
   end
-  reg phi = 0;
-  always @(posedge clk_sys) phi <= ~phi;
+  reg phi_t = 0, tk = 0, tk_q = 0;
+  always @(posedge clk_sys) phi_t <= ~phi_t;
+  always @(posedge clk_k) tk <= ~tk;
+  always @(posedge clk_sys) tk_q <= tk;
+  wire phi = KCLK ? (tk ^ tk_q) : phi_t;
   wire phi1 = !phi, phi2 = phi;
   reg sdram_reset_n = 0, reset_n = 0;
 
@@ -135,9 +141,9 @@ module tb_se30_machine;
   wire  [1:0] dsack_n;
   wire        cpu_as_n, cpu_rw_n, berr, halted, reset_out_n;
 
-  se30_machine #(.DECLROM_HEX("declrom.hex"), .FPU_UCODE("../../rtl/fpu/ucode/"), .IICX(IICX)) machine (
+  se30_machine #(.DECLROM_HEX("declrom.hex"), .FPU_UCODE("../../rtl/fpu/ucode/"), .KCLK(KCLK), .IICX(IICX)) machine (
     .dbg_coff(2'b00),
-    .clk(clk_sys), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .ram_size(RAM_SIZE[1:0]),
+    .clk(clk_sys), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .ram_size(RAM_SIZE[1:0]),
     .mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
     .mem_be(mem_be), .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack),
     .declrom_we(1'b0), .declrom_waddr(13'd0), .declrom_wdata(8'd0),

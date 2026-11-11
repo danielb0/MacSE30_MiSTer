@@ -44,6 +44,12 @@ module pll (
 		output wire  outclk_3, // outclk3.clk
 		output wire  outclk_4, // outclk4.clk
 `ifdef MACIICX
+`define SE30_PLL6
+`endif
+`ifdef SE30_KCLK
+`define SE30_PLL6
+`endif
+`ifdef SE30_PLL6
 		output wire  outclk_5, // outclk5.clk - the IIcx card's dot clock
 `endif
 		output wire  locked    //  locked.export
@@ -57,7 +63,7 @@ module pll (
 		.outclk_2 (outclk_2), // outclk2.clk
 		.outclk_3 (outclk_3), // outclk3.clk
 		.outclk_4 (outclk_4), // outclk4.clk
-`ifdef MACIICX
+`ifdef SE30_PLL6
 		.outclk_5 (outclk_5), // outclk5.clk
 `endif
 		.locked   (locked)    //  locked.export
