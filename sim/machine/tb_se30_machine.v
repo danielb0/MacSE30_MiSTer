@@ -362,6 +362,9 @@ module tb_se30_machine;
     check(machine.dbg_regs[63:32] === 32'h0, "... with D6 = 0: no start-up test has failed (plan 3.8 item 23)");
     check(chip.errors == 0, "the SDRAM model saw no datasheet violation");
 
+`ifdef EARLYMON
+    $display("EARLYMON reads %0d, differ %0d (data %0d, dsack %0d, berr %0d)", em_n, em_bad, em_bad_d, em_bad_ds, em_bad_be);
+`endif
     if (fails == 0) $display("==== PASS: %0d checks, the machine runs the ROM from reset into its RAM tests, none failed", pass);
     else $display("==== FAIL: %0d of %0d checks failed", fails, pass + fails);
     $finish;
@@ -372,5 +375,41 @@ module tb_se30_machine;
     $display("==== FAIL: timeout");
     $finish;
   end
+
+`ifdef EARLYMON
+  // IIci timing (SE30_PLAN.md, IIci TIMING TEST 1): would the wrapper latch
+  // the same read data, DSACK and BERR one clk earlier - at the phi1 edge
+  // that ends S4's first half (s 4 -> 5) instead of the phi2 edge at S5?
+  // Every acknowledged read (not posted, not CPU space answered locally)
+  // is compared; the first mismatches per address region are printed.
+  reg  [31:0] em_din; reg [1:0] em_ds; reg em_be; reg em_ok;
+  integer em_n = 0, em_bad = 0, em_bad_d = 0, em_bad_ds = 0, em_bad_be = 0;
+  reg [7:0] em_seen [0:255];
+  integer em_i;
+  initial for (em_i = 0; em_i < 256; em_i = em_i + 1) em_seen[em_i] = 0;
+  always @(posedge machine.cpu.clk) begin
+    if (machine.cpu.phi1 && machine.cpu.s == 3'd4) begin
+      em_din <= machine.cpu.cpu_din; em_ds <= machine.cpu.dsack_n; em_be <= machine.cpu.berr; em_ok <= 1'b1;
+    end
+    if (machine.cpu.phi2 && machine.cpu.s == 3'd5 && !machine.cpu.post && em_ok) begin
+      em_ok <= 1'b0;
+      if (machine.cpu.cpu_rw_n) begin
+        em_n = em_n + 1;
+        if (em_din !== machine.cpu.cpu_din || em_ds !== machine.cpu.dsack_n || em_be !== machine.cpu.berr) begin
+          em_bad = em_bad + 1;
+          if (em_din !== machine.cpu.cpu_din) em_bad_d = em_bad_d + 1;
+          if (em_ds !== machine.cpu.dsack_n) em_bad_ds = em_bad_ds + 1;
+          if (em_be !== machine.cpu.berr) em_bad_be = em_bad_be + 1;
+          if (em_seen[machine.cpu.cpu_addr[31:24]] < 3) begin
+            em_seen[machine.cpu.cpu_addr[31:24]] = em_seen[machine.cpu.cpu_addr[31:24]] + 1;
+            $display("EARLYMON %t addr %08x fc %0d siz %0d: early din %08x ds %b be %b / S5 din %08x ds %b be %b",
+                     $time, machine.cpu.cpu_addr, machine.cpu.cpu_fc, machine.cpu.cpu_siz,
+                     em_din, em_ds, em_be, machine.cpu.cpu_din, machine.cpu.dsack_n, machine.cpu.berr);
+          end
+        end
+      end
+    end
+  end
+`endif
 
 endmodule

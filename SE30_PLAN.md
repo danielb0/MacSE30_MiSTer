@@ -27714,6 +27714,58 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   pipeline, to keep bus timing) or the kernel's input cones registered
   (a kernel change: the CPU-change batching rule and its sweep chain).
   Daniel's decision; no RTL changed.
+- *Daniel chose the wrapper (2026-11-11).* DESIGN (not built):
+  The rule: every wrapper register the kernel reads (its clkena and
+  beat_valid terms, din, dsack, berr, the hit select) changes only at a
+  phi1 edge, and the kernel's step at phi1 edge P is fixed by edge P-2.
+  Then one SDC multicycle (2, from those registers to the kernel) is true
+  by construction and the kernel's 17-20 ns input cones get 40 ns. The
+  kernel is untouched. Kernel -> wrapper stays one clock (worst -1.6 ns
+  after the test fit, a placement matter).
+  Per handover:
+  1. A bus cycle's end (reads and waited writes, the bulk): today din,
+     dsack and ack_pending are latched at S5 (the phi2 edge ending S4) and
+     the kernel steps at the next phi1. New: latch at the phi1 edge one
+     clk before (s 4 -> 5, the middle of S4); the kernel still steps at
+     the same edge, so the bus timing does not move. Valid only if every
+     port's data, DSACK and BERR are already final there. CHECKED: by
+     construction every port registers its data on the clock it asserts
+     DSACK (GLUE's memory din_r and device dev_q with `done`; the FPU's
+     dout with its dsack; the NuChip's rdata with S_ACK; the SE/30 card's
+     cpu_q every C16M from a fixed address), and GLUE's timeout BERR is
+     masked by `done`. And by bench: sim/machine +define+EARLYMON
+     (VLOGARGS) compares the early and the S5 values on every
+     acknowledged read - SE/30 and IIcx boots, 2,980 reads each, 0
+     differences in data, DSACK or BERR. The S5 credits of the pace move
+     to the same edge.
+  2. A bus error seen in the wait states (s == 3, a phi2 edge, as the
+     68030 samples it): cannot be a clock earlier without sampling early.
+     Proposed: the kernel takes it one CPU clock later (rare; an
+     exception's start, invisible to benchmarks).
+  3. A cache hit (decided at the phi2 edge after the kernel's request,
+     answered at the next phi1): the cache's M10K reads the address at
+     that phi2 edge, so its data reaches the kernel in one clock (the
+     -4.1 path). Either a hit costs one more CPU clock (cached code
+     slower - against Norton's 2 %, to measure), or the two 256-byte
+     caches move to MLAB with an asynchronous read (hit and data a
+     function of the kernel's address, launched at the phi1 edge: two
+     clocks; ~100-200 ALMs, M10K freed). Recommended: MLAB.
+  4. A posted write's early acknowledge (post_ack, set at the S1 take, a
+     phi2 edge): same shape as the hit; it depends on s and post, which
+     change at phi2 edges. Either one more CPU clock per posted write
+     (RAM writes slower - to measure), or the S1 decision made from
+     phi1-launched terms only. Open.
+  5. The pace: p_due registered at phi1 edges from the credits of item 1;
+     needs the kernel never to reach a decode beat at the first phi1 after
+     a release (the r_* decoder is settled one phi1 later) - the code
+     says so ("settled two clocks before the earliest next decision"),
+     to assert in the benches.
+  6. The walker's w_ack/w_data: already set at phi1 edges.
+  The cost to judge is items 2-4's clocks; the benches that measure them:
+  sim/system timetest (the UM's windows) and Norton on the board.
+  Order proposed: items 1, 5, 6 and the SDC first (no timing change by
+  design; benches must show identical release clocks), then a test
+  compile, then 3 and 4 with their measurements.
 
 **END OF SESSION 2026-11-11 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - RELEASED 20261110: MiSTer-devel master = danielb0 main = 82aff53 (one
