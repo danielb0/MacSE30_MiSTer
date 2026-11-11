@@ -27594,6 +27594,80 @@ the revision needs doing first"; "Keep both passes" (CACR 0 and $2101);
   COMPLETION block, the Task Scheduler clean-up (SE30_revreg, SE30_revreg2,
   SE30_iswrerun) on Daniel's OK.
 
+**STATE AT RELEASE 20261110 - THE SE/30 AND THE IIcx (written 2026-11-11):
+THE BASELINE FOR THE IIci.** Daniel, 2026-11-11: a IIci is next (FUTURE
+ADDITIONS 8: a third Quartus project in this repository). This block records
+the two released machines as they stand, so that IIci work on shared files is
+measured against them.
+
+*Released.* MiSTer-devel master = danielb0 main = 82aff53 (one commit per
+release, 8 commits). releases/MacSE30_20261110.rbf (df1e1314) and
+MacIIcx_20261110.rbf (8cac4f28), built from the release tree dd486fb
+(C:/Git/MacSE30_rc, branch release): the RTL token-identical to dev b130a75,
+MacSE30.sv without the probes. Timing: the IIcx met every corner; the SE/30
+every corner but the framework's ascal (KNOWN ISSUES 6). Board-checked by
+Daniel 2026-11-11 (NetBSD on both; the IIcx in colour and 1-bit).
+
+*The completion criteria (Daniel, 2026-11-07: NetBSD runs, Norton within ~2 %).*
+- NetBSD 11.1 installs and runs multi-user on both machines with the SBC
+  kernels; the console and X11 run on both with the patched kernel. KNOWN
+  ISSUES 62, 63 and 64 are NetBSD's (reports drafted in netbsd_pr_drafts.md,
+  for Daniel to file).
+- Norton CPU 1.01 on both (SE/30 7.18 against 7.13, IIcx 7.2 against 7.14);
+  Overall SE/30 1.00, IIcx 1.03. Outside 2 %, each decided: FPU 0.95 on both
+  (KNOWN ISSUES 60, parked); SE/30 Video 0.95; IIcx Video 1.20 (17.8 against
+  14.8; KNOWN ISSUES 61, parked - Norton's reference IIcx has the
+  High-Resolution Video Card, not the Toby); Disk fast by rule (KNOWN ISSUES 2).
+
+*Open, accepted or parked (and why).*
+- 1 Speedometer Math ~13-16 % fast: accepted (SANE and Toolbox code missing
+  the I-cache; the 68882 is under 1 % of the test).
+- 2 Disk faster than a real machine: by rule, never paced.
+- 3 File thread records left on delete: the ROM's (MAME leaves the same).
+- 5 The 68882's atypical operands' clock counts: no document gives them.
+- 6 The framework's ascal misses timing on some fits: not our logic.
+- 18 A pseudo-DMA access waiting too long for DRQ: the real machine bus
+  errors (the Guide's SCSI chapter), ours waits; open.
+- 33 Commando's intermittent bus error under A/UX: not reproduced; "watch,
+  not chase".
+- 42, 43, 45 PMMU forms with no known software path (a full-format EA,
+  PMOVE.W (xxx).L to MMUSR, PMOVE with Dn/An): deferred.
+- 54 HyperCard's quits under VM: parked; explained by 59 if never seen again.
+- 56 (an FPU operand's split long reruns its first cycle) and 57 (RTE does
+  not validate its frame): accepted and documented in the kernel and
+  TG68K_030_changelog.md; to fix before the CPU is offered (FUTURE ADDITIONS 12).
+- 60 (the FPU 5-8 % slow) and 61 (the Toby's residual): parked 2026-11-08,
+  compliant with the documentation; reopen only with real-hardware figures.
+- The changelog's "Known open" list (the CAS/TAS M bit, a bus-error frame's
+  pipe-stage words, completion's 32 operands, a rerun repeating earlier
+  accesses, a five-byte bit field's fifth byte, a trace owed under T0).
+Closed as authentic or not the core: 10, 12, 15, 16, 44, 46 (a), 55, 58,
+62, 63, 64.
+
+*Where the tests live.*
+- The regression: sim/run_regression.sh (phase1; phase2 with CACRS 0 and
+  0x2101), 74 lines, about 9 h 8-wide; every case on disk as it ends,
+  RESUME=1 (sim/sweep_lib.sh). It passed every line on dev 097c8e4
+  (2026-11-11; the arming preamble and the other gaps of 2026-11-05 in it).
+- The seam benches, one directory a block under sim/: adb, asc, busfault,
+  busfault_dib, busfault_irq, cache030, cpfpu, fdhd, flpdec/flpenc/flpload/
+  flpmux/flpwr, fpu, gcrread/gcrwrite, glue, kernel_bus, machine (both
+  machines from reset), mfmread/mfmwrite, mmu16, ncr53c80, nubus, pdma_berr,
+  pic, pmmu_rom_contract, power, pram, predec_fault, rtc, scc, scc_seam,
+  scsi_seam, sdram, simms, swim, system, via, video.
+- Builds: scripts/build_only.sh, then scripts/sta_corners.tcl (timing met = every
+  corner); a release tree cut from dev with the probes out and the comments
+  in the release style.
+
+*For the IIci.* A IIci change to a file the SE/30 or the IIcx also uses
+reruns that file's benches on both released machines and the regression lines
+that cover it ("the IIcx only where it differs", extended to a third
+machine); a change that moves a figure above is a regression unless Daniel
+decides otherwise. The first step, before any design: one test compile
+proving the kernel closes timing at the clk_sys a paced 25 MHz 68030 needs
+(today 31.3344 MHz with a 16 MHz enable). Proposed: the work on a branch
+`iici` from dev, as the IIcx had.
+
 **END OF SESSION 2026-11-10 (~17:00, Daniel closed it) - READ THIS TO RESUME.**
 The NetBSD chapter is finished on the core side. KNOWN ISSUES 62, 63 and 64
 are all NetBSD's: 62 ncrscsi's finish_req (GENERIC hangs at sd0; the SBC
