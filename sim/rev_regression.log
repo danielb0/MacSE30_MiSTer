@@ -1,0 +1,10 @@
+[11-10 22:23] rev_regression: waiting for the release builds and any simulators
+[11-10 22:23] rev_regression: start on dev 41aac6c
+[11-11 09:01] rev_regression2: resume on dev 097c8e4 - the $2101 pass and the tail
+[11-11 12:27] isw_rerun: waiting for rev_regression2 to finish
+[11-11 13:46] rev_regression2: after 284 min: ==== regression: 73 / 74 lines pass
+  not passed: ==== isweep: 207 / 209 PASS CACR=0x2101 ARMEXT=r ./run_isweep.sh
+[11-11 13:46] rev_regression2: done
+[11-11 13:46] isw_rerun: start - run_isweep.sh CACR=0x2101 ARMEXT=r
+[11-11 14:00] isw_rerun: after 14 min: ==== isweep: 209 / 209 PASS
+[11-11 14:00] isw_rerun: done

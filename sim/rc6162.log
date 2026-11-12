@@ -1,0 +1,8 @@
+[11-10 19:47] rc6162: builds start on release dd486fb (dd486fb Release tree: dev's changes since the 20261107 release - KNOWN)
+[11-10 20:21] MacSE30: compile rc=0 after 34 min: Logic utilization (in ALMs) : 38,375 / 41,910 ( 92 % ) 
+[11-10 20:22] MacSE30: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): -0.147 ns  *** TIMING NOT MET *** the capture: at every corner at least one of A and B is met on setup and hold 
+[11-10 20:22] MacSE30: archived output_files/MacSE30_dd486fb_rc.rbf md5 df1e1314
+[11-10 21:00] MacIIcx: compile rc=0 after 37 min: Logic utilization (in ALMs) : 38,844 / 41,910 ( 93 % ) 
+[11-10 21:01] MacIIcx: sta_corners: worst slack over every corner, the capture excepted (the capture chain, the SDRAM pins, every register-to-register path): 0.036 ns  (met at every corner) the capture: at every corner at least one of A and B is met on setup and hold 
+[11-10 21:01] MacIIcx: archived output_files/MacIIcx_dd486fb_rc.rbf md5 8cac4f28
+[11-10 21:01] rc6162: done; release tree status: 
