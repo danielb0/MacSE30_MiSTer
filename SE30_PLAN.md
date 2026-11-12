@@ -28295,6 +28295,48 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   IIcx. Logs: output_files/build_20261112_221015.log,
   sta_corners_MacSE30_iici_kclk7.log, k7_*.txt. MacSE30.qsf restored.
 
+**END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
+- Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,
+  bcee411 its plan block). One untracked file, sim/regression.log.2_cacr0
+  (the release regression's CACR = 0 part; its siblings are ignored) -
+  Daniel has not said keep or delete.
+- DONE THIS SESSION (the blocks above, in order: "REVIEW AND FIX", "ITEM 7
+  BUILT", "THE 68882 AT 25 MHz"):
+  - compile 4's miss and loop fixed: the kernel's DSACK and data picked
+    by registers, the hit only in the step enable (test compile 5);
+  - item 7: the bus in clk_k registers (kb_*), the devices on phi2,
+    DSACK*/BERR sampled at the phi1 edge (test compile 6: every kernel
+    clock pair met);
+  - the 68882: the APU's datapath built to what the microcode runs, no
+    clock count changed (test compile 7: clk_sys +3.1).
+  AT 25 MHz THE CPU, ITS BUS AND THE FPU MEET in the SE30_KCLK vehicle;
+  only the vehicle's own 150 MHz SDRAM controller fails (-2.2).
+- NEXT, in this order (told to Daniel, not yet answered as an order):
+  (1) harden the thin take: clk_k -> clk_sys is +0.07 ns (the kernel ->
+      the wrapper's berr_hold and pb_dout, phi2-edge registers): write
+      them from clk_k (berr_hold clears at phi1; the posted write's data
+      from kb_dout); the same KTRACE benches; about an hour.
+  (2) the IIci section of this plan FROM THE DOCUMENTATION, before RTL:
+      the MDU's RAM/ROM cycle lengths at 25 MHz and an SDRAM controller
+      for a 50 MHz clk_sys that starts from the registered bus; the RBV
+      (video from SDRAM, its VIA2, the refresh cost Norton's figures
+      carry); the cache card (Off / 32 KB / 128 KB; hit 2 clocks, miss
+      +7); the 512 KB ROM and the machine's own files (MacIIci project,
+      iici_machine.v). The Guide's IIci chapters are not read yet; ask
+      Daniel for any MDU/RBV documents and the ROM image.
+  (3) build: memory first, then the RBV, then the cache card.
+- DECIDED BY DANIEL (2026-11-12): no SE/30 or IIcx build from this branch
+  yet - "When the IIci is completed, we will incorporate any useful
+  improvements into the IIcx and SE/30 as well." So no identical-build
+  check, board test or merge of the shared files to dev until then.
+- The vehicle's bitstream (output_files/MacSE30.rbf, compile 7) is not for
+  the board: 150 MHz SDRAM, every device clock 1.6 times fast, no deck.
+- Benches as they stand: sim/system and sim/machine take KCLK (and KBUS
+  for a reference wrapper); reference = sim/machine/ref_tg68k_berrlate.v;
+  compare with ktrace_cmp_masked.py (line for line) or ktrace_steps.py
+  (kernel steps; the vehicle's memory cycles are five clocks). The traces
+  are not kept (regenerate: machine 2 min a boot, system ~35 min).
+
 **END OF SESSION 2026-11-12 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - Branch `iici`, stage 1 RTL UNCOMMITTED in the working tree (tg68k.v,
   se30_cache030.v ASYNC, sim/machine + sim/system tb/run.sh KTRACE hooks,
