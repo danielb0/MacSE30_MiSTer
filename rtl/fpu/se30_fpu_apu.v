@@ -22,6 +22,23 @@
 //   constraints give its paths two clk; only the next address, p1 to p0,
 //   is a one-clk path.
 //
+// THE SHORT PATHS (the IIci's 25 MHz FPU clock: 40 ns a microinstruction)
+//   The datapath in a line - A, the round logic, B, the barrel shifter, the
+//   ALU, the leading-zero count, the normalising shift - is 43 ns, and no
+//   microinstruction runs it: the microcode never shifts or exchanges the
+//   round logic's increment and mask, and normalises only an operand an ALU
+//   pass hands on (alu=passa, or alu=passb of an unshifted B) - never a sum.
+//   asm.py's word_rules and sim.py hold every word to that, and this file is
+//   built to it: RINC and RMASK join B after the barrel shifter, and the
+//   normaliser reads its operand from the source, beside the ALU.  The
+//   leading-zero count is a tree (a byte's count, the first nonzero byte).
+//   The bench's assertion (SIMULATION) fails a word that breaks the rule.
+//   No register is retimed (dont_retime): every one the datapath writes
+//   changes only at a p1 edge, which is what its two-clk constraint says -
+//   a register the fitter moves through its enable does not (the IIci test
+//   compile 6: lzc, and a copy of the enable merged with a register outside
+//   this module, outside the constraint).
+//
 // THE SEQUENCER (8.8.12, fields.SEQ and WAITMODE)
 //   NEXT, JUMP, CALL and RET (a four-deep µPC stack), BRT/BRF on a
 //   condition, DISP (a dispatch key ORed into the target), and WAIT: HOLD
@@ -69,6 +86,7 @@
 `timescale 1ns/1ps
 `include "fpu_ucode.vh"
 
+(* dont_retime *)
 module se30_fpu_apu #(
   parameter UROM_HEX  = "ucode.urom.hex",
   parameter NROM_HEX  = "ucode.nrom.hex",
@@ -473,8 +491,8 @@ module se30_fpu_apu #(
                                (booth_mag == 3'd2) ? {md[65:0], 1'b0} :
                                (booth_mag == 3'd3) ? md3 :
                                (booth_mag == 3'd4) ? {md[64:0], 2'b00} : 67'd0};
-      `NANO_BSRC_RINC:  b_w = {19'd0, rinc};
-      `NANO_BSRC_RMASK: b_w = {19'd0, rmask};
+      `NANO_BSRC_RINC,
+      `NANO_BSRC_RMASK: b_w = 86'd0;                // the round logic's: into b_m after the shifter (THE SHORT PATHS)
       `NANO_BSRC_SQT:   b_w = {19'd0, {q[65:0], 1'b0} | ((sqt_f ? 67'd3 : 67'd1) << lc)};
       `NANO_BSRC_Q:     b_w = {19'd0, q};
       `NANO_BSRC_SC:    b_w = {1'b0, 11'd0, sc, 60'd0, sc};
@@ -520,6 +538,9 @@ module se30_fpu_apu #(
       end
       default: ;
     endcase
+    // the round logic's increment and mask, never shifted (THE SHORT PATHS)
+    if (n_bsrc == `NANO_BSRC_RINC)  b_m = rinc;
+    if (n_bsrc == `NANO_BSRC_RMASK) b_m = rmask;
   end
   wire        b_s = b_w[85];
   wire [17:0] b_e = b_w[84:67];
@@ -576,20 +597,47 @@ module se30_fpu_apu #(
     end
   end
 
-  function [6:0] lzc67;            // leading zeros; 67 for zero
-    input [66:0] v;
-    integer i;
-    reg found;
+  function [2:0] lzc8;             // a byte's leading zeros (0 for a zero byte: not read)
+    input [7:0] b;
+    casez (b)
+      8'b1???????: lzc8 = 3'd0;
+      8'b01??????: lzc8 = 3'd1;
+      8'b001?????: lzc8 = 3'd2;
+      8'b0001????: lzc8 = 3'd3;
+      8'b00001???: lzc8 = 3'd4;
+      8'b000001??: lzc8 = 3'd5;
+      8'b0000001?: lzc8 = 3'd6;
+      8'b00000001: lzc8 = 3'd7;
+      default:     lzc8 = 3'd0;
+    endcase
+  endfunction
+  function [6:0] lzc67;            // leading zeros; 67 for zero.  A tree: each byte's
+    input [66:0] v;                // count, then the first nonzero byte's (THE SHORT PATHS)
+    reg [71:0] x;                  // v and five ones: the last byte is never zero, and counts 3 for v = 0
+    reg [8:0]  nz;
+    reg [3:0]  idx;
+    reg [2:0]  lz;
     begin
-      lzc67 = 7'd67;
-      found = 1'b0;
-      for (i = 66; i >= 0; i = i - 1)
-        if (!found && v[i]) begin
-          lzc67 = 7'd66 - i[6:0];
-          found = 1'b1;
-        end
+      x = {v, 5'b11111};
+      nz = {|x[71:64], |x[63:56], |x[55:48], |x[47:40], |x[39:32], |x[31:24], |x[23:16], |x[15:8], |x[7:0]};
+      casez (nz)
+        9'b1????????: begin idx = 4'd0; lz = lzc8(x[71:64]); end
+        9'b01???????: begin idx = 4'd1; lz = lzc8(x[63:56]); end
+        9'b001??????: begin idx = 4'd2; lz = lzc8(x[55:48]); end
+        9'b0001?????: begin idx = 4'd3; lz = lzc8(x[47:40]); end
+        9'b00001????: begin idx = 4'd4; lz = lzc8(x[39:32]); end
+        9'b000001???: begin idx = 4'd5; lz = lzc8(x[31:24]); end
+        9'b0000001??: begin idx = 4'd6; lz = lzc8(x[23:16]); end
+        9'b00000001?: begin idx = 4'd7; lz = lzc8(x[15:8]);  end
+        default:      begin idx = 4'd8; lz = lzc8(x[7:0]);   end
+      endcase
+      lzc67 = {idx, lz};
     end
   endfunction
+  // the normaliser's operand: what the ALU's pass hands on, read at the
+  // source (THE SHORT PATHS) - A, or B as it enters the barrel shifter
+  wire [66:0] nrm_src = (n_alu == `NANO_ALU_PASSB) ? b_w[66:0] : a_m;
+  wire [6:0]  nrm_lz  = lzc67(nrm_src);
 
   // -- the output shifter and the result word ----------------------------------
   reg [66:0] r2;
@@ -612,7 +660,7 @@ module se30_fpu_apu #(
         `NANO_OSH_R1:  begin r2 = ru[67:1]; dropped = r[0]; end
         `NANO_OSH_R3Q: begin r2 = rs[69:3]; qx_n = q[2]; q_n = {rs[2:0], q[66:3]}; end
         `NANO_OSH_QBIT: if (lc < 8'd67) q_n = q | ({66'd0, ~n_n} << lc);
-        `NANO_OSH_NORM: begin norm = (r == 67'd0) ? 7'd0 : lzc67(r); r2 = r << norm; end
+        `NANO_OSH_NORM: begin norm = (nrm_src == 67'd0) ? 7'd0 : nrm_lz; r2 = nrm_src << norm; end
         default: ;
       endcase
     case (n_sgn)
@@ -1043,5 +1091,16 @@ module se30_fpu_apu #(
     if (p1 && exec && (fp_bad || sh_neg))
       $display("SIMERR at $%03h: %s", upc, fp_bad ? "FP write with an exponent outside 0-$7FFF"
                                                   : "shift amount LC-SC negative");
+  // THE SHORT PATHS: a word the datapath is not built for
+  wire rnd_b   = (n_bsrc == `NANO_BSRC_RINC) || (n_bsrc == `NANO_BSRC_RMASK);
+  wire b_moved = (n_shk != `NANO_SHK_NONE) || (n_bx != `NANO_BX_NONE);
+  always @(posedge clk)
+    if (p1 && exec) begin
+      if (rnd_b && b_moved)
+        $display("SIMERR at $%03h: b=RINC/RMASK shifted or exchanged", upc);
+      if (n_osh == `NANO_OSH_NORM && !exp_mode && !alu_nop &&
+          !((n_alu == `NANO_ALU_PASSA || n_alu == `NANO_ALU_PASSB) && !b_moved && !rnd_b))
+        $display("SIMERR at $%03h: osh=norm of anything but a passed operand", upc);
+    end
 `endif
 endmodule

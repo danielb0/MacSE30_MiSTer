@@ -401,10 +401,14 @@ class Chip:
         elif bsrc == 'RINC':
             if e['rnd'] == 'NONE':
                 raise SimError('b=RINC with rnd=none')
+            if e['shk'] != 'NONE' or e['bx'] != 'NONE':
+                raise SimError('b=RINC shifted or exchanged')
             B = Word(0, 0, rinc)
         elif bsrc == 'RMASK':
             if e['rnd'] == 'NONE':
                 raise SimError('b=RMASK with rnd=none')
+            if e['shk'] != 'NONE' or e['bx'] != 'NONE':
+                raise SimError('b=RMASK shifted or exchanged')
             B = Word(0, 0, rmask)
         elif bsrc == 'SQT':
             f = {'PREVN': self.N, 'DFLAG': self.DFLAG}.get(dflag_src)
@@ -530,6 +534,9 @@ class Chip:
             elif osh == 'QBIT':
                 self.Q |= (1 - N) << self.LC
             elif osh == 'NORM':
+                # the normaliser's operand is the passed source itself (asm.word_rules)
+                if op not in ('PASSA', 'PASSB') or shk != 'NONE' or bx != 'NONE' or bsrc in ('RINC', 'RMASK'):
+                    raise SimError('osh=norm of anything but a passed operand')
                 norm = 67 - r.bit_length() if r else 0
                 r2 = (r << norm) & M67
         # the result word

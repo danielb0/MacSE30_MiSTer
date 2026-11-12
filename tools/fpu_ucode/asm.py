@@ -349,6 +349,16 @@ def word_rules(u):
         raise AsmError('%s: b=SQT takes its suffix from dir=prevn or dir=dflag' % u.loc)
     if n('bsrc') in ('RINC', 'RMASK') and n('rnd', 'NONE') == 'NONE':
         raise AsmError('%s: b=%s needs a rnd= mode' % (u.loc, n('bsrc')))
+    # The datapath's long way round is not built (se30_fpu_apu.v, THE SHORT
+    # PATHS): the round logic's increment and mask join B after the barrel
+    # shifter and the exchange, and the normaliser takes its operand straight
+    # from the source an ALU pass hands on - never a sum, a shifted or an
+    # exchanged B, or the round logic's.
+    if n('bsrc') in ('RINC', 'RMASK') and (n('shk', 'NONE') != 'NONE' or n('bx', 'NONE') != 'NONE'):
+        raise AsmError('%s: b=%s is not shifted or exchanged (it joins B after the barrel shifter)' % (u.loc, n('bsrc')))
+    if n('osh', 'NONE') == 'NORM' and (n('alu', 'NOP') not in ('PASSA', 'PASSB') or n('shk', 'NONE') != 'NONE'
+                                       or n('bx', 'NONE') != 'NONE' or n('bsrc') in ('RINC', 'RMASK')):
+        raise AsmError('%s: osh=norm normalises a passed operand (alu=passa, or alu=passb of an unshifted B)' % u.loc)
     # A constant sharing its word (consts.py) is read by its own field only.
     field = consts.FIELDS.get(u.kname)
     mode, bx = n('emode', 'MANT'), n('bx', 'NONE')
