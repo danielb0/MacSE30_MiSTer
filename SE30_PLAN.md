@@ -28137,6 +28137,99 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   -> device path is then kernel -> a clk_k register (40 ns) -> the device.
   In reserve if compile 5 leaves the step enable short: (A)'s hit without
   the PMMU's busy term.
+- *ITEM 7 BUILT (2026-11-12, late; Daniel: "Go ahead with item 7"): THE BUS
+  IN clk_k REGISTERS, THE DEVICES A clk BEHIND.* tg68k.v under KCLK only
+  (KCLK = 0 untouched: the machine bench passes as before).
+  FIRST, what compile 5's netlist says of the wrapper's own take (the
+  phi2-edge registers that read the kernel: as_n_r, s, post, pb_*, cyc_*):
+  no failing path ends in the wrapper - its worst are din_r +0.80 and
+  berr_hold +0.90, both through GLUE. All 1,358 failures end in device
+  registers (FPU fk, SCC fs/fd, ASC cnt, SWIM tcnt). So the take stays
+  where it is and only what the devices see is registered.
+  THE DESIGN:
+  - kb_ registers on clk_k: a cycle taken at Q(n) (S1) is on the bus from
+    P(n+1) - address, FC, SIZ, R/W, write data, AS* and a read's DS*
+    together, a clk after today's S1 (kb_as_n/kb_ds_n follow as_n_r/ds_n_r
+    a clk behind at both ends); ECS is that first clk. Every kernel ->
+    device path is kernel -> kb_ (40 ns) -> the device.
+  - The devices run a clk behind: their C16M enable is phi2 (se30_machine.v
+    c16_en = KCLK ? phi2 : phi1, for GLUE, the FPU, the VIAs, the video,
+    SCC, SCSI, ASC, SWIM, ADB; MacSE30.sv CE_PIXEL the same). They see
+    today's bus, 20 ns later.
+  - DSACK*, BERR and the data are taken at the phi1 edge after the phi2
+    edge that samples them today (kc_end, at s == 3; every port registers
+    its data on the clock it asserts DSACK*): the kk_ registers take the
+    cycle's end there, S5 follows at Q with the values of that edge
+    (e_berr, e_dsack, kk_din). So a cycle is as many CPU clocks as today,
+    and the kernel sees what stage 1 gave it, clock for clock.
+  - A bus error in the wait states needs no states 6 and 7 now (gone): it
+    is sampled like DSACK* and reaches the kernel at the same clock as
+    stage 1's replay did (one CPU clock after HEAD); no data latched, no
+    pace credit, as before.
+  - The interrupt level through a clk_k register (kk_ipl): the devices'
+    requests now move at phi2 edges, a true 20 ns path into the kernel's
+    IPL cone (-0.56 in compile 5). No bench shows the clock it adds.
+  - The interrupt acknowledge and the no-coprocessor BERR, terminated in
+    the wrapper, keep their clocks.
+  THE TEST VEHICLE'S MEMORY (SE30_KCLK only, not the IIci's): the SDRAM
+  controller started on ECS, a clk before AS*, from the kernel's own
+  address (the -10.5 ns path). From registers it starts with AS*
+  (mem_req masked for ECS's clk so the request still follows the start),
+  3 clk_mem too late for GLUE's sample: A RAM OR ROM CYCLE IS FIVE CLOCKS
+  IN THE VEHICLE, four today. The IIci's own memory controller is new
+  (the MDU's cycle lengths, the SDRAM at its own clock) and is designed to
+  this bus. MacSE30.sdc: the xs_* registers' second-edge credit also from
+  clk_k (the kb_ registers move at a clk_sys edge).
+  BENCHES (KTRACE against the berr-late reference, regenerated):
+  - sim/system KCLK = 1, all eleven, the bench's GLUE, video and RAM model
+    on phi2 (tb cen; KBUS = 0 keeps phi1 for a reference wrapper at KCLK =
+    1): all PASS, and LINE FOR LINE identical to the reference in every
+    program - timetest 431,556 lines with its table walks, vramtest
+    84,811, berrtest's two bus errors, plain's interrupt - but for one
+    extra line at the end (the bench sees the STOP a clock later;
+    ktrace_cmp_masked.py reports it apart).
+  - sim/machine KCLK = 1, SE/30 and IIcx: PASS 17 checks, the meter told
+    that a memory cycle is five clocks under KCLK and that its phi1
+    sampler now sees the ROM's own $58000000 probe bus-error (AS* low a
+    clk longer; the kernel takes it in both builds, at clock 826 in
+    both). Step for step (ktrace_steps.py: the clocks the kernel waits
+    dropped) 6,413 kernel steps, 0 differ, both machines. KCLK = 0 SE/30:
+    PASS.
+  TEST COMPILE 6 (SE30_KCLK, the deck out; 38 min): ROUTED, 38,999 ALMs
+  (93 %), 353 M10K, no loop. EVERY PAIR OF THE KERNEL'S CLOCK IS MET. Slow
+  100C (compile 5 in brackets):
+  - clk_k -> clk_k +6.275 (+4.840)
+  - clk_sys -> clk_k +1.068 (-0.563): the pace's credits -> kk_pgo_pn
+  - clk_k -> clk_sys +1.776 (-0.431): the kernel -> the wrapper's
+    berr_hold; no device register among them
+  - clk_k -> clk_mem +0.657 (-10.528): tk -> the controller's phi_q; the
+    bus itself kb_addr -> xs_addr +4.0
+  - clk_sys -> clk_mem +0.877, clk_mem -> clk_sys +0.446
+  The corners (sta_corners): both fast corners meet every register-to-
+  register path (+1.1 / +1.5); slow -40C is -13.184 design-wide (the FPU,
+  below) - the kernel's pairs were listed per pair at slow 100C only.
+  NOT MET, and not the kernel's: clk_sys -> clk_sys -13.473, 60 paths,
+  ALL inside the FPU, VGA_scanlines|ce1 -> apu|lzc. The fitter retimed the
+  APU's lzc register back through its enable (lzc[3]_NEW...), made a
+  registered copy of the enable p1 for it, and merged that copy with the
+  scaler's ce1 (the same signal a clk later: CE_PIXEL and the FPU's ce are
+  one phase). ce1 is outside MacSE30.sdc's APU set (*|se30_fpu_apu:apu|*),
+  so that path lost the APU's two-clock credit. With the credit given to
+  it (STA on the same netlist, scratch k6_whatif.tcl) the pair's worst is
+  -4.328: the FPU's microcode ROM -> its datapath -> lzc, a one-clk path
+  (p0 read to p1 write) that compiles 3 to 5 had at -0.9 to -1.4 and this
+  fit, with lzc retimed, has worse. clk_mem's own -2.3 and the capture
+  clocks' -1.4 are the undesigned 150 MHz SDRAM, as before.
+  VERDICT: the CPU and its bus are closed at 25 MHz - nothing of the
+  kernel's, into it or out of it, fails at the slow 100C corner or the fast ones (slow -40C: not listed per pair). What stands between
+  this vehicle and a met build is the 68882 at 25 MHz (its ROM -> datapath
+  path in one 20 ns clk, and an APU constraint that survives retiming)
+  and the IIci's own memory. NEXT (Daniel): commit; then the FPU at 25 MHz
+  or the IIci machine files (MDU, RBV, memory), his order.
+  Logs: output_files/build_20261112_210352.log,
+  sta_corners_MacSE30_iici_kclk6.log, k6_*.txt. MacSE30.qsf restored;
+  output_files/MacSE30.rbf is this test build - not for the board (its
+  RAM cycles are five clocks).
 
 **END OF SESSION 2026-11-12 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - Branch `iici`, stage 1 RTL UNCOMMITTED in the working tree (tg68k.v,
