@@ -65,7 +65,7 @@ for run in ${RUNS:-plain cacheon cachewa cachetest vramtest lanetest berrtest ti
     tracecache) log=run_tracecache.log; args="+PROG=tracecache +TRACETEST" ;;
   esac
   [ -n "$TAG" ] && { log=${log%.log}_$TAG.log; args="$args +KTRACE=kt_${run}_$TAG.txt"; }
-  "$MODELSIM/vsim.exe" -c -quiet -gKCLK=${KCLK:-0} $args -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_system > $log 2>&1
+  "$MODELSIM/vsim.exe" -c -quiet -gKCLK=${KCLK:-0} -gKBUS=${KBUS:-${KCLK:-0}} $args -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_system > $log 2>&1
   echo "-- $run"
   grep -E '^# (---- |==== |FAIL )' $log | sed 's/^# //'
   grep -q '^# ==== PASS' $log || ok=1

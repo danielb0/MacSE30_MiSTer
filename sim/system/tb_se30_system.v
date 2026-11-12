@@ -93,6 +93,10 @@ module tb_se30_system;
   always begin #15.9574 clk = ~clk; if (clk) clk_k = !phi; end   // 31.3344 MHz; one process: no race
   always @(posedge clk) phi <= ~phi;
   wire phi1 = !phi, phi2 = phi;
+  // the devices' C16M enable: under KCLK they run a clk behind, on phi2, as
+  // se30_machine.v runs them (tg68k.v item 7: the bus in clk_k registers)
+  parameter KBUS = KCLK;                 // 0 with KCLK = 1: a wrapper without the registered bus (the reference)
+  wire cen = KBUS ? phi2 : phi1;
   reg reset_n = 0;
   reg pace_en = 1;                         // +NOPACE: the kernel unpaced (plan 1.17.5)
   reg post_en = 1;                         // +NOPOST: every write waited for (plan 1.17.7)
@@ -167,13 +171,13 @@ module tb_se30_system;
   // VIA1's interrupt, as the program asks: raised by its write to $3080,
   // dropped by the handler's write to $3084
   reg         via1_irq_n = 1;
-  always @(posedge clk) if (phi1 && !cpu_as_n && !cpu_rw_n && dsack_n != 2'b11) begin
+  always @(posedge clk) if (cen && !cpu_as_n && !cpu_rw_n && dsack_n != 2'b11) begin
     if (cpu_addr == 32'h3080) via1_irq_n <= 0;
     if (cpu_addr == 32'h3084) via1_irq_n <= 1;
   end
 
   se30_glue glue (
-    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .clk(clk), .c16_en(cen), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc),
     .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n),
@@ -193,7 +197,7 @@ module tb_se30_system;
   // for the vramtest run; the other programs never reach it
   wire        vid_out, vid_hs, vid_vs, vid_hb, vid_vb, vid_irq6_n;
   se30_video video (
-    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .clk(clk), .c16_en(cen), .reset_n(reset_n),
     .declrom_we(1'b0), .declrom_waddr(13'd0), .declrom_wdata(8'h00),
     .sel(vid_sel), .as_n(cpu_as_n), .ds_n(cpu_ds_n), .rw(cpu_rw_n), .addr(cpu_addr[16:0]),
     .din(dev_wdata), .dout(vid_dout), .dsack0_n(vid_dsack0_n),
@@ -202,7 +206,7 @@ module tb_se30_system;
 
   // HSYNC* as the video PALs make it (only the UI6 timeout cares)
   integer px = 0;
-  always @(posedge clk) if (phi1) begin
+  always @(posedge clk) if (cen) begin
     px <= (px == 703) ? 0 : px + 1;
     hsync_n <= !((px + 1 >= 535) || (px + 1 < 119));
   end
@@ -212,7 +216,7 @@ module tb_se30_system;
   reg [15:0] img [0:65535];
   reg [31:0] ram [0:32767];
   integer i;
-  always @(posedge clk) if (phi1) begin
+  always @(posedge clk) if (cen) begin
     ram_ack <= 0;
     if (ram_req && !ram_ack) begin
       if (ram_we) begin

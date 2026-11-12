@@ -902,7 +902,7 @@ assign LED_DISK = {1'b0, dbg_swim[15] | dbg_fdhd2[15]};   // either drive's moto
 
 // The IIcx: the card's own dot clock, a pixel every clock (clk_pix, above).
 assign CLK_VIDEO = IICX ? clk_pix : clk_sys;
-assign CE_PIXEL  = IICX ? 1'b1 : phi1;
+assign CE_PIXEL  = IICX ? 1'b1 : KCLK ? phi2 : phi1;   // KCLK: the devices' C16M enable is phi2 (se30_machine.v)
 
 // 512 x 342 at square pixels, the SE/30's own image (256:171, as
 // MacPlus has it; plan 3.5); the IIcx's card, 640 x 480 (4:3).  The

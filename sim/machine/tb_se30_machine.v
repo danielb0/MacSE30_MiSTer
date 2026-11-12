@@ -54,6 +54,7 @@ module tb_se30_machine;
   // KCLK=1 (run.sh): the kernel on its own clock, clk_k = clk_sys / 2 (tg68k.v
   // CLOCKING; the IIci work), phi from it as MacSE30.sv's SE30_KCLK makes it
   parameter KCLK = 0;
+  localparam MEMLEN = KCLK ? 5 : 4;      // a RAM or ROM cycle's clocks (below, at the meter)
   // the memory (plan 13.6): RAM_SIZE 0-3 = 8/16/32/64 MB, on a MODULE_MB
   // 32/64/128 MB module (64 and 128: 1024-column chips; 128: a second chip
   // on the inverted nCS, as tb_se30_sdram has it)
@@ -255,8 +256,13 @@ module tb_se30_machine;
         log_addr[cycles] = c_addr; log_fc[cycles] = c_fc; log_rw[cycles] = c_rw;
         log_dsack[cycles] = c_dsack; log_len[cycles] = as_clocks + 1; log_data[cycles] = c_data;
       end
-      if (is_mem) begin mem_cycles = mem_cycles + 1; if (as_clocks + 1 > 4) long_cycles = long_cycles + 1; end
-      if (c_berr) begin berrs = berrs + 1; if (berr_first < 0) berr_first = cycles; end
+      // KCLK (tg68k.v item 7, the IIci timing vehicle): the bus comes out of clk_k
+      // registers, the SDRAM starts with AS* instead of a clk ahead on ECS, and a
+      // RAM or ROM cycle is five clocks; AS* stays low a clk past the cycle's end,
+      // so this sampler now sees the bus error of the ROM's own probe of
+      // $58000000 (the kernel takes it in both builds; KTRACE)
+      if (is_mem) begin mem_cycles = mem_cycles + 1; if (as_clocks + 1 > MEMLEN) long_cycles = long_cycles + 1; end
+      if (c_berr && !(KCLK && c_addr == 32'h58000000)) begin berrs = berrs + 1; if (berr_first < 0) berr_first = cycles; end
       if (is_io && !stop) begin
         io_addr = c_addr; io_fc = c_fc; io_rw = c_rw; io_cycle = cycles; stop = 1;
       end
@@ -316,7 +322,7 @@ module tb_se30_machine;
     check(log_addr[0] == 32'h00000000 && log_rw[0] && log_fc[0] == 3'd6, "cycle 0: the initial SP from $00000000, supervisor program space");
     check(log_addr[1] == 32'h00000004 && log_rw[1] && log_fc[1] == 3'd6, "cycle 1: the initial PC from $00000004");
     check(log_dsack[0] == 2'b00 && log_dsack[1] == 2'b00, "the vector reads are 32-bit port cycles");
-    check(log_len[0] == 4 && log_len[1] == 4, "the vector reads are four C16M clocks");
+    check(log_len[0] == MEMLEN && log_len[1] == MEMLEN, KCLK ? "the vector reads are five clocks (KCLK: the memory starts with AS*)" : "the vector reads are four C16M clocks");
     // the kernel prefetches the long at $8 before it takes the PC - one
     // 4-clock cycle a 68030 does not run (recorded in plan 3.6); the first
     // fetch at the reset PC is then cycle 3

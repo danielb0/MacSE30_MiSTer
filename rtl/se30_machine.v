@@ -254,6 +254,10 @@ module se30_machine #(
   wire  [1:0] cpu_siz, dsack_n;
   wire        cpu_cdis;                // CDIS*: VIA2 PB0 low disables the caches (below, plan 1.16)
 
+  // the devices' C16M enable.  KCLK (the IIci timing test, tg68k.v item 7): the
+  // CPU's bus comes out of clk_k registers a clk after today's, and the
+  // devices run that clk behind - on phi2 - so every cycle is as long as today's
+  wire        c16_en = KCLK ? phi2 : phi1;
   tg68k #(.KCLK(KCLK)) cpu (
     .clk(clk), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
@@ -301,7 +305,7 @@ module se30_machine #(
   wire  [7:0] scc_rdata;
 
   se30_glue #(.IICX(IICX)) glue (
-    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .clk(clk), .c16_en(c16_en), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc),
     .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n),
@@ -330,7 +334,7 @@ module se30_machine #(
     .NSEL_HEX({FPU_UCODE, "ucode.nsel.hex"}),
     .CVT_HEX({FPU_UCODE, "ucode.cvt.hex"}), .CVSEL_HEX({FPU_UCODE, "ucode.cvsel.hex"}), .TADJ_HEX({FPU_UCODE, "ucode.tadj.hex"})
   ) fpu (
-    .clk(clk), .ce(phi1), .reset(!(reset_n && reset_out_n)),
+    .clk(clk), .ce(c16_en), .reset(!(reset_n && reset_out_n)),
     .cs(fpu_sel), .rw(cpu_rw_n), .a(cpu_addr[4:0]), .din(cpu_dout), .dout(fpu_rdata),
     .dsack_n(fpu_dsack_n),
     .dbg_exop(), .dbg_clocks(), .dbg_err(), .dbg_state(), .dbg_busy(dbg_fpu));
@@ -339,7 +343,8 @@ module se30_machine #(
   // one access a cycle, RAM or ROM by GLUE's decode; the controller's
   // acknowledge is both ports' (GLUE consults the one it requested)
   assign mem_start = ecs && mem_early;
-  assign mem_req   = ram_req || rom_req;
+  // KCLK: AS* comes out with ECS's clk, not after it; the request follows the start as today
+  assign mem_req   = (ram_req || rom_req) && !(KCLK && ecs);
   // R/W must be valid at the start: the controller decides read or write
   // there (se30_sdram's a_we), and R/W is valid at S0 with ECS, while
   // ram_req comes only with AS*. Gated by ram_req until plan 3.8 item 23,
@@ -401,7 +406,7 @@ module se30_machine #(
   assign dbg_via   = {overlay, ramsiz, vsyncen_n, via1_ier, via1_ifr, via2_ier, via2_ifr};
 
   se30_via via1 (
-    .clk(clk), .c16_en(phi1), .reset_n(via_reset_n), .e_clk(e_clk),
+    .clk(clk), .c16_en(c16_en), .reset_n(via_reset_n), .e_clk(e_clk),
     .sel(via1_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .rw(dev_rw), .wdata(dev_wdata),
     .rdata(via1_rdata), .irq_n(via1_irq_n),
     .pa_in(via1_pa_pin), .pa_out(via1_pa_out), .pa_oe(via1_pa_oe),
@@ -413,7 +418,7 @@ module se30_machine #(
     .dbg_ifr(via1_ifr), .dbg_ier(via1_ier));
 
   se30_via via2 (
-    .clk(clk), .c16_en(phi1), .reset_n(via_reset_n), .e_clk(e_clk),
+    .clk(clk), .c16_en(c16_en), .reset_n(via_reset_n), .e_clk(e_clk),
     .sel(via2_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .rw(dev_rw), .wdata(dev_wdata),
     .rdata(via2_rdata), .irq_n(via2_irq_n),
     .pa_in(via2_pa_pin), .pa_out(via2_pa_out), .pa_oe(via2_pa_oe),
@@ -445,7 +450,7 @@ module se30_machine #(
                     kbd_dbg[15:12], mouse_dbg[15:12], kbd_dbg[11:4], adb_falls, 6'd0};
 
   se30_adb_xcvr xcvr (
-    .clk(clk), .c16_en(phi1), .c3m_en(c3m_en), .reset_n(via_reset_n),
+    .clk(clk), .c16_en(c16_en), .c3m_en(c3m_en), .reset_n(via_reset_n),
     .pm_we(adb_pm_we), .pm_waddr(adb_pm_waddr), .pm_wdata(adb_pm_wdata),
     .st0(via1_pb_pin[4]), .st1(via1_pb_pin[5]), .int_n(adb_int_n), .sclk(adb_sclk),
     .via_cb2_out(via1_cb2_out), .via_cb2_oe(via1_cb2_oe), .dio(adb_dio),
@@ -472,7 +477,7 @@ module se30_machine #(
   // or four wavetables, $804's latched events, SNDINT* to VIA2 CB1 while
   // one is set, playback at C16M/704; RESET* as the VIAs
   se30_asc asc (
-    .clk(clk), .c16_en(phi1), .reset_n(via_reset_n),
+    .clk(clk), .c16_en(c16_en), .reset_n(via_reset_n),
     .sel(asc_sel), .strobe(dev_strobe), .rw(dev_rw), .addr(dev_addr[11:0]), .wdata(dev_wdata),
     .rdata(asc_rdata), .irq_n(asc_irq_n), .audio_l(audio_l), .audio_r(audio_r), .dbg(dbg_asc));
 
@@ -487,7 +492,7 @@ module se30_machine #(
   assign dbg_swim = {swim_dbg, fdhd_dbg};
 
   se30_swim swim (
-    .clk(clk), .c16_en(phi1), .reset_n(via_reset_n),
+    .clk(clk), .c16_en(c16_en), .reset_n(via_reset_n),
     .sel(swim_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .wdata(dev_wdata), .rdata(swim_rdata),
     .ph_out(swim_ph), .ph_oe(swim_ph_oe), .ph_in(swim_ph_pin),
     .enbl1_n(enbl1_n), .enbl2_n(enbl2_n), .sense(swim_sense),
@@ -495,7 +500,7 @@ module se30_machine #(
     .dbg(swim_dbg), .dbg_vread(dbg_swim_vread));
 
   se30_fdhd fdhd_int (
-    .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+    .clk(clk), .c16_en(c16_en), .reset_n(reset_n),
     .enbl_n(enbl1_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
     .sense(fdhd_sense), .disk_in(disk_in), .eject(disk_eject),
     .cyl(disk_cyl), .trk_cyl(trk_cyl), .trk_valid(trk_valid), .trk_addr(trk_addr), .trk_side(trk_side), .trk_bit(trk_bit),
@@ -510,7 +515,7 @@ module se30_machine #(
   // no drive - and its disk interface quiet.  The benches keep it.
   generate if (EXT_DRIVE) begin : ext
     se30_fdhd fdhd_ext (
-      .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+      .clk(clk), .c16_en(c16_en), .reset_n(reset_n),
       .enbl_n(enbl2_n), .ph(swim_ph_pin), .sel(via1_pa_pin[5]),
       .sense(fdhd2_sense), .disk_in(disk2_in), .eject(disk2_eject),
       .cyl(disk2_cyl), .trk_cyl(trk2_cyl), .trk_valid(trk2_valid), .trk_addr(trk2_addr), .trk_side(trk2_side), .trk_bit(trk2_bit),
@@ -599,7 +604,7 @@ module se30_machine #(
     assign dbg_tr_data = 64'd0; assign dbg_tr_wptr = 10'd0;
     assign vid_sel = slot_sel && (cpu_addr[31:24] == 8'hFE);
     se30_video #(.DECLROM_HEX(DECLROM_HEX), .V_TOTAL(V_TOTAL)) video (
-      .clk(clk), .c16_en(phi1), .reset_n(reset_n),
+      .clk(clk), .c16_en(c16_en), .reset_n(reset_n),
       .declrom_we(declrom_we), .declrom_waddr(declrom_waddr), .declrom_wdata(declrom_wdata),
       .sel(vid_sel), .as_n(cpu_as_n), .ds_n(cpu_ds_n), .rw(cpu_rw_n), .addr(cpu_addr[16:0]),
       .din(dev_wdata), .dout(vid_dout), .dsack0_n(vid_dsack0_n),
@@ -612,7 +617,7 @@ module se30_machine #(
   // the 53C80 on GLUE's SCSI* ($50010000) and SCSIDACK* ($50012000, and
   // $50006000 once DRQ is up); one access per byte cycle: GLUE's strobe,
   // one clk of it; A6-A4 select the register (plan 9.2, 9.5)
-  wire scsi_stb = dev_strobe && phi1 && (scsi_sel || scsi_dack);
+  wire scsi_stb = dev_strobe && c16_en && (scsi_sel || scsi_dack);
   se30_scsi #(.CDROM_EN(CDROM_EN)) scsi (
     .clk(clk), .reset_n(via_reset_n), .sys_reset_n(reset_n),
     .cs(scsi_sel), .dack(scsi_dack), .rd(scsi_stb && dev_rw), .wr(scsi_stb && !dev_rw),
@@ -628,9 +633,9 @@ module se30_machine #(
   // the 8530 on GLUE's SCCEN* ($50004000): /CE with /RD or /WR is GLUE's
   // strobe; A1 is A/B, A2 is D/C (plan 10.5.1).  It has no reset pin: its
   // hardware reset is the core's power-on, never RESET*.
-  wire scc_stb = dev_strobe && phi1 && scc_sel;
+  wire scc_stb = dev_strobe && c16_en && scc_sel;
   se30_scc scc (
-    .clk(clk), .c16_en(phi1), .c3m_en(c3m_en), .reset_n(reset_n),
+    .clk(clk), .c16_en(c16_en), .c3m_en(c3m_en), .reset_n(reset_n),
     .stb(scc_stb), .rd(dev_rw), .a1(dev_addr[1]), .a2(dev_addr[2]), .wdata(dev_wdata), .rdata(scc_rdata),
     .irq_n(scc_irq_n),
     .vsync(via1_pa_pin[3]), .w_req_n(scc_w_req_n),

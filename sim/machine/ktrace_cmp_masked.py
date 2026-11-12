@@ -19,15 +19,17 @@ def load(name):
         raw.append((din, ds))
     return out, raw
 a, ra = load(sys.argv[1]); b, rb = load(sys.argv[2])
-hunks = 0
+hunks = 0; tail = 0
 for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
     if tag == 'equal': continue
+    # the run's end: the bench stops a clock or two apart when the bus is a clk late
+    if i1 >= len(a) - 2 and j1 >= len(b) - 2 and (i2 - i1) + (j2 - j1) <= 2: tail += 1; continue
     hunks += 1
     if hunks <= 5:
         print('---- hunk', hunks, tag, i1 + 1, i2, j1 + 1, j2)
         for k in range(i1, min(i2, i1 + 6)): print('  A', a[k])
         for k in range(j1, min(j2, j1 + 6)): print('  B', b[k])
-print('%d / %d lines, %d hunk(s) with unused din/ds masked' % (len(a), len(b), hunks))
+print('%d / %d lines, %d hunk(s) with unused din/ds masked%s' % (len(a), len(b), hunks, ' (the last line apart: the bench stops a clock later)' if tail else ''))
 if len(a) == len(b):
     nd = sum(1 for x, y in zip(ra, rb) if x and y and x[0] != y[0]); ns = sum(1 for x, y in zip(ra, rb) if x and y and x[1] != y[1])
     print('raw: din differs on %d lines, ds on %d (all on beats where the kernel does not use them, if 0 hunks)' % (nd, ns))

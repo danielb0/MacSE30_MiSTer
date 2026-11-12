@@ -84,8 +84,14 @@
 //   on the request the kernel makes at P - a cache hit, a posted write's
 //   acknowledge, a walker cycle taken at Q - is combinational from kernel
 //   outputs and kk_ registers.  The caches run on clk_k (MLAB, read
-//   asynchronously).  A bus error seen in the wait states reaches the
-//   kernel one CPU clock later than today (states 6 and 7 replay S4/S5).
+//   asynchronously).  The bus leaves through clk_k registers too ("kb_":
+//   the address, FC, SIZ, R/W, write data, AS* and DS* a clk after today's,
+//   ECS with them), so no device sees a kernel output; the devices run that
+//   clk behind (their C16M enable is phi2: se30_machine.v), and DSACK*, BERR
+//   and the data are taken at the phi1 edge after the phi2 edge that takes
+//   them today (kc_end) - a cycle is as many clocks as today's.  A bus error
+//   seen in the wait states so reaches the kernel one CPU clock later than
+//   today.  The interrupt level comes through a clk_k register.
 
 `timescale 1ns/1ps
 
@@ -173,13 +179,18 @@ module tg68k #(
   reg         w_ack_s;                 // the walker's descriptor is in (set at phi1 edges only)
   reg  [31:0] w_data_s;
   wire        k_berr;
+  // KCLK: the interrupt level through a clk_k register (the devices' requests
+  // move at clk edges of their own; the 68030 synchronises IPL2-0 itself)
+  reg   [2:0] kk_ipl = 3'b111;
+  always @(posedge clk_k) kk_ipl <= ipl_n;
+  wire  [2:0] k_ipl = KCLK ? kk_ipl : ipl_n;
 
   TG68KdotC_Kernel #(
     .SR_Read(2), .VBR_Stackframe(2), .extAddr_Mode(2), .MUL_Mode(2), .DIV_Mode(2),
     .BitField(2), .BarrelShifter(2), .MUL_Hardware(1), .DATA_WIDTH(32)
   ) kernel (
     .clk(k_clk), .nReset(reset_n), .clkena_in(k_clkena_in), .beat_valid(k_beat_valid),
-    .data_in(k_din), .dsack(k_dsack), .IPL(ipl_n), .IPL_autovector(1'b1), .berr(k_berr), .CPU(2'b10),
+    .data_in(k_din), .dsack(k_dsack), .IPL(k_ipl), .IPL_autovector(1'b1), .berr(k_berr), .CPU(2'b10),
     .addr_out(k_addr), .addr_log_out(k_addr_log), .data_write(k_dout), .siz(k_siz), .nWr(k_nwr),
     .CACR_out(k_cacr), .cache_op_addr(k_cache_op_addr), .pmmu_cache_inhibit(k_ci), .rmc_out(k_rmc), .wronly_rd_out(k_wronly), .dib_sub_out(k_dibsub),
     .busstate(k_busstate), .FC(k_fc), .nResetOut(k_nreset_out), .clr_berr(k_clr_berr), .cp_berr_ack(k_cp_berr_ack),
@@ -260,6 +271,16 @@ module tg68k #(
   reg   [1:0] dsack_r;
   reg         ack_pending, ack_berr;
   reg         berr_hold;
+  // KCLK (item 7): the bus reaches the devices a clk late (kb_ below), so
+  // DSACK* and BERR are sampled at the phi1 edge after today's phi2 one -
+  // with the data, which every port registers on the clock it asserts
+  // DSACK*.  kc_end: at this phi1 edge the cycle ends (S5 follows at phi2);
+  // s == 4 is an interrupt acknowledge's, terminated here.
+  wire        kc_end   = ((s == 3'd3) && (berr || dsack_n != 2'b11)) || (s == 3'd4);
+  reg         e_berr;                  // BERR and DSACK* as that edge took them, for S5
+  reg   [1:0] e_dsack;
+  wire        berr5    = KCLK ? e_berr : berr;
+  wire  [1:0] dsack5   = KCLK ? e_dsack : dsack_n;
   // the pace's hold on the next instruction as the bus decisions at a phi2
   // edge see it: today's combinational term, or under KCLK its kk_ form
   // (below, with the pace)
@@ -299,7 +320,7 @@ module tg68k #(
   reg   [2:0] cyc_fc;
   // KCLK: the cache's clock is clk_k, and the fill is at the phi1 edge
   // before S5 - the same data, DSACK and BERR (sim/machine EARLYMON)
-  wire        fill_ok  = (KCLK ? (s == 3'd4) : (phi2 && (s == 3'd5))) && !berr && (dsack_n == 2'b00);
+  wire        fill_ok  = (KCLK ? kc_end : (phi2 && (s == 3'd5))) && !berr && (dsack_n == 2'b00);
   wire        i_fill   = fill_ok && cyc_fill;
   wire        d_fill   = fill_ok && cyc_dfill;
   // the write's bytes: from A1-A0, as many as SIZ says remain, to the long's end
@@ -377,15 +398,34 @@ module tg68k #(
   // kernel's new request appears at that phi1 and is taken at the following
   // phi2, so this is exactly one clk wide, and nothing during reset.
   // The buffer's later beats take theirs whatever the kernel is doing.
-  assign ecs      = reset_n && (s == 3'd0) && !ack_pending &&
-                    (post || (eff_req && !hit_ack && !any_hit && !pace_stall_b));
-  assign cpu_addr = eff_addr;
-  assign cpu_as_n = as_n_r;
-  assign cpu_ds_n = ds_n_r;
-  assign cpu_rw_n = eff_rw;
-  assign cpu_fc   = eff_fc;
-  assign cpu_siz  = eff_siz;
-  assign cpu_dout = eff_dout;
+  wire        ecs_s    = reset_n && (s == 3'd0) && !ack_pending &&
+                         (post || (eff_req && !hit_ack && !any_hit && !pace_stall_b));
+  // KCLK (SE30_PLAN.md, STAGE 1 DESIGN item 7): the bus in clk_k registers.
+  // A cycle taken at a phi2 edge (S1) is on the bus from the phi1 edge after
+  // it - address, FC, SIZ, R/W, write data, AS* and a read's DS* together, a
+  // clk after today's S1; ECS for that clk - and AS*/DS* rise a clk after
+  // S5.  No device sees a kernel output: kernel -> kb_ is a whole CPU clock.
+  // The devices so run a clk behind today's bus, and their DSACK*, BERR and
+  // data are taken a clk later (kc_end): a cycle is as many clocks as today.
+  reg  [31:0] kb_addr, kb_dout;
+  reg   [2:0] kb_fc;
+  reg   [1:0] kb_siz;
+  reg         kb_rw, kb_as_n, kb_ds_n, kb_ecs;
+  always @(posedge clk_k or negedge reset_n)
+    if (!reset_n) begin
+      kb_addr <= 0; kb_dout <= 0; kb_fc <= 0; kb_siz <= 0; kb_rw <= 1; kb_as_n <= 1; kb_ds_n <= 1; kb_ecs <= 0;
+    end else begin
+      kb_as_n <= as_n_r; kb_ds_n <= ds_n_r; kb_ecs <= (s == 3'd2);
+      if (s == 3'd2) begin kb_addr <= eff_addr; kb_rw <= eff_rw; kb_fc <= eff_fc; kb_siz <= eff_siz; kb_dout <= eff_dout; end
+    end
+  assign ecs      = KCLK ? (kb_ecs && phi2) : ecs_s;
+  assign cpu_addr = KCLK ? kb_addr : eff_addr;
+  assign cpu_as_n = KCLK ? kb_as_n : as_n_r;
+  assign cpu_ds_n = KCLK ? kb_ds_n : ds_n_r;
+  assign cpu_rw_n = KCLK ? kb_rw   : eff_rw;
+  assign cpu_fc   = KCLK ? kb_fc   : eff_fc;
+  assign cpu_siz  = KCLK ? kb_siz  : eff_siz;
+  assign cpu_dout = KCLK ? kb_dout : eff_dout;
 
   // the bytes a walker beat brings, from the lanes the port answered on
   wire  [2:0] w_room = (dsack_r == 2'b10) ? 3'd1 : (dsack_r == 2'b01) ? 3'd2 - {2'b0, walk_done[0]} : 3'd4 - walk_done;
@@ -404,7 +444,7 @@ module tg68k #(
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       s <= 0; as_n_r <= 1; ds_n_r <= 1; din_r <= 0; dsack_r <= 2'b11;
-      ack_pending <= 0; ack_berr <= 0; walk <= 0; walk_done <= 0; walk_buf <= 0;
+      ack_pending <= 0; ack_berr <= 0; walk <= 0; walk_done <= 0; walk_buf <= 0; e_berr <= 0; e_dsack <= 2'b11;
       w_ack_s <= 0; w_data_s <= 0; berr_hold <= 0;
       hit_ack <= 0; hit_d <= 0; hit_z <= 0; cyc_fill <= 0; cyc_dfill <= 0; cyc_la <= 0; cyc_fc <= 0;
       post <= 0; post_ack <= 0; pb_addr <= 0; pb_dout <= 0; pb_lanes <= 0; pb_lane <= 0; pb_n <= 0; pb_rem <= 0; pb_fc <= 0;
@@ -419,8 +459,7 @@ module tg68k #(
           else begin walk_done <= walk_done + w_n; walk_buf <= w_long; end
         end
         if (s == 3'd2) s <= 3'd3;
-        if (s == 3'd4) s <= 3'd5;
-        if (KCLK && s == 3'd6) s <= 3'd7;                              // KCLK: a wait-state BERR's S4 ...
+        if (KCLK ? kc_end : (s == 3'd4)) begin s <= 3'd5; e_berr <= berr; e_dsack <= dsack_n; end   // KCLK: the cycle's end, sampled here
         if (k_make_berr || k_trap_berr || k_cp_berr_ack) berr_hold <= 0;   // (7d B5: taken as no coprocessor)
       end
       if (phi2) begin
@@ -454,31 +493,32 @@ module tg68k #(
                       as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1; ack_berr <= 1;
                       if (!walk) berr_hold <= 1;
                     end
+                  end else if (KCLK) begin
+                    // KCLK: DSACK* and BERR are taken at the next phi1 edge
+                    // (kc_end), S5 follows it - a bus error's too
                   end else if (berr && post) begin
                     // not reachable (the header): the operand ends, the
                     // fault is held to the kernel as a late BERR
                     as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; post <= 0; berr_hold <= 1;
                   end else if (berr) begin
-                    // KCLK: the kernel cannot learn this a CPU clock ahead;
-                    // the strobes end now, the acknowledge comes a CPU clock
-                    // later through states 6 and 7 (as S4 and S5 would)
-                    as_n_r <= 1; ds_n_r <= 1; s <= KCLK ? 3'd6 : 3'd0;
-                    if (!KCLK) begin ack_pending <= 1; ack_berr <= 1; end
+                    as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1; ack_berr <= 1;
                     dsack_r <= dsack_n; if (!walk) berr_hold <= 1;
                   end else if (dsack_n != 2'b11) s <= 3'd4;
                 end
-          3'd7: if (KCLK) begin s <= 3'd0; ack_pending <= 1; ack_berr <= 1; end   // ... and its S5
           3'd5: if (post) begin                                            // S5 of a posted beat: no acknowledge
                   as_n_r <= 1; ds_n_r <= 1; s <= 3'd0;
-                  if (berr || pb_n == 3'd1) begin post <= 0; if (berr) berr_hold <= 1; end
+                  if (berr5 || pb_n == 3'd1) begin post <= 0; if (berr5) berr_hold <= 1; end
                   else begin                                                 // the next byte, at the next address
                     pb_n <= pb_n - 3'd1; pb_rem <= pb_rem - 3'd1; pb_addr <= pb_addr + 32'd1;
                     pb_lane <= pb_ln; pb_dout <= {4{pb_nbyte}};
                   end
+                end else if (KCLK && e_berr) begin                         // KCLK: a bus error ended it - no data, as today's in the wait states
+                  as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1; ack_berr <= 1;
+                  dsack_r <= e_dsack; if (!walk) berr_hold <= 1;
                 end else begin                                             // S5: latch at the end of S4
-                  din_r <= cpu_din; if (!cp_local) dsack_r <= dsack_n;
+                  din_r <= KCLK ? kk_din : cpu_din; if (!cp_local) dsack_r <= dsack5;
                   as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1;
-                  if (berr) begin ack_berr <= 1; if (!walk) berr_hold <= 1; end
+                  if (berr5) begin ack_berr <= 1; if (!walk) berr_hold <= 1; end
                 end
           default: ;
         endcase
@@ -495,10 +535,10 @@ module tg68k #(
 
   // KCLK (SE30_PLAN.md, STAGE 1 DESIGN): the same inputs from kk_ registers,
   // written at each clk_k edge P with what the registers above hold after
-  // the phi2 edge Q that follows - from the state before P: a cycle's S4
-  // (s == 4; S5 at Q, its data, DSACK* and BERR final already - EARLYMON),
-  // a coprocessor cycle with no chip at its S1 (s == 2; it ends at S3), a
-  // wait-state BERR's replayed S4 (s == 6).  After P, ack_pending, hit_ack
+  // the phi2 edge Q that follows - from the state before P: a cycle's end
+  // (kc_end: DSACK* or BERR there with the data, or an interrupt
+  // acknowledge's s == 4; S5 at Q), a coprocessor cycle with no chip at its
+  // S1 (s == 2; it ends at S3).  After P, ack_pending, hit_ack
   // and post_ack are 0, and s == 0, post, walk and w_ack hold until Q, so a
   // hit, a posted write's acknowledge and a walker cycle taken at Q are
   // functions of the kernel's request and the kk_ copies (kc_ below).
@@ -506,7 +546,7 @@ module tg68k #(
   reg  [31:0] kk_wdata;
   reg   [1:0] kk_dsack;
   reg         kk_pgo_q, kk_pgo_p;      // the pace's p_go for the decisions at Q, and at the next P (the pace, below)
-  wire        kc_s4    = (s == 3'd4) && !post;                                         // acknowledged at Q
+  wire        kc_s4    = kc_end && !post;                                              // acknowledged at Q
   wire        kc_cpn   = (s == 3'd2) && cp_local && !iack;                             // no coprocessor: BERR at S3
   wire        kc_wdone = ack_pending && walk && (ack_berr || walk_done + w_n >= 3'd4);   // the walker's long, at P
   always @(posedge clk_k or negedge reset_n)
@@ -519,13 +559,13 @@ module tg68k #(
       kk_walk  <= walk && !kc_wdone;
       kk_wack  <= kc_wdone;
       if (kc_wdone) kk_wdata <= w_long;
-      kk_cyc   <= (kc_s4 || kc_cpn || s == 3'd6) && !walk;
-      kk_din   <= kc_s4 ? cpu_din : din_r;
+      kk_cyc   <= (kc_s4 || kc_cpn) && !walk;
+      kk_din   <= (kc_s4 && !berr) ? cpu_din : din_r;
       kk_dsack <= kc_s4 ? (cp_local ? dsack_r : dsack_n) : (s == 3'd2 && cp_local && iack) ? 2'b00 : dsack_r;
       kk_bh    <= (berr_hold && !(k_make_berr || k_trap_berr || k_cp_berr_ack)) ||
-                  (kc_s4 && berr && !walk) || ((s == 3'd4) && post && berr) || (kc_cpn && !walk);
-      kk_wberr <= walk && ((kc_s4 && berr) || s == 3'd6);
-      kk_fs    <= !(walk && !kc_wdone) && (((s == 3'd0) && !post) || ((s == 3'd4) && post && (berr || pb_n == 3'd1)));
+                  (kc_s4 && berr && !walk) || (kc_end && post && berr) || (kc_cpn && !walk);
+      kk_wberr <= walk && kc_s4 && berr;
+      kk_fs    <= !(walk && !kc_wdone) && (((s == 3'd0) && !post) || (kc_end && post && (berr || pb_n == 3'd1)));
     end
   wire        kc_wsel   = !kk_post && (kk_walk || (w_req && !kk_wack));
   wire        kc_fetch  = !kc_wsel && (k_busstate == 2'b00) && !park;
@@ -735,7 +775,7 @@ module tg68k #(
   wire  [4:0] px_edges = px_cyc + 5'd1;
   wire  [4:0] px_len   = {1'b0, px_edges[4:1]} + 5'd1;
   always @(posedge clk) px_addw <= p_cont ? {1'b0, px_len} : {1'b0, px_len} - 6'd2;
-  wire        px_s5    = (s == 3'd4) && post;
+  wire        px_s5    = kc_end && post;
   wire  [5:0] px_add   = px_addw + {4'd0, (cyc_fc != 3'd6) ? r_mvm : 2'd0};
   wire  [8:0] px_wsum  = {1'b0, pk_wc} + {3'd0, px_add};
   wire  [8:0] px_xsum  = {1'b0, pk_xc} + {3'd0, px_addw};
@@ -792,7 +832,7 @@ module tg68k #(
           if (k_post) pb_old <= 1'b0;
         end
         if (pb_take) begin p_cyc <= 5'd0; p_cont <= 1'b1; end              // the buffer's later beats continue its operand
-        if (s == 3'd5) begin
+        if (s == 3'd5 && !(KCLK && e_berr && !post)) begin                // (KCLK: a bus-errored cycle gives no credit, as today's in the wait states)
           if (post && pb_old) begin                                         // a posted beat after its instruction's release
             if (p_xcred + {2'd0, p_addw} < 9'd255) p_xcred <= p_xcred + {2'd0, p_addw}; else p_xcred <= 8'hFF;
             p_tail <= (p_tail_x > 7'd63) ? 6'd63 : p_tail_x[5:0];
@@ -803,7 +843,7 @@ module tg68k #(
           end else begin                                                     // a data read: the EA's
             if (p_rcred + {2'd0, p_add} < 9'd255) p_rcred <= p_rcred + {2'd0, p_add}; else p_rcred <= 8'hFF;
           end
-          p_last_d <= (cyc_fc != 3'd6); p_last_ds <= dsack_n; p_last_la <= cyc_la;
+          p_last_d <= (cyc_fc != 3'd6); p_last_ds <= dsack5; p_last_la <= cyc_la;
         end
       end
     end

@@ -188,3 +188,11 @@ set pix_c [get_clocks -nowarn {emu|pll|pll_inst|altera_pll_i|general[5].gpll~PLL
 if {[llength $pix_c] > 0 && [get_clock_info -period $pix_c] < 35.0} {
   set_clock_groups -asynchronous -group [get_clocks {emu|pll|pll_inst|altera_pll_i|general[5].gpll~PLL_OUTPUT_COUNTER|divclk}]
 }
+# SE30_KCLK: the SDRAM controller's request bundle then starts at the CPU
+# wrapper's bus registers on clk_k (tg68k.v kb_*, SE30_PLAN.md STAGE 1 DESIGN
+# item 7), which move at a clk_sys edge too - the xs_* registers' second-edge
+# credit (above, clk_sys -> clk_mem) is theirs as well.
+if {[llength $pix_c] > 0 && [get_clock_info -period $pix_c] >= 35.0} {
+  set_multicycle_path -setup -end 2 -from $pix_c -to [get_keepers {*|se30_sdram:sdram|xs_*}]
+  set_multicycle_path -hold  -end 1 -from $pix_c -to [get_keepers {*|se30_sdram:sdram|xs_*}]
+}
