@@ -77,6 +77,15 @@
 //   every clk (the PMMU's walker and fast set) now runs every CPU clock.
 //   clkena is the same terms without phi1 (the kernel samples them only at
 //   its own edges); a pulse to the kernel lasts until the next phi1 edge.
+//   Every kernel input is a kernel output or a clk_k register ("kk_",
+//   written at a phi1 edge P with what today's logic holds after the phi2
+//   edge Q that follows), so every path into the kernel has a whole CPU
+//   clock with no multicycle (SE30_PLAN.md, STAGE 1 DESIGN).  What depends
+//   on the request the kernel makes at P - a cache hit, a posted write's
+//   acknowledge, a walker cycle taken at Q - is combinational from kernel
+//   outputs and kk_ registers.  The caches run on clk_k (MLAB, read
+//   asynchronously).  A bus error seen in the wait states reaches the
+//   kernel one CPU clock later than today (states 6 and 7 replay S4/S5).
 
 `timescale 1ns/1ps
 
@@ -142,6 +151,7 @@ module tg68k #(
   wire [31:0] k_din, k_dout, k_addr, k_addr_log, k_cacr, k_cache_op_addr;
   wire        k_ci, k_rmc, k_wronly, k_dibsub;
   wire  [1:0] k_dsack, k_busstate, k_siz;
+  wire  [1:0] k_state;                 // the kernel's state register (busstate before its PMMU and squash terms)
   wire        k_nwr, k_nreset_out, k_clr_berr, k_cp_berr_ack;
   wire  [2:0] k_fc;
   wire        k_pmmu_busy, k_pmmu_fault, k_make_berr, k_trap_berr, k_halted;
@@ -158,9 +168,11 @@ module tg68k #(
   wire [41:0] k_pflush;                // {PFLUSH request, MODE, MASK, FC, EA} (JTRACE)
   wire        w_req, w_we, w_berr;
   wire [31:0] w_addr, w_wdat;
-  reg         w_ack;
-  reg  [31:0] w_data;
-  reg         k_berr;
+  wire        w_ack;                   // the kernel's: w_ack_s, or under KCLK its clk_k copy
+  wire [31:0] w_data;
+  reg         w_ack_s;                 // the walker's descriptor is in (set at phi1 edges only)
+  reg  [31:0] w_data_s;
+  wire        k_berr;
 
   TG68KdotC_Kernel #(
     .SR_Read(2), .VBR_Stackframe(2), .extAddr_Mode(2), .MUL_Mode(2), .DIV_Mode(2),
@@ -179,7 +191,7 @@ module tg68k #(
     .debug_regfile_d1(dbg_trg[159:128]), .debug_regfile_a1(dbg_trg[127:96]), .debug_regfile_a3(dbg_trg[95:64]),
     .debug_regfile_a5(dbg_trg[63:32]), .debug_regfile_a6(dbg_trg[31:0]),
     .debug_exc_take(k_exc_take), .debug_trap_vector(k_trap_vector), .debug_opcode(k_opcode), .debug_opcode_pc(k_opcode_pc),
-    .debug_decodeOPC(k_decode),
+    .debug_decodeOPC(k_decode), .debug_state(k_state),
     .debug_pmmu_fault_addr(k_f_addr), .debug_pmmu_fault_mmusr(k_f_mmusr), .debug_pmmu_fault_fc(k_f_fc),
     .debug_pmmu_fault_rw(k_f_rw), .debug_pmmu_fault_is_insn(k_f_insn), .debug_trap_mmu_berr(k_trap_mmu_berr),
     .debug_rte_fmt_a_replay(dbg_rpr[96]), .debug_rte_fmt_a_state1(dbg_rpr[95:80]), .debug_rte_fmt_a_ssw(dbg_rpr[79:64]),
@@ -221,7 +233,7 @@ module tg68k #(
   reg  [31:0] pb_dout;                 // ... its data
   reg   [2:0] pb_rem;                  // the operand's bytes from this beat on: the beat's SIZ
   reg   [2:0] pb_fc;
-  wire        wsel   = !post && (walk || (w_req && !w_ack));   // the bus is the walker's
+  wire        wsel   = !post && (walk || (w_req && !w_ack_s)); // the bus is the walker's
   wire        eff_req  = post || wsel || (k_req && !park);
   wire [31:0] eff_addr = post ? pb_addr : wsel ? {w_addr[31:2], walk_done[1:0]} : k_addr;
   wire        eff_rw   = post ? 1'b0 : wsel ? !w_we : k_nwr;
@@ -248,6 +260,10 @@ module tg68k #(
   reg   [1:0] dsack_r;
   reg         ack_pending, ack_berr;
   reg         berr_hold;
+  // the pace's hold on the next instruction as the bus decisions at a phi2
+  // edge see it: today's combinational term, or under KCLK its kk_ form
+  // (below, with the pace)
+  wire        pace_stall_b;
 
   // ------------------------------------------------------------ the caches
   // (plan 1.16) a kernel fetch (busstate 00) that hits the instruction
@@ -281,7 +297,9 @@ module tg68k #(
   reg         cyc_dfill;               // ... the data cache
   reg  [31:2] cyc_la;
   reg   [2:0] cyc_fc;
-  wire        fill_ok  = phi2 && (s == 3'd5) && !berr && (dsack_n == 2'b00);
+  // KCLK: the cache's clock is clk_k, and the fill is at the phi1 edge
+  // before S5 - the same data, DSACK and BERR (sim/machine EARLYMON)
+  wire        fill_ok  = (KCLK ? (s == 3'd4) : (phi2 && (s == 3'd5))) && !berr && (dsack_n == 2'b00);
   wire        i_fill   = fill_ok && cyc_fill;
   wire        d_fill   = fill_ok && cyc_dfill;
   // the write's bytes: from A1-A0, as many as SIZ says remain, to the long's end
@@ -290,9 +308,24 @@ module tg68k #(
   wire  [3:0] w_mask   = (w_nb == 3'd1) ? 4'b1000 : (w_nb == 3'd2) ? 4'b1100 : (w_nb == 3'd3) ? 4'b1110 : 4'b1111;
   wire  [3:0] d_wbe    = w_mask >> k_addr[1:0];
   // a cycle the kernel (or the walker) starts; the buffer's later beats are pb_take's
-  wire        s1_take  = phi2 && (s == 3'd0) && !post && !any_hit && !ack_pending && !hit_ack && eff_req && !pace_stall;
+  wire        s1_take  = phi2 && (s == 3'd0) && !post && !any_hit && !ack_pending && !hit_ack && eff_req && !pace_stall_b;
   wire        pb_take  = phi2 && (s == 3'd0) && post && !ack_pending;
   wire        d_wr     = s1_take && k_dwrite && !k_ci && (k_fc != 3'd7);
+  // KCLK: the write's update at the next clk_k edge, the kernel still on it
+  reg         d_wr_q   = 1'b0;
+  always @(posedge clk) d_wr_q <= d_wr;
+  // KCLK: CDIS* at clk_k edges (VIA2 writes it two C16M clocks or more
+  // before that cycle's DSACK* reaches the kernel)
+  reg         kk_cdis  = 1'b0;
+  always @(posedge clk_k) kk_cdis <= cdis;
+  // KCLK: the fill from clk_k registers, at the clk_k edge that acknowledges
+  // the kernel (the entry is there for its next request, as today; nothing
+  // looks it up before) - the bus's data never reaches the cache's RAM in a clk
+  reg  [31:0] kk_din;
+  reg         kk_ifill = 1'b0, kk_dfill = 1'b0;
+  reg  [31:2] kk_fla;
+  reg   [2:0] kk_ffc;
+  always @(posedge clk_k) begin kk_ifill <= i_fill; kk_dfill <= d_fill; kk_fla <= cyc_la; kk_ffc <= cyc_fc; end
   wire        d_inv    = phi1 && k_pmmu_fault && !walk && (s == 3'd0) && !ack_pending && !post && !k_nwr && (k_fc != 3'd7);   // k_force's terms (declared below)
 
   // ------------------------------------------- the write pending buffer
@@ -321,13 +354,14 @@ module tg68k #(
   reg   [2:0] pb_n;                    // beats left, this one's included
   wire  [1:0] pb_ln    = pb_lane + 2'd1;
   wire  [7:0] pb_nbyte = pb_lanes[31 - 8 * pb_ln -: 8];
-  se30_cache030 cache (
-    .clk(clk), .reset_n(reset_n),
-    .cacr(k_cacr[13:0] & ~{5'b0, coff[0], 7'b0, coff[1]}), .caar(k_cache_op_addr[7:2]), .cdis(cdis),   // coff: EI/ED cleared
+  wire        c_clk    = KCLK ? clk_k : clk;
+  se30_cache030 #(.ASYNC(KCLK)) cache (
+    .clk(c_clk), .reset_n(reset_n),
+    .cacr(k_cacr[13:0] & ~{5'b0, coff[0], 7'b0, coff[1]}), .caar(k_cache_op_addr[7:2]), .cdis(KCLK ? kk_cdis : cdis),   // coff: EI/ED cleared
     .la(k_addr_log[31:2]), .fc(k_fc), .i_hit(i_hit), .i_q(i_q),
-    .i_fill(i_fill), .fill_la(cyc_la), .fill_fc(cyc_fc), .fill_data(cpu_din),
-    .d_hit(d_hit), .d_q(d_q), .d_fill(d_fill),
-    .d_wr(d_wr), .d_wbe(d_wbe), .d_wdata(k_dout), .d_wlong(k_siz == 2'b00 && k_addr[1:0] == 2'b00),
+    .i_fill(KCLK ? kk_ifill : i_fill), .fill_la(KCLK ? kk_fla : cyc_la), .fill_fc(KCLK ? kk_ffc : cyc_fc), .fill_data(KCLK ? kk_din : cpu_din),
+    .d_hit(d_hit), .d_q(d_q), .d_fill(KCLK ? kk_dfill : d_fill),
+    .d_wr(KCLK ? d_wr_q : d_wr), .d_wbe(d_wbe), .d_wdata(k_dout), .d_wlong(k_siz == 2'b00 && k_addr[1:0] == 2'b00),
     .d_inv(d_inv));
 
   // ECS (UM 5.6.2, 7.1.1): "the earliest indication that the processor is
@@ -344,7 +378,7 @@ module tg68k #(
   // phi2, so this is exactly one clk wide, and nothing during reset.
   // The buffer's later beats take theirs whatever the kernel is doing.
   assign ecs      = reset_n && (s == 3'd0) && !ack_pending &&
-                    (post || (eff_req && !hit_ack && !any_hit && !pace_stall));
+                    (post || (eff_req && !hit_ack && !any_hit && !pace_stall_b));
   assign cpu_addr = eff_addr;
   assign cpu_as_n = as_n_r;
   assign cpu_ds_n = ds_n_r;
@@ -371,35 +405,36 @@ module tg68k #(
     if (!reset_n) begin
       s <= 0; as_n_r <= 1; ds_n_r <= 1; din_r <= 0; dsack_r <= 2'b11;
       ack_pending <= 0; ack_berr <= 0; walk <= 0; walk_done <= 0; walk_buf <= 0;
-      w_ack <= 0; w_data <= 0; berr_hold <= 0;
+      w_ack_s <= 0; w_data_s <= 0; berr_hold <= 0;
       hit_ack <= 0; hit_d <= 0; hit_z <= 0; cyc_fill <= 0; cyc_dfill <= 0; cyc_la <= 0; cyc_fc <= 0;
       post <= 0; post_ack <= 0; pb_addr <= 0; pb_dout <= 0; pb_lanes <= 0; pb_lane <= 0; pb_n <= 0; pb_rem <= 0; pb_fc <= 0;
     end else begin
-      if (!KCLK || phi1) w_ack <= 0;                                   // KCLK: held to the kernel's edge
+      if (!KCLK || phi1) w_ack_s <= 0;                                 // KCLK: held to the kernel's edge
       if (phi1) begin
         ack_pending <= 0; ack_berr <= 0; hit_ack <= 0; post_ack <= 0;
         // a completed walker beat: more beats, or the descriptor is in
         if (ack_pending && walk) begin
-          if (ack_berr) begin walk <= 0; walk_done <= 0; w_ack <= 1; w_data <= w_long; end
-          else if (walk_done + w_n >= 3'd4) begin walk <= 0; walk_done <= 0; w_ack <= 1; w_data <= w_long; end
+          if (ack_berr) begin walk <= 0; walk_done <= 0; w_ack_s <= 1; w_data_s <= w_long; end
+          else if (walk_done + w_n >= 3'd4) begin walk <= 0; walk_done <= 0; w_ack_s <= 1; w_data_s <= w_long; end
           else begin walk_done <= walk_done + w_n; walk_buf <= w_long; end
         end
         if (s == 3'd2) s <= 3'd3;
         if (s == 3'd4) s <= 3'd5;
+        if (KCLK && s == 3'd6) s <= 3'd7;                              // KCLK: a wait-state BERR's S4 ...
         if (k_make_berr || k_trap_berr || k_cp_berr_ack) berr_hold <= 0;   // (7d B5: taken as no coprocessor)
       end
       if (phi2) begin
         // a hit while the buffer drains: the bus is the buffer's, the
         // caches are not (the posted write's own acknowledge goes first)
-        if (post && any_hit && !hit_ack && !post_ack && !pace_stall) begin
+        if (post && any_hit && !hit_ack && !post_ack && !pace_stall_b) begin
           hit_ack <= 1; hit_d <= !f_hit; hit_z <= z_hit || s_hit; dsack_r <= 2'b00;
         end
         case (s)
           3'd0: if (post) begin                                            // the buffer's next beat: S1
                   as_n_r <= 0; ds_n_r <= 1'b1; s <= 3'd2;
-                end else if (any_hit && !ack_pending && !hit_ack && !pace_stall) begin   // a hit: no cycle
+                end else if (any_hit && !ack_pending && !hit_ack && !pace_stall_b) begin   // a hit: no cycle
                   hit_ack <= 1; hit_d <= !f_hit; hit_z <= z_hit || s_hit; dsack_r <= 2'b00;
-                end else if (eff_req && !hit_ack && !pace_stall) begin       // S1
+                end else if (eff_req && !hit_ack && !pace_stall_b) begin     // S1
                   if (w_req && !walk) begin walk <= 1; walk_done <= 0; walk_buf <= 0; end
                   as_n_r <= 0; ds_n_r <= !eff_rw ? 1'b1 : 1'b0; s <= 3'd2;
                   cyc_fill  <= k_fetch && !k_ci && (k_fc != 3'd7);
@@ -424,10 +459,15 @@ module tg68k #(
                     // fault is held to the kernel as a late BERR
                     as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; post <= 0; berr_hold <= 1;
                   end else if (berr) begin
-                    as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1; ack_berr <= 1;
+                    // KCLK: the kernel cannot learn this a CPU clock ahead;
+                    // the strobes end now, the acknowledge comes a CPU clock
+                    // later through states 6 and 7 (as S4 and S5 would)
+                    as_n_r <= 1; ds_n_r <= 1; s <= KCLK ? 3'd6 : 3'd0;
+                    if (!KCLK) begin ack_pending <= 1; ack_berr <= 1; end
                     dsack_r <= dsack_n; if (!walk) berr_hold <= 1;
                   end else if (dsack_n != 2'b11) s <= 3'd4;
                 end
+          3'd7: if (KCLK) begin s <= 3'd0; ack_pending <= 1; ack_berr <= 1; end   // ... and its S5
           3'd5: if (post) begin                                            // S5 of a posted beat: no acknowledge
                   as_n_r <= 1; ds_n_r <= 1; s <= 3'd0;
                   if (berr || pb_n == 3'd1) begin post <= 0; if (berr) berr_hold <= 1; end
@@ -452,10 +492,84 @@ module tg68k #(
   wire k_cycle_ack = (ack_pending || hit_ack || post_ack) && !walk;
   wire k_internal  = (k_busstate == 2'b01) && !k_pmmu_busy && !w_req && !walk && !pace_stall;
   wire k_force     = k_pmmu_fault && !walk && (s == 3'd0) && !ack_pending && !post;
-  assign k_go         = k_cycle_ack || k_internal || k_force;
+
+  // KCLK (SE30_PLAN.md, STAGE 1 DESIGN): the same inputs from kk_ registers,
+  // written at each clk_k edge P with what the registers above hold after
+  // the phi2 edge Q that follows - from the state before P: a cycle's S4
+  // (s == 4; S5 at Q, its data, DSACK* and BERR final already - EARLYMON),
+  // a coprocessor cycle with no chip at its S1 (s == 2; it ends at S3), a
+  // wait-state BERR's replayed S4 (s == 6).  After P, ack_pending, hit_ack
+  // and post_ack are 0, and s == 0, post, walk and w_ack hold until Q, so a
+  // hit, a posted write's acknowledge and a walker cycle taken at Q are
+  // functions of the kernel's request and the kk_ copies (kc_ below).
+  reg         kk_s0, kk_post, kk_walk, kk_wack, kk_cyc, kk_bh, kk_wberr, kk_fs;
+  reg  [31:0] kk_wdata;
+  reg   [1:0] kk_dsack;
+  reg         kk_pgo_q, kk_pgo_p;      // the pace's p_go for the decisions at Q, and at the next P (the pace, below)
+  wire        kc_s4    = (s == 3'd4) && !post;                                         // acknowledged at Q
+  wire        kc_cpn   = (s == 3'd2) && cp_local && !iack;                             // no coprocessor: BERR at S3
+  wire        kc_wdone = ack_pending && walk && (ack_berr || walk_done + w_n >= 3'd4);   // the walker's long, at P
+  always @(posedge clk_k or negedge reset_n)
+    if (!reset_n) begin
+      kk_s0 <= 1; kk_post <= 0; kk_walk <= 0; kk_wack <= 0; kk_cyc <= 0; kk_bh <= 0; kk_wberr <= 0; kk_fs <= 0;
+      kk_din <= 0; kk_wdata <= 0; kk_dsack <= 2'b11;
+    end else begin
+      kk_s0    <= (s == 3'd0);
+      kk_post  <= post;
+      kk_walk  <= walk && !kc_wdone;
+      kk_wack  <= kc_wdone;
+      if (kc_wdone) kk_wdata <= w_long;
+      kk_cyc   <= (kc_s4 || kc_cpn || s == 3'd6) && !walk;
+      kk_din   <= kc_s4 ? cpu_din : din_r;
+      kk_dsack <= kc_s4 ? (cp_local ? dsack_r : dsack_n) : (s == 3'd2 && cp_local && iack) ? 2'b00 : dsack_r;
+      kk_bh    <= (berr_hold && !(k_make_berr || k_trap_berr || k_cp_berr_ack)) ||
+                  (kc_s4 && berr && !walk) || ((s == 3'd4) && post && berr) || (kc_cpn && !walk);
+      kk_wberr <= walk && ((kc_s4 && berr) || s == 3'd6);
+      kk_fs    <= !(walk && !kc_wdone) && (((s == 3'd0) && !post) || ((s == 3'd4) && post && (berr || pb_n == 3'd1)));
+    end
+  wire        kc_wsel   = !kk_post && (kk_walk || (w_req && !kk_wack));
+  wire        kc_fetch  = !kc_wsel && (k_busstate == 2'b00) && !park;
+  wire        kc_dread  = !kc_wsel && (k_busstate == 2'b10) && !park;
+  wire        kc_dwrite = !kc_wsel && (k_busstate == 2'b11) && !park;
+  wire        kc_fhit   = kc_fetch && i_hit;
+  wire        kc_zs     = (kc_dread && k_wronly) || ((kc_dread || kc_dwrite) && k_dibsub);   // z_hit, s_hit
+  wire        kc_anyhit = kc_fhit || (kc_dread && !k_rmc && d_hit && (k_fc != 3'd7)) || kc_zs;
+  wire        kc_stallq = k_decode && !kk_pgo_q;
+  wire        kc_hit    = kc_anyhit && !kc_stallq && (kk_post || kk_s0);
+  wire        kc_take   = kk_s0 && !kk_post && !kc_anyhit && (kc_wsel || (k_req && !park)) && !kc_stallq;
+  wire        kc_pack   = kc_take && post_en && kc_dwrite && !k_rmc && (k_fc != 3'd7) && ((k_addr[31:30] == 2'b00) || pb_vid);
+  wire        kc_ack    = kk_cyc || kc_hit || kc_pack;
+  wire        kc_int    = (k_busstate == 2'b01) && !k_pmmu_busy && !w_req && !kk_walk && !(k_decode && !kk_pgo_p);
+  wire        kc_force  = k_pmmu_fault && kk_fs && !(kc_take && kc_wsel);
+
+  generate if (KCLK) begin : g_kin
+    assign k_go         = kc_ack || kc_int || kc_force;
+    assign k_beat_valid = kc_ack || kc_int;
+    // The data and DSACK* are picked by registers, never by the hit or the
+    // take (test compile 4: those decisions, made from the kernel's request,
+    // came back into its DSACK* cone - 43 ns in the 40 ns clock - and, through
+    // its beat size, into its own FC and write data: a combinational loop).
+    // A cycle's acknowledge (kk_cyc: s was 2, 4 or 6, no post) excludes a hit
+    // and a posted write's (s was 0, or post), so without kk_cyc the only
+    // acknowledge this clock can be is one of those two: DSACK* 00, the data
+    // the cache's entry at the kernel's address - the instruction cache's on
+    // a fetch (the kernel's state register, not busstate: that has the PMMU
+    // in it), zero for a write-only read or a DIB beat.  Between
+    // acknowledges the kernel so sees a 32-bit port, not the last port's size.
+    wire        kd_z    = k_state[1] && (k_wronly || k_dibsub);
+    assign k_din        = kk_cyc ? kk_din : kd_z ? 32'h0 : k_state[1] ? d_q : i_q;
+    assign k_dsack      = kk_cyc ? kk_dsack : 2'b00;
+    assign k_berr       = kk_bh && !(k_make_berr || k_trap_berr);
+    assign w_ack = kk_wack; assign w_data = kk_wdata; assign w_berr = kk_wberr;
+  end else begin : g_kin
+    assign k_go         = k_cycle_ack || k_internal || k_force;
+    assign k_beat_valid = k_cycle_ack || k_internal;
+    assign k_din        = !hit_ack ? din_r : hit_z ? 32'h0 : hit_d ? d_q : i_q;
+    assign k_dsack      = dsack_r;
+    assign k_berr       = berr_hold && !(k_make_berr || k_trap_berr);
+    assign w_ack = w_ack_s; assign w_data = w_data_s; assign w_berr = ack_berr && walk;
+  end endgenerate
   assign k_clkena     = phi1 && k_go;
-  assign k_beat_valid = k_cycle_ack || k_internal;
-  assign k_din   = !hit_ack ? din_r : hit_z ? 32'h0 : hit_d ? d_q : i_q;
   // JTRACE (KNOWN ISSUES 22): every beat the kernel takes, with where its
   // data came from - the bus, a cache or the DIB, or a fault's release
   assign dbg_jtp = {k_clkena && (k_busstate != 2'b01),
@@ -525,8 +639,11 @@ module tg68k #(
   wire  [7:0] d_row;
   wire  [5:0] d_ea_cc;
   wire  [6:0] d_op_cc, d_op_cc_t;
+  // KCLK: the decoder reads the opcode p_op holds after the coming phi1 edge
+  // (item 5 of STAGE 1 DESIGN, below), and its answer is registered there
+  wire [15:0] p_op_n;
   se30_pace030 pace (
-    .op(p_op), .ea_on(d_ea_on), .ea_ophead(d_ea_ophead), .ea_h(d_ea_h), .ea_t(d_ea_t), .ea_cc(d_ea_cc),
+    .op(KCLK ? p_op_n : p_op), .ea_on(d_ea_on), .ea_ophead(d_ea_ophead), .ea_h(d_ea_h), .ea_t(d_ea_t), .ea_cc(d_ea_cc),
     .op_h(d_op_h), .op_t(d_op_t), .op_cc(d_op_cc), .op_cc_t(d_op_cc_t), .br(d_br), .mvm(d_mvm), .row(d_row));
   // the decoder's answer, registered: settled two clocks before the earliest next decision
   reg         r_ea_on;
@@ -537,39 +654,120 @@ module tg68k #(
   reg   [6:0] r_op_cc, r_op_cc_t;
   reg         r_taken;   // a branch: the next instruction is not the one that follows
   reg   [7:0] r_row;     // the decoder's row, for the profile (dbg_pace)
+  reg   [1:0] r_mvm_q;   // KCLK: r_mvm as it stood before the last phi1 edge (today's at the phi2 edge after it)
   wire  [2:0] p_ilen  = (d_br == 2'd2) ? 3'd4 : (p_op[7:0] == 8'h00) ? 3'd4 : (p_op[7:0] == 8'hFF) ? 3'd6 : 3'd2;
-  always @(posedge clk) begin
+  wire        r_clk   = KCLK ? clk_k : clk;
+  always @(posedge r_clk) begin
     r_ea_on  <= d_ea_on && (d_ea_cc != 6'd0);
     r_ea_h   <= {1'b0, d_ea_h} + (d_ea_ophead ? {1'b0, d_op_h} : 6'd0);
     r_ea_t   <= d_ea_t; r_ea_cc <= d_ea_cc;
     r_op_h   <= d_op_h; r_op_t <= d_op_t; r_op_cc <= d_op_cc; r_op_cc_t <= d_op_cc_t;
-    r_br     <= d_br; r_mvm <= d_mvm; r_row <= d_row;
+    r_br     <= d_br; r_mvm <= d_mvm; r_row <= d_row; r_mvm_q <= r_mvm;
     r_taken  <= (d_br != 2'd0) && (k_opcode_pc != p_pc + {29'd0, p_ilen});
   end
-  wire  [5:0] p_ov_ea  = (r_ea_h < p_tail) ? r_ea_h : p_tail;                          // min(head, tail before)
-  wire  [8:0] p_ea_tl  = {7'd0, r_ea_t} + {1'b0, p_rcred};                             // the EA part's tail, its reads' wait states in
-  wire  [8:0] p_t_mid  = r_ea_on ? p_ea_tl : {3'd0, p_tail};
-  wire  [8:0] p_ov_op  = ({4'd0, r_op_h} < p_t_mid) ? {4'd0, r_op_h} : p_t_mid;
-  wire  [6:0] p_op_clk = r_taken ? r_op_cc_t : r_op_cc;
-  wire  [9:0] p_credit = {2'd0, p_rcred} + {2'd0, p_wcred} + {2'd0, p_fcred} + {2'd0, p_xcred};
-  // an overlap never exceeds its part's clocks (the tables' heads do not; a
-  // branch's taken row may have fewer clocks than the fall-through row's head)
-  wire  [5:0] p_ov_ea_c = (p_ov_ea > r_ea_cc) ? r_ea_cc : p_ov_ea;
-  wire  [8:0] p_ov_op_c = (p_ov_op > {2'd0, p_op_clk}) ? {2'd0, p_op_clk} : p_ov_op;
-  wire  [9:0] p_budget = (r_ea_on ? {4'd0, r_ea_cc} - {4'd0, p_ov_ea_c} : 10'd0) + ({3'd0, p_op_clk} - {1'b0, p_ov_op_c}) + p_credit;
+  // KCLK: today's r_taken as it stands from a phi2 edge to the next phi1
+  // edge - the fall-through address and the branch flag registered at the
+  // phi1 edge, the kernel's opcode address after it
+  reg  [31:0] kk_pcl;
+  reg         kk_br;
+  wire        kc_taken = kk_br && (k_opcode_pc != kk_pcl);
+  wire        p_taken  = KCLK ? kc_taken : r_taken;
+  // the budget (Equation 11-2, the header), of the decoder's answer, the
+  // tail before and the credits
+  function [9:0] f_budget(input ea_on, input [5:0] ea_h, input [1:0] ea_t, input [5:0] ea_cc, input [4:0] op_h,
+                          input [6:0] op_clk, input [5:0] tail, input [7:0] rc, input [7:0] wc, input [7:0] fc, input [7:0] xc);
+    reg [5:0] ov_ea, ov_ea_c; reg [8:0] ea_tl, t_mid, ov_op, ov_op_c; reg [9:0] credit;
+    begin
+      ov_ea   = (ea_h < tail) ? ea_h : tail;                                             // min(head, tail before)
+      ea_tl   = {7'd0, ea_t} + {1'b0, rc};                                               // the EA part's tail, its reads' wait states in
+      t_mid   = ea_on ? ea_tl : {3'd0, tail};
+      ov_op   = ({4'd0, op_h} < t_mid) ? {4'd0, op_h} : t_mid;
+      credit  = {2'd0, rc} + {2'd0, wc} + {2'd0, fc} + {2'd0, xc};
+      // an overlap never exceeds its part's clocks (the tables' heads do not; a
+      // branch's taken row may have fewer clocks than the fall-through row's head)
+      ov_ea_c = (ov_ea > ea_cc) ? ea_cc : ov_ea;
+      ov_op_c = (ov_op > {2'd0, op_clk}) ? {2'd0, op_clk} : ov_op;
+      f_budget = (ea_on ? {4'd0, ea_cc} - {4'd0, ov_ea_c} : 10'd0) + ({3'd0, op_clk} - {1'b0, ov_op_c}) + credit;
+    end
+  endfunction
+  wire  [6:0] p_op_clk = p_taken ? r_op_cc_t : r_op_cc;
+  wire  [9:0] p_budget = f_budget(r_ea_on, r_ea_h, r_ea_t, r_ea_cc, r_op_h, p_op_clk, p_tail, p_rcred, p_wcred, p_fcred, p_xcred);
   // the tail this instruction leaves: the op's, its writes' wait states in, and its reads' if it had no EA part
   wire  [9:0] p_tail_n = {8'd0, r_op_t} + {2'd0, p_wcred} + (r_ea_on ? 10'd0 : {2'd0, p_rcred});
+  wire  [5:0] p_tail_s = (p_tail_n > 10'd63) ? 6'd63 : p_tail_n[5:0];
   wire        p_due    = ({1'b0, p_cnt} >= p_budget);
   wire        p_go     = p_rel || p_due || !pace_en;
   assign      pace_stall = k_decode && !p_go;
+  // KCLK (STAGE 1 DESIGN item 5): p_go as today's logic will have it after
+  // the coming phi1 edge P, in clk_k registers - for the decisions at the
+  // phi2 edge Q after P (kk_pgo_q: today's r_* are those before P, and the
+  // tail and credits after it), and for the kernel's step and the release
+  // at the next P (kk_pgo_p: the decoder's answer for the opcode after P,
+  // and a posted beat's credit if its S5 is at that Q, where today's
+  // credits land; one register for a branch taken, one for not, picked by
+  // the kernel's opcode address once it has moved).  A release at P resets
+  // the clock count, the credits and the tail as the release does.  The
+  // posted beat's clocks are counted from p_cyc two edges on, registered a
+  // clk ahead.
+  reg         kk_pgo_pt, kk_pgo_pn;
+  wire        kc_pgo_p = kc_taken ? kk_pgo_pt : kk_pgo_pn;
+  always @* kk_pgo_p = kc_pgo_p;
+  wire        p_go_rel = KCLK ? kk_pgo_p : p_go;                          // the release's p_go
+  assign      pace_stall_b = KCLK ? (k_decode && !kk_pgo_q) : pace_stall;
+  reg  [15:0] kk_op;                   // p_op, on clk_k
+  reg         kk_rel;                  // p_rel, on clk_k (it moves at phi1 edges only)
+  wire        pk_rel   = k_decode && !kk_rel && p_go_rel;                 // a release at this P
+  assign      p_op_n   = pk_rel ? k_opcode : kk_op;
+  wire [31:0] pk_pc_n  = pk_rel ? k_opcode_pc : p_pc;
+  wire  [2:0] pk_ilen  = (d_br == 2'd2) ? 3'd4 : (p_op_n[7:0] == 8'h00) ? 3'd4 : (p_op_n[7:0] == 8'hFF) ? 3'd6 : 3'd2;
+  wire        pk_rel_n = pk_rel ? !k_go : (k_go && k_decode) ? 1'b0 : kk_rel;
+  wire  [8:0] pk_cnt_n = pk_rel ? 9'd1 : (p_cnt != 9'h1FF) ? p_cnt + 9'd1 : p_cnt;
+  // the tail and credits after P
+  wire  [5:0] pk_tail  = pk_rel ? p_tail_s : p_tail;
+  wire  [7:0] pk_rc    = pk_rel ? 8'd0 : p_rcred;
+  wire  [7:0] pk_wc    = pk_rel ? 8'd0 : p_wcred;
+  wire  [7:0] pk_fc    = pk_rel ? 8'd0 : p_fcred;
+  wire  [7:0] pk_xc    = pk_rel ? 8'd0 : p_xcred;
+  wire        pk_old   = pk_rel ? (post || pb_old) : pb_old;
+  // ... and after Q, with a posted beat's S5 there
+  reg   [5:0] px_addw  = 6'd0;         // p_addw for a cycle whose S5 is two clk edges on
+  wire  [4:0] px_cyc   = (p_cyc > 5'd29) ? 5'h1F : p_cyc + 5'd2;
+  wire  [4:0] px_edges = px_cyc + 5'd1;
+  wire  [4:0] px_len   = {1'b0, px_edges[4:1]} + 5'd1;
+  always @(posedge clk) px_addw <= p_cont ? {1'b0, px_len} : {1'b0, px_len} - 6'd2;
+  wire        px_s5    = (s == 3'd4) && post;
+  wire  [5:0] px_add   = px_addw + {4'd0, (cyc_fc != 3'd6) ? r_mvm : 2'd0};
+  wire  [8:0] px_wsum  = {1'b0, pk_wc} + {3'd0, px_add};
+  wire  [8:0] px_xsum  = {1'b0, pk_xc} + {3'd0, px_addw};
+  wire  [6:0] px_tsum  = {1'b0, pk_tail} + {1'b0, px_addw};
+  wire        px_w     = px_s5 && !pk_old;
+  wire        px_x     = px_s5 && pk_old;
+  wire  [7:0] pq_wc    = !px_w ? pk_wc : (px_wsum < 9'd255) ? px_wsum[7:0] : 8'hFF;
+  wire  [7:0] pq_xc    = !px_x ? pk_xc : (px_xsum < 9'd255) ? px_xsum[7:0] : 8'hFF;
+  wire  [5:0] pq_tail  = !px_x ? pk_tail : (px_tsum > 7'd63) ? 6'd63 : px_tsum[5:0];
+  wire        dn_ea_on = d_ea_on && (d_ea_cc != 6'd0);
+  wire  [5:0] dn_ea_h  = {1'b0, d_ea_h} + (d_ea_ophead ? {1'b0, d_op_h} : 6'd0);
+  wire  [9:0] pk_bq    = f_budget(r_ea_on, r_ea_h, r_ea_t, r_ea_cc, r_op_h, p_op_clk, pk_tail, pk_rc, pk_wc, pk_fc, pk_xc);
+  wire  [9:0] pk_bpt   = f_budget(dn_ea_on, dn_ea_h, d_ea_t, d_ea_cc, d_op_h, d_op_cc_t, pq_tail, pk_rc, pq_wc, pk_fc, pq_xc);
+  wire  [9:0] pk_bpn   = f_budget(dn_ea_on, dn_ea_h, d_ea_t, d_ea_cc, d_op_h, d_op_cc,   pq_tail, pk_rc, pq_wc, pk_fc, pq_xc);
+  always @(posedge clk_k or negedge reset_n)
+    if (!reset_n) begin
+      kk_pgo_q <= 1'b1; kk_pgo_pt <= 1'b1; kk_pgo_pn <= 1'b1;            // p_cnt resets to 1FF: due
+      kk_op <= 16'h0; kk_pcl <= 32'd2; kk_br <= 1'b0; kk_rel <= 1'b0;
+    end else begin
+      kk_pgo_q  <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bq)  || !pace_en;
+      kk_pgo_pt <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bpt) || !pace_en;
+      kk_pgo_pn <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bpn) || !pace_en;
+      kk_op <= p_op_n; kk_pcl <= pk_pc_n + {29'd0, pk_ilen}; kk_br <= (d_br != 2'd0); kk_rel <= pk_rel_n;
+    end
   // the profile (dbg_pace): the instruction running ends at its release
-  wire        p_release = phi1 && k_decode && !p_rel && p_go;
+  wire        p_release = phi1 && k_decode && !p_rel && p_go_rel;
   assign      dbg_pace  = {p_release, r_row, p_cnt, p_budget, p_fcred};
   // a cycle's clocks: p_cyc + 1 clk edges with s != 0 at its S5, two a C16M, S0 and S1 before them
   wire  [4:0] p_edges  = p_cyc + 5'd1;
   wire  [4:0] p_len    = {1'b0, p_edges[4:1]} + 5'd1;                                   // C16M clocks
   wire  [5:0] p_addw   = p_cont ? {1'b0, p_len} : {1'b0, p_len} - 6'd2;
-  wire  [5:0] p_add    = p_addw + {4'd0, (cyc_fc != 3'd6) ? r_mvm : 2'd0};
+  wire  [5:0] p_add    = p_addw + {4'd0, (cyc_fc != 3'd6) ? (KCLK ? r_mvm_q : r_mvm) : 2'd0};   // KCLK: r_mvm as today's at this phi2 edge
   wire  [6:0] p_tail_x = {1'b0, p_tail} + {1'b0, p_addw};
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
@@ -580,7 +778,7 @@ module tg68k #(
       if (s != 3'd0 && p_cyc != 5'h1F) p_cyc <= p_cyc + 5'd1;
       if (phi1) begin
         if (p_cnt != 9'h1FF) p_cnt <= p_cnt + 9'd1;
-        if (k_decode && !p_rel && p_go) begin                             // the release
+        if (k_decode && !p_rel && p_go_rel) begin                         // the release
           p_op <= k_opcode; p_pc <= k_opcode_pc; p_tail <= (p_tail_n > 10'd63) ? 6'd63 : p_tail_n[5:0];
           p_cnt <= 9'd1; p_rcred <= 8'd0; p_wcred <= 8'd0; p_fcred <= 8'd0;     // this clock is the instruction's first
           p_xcred <= 8'd0; if (post) pb_old <= 1'b1;                       // a write still posted is the instruction before's
@@ -618,8 +816,5 @@ module tg68k #(
       if (hit_d) n_dhit <= n_dhit + 1'd1; else n_ihit <= n_ihit + 1'd1;
     end
   assign dbg_cache = {cdis, 1'b0, k_cacr[13:0], n_ihit, n_dhit};
-  assign k_dsack = dsack_r;
-  assign w_berr  = ack_berr && walk;
-  always @* k_berr = berr_hold && !(k_make_berr || k_trap_berr);
 
 endmodule

@@ -85,9 +85,12 @@
 
 module tb_se30_system;
 
-  reg clk = 0;
-  always #15.9574 clk = ~clk;              // 31.3344 MHz
+  // KCLK=1 (run.sh): the kernel on its own clock, clk_k = clk / 2, rising at
+  // the end of each phi1 clk (tg68k.v CLOCKING; SE30_PLAN.md STAGE 1 DESIGN)
+  parameter KCLK = 0;
+  reg clk = 0, clk_k = 0;
   reg phi = 0;
+  always begin #15.9574 clk = ~clk; if (clk) clk_k = !phi; end   // 31.3344 MHz; one process: no race
   always @(posedge clk) phi <= ~phi;
   wire phi1 = !phi, phi2 = phi;
   reg reset_n = 0;
@@ -117,11 +120,29 @@ module tb_se30_system;
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
 
-  tg68k cpu (
-    .clk(clk), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
+  tg68k #(.KCLK(KCLK)) cpu (
+    .clk(clk), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .coff(2'b00), .pace_en(pace_en), .post_en(post_en), .reset_out_n(reset_out_n), .halted(halted));
+
+`ifdef KTRACE
+  // IIci stage 1 (SE30_PLAN.md, STAGE 1 DESIGN; sim/machine's twin): every
+  // kernel input as the kernel samples it, at each phi1 edge, and every pace
+  // release, to the file +KTRACE=<name>; two runs' files must match
+  // (sim/machine/ktrace_cmp.py)
+  integer kt_f = 0, kt_p = 0;
+  reg [1023:0] kt_name;
+  initial if ($value$plusargs("KTRACE=%s", kt_name)) kt_f = $fopen(kt_name, "w");
+  always @(posedge clk) if (phi1 && kt_f != 0 && reset_n) begin
+    kt_p = kt_p + 1;
+    $fwrite(kt_f, "%0d go %b bv %b din %h ds %b be %b wa %b wb %b wd %h | a %h bs %b%s\n", kt_p,
+            cpu.k_go, cpu.k_beat_valid, cpu.k_din, cpu.k_dsack, cpu.k_berr,
+            cpu.w_ack, cpu.w_berr, cpu.w_data, cpu.k_addr, cpu.k_busstate, cpu.dbg_pace[35] ? " REL" : "");
+  end
+  always @(posedge clk) if (phi1 && kt_f != 0 && cpu.dbg_pace[35])
+    $fwrite(kt_f, "   release pc %h op %h clocks %0d budget %0d\n", cpu.p_pc, cpu.p_op, cpu.dbg_pace[26:18], cpu.dbg_pace[17:8]);
+`endif
 
   // --------------------------------------------------------------- GLUE
   wire        ram_req, ram_we, ram_refresh, rom_req;

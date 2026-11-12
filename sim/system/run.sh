@@ -18,6 +18,12 @@
 # MOVE from SR/CCR, in clrtest/; tracetest and tracecache - gen_trace_program.py's
 # single-stepping, caches off and on.  Logs run.log and run_<name>.log.  Exit
 # status: 0 when all eleven say "==== PASS".
+#
+# IIci stage 1 (SE30_PLAN.md, STAGE 1 DESIGN): KCLK=1 runs the kernel on its
+# own clock; TG68K / CACHE030 compile another wrapper / cache in place of
+# rtl/tg68k's (../machine/ref_tg68k_berrlate.v, the reference); TAG=<t>
+# writes every kernel input to kt_<name>_<t>.txt (+define+KTRACE) and the
+# logs to run_<name>_<t>.log; RUNS picks some of the eleven.
 set -u
 cd "$(dirname "$0")"
 
@@ -40,9 +46,11 @@ rm -rf work
 for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; do
   "$MODELSIM/vcom.exe" -quiet -93 -work work "$RTL/tg68k/$f" || exit 1
 done
-"$MODELSIM/vlog.exe" -quiet -work work "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" "$RTL/se30_video.v" tb_se30_system.v || exit 1
+TAG=${TAG:-}
+KT=""; [ -n "$TAG" ] && KT="+define+KTRACE"
+"$MODELSIM/vlog.exe" -quiet $KT -work work "${TG68K:-$RTL/tg68k/tg68k.v}" "${CACHE030:-$RTL/tg68k/se30_cache030.v}" "$RTL/tg68k/se30_pace030.v" "$RTL/se30_glue.v" "$RTL/se30_video.v" tb_se30_system.v || exit 1
 ok=0
-for run in plain cacheon cachewa cachetest vramtest lanetest berrtest timetest clrtest tracetest tracecache; do
+for run in ${RUNS:-plain cacheon cachewa cachetest vramtest lanetest berrtest timetest clrtest tracetest tracecache}; do
   case $run in
     plain)     log=run.log;           args="" ;;
     cacheon)   log=run_cacheon.log;   args="+PROG=cacheon +CACHEON" ;;
@@ -56,10 +64,11 @@ for run in plain cacheon cachewa cachetest vramtest lanetest berrtest timetest c
     tracetest) log=run_tracetest.log; args="+PROG=tracetest +TRACETEST" ;;
     tracecache) log=run_tracecache.log; args="+PROG=tracecache +TRACETEST" ;;
   esac
-  "$MODELSIM/vsim.exe" -c -quiet $args -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_system > $log 2>&1
+  [ -n "$TAG" ] && { log=${log%.log}_$TAG.log; args="$args +KTRACE=kt_${run}_$TAG.txt"; }
+  "$MODELSIM/vsim.exe" -c -quiet -gKCLK=${KCLK:-0} $args -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_system > $log 2>&1
   echo "-- $run"
   grep -E '^# (---- |==== |FAIL )' $log | sed 's/^# //'
   grep -q '^# ==== PASS' $log || ok=1
 done
-python report_time.py
+python report_time.py run_timetest${TAG:+_$TAG}.log
 exit $ok

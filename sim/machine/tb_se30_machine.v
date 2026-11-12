@@ -382,6 +382,26 @@ module tb_se30_machine;
     $finish;
   end
 
+`ifdef KTRACE
+  // IIci stage 1 (SE30_PLAN.md, STAGE 1 DESIGN): every kernel input as the
+  // kernel samples it - at each phi1 edge, which is clk_k's under KCLK -
+  // and every pace release, one line each, to the file +KTRACE=<name>.
+  // Two runs' files must match line for line.
+  integer kt_f = 0, kt_p = 0;
+  reg [1023:0] kt_name;
+  initial if ($value$plusargs("KTRACE=%s", kt_name)) kt_f = $fopen(kt_name, "w");
+  always @(posedge machine.cpu.clk) if (machine.cpu.phi1 && kt_f != 0 && reset_n) begin
+    kt_p = kt_p + 1;
+    $fwrite(kt_f, "%0d go %b bv %b din %h ds %b be %b wa %b wb %b wd %h | a %h bs %b%s\n", kt_p,
+            machine.cpu.k_go, machine.cpu.k_beat_valid, machine.cpu.k_din, machine.cpu.k_dsack, machine.cpu.k_berr,
+            machine.cpu.w_ack, machine.cpu.w_berr, machine.cpu.w_data, machine.cpu.k_addr, machine.cpu.k_busstate,
+            machine.cpu.dbg_pace[35] ? " REL" : "");
+  end
+  always @(posedge machine.cpu.clk) if (machine.cpu.phi1 && kt_f != 0 && machine.cpu.dbg_pace[35])
+    $fwrite(kt_f, "   release pc %h op %h clocks %0d budget %0d\n", machine.cpu.p_pc, machine.cpu.p_op,
+            machine.cpu.dbg_pace[26:18], machine.cpu.dbg_pace[17:8]);
+`endif
+
 `ifdef EARLYMON
   // IIci timing (SE30_PLAN.md, IIci TIMING TEST 1): would the wrapper latch
   // the same read data, DSACK and BERR one clk earlier - at the phi1 edge

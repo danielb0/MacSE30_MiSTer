@@ -61,7 +61,10 @@
 
 `timescale 1ns/1ps
 
-module se30_cache030 (
+module se30_cache030 #(
+  parameter ASYNC = 0                  // 1 (KCLK, the IIci): clk is clk_k; the data in MLAB, read
+                                       //   asynchronously - i_q/d_q the entry at the present address
+) (
   input             clk,
   input             reset_n,
 
@@ -73,7 +76,7 @@ module se30_cache030 (
   input      [31:2] la,                // its logical address
   input       [2:0] fc,
   output            i_hit,             // a fetch here hits
-  output reg [31:0] i_q,               // the entry at last clock's address
+  output     [31:0] i_q,               // the entry at last clock's address (ASYNC: at this one)
 
   // the fill: a cachable fetch cycle's long
   input             i_fill,
@@ -83,7 +86,7 @@ module se30_cache030 (
 
   // the data cache: the lookup is `la`/`fc` above
   output            d_hit,             // a data read here hits
-  output reg [31:0] d_q,               // the entry at last clock's address
+  output     [31:0] d_q,               // the entry at last clock's address (ASYNC: at this one)
   input             d_fill,            // a cachable read cycle's long (`fill_la`, `fill_fc`, `fill_data`)
   input             d_wr,              // a cachable write starting, at `la`/`fc`
   input       [3:0] d_wbe,             // its bytes of the long: [3] = D31-D24 (A1-A0 = 0)
@@ -97,17 +100,25 @@ module se30_cache030 (
 
   reg  [24:0] itag [0:15];             // {A31-A8, FC2}
   reg   [3:0] ival [0:15];
-  reg  [31:0] idat [0:63];
 
   wire  [3:0] line = la[7:4];
   assign i_hit = ei && ival[line][la[3:2]] && itag[line] == {la[31:8], fc[2]};
 
-  always @(posedge clk) i_q <= idat[la[7:2]];
-
   // fills: only when enabled, not frozen; the wrapper checks CI and FC
   wire  [3:0] fline = fill_la[7:4];
   wire        fdo   = i_fill && ei && !fi;
-  always @(posedge clk) if (fdo) idat[fill_la[7:2]] <= fill_data;
+  reg  [31:0] idat [0:63];             // !ASYNC: M10K, read registered
+  reg  [31:0] i_qr;
+  generate if (ASYNC) begin : g_ia
+    (* ramstyle = "MLAB, no_rw_check" *) reg [31:0] idat_a [0:63];
+    assign i_q = idat_a[la[7:2]];
+    integer m; initial for (m = 0; m < 64; m = m + 1) idat_a[m] = 32'h0;   // i_q is on the kernel's data input hit or not
+    always @(posedge clk) if (fdo) idat_a[fill_la[7:2]] <= fill_data;
+  end else begin : g_ia
+    assign i_q = i_qr;
+    always @(posedge clk) i_qr <= idat[la[7:2]];
+    always @(posedge clk) if (fdo) idat[fill_la[7:2]] <= fill_data;
+  end endgenerate
 
   integer n;
   always @(posedge clk or negedge reset_n)
@@ -140,7 +151,6 @@ module se30_cache030 (
   wire        d_vhit = d_tagm && dval[line][ent];
   assign d_hit = ed && d_vhit;
 
-  always @(posedge clk) d_q <= {dd0[la[7:2]], dd1[la[7:2]], dd2[la[7:2]], dd3[la[7:2]]};
 
   // the fill: at fill_la (the cycle's address, latched by the wrapper)
   wire  [1:0] fent   = fill_la[3:2];
@@ -158,12 +168,30 @@ module se30_cache030 (
   wire  [5:0] dw_a    = (f_upd || f_new) ? fill_la[7:2] : la[7:2];
   wire  [3:0] dw_be   = (f_upd || f_new || w_alloc) ? 4'b1111 : d_wbe;
   wire [31:0] dw_d    = (f_upd || f_new) ? fill_data : d_wdata;
-  always @(posedge clk) if (dw_any) begin
-    if (dw_be[3]) dd0[dw_a] <= dw_d[31:24];
-    if (dw_be[2]) dd1[dw_a] <= dw_d[23:16];
-    if (dw_be[1]) dd2[dw_a] <= dw_d[15:8];
-    if (dw_be[0]) dd3[dw_a] <= dw_d[7:0];
-  end
+  reg  [31:0] d_qr;
+  generate if (ASYNC) begin : g_da
+    (* ramstyle = "MLAB, no_rw_check" *) reg [7:0] da0 [0:63];
+    (* ramstyle = "MLAB, no_rw_check" *) reg [7:0] da1 [0:63];
+    (* ramstyle = "MLAB, no_rw_check" *) reg [7:0] da2 [0:63];
+    (* ramstyle = "MLAB, no_rw_check" *) reg [7:0] da3 [0:63];
+    assign d_q = {da0[la[7:2]], da1[la[7:2]], da2[la[7:2]], da3[la[7:2]]};
+    integer m; initial for (m = 0; m < 64; m = m + 1) begin da0[m] = 8'h0; da1[m] = 8'h0; da2[m] = 8'h0; da3[m] = 8'h0; end
+    always @(posedge clk) if (dw_any) begin
+      if (dw_be[3]) da0[dw_a] <= dw_d[31:24];
+      if (dw_be[2]) da1[dw_a] <= dw_d[23:16];
+      if (dw_be[1]) da2[dw_a] <= dw_d[15:8];
+      if (dw_be[0]) da3[dw_a] <= dw_d[7:0];
+    end
+  end else begin : g_da
+    assign d_q = d_qr;
+    always @(posedge clk) d_qr <= {dd0[la[7:2]], dd1[la[7:2]], dd2[la[7:2]], dd3[la[7:2]]};
+    always @(posedge clk) if (dw_any) begin
+      if (dw_be[3]) dd0[dw_a] <= dw_d[31:24];
+      if (dw_be[2]) dd1[dw_a] <= dw_d[23:16];
+      if (dw_be[1]) dd2[dw_a] <= dw_d[15:8];
+      if (dw_be[0]) dd3[dw_a] <= dw_d[7:0];
+    end
+  end endgenerate
 
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
