@@ -27901,6 +27901,278 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   SDRAM, as the real IIci reads bank A. The cache-card OSD option gets a
   size (32 KB Apple / 128 KB, the reference's) - CONFIRMED by Daniel
   2026-11-11: OSD Off / 32 KB / 128 KB, one design, the size a setting.
+- *STAGE 1 DESIGN (2026-11-12, before RTL; Daniel: "go ahead with stage
+  one").* Under KCLK only (KCLK = 0 keeps today's logic token for token).
+  Notation: P(n) = a phi1 edge = a clk_k edge, where the kernel steps;
+  Q(n) = the phi2 edge after it. Today the kernel at P(n+1) reads wrapper
+  state as it stands after Q(n); the registers set at Q(n) give it 20 ns,
+  and its own input cones take 17-20.
+  THE RULE, by construction instead of by SDC: every wrapper register in
+  a kernel input's cone is clocked by clk_k itself ("kk_" registers,
+  written at P(n) with the value the old logic would hold after Q(n)), or
+  is a kernel output. clk_k -> clk_k is 40 ns with no multicycle and no
+  register list (the plan's "SDC multicycles" become unnecessary). What
+  the wrapper must decide from the kernel's request made at P(n) - a cache
+  hit, a posted write's early acknowledge, a walker cycle taken - is
+  combinational from kernel outputs and kk_ registers only.
+  The prediction, per kernel input (cycle states as today; s 2 -> 3 and
+  4 -> 5 happen at P, everything else at Q):
+  (1) cycle end: kk_cyc/kk_din/kk_dsack at P(n) when s == 4 (S5 follows at
+      Q(n)): cpu_din, dsack_n - final there by EARLYMON. A coprocessor
+      cycle with no chip (cp_local, not IACK; ended at its first S3) is
+      known when s == 2: acknowledged with BERR on the same clock as today.
+  (2) BERR in the wait states (seen at Q(n), s == 3): cannot be known at
+      P(n). New states 6 and 7 replay S4/S5 for it one CPU clock later:
+      AS*/DS* still negate at Q(n) (the bus sees today's cycle), s = 6;
+      P: 6 -> 7 (the kk_ registers take it, as s == 4 does); Q: 7 -> 0 with
+      ack_pending/ack_berr as S5 sets them. No fill, no pace credit (as
+      today: those cycles never reach S5). The kernel takes the bus error
+      one CPU clock later, and the next cycle starts one later. A posted
+      beat's BERR in S3 (unreachable) likewise.
+  (3) the caches: on clk_k entirely - tags, valid bits and data, the data
+      in MLAB with an asynchronous read (Daniel approved), so a hit and
+      its long are functions of the kernel's address. The fill moves to
+      P(n) (s == 4, the same data by EARLYMON); a data write's update from
+      its S1 take at Q(n) to P(n+1) (the kernel has not moved; no lookup
+      in between depends on it - the request is the write); the CACR
+      clears apply at P edges, so a lookup at Q(n) still sees what it does
+      today. CDIS* through a clk_k register: VIA2 writes its port at least
+      two C16M clocks before that cycle's DSACK reaches the kernel.
+  (4) a hit or a posted write is decided as today at Q(n); for the kernel
+      the same terms combinationally: after P(n) ack_pending, hit_ack and
+      post_ack are always 0, so hit = any_hit && !stall && (post || s == 0)
+      and the take = s == 0 && !post && !any_hit && request && !stall, with
+      s == 0, post, walk and w_ack as kk_ copies of their values in
+      [P(n), Q(n)). No extra clock for a hit or a posted write.
+  (5) the pace: today a Q(n) decision (hit, take) and the P(n+1) decision
+      (an internal decode beat, the release) see different things - r_*
+      registered every clk are the old instruction's at Q(n) after a
+      release at P(n) and the new one's at P(n+1); r_taken compares the
+      kernel's opcode address AFTER P(n); and a posted beat's S5 credit
+      lands at Q(n), between the two. So: the decoder reads the opcode p_op
+      will hold after P (k_opcode on a release), its r_* are clk_k
+      registers; kk_pgo_q (for Q) from the r_* before P, the tail and
+      credits after P (a release's reset applied); kk_pgo_p (for P(n+1))
+      from the decoder's answer after P, the tail and credits after Q (a
+      posted beat's credit added, its clocks precomputed a clk ahead), in
+      two registers - branch taken and not - picked by comparing the
+      kernel's opcode address with a registered fall-through address.
+      FIRST VERSION WRONG (found by its own assertion, 2026-11-12): it
+      assumed no decode beat on the first phi1 after a release the kernel
+      steps out of; the boot does it 212 times in 2,096 releases.
+  (6) BERR held, the walker: kk_ copies of berr_hold and of ack_berr &&
+      walk as they will be after Q(n); w_ack and w_data on clk_k (already
+      phi1-only). PMMU fault force-release: its terms predicted the same
+      way, less a walker cycle taken at Q(n) (combinational).
+  Not in stage 1, a question for Daniel: (7) the bus outputs. The memory
+  controller starts on ECS in S0 (mem_start = ecs && mem_early) from the
+  kernel's address in the same clk, so registering the address before the
+  devices costs every RAM access a clk unless the start moves - an IIci
+  memory design question. Test compile 4 measures the rest without it.
+  CHECK: sim/machine KTRACE logs every kernel input at every phi1 edge
+  (go, beat_valid, din, dsack, BERR, the walker's) and every release; the
+  KCLK = 1 boot must match HEAD's KCLK = 0 trace line for line on both
+  machines; KCLK = 0 must match HEAD's KCLK = 0 trace. (HEAD's own KCLK =
+  0 and 1 traces already match each other.) The boot has ONE bus error in
+  the wait states ($58000000), which item 2 delays a CPU clock, and after
+  it every VIA access lands on another E phase: so the KCLK = 1 reference
+  is sim/machine/ref_tg68k_berrlate.v - HEAD's wrapper with only that
+  delay (run.sh TG68K=...), compared by sim/machine/ktrace_cmp.py (the
+  clock index dropped). sim/system gets the same (KCLK, TAG, TG68K,
+  CACHE030, RUNS in run.sh) for the caches, BERR tests and timetest.
+  RESULTS (2026-11-12, stage 1 built: tg68k.v, se30_cache030.v ASYNC):
+  sim/machine, both machines: new KCLK = 0 = HEAD KCLK = 0 (23,174 /
+  23,009 lines, 0 hunks); new KCLK = 1 = the reference (0 hunks); all
+  PASS. sim/system, ten programs (all but timetest; 20 min): HEAD files
+  KCLK = 0 = new KCLK = 0, and reference = new KCLK = 1, 0 hunks in every
+  program (cachetest 17,083 lines, vramtest 84,811, berrtest's two
+  handshake BERRs included); all PASS. NOT YET RUN: timetest (~15 min a
+  pass, two passes), and no bench here walks a table under KCLK (the
+  walker's kk_ path is unexercised: sim/cpfpu mmu would, its tb has no
+  KCLK yet); test compile 4.
+  TIMETEST (Daniel: "yes, both"): the reference at KCLK = 0 is the wrong
+  reference for a table walk - at KCLK = 0 the walker steps every clk, at
+  KCLK = 1 at phi1 only (way B's own cost, not stage 1's: identical to
+  line 204,195, the first walk, F028 at $12F0, then 24 clocks against 19).
+  Reference at KCLK = 1 = new KCLK = 1: 431,556 lines, 0 hunks, walks
+  included; PASS (chime 1.04 s, SCSI 2.98 / 2.89 MB/s, same as the
+  reference). The walker's kk_ path is covered by this.
+  TEST COMPILE 4 (SE30_KCLK, the deck out; 58 min): ROUTED, 39,597 ALMs
+  (94 %; +1,004 on compile 3), caches inferred as MLAB (altdpram lutram).
+  TIMING WORSE: -23.6 ns. Slow 100C per clock pair (compile 3 in brackets):
+  - clk_sys -> clk_k -6.2 (-6.8), but 13 endpoints (3,113): the pace's
+    p_rel (clk_sys) into kk_pgo_pt/pn -6.2; MLAB write inputs -1.3;
+    VIA ifr -> kernel -0.3. Item 1 worked; the pace's next-P budget not.
+  - clk_k -> clk_k -3.9 (+5.7): kernel output cone (address -> PMMU
+    fast_xlat -> busy -> busstate, ~14.5 ns) -> the wrapper's kc_ terms
+    (kc_zs/kc_take -> k_clkena_in, ~6 ns) -> the kernel's input cone
+    (fetch_room -> lanes -> data_read -> regfile, ~22 ns) in one 40 ns
+    clock. The kc_ "combinational at P" rule makes a kernel-out ->
+    wrapper -> kernel-in round trip; it does not fit.
+  - clk_k -> clk_sys -14.1 (-4.3), clk_k -> clk_mem -23.6 (-13.0): the
+    same kc_ terms now sit inside the kernel's output cone too (kc_take ->
+    kernel room -> ALU -> outputs -> SCC/SWIM/SDRAM xs_wdata).
+  - DEFECT: a 98-node combinational loop: kc_hit -> k_dsack (00 on a hit)
+    -> kernel port_room -> beat_n -> memmaskmux(3) -> moves_fc_override ->
+    FC -> cache i_hit -> kc_hit (and k_clkena_in). Today's KCLK = 0 has
+    no such path (a hit's dsack_r is registered at phi2).
+  - clk_mem -1.6/-3.6 (SDRAM init_cnt -> sd_addr) and clk_sys -> clk_sys
+    -1.4 (FPU lzc) are placement noise of a 94 % fit.
+  VERDICT: stage 1's input registers are right (clk_sys -> clk_k 3,113 ->
+  13 endpoints), but a decision made combinationally from the kernel's
+  outputs and fed back into it the same CPU clock cannot meet 40 ns on
+  this device. Needs Daniel's decision (end of session 2026-11-12).
+  Logs: output_files/build_20261112_162039.log,
+  sta_corners_MacSE30_iici_kclk4.log, k4_*.txt.
+  Daniel chose "register them" (one more CPU clock from a request to its
+  acknowledge, bus cycles and hits alike; the wrapper then sees registered
+  kernel outputs - item 7 with it). COST ESTIMATED FIRST from the KTRACE
+  files (scratchpad est.py: per instruction, clocks C and budget B; new
+  clocks = max(B, natural + requests), natural between C less the pace's
+  trailing stall and C): timetest 54,810 instructions, 99 % paced, +2.9 %
+  to +20.1 %; the machine boot +12.9 to +17.7 %; cacheon/plain +13 to +18 %.
+  Against "Norton within ~2 %" that is too much to build blind - stopped
+  for Daniel before the rewrite (2026-11-12).
+- *REVIEW AND FIX (2026-11-12, night; Daniel: "review the IIci CPU timing
+  work and see if you can come up with a solution"): NEITHER (A) NOR (B) -
+  THE KERNEL'S DATA AND DSACK PICKED BY REGISTERS.* Built (tg68k.v under
+  KCLK, se30_cache030.v ASYNC; uncommitted with stage 1), benches exact,
+  NOT COMPILED (test compile 5, ~1 h, Daniel's go-ahead).
+  WHAT COMPILE 4 REALLY SHOWS (its reports read path by path):
+  - clk_k -> clk_k has only 32 failing paths, and every one ends in the
+    register file through ONE cone: the hit/take decision (20.7 ns) ->
+    k_dsack (00 on a hit) -> the kernel's fetch_room -> fetch lanes ->
+    data_read -> v_regfile (43.2 ns). No path through the step enable
+    alone fails: the hit into clkena fits the 40 ns clock as it stands.
+  - The loop's every arc into the kernel is `room` (port_room, from
+    dsack): dsack -> beat_n -> memmaskmux(3) ("the operand's last beat")
+    -> moves_fc_override -> FC -> i_hit -> the hit -> dsack.
+  - The -14.1 (-> clk_sys) and -23.6 (-> clk_mem) pairs are the same arc
+    again: kc_take -> room -> memmaskmux(3) -> long_start_alu -> ALU ->
+    data_write -> the devices and xs_wdata.
+  So the round trip need not be cut at the step (which is what (B) pays a
+  clock for, and what (A) shortens): only DSACK and the data mux must stop
+  depending on this clock's decision.
+  THE FIX: a cycle's acknowledge (kk_cyc: s was 2, 4 or 6, no post) and a
+  hit or a posted write's acknowledge (s was 0, or post) exclude each
+  other, and kk_cyc is a register. So
+    k_dsack = kk_cyc ? kk_dsack : 00
+    k_din   = kk_cyc ? kk_din : zero (write-only read, DIB beat) :
+              state(1) ? d_q : i_q
+  with the fetch/data choice from the kernel's state register (its
+  debug_state port, already there; busstate has the PMMU in it). The hit,
+  the take and the posted acknowledge now reach the kernel through
+  clkena/beat_valid only. On every acknowledged bus beat the kernel gets
+  exactly what stage 1 gave it. What differs: between acknowledges it sees
+  a 32-bit port (00) where it saw the last port's size, and the cache's
+  entry where it saw the last cycle's data. Where that reaches (read from
+  the kernel): an internal beat has memmask all ones and a fetch has room
+  2, both whatever dsack says; fetch_room and the lanes count only on an
+  acknowledged beat; left are (1) a data-state beat stepped without an
+  acknowledge - a PMMU fault's release, an MMU-restart squash - whose
+  beat size was the stale port's and is now a long's, and (2) the kernel's
+  own outputs before the acknowledge (MOVES' FC term, long_start into
+  data_write), computed from the stale size before and from 00 now - 00
+  being what they see today after any RAM, ROM or cache access. No bench
+  shows either (below; vramtest has the 8-bit port behind 21,483 lines).
+  WITH IT (the two small clk_sys -> clk_k groups of compile 4):
+  - p_rel moves at phi1 edges only: kk_rel, its clk_k copy, feeds the
+    next-P budget (p_rel -> the decoder -> f_budget -> kk_pgo_pt/pn was
+    -6.2 as a 20 ns path; it is a 40 ns one).
+  - the caches' fill from clk_k registers (kk_din, the fill flag and
+    address) at the clk_k edge that acknowledges the kernel, one edge
+    later than stage 1's: the entry is there for the kernel's next request
+    as before and nothing looks it up in between (-1.3: the bus's data
+    into the MLAB's write port in one clk). The MLABs get zero initial
+    contents (i_q/d_q are on the kernel's data input hit or not).
+  CHECK: KTRACE as before, compared with the inputs the kernel does not
+  use masked (sim/machine/ktrace_cmp_masked.py: din kept on an acknowledged read beat, ds on
+  an acknowledged bus beat; go, beat_valid, BERR, the walker's, the
+  kernel's address and busstate and every release compared as they are).
+  RESULTS: sim/machine KCLK = 1, SE/30 and IIcx: PASS, 0 hunks against the
+  reference and against stage 1 (23,131 / 23,009 lines); KCLK = 0 SE/30 =
+  HEAD's KCLK = 0 unmasked (23,174 lines, 0 hunks). sim/system KCLK = 1,
+  the ten programs: all PASS, 0 hunks in every one against the reference.
+  timetest KCLK = 1 against the KCLK = 1 reference: PASS, 431,556 lines,
+  0 hunks, the table walks included (chime 1.04 s, SCSI 2.98 / 2.89 MB/s,
+  as before). Traces kt_*_b.txt beside the others.
+  EXPECTED FROM TEST COMPILE 5 (not measured): no loop; clk_k -> clk_k
+  met, by little (the fetch data path is the kernel's address ~9.5 ns ->
+  the MLAB -> k_din ~13 -> the kernel's data cone ~22-24; the step enable
+  already fits); clk_sys -> clk_k 13 endpoints -> the three VIA ifr ->
+  IPL ones (-0.3); clk_k -> clk_sys and -> clk_mem back to compile 3's
+  -4.3 and -13.0, which are item 7's, untouched by this.
+  TEST COMPILE 5 (Daniel: "Yes, compile 5"; SE30_KCLK, the deck out; 45 min):
+  ROUTED, 39,136 ALMs (93 %; -461 on compile 4), 353 M10K. NO LOOP
+  (check_timing loops: 0). Slow 100C per clock pair (compile 4, compile 3
+  in brackets):
+  - clk_k -> clk_k: MET, +4.840 (-3.9, +5.7). The worst are now the
+    PMMU's own (MMUSR -> ok / fast_xlat); the hit's round trip is not
+    among the worst 60.
+  - clk_sys -> clk_k: -0.563 (-6.2, -6.8): the interrupt level only - SCC
+    ipv, VIA1 ier/ifr -> IPL -> the kernel -> the PMMU's ok. The pace and
+    the cache fill are gone from the list.
+  - clk_k -> clk_sys: -0.431 (-14.1, -4.3): the kernel's address (Add57)
+    -> the FPU's fk and the SCC's fs1.
+  - clk_k -> clk_mem: -10.528 (-23.6, -13.0): the kernel's address and
+    the PMMU's -> xs_wdata, item 7's, as expected.
+  - not this work's: clk_sys -> clk_sys -0.896 (the FPU's ROM -> lzc, as
+    in compiles 3 and 4); clk_mem's own -3.3 and the capture clocks'
+    -2.3 (the undesigned 150 MHz SDRAM).
+  Every corner (sta_corners): design setup -10.528 / -10.374 slow, -2.811
+  / -1.668 fast, all the clk_mem pairs. VERDICT: the CPU's round trip is
+  closed with 4.8 ns to spare; what is left of the kernel's boundary is
+  under 0.6 ns either way plus the SDRAM hand-off - item 7 and the IIci's
+  own memory. Logs: output_files/build_20261112_191134.log,
+  sta_corners_MacSE30_iici_kclk5.log, k5_*.txt. MacSE30.qsf restored;
+  output_files/MacSE30.rbf is this test build - not for the board.
+  ITEM 7 (the kernel's outputs to the devices and the SDRAM), a proposal
+  for the IIci's own bus, Daniel's decision: the bus registered on clk_k
+  at the edge after the request (address, FC, SIZ, R/W, data and AS*
+  together, a half clock after today's S1; the 68030's own write data is
+  valid from S2), DSACK* and data taken at phi1 edges as stage 1 already
+  does. A zero-wait cycle stays 3 clocks if the port answers in the clk
+  after AS*; every IIci port's acknowledge timing is new logic (MDU, RBV,
+  the cache card) set to the Guide's cycle lengths anyway. Every kernel
+  -> device path is then kernel -> a clk_k register (40 ns) -> the device.
+  In reserve if compile 5 leaves the step enable short: (A)'s hit without
+  the PMMU's busy term.
+
+**END OF SESSION 2026-11-12 (evening, Daniel closed it) - READ THIS TO RESUME.**
+- Branch `iici`, stage 1 RTL UNCOMMITTED in the working tree (tg68k.v,
+  se30_cache030.v ASYNC, sim/machine + sim/system tb/run.sh KTRACE hooks,
+  ktrace_cmp.py, ref_tg68k_berrlate.v; this plan). Commit when Daniel asks.
+  MacSE30.qsf restored after compile 4 (SE30_KCLK swapped in for
+  USE_DBG_PROBES during the build; QUARTUS_REVISION=MacSE30 needed now
+  that MacIIcx.qsf sits beside it).
+- PROVEN in sim: stage 1 is exact - every kernel input at every phi1 edge
+  equals today's logic (KCLK = 0 identical to HEAD; KCLK = 1 identical to
+  the berr-late reference at KCLK = 1, timetest's table walks included).
+- PROBLEM (test compile 4, -23.6 ns): the kc_ decisions (cache hit, posted
+  write's acknowledge, take) are combinational from the kernel's request
+  into its clkena/dsack/din in the same CPU clock: kernel out ~14.5 ns
+  (address -> PMMU fast_xlat -> busy -> busstate) + wrapper ~6 + kernel in
+  ~22 = over 40 ns; plus a 98-node combinational loop (a hit's DSACK 00 ->
+  kernel port_room -> memmaskmux(3) -> moves_fc_override -> FC -> i_hit).
+- SUPERSEDED 2026-11-12 (night) by the "REVIEW AND FIX" block above: the
+  data and DSACK picked by registers - neither option needed; built,
+  benches exact; TEST COMPILE 5: no loop, clk_k -> clk_k +4.8 ns.
+  NEXT: item 7 (the bus registered on clk_k), Daniel's decision.
+- OPTIONS, Daniel to choose (asked at the close, unanswered):
+  (A) THE SHORTCUT (recommended to try first, ~1 h compile): decide a hit
+      from the logical address, FC and busstate without the PMMU's busy/
+      park terms (the 68030's caches are logical, looked up beside the
+      ATC), so the chain may fit; work out the PMMU-busy/faulted cases
+      (a hit while a walk or fault is pending) and break the loop (the hit
+      must not reach FC through dsack). Then test compile 5.
+  (B) "Register them": one more CPU clock from every request to its
+      acknowledge; the wrapper sees registered kernel outputs (item 7
+      falls out of it). Estimated +3 to +20 % clocks (timetest), +13 to
+      +18 % (boot) - likely misses Norton ~2 %; the fallback, measured
+      properly before any decision.
+  Also open: the pace's p_rel -> kk_pgo_pt/pn path (-6.2, clk_sys ->
+  clk_k: the next-P budget chain); item 7 for the kernel -> device and
+  SDRAM pairs; the identical-build check of KCLK = 0 before any merge.
 
 **END OF SESSION 2026-11-11 (night, ~23:45, Daniel closed it) - READ THIS TO RESUME.**
 - Branch `iici` (from dev 9666a1d), all committed, NOT pushed. Read the
