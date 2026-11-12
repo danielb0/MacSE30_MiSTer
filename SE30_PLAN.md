@@ -28230,6 +28230,70 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   sta_corners_MacSE30_iici_kclk6.log, k6_*.txt. MacSE30.qsf restored;
   output_files/MacSE30.rbf is this test build - not for the board (its
   RAM cycles are five clocks).
+- *THE 68882 AT 25 MHz (2026-11-12, night; Daniel: "Go ahead with the
+  FPU"): THE DATAPATH BUILT TO WHAT THE MICROCODE RUNS.*
+  THE PROBLEM, read from compile 6's netlist: the -4.3 ns path is not the
+  microcode ROM's one-clk path (my first reading) but the APU's own
+  two-clk datapath - setup relationship 40 ns, 43 ns of data: the nanoword
+  -> A -> the round logic (r_st, rinc) -> B -> the barrel shifter -> the
+  ALU's adders -> lzc67 (a 67-bit priority chain, 7 ns) -> the normalising
+  shift -> the result -> lzc. At the SE/30's clock an FPU clock is 63.8 ns
+  and this was 41; at 25 MHz it is 40.
+  WHAT THE MICROCODE DOES (all 394 distinct nanowords of ucode.nrom.hex):
+  - b=RINC and b=RMASK (15 words) are never shifted, never exchanged (bx),
+    never with an output shift: ADD, AND or PASSB of them, nothing else.
+  - osh=norm (14 words) only ever follows alu=passa (13, b=0) or alu=passb
+    of an unshifted T (1): never a sum, a shift, an exchange or a round.
+  - the barrel shifter is never used with any output shift.
+  So the 43 ns chain is one no microinstruction runs.
+  THE CHANGE (rtl/fpu/se30_fpu_apu.v; a shared file - the identical-build
+  check on the SE/30 and the IIcx is owed before any merge to dev):
+  - RINC and RMASK join B after the barrel shifter and the exchange.
+  - the normaliser reads its operand at the source (A, or B as it enters
+    the shifter), beside the ALU, not after it.
+  - lzc67 is a tree: each byte's count, the first nonzero byte's.
+  - (* dont_retime *) on the module: every register the datapath writes
+    changes only at a p1 edge, which is what the SDC's two-clk credit
+    says; compile 6's fitter moved lzc through its enable and merged the
+    enable's copy with VGA_scanlines|ce1, outside the credit (-13.5).
+  THE RULE, where the definition lives: tools/fpu_ucode/asm.py word_rules
+  rejects a shifted or exchanged RINC/RMASK and an osh=norm of anything
+  but a passed operand; sim.py raises the same; test_asm.py breaks each on
+  purpose (4 new, 61 PASS); the RTL's SIMULATION block prints SIMERR for
+  such a word. The microcode's images are byte-identical (no word broke
+  the rules).
+  BENCHES: tools/fpu_ucode run.sh (every vector on the simulator, with the
+  rules): PASS. sim/fpu BENCH=apu: 19,836 vectors pass, 0 with other
+  clocks, 0 SIMERR. BENCH=chip: 19,836 pass, 0 with other clocks, 0
+  SIMERR. No clock count moved: the FPU's times are what they were.
+  TEST COMPILE 7 (SE30_KCLK, the deck out; 38 min): ROUTED, 38,266 ALMs
+  (91 %; -733 on compile 6), 353 M10K, no loop, no retimed register in
+  the APU (no _NEW/_OTERM name among its paths: dont_retime on the module
+  is honoured). Slow 100C (compile 6 in brackets):
+  - clk_sys -> clk_sys MET, +3.134 (-13.473): the worst is SCSI -> GLUE's
+    dev_q; the FPU's worst are its BIU's (opnd -> s_den +3.3), the APU's
+    datapath is not among the worst 60.
+  - clk_k -> clk_k +6.521 (+6.275); clk_sys -> clk_k +0.750 (+1.068);
+    clk_k -> clk_mem +2.147 (+0.657); clk_sys -> clk_mem +2.329.
+  - clk_k -> clk_sys +0.071 (+1.776) - MET BUT THIN: the kernel -> the
+    wrapper's own phi2-edge registers (berr_hold +0.07, pb_dout +0.21),
+    the take that compile 5's netlist had at +0.8. The next thing to
+    harden: those registers move at known edges and can be written from
+    clk_k (berr_hold clears at phi1; the posted write's data can be taken
+    from kb_dout).
+  - NOT MET, the only ones: clk_mem -> clk_mem -2.181 and the two capture
+    clocks -1.127 - the SE/30's SDRAM controller at 150 MHz, which is not
+    the IIci's.
+  The corners: both fast ones meet every register-to-register path (+1.1
+  / +1.4); slow -40C is -1.916, clk_mem's.
+  VERDICT: at 25 MHz the CPU, its bus and the 68882 all meet in this
+  vehicle; what fails is the vehicle's own memory controller. NEXT: the
+  IIci machine files (MDU, RBV, memory, the cache card), with the thin
+  clk_k -> clk_sys take hardened on the way; before any merge to dev, the
+  identical-build check of the shared files (se30_fpu_apu.v, tg68k.v,
+  se30_cache030.v, se30_machine.v, MacSE30.sv/.sdc) on the SE/30 and the
+  IIcx. Logs: output_files/build_20261112_221015.log,
+  sta_corners_MacSE30_iici_kclk7.log, k7_*.txt. MacSE30.qsf restored.
 
 **END OF SESSION 2026-11-12 (evening, Daniel closed it) - READ THIS TO RESUME.**
 - Branch `iici`, stage 1 RTL UNCOMMITTED in the working tree (tg68k.v,
