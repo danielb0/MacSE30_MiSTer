@@ -3,6 +3,7 @@ run*.log
 transcript
 *.wlf
 cacheon/
+burston/
 cachetest/
 cachewa/
 vramtest/

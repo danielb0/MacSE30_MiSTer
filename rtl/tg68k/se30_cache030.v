@@ -76,6 +76,8 @@ module se30_cache030 #(
   input      [31:2] la,                // its logical address
   input       [2:0] fc,
   output            i_hit,             // a fetch here hits
+  output            i_lnew,            // ... its line holds nothing of it: the tag differs or all four entries are
+                                       //   invalid - a burst fill may be requested (UM 6.1.3.2; the IIci's BURST)
   output     [31:0] i_q,               // the entry at last clock's address (ASYNC: at this one)
 
   // the fill: a cachable fetch cycle's long
@@ -86,6 +88,7 @@ module se30_cache030 #(
 
   // the data cache: the lookup is `la`/`fc` above
   output            d_hit,             // a data read here hits
+  output            d_lnew,            // ... its line holds nothing of it (i_lnew's terms)
   output     [31:0] d_q,               // the entry at last clock's address (ASYNC: at this one)
   input             d_fill,            // a cachable read cycle's long (`fill_la`, `fill_fc`, `fill_data`)
   input             d_wr,              // a cachable write starting, at `la`/`fc`
@@ -103,6 +106,7 @@ module se30_cache030 #(
 
   wire  [3:0] line = la[7:4];
   assign i_hit = ei && ival[line][la[3:2]] && itag[line] == {la[31:8], fc[2]};
+  assign i_lnew = (itag[line] != {la[31:8], fc[2]}) || (ival[line] == 4'b0);
 
   // fills: only when enabled, not frozen; the wrapper checks CI and FC
   wire  [3:0] fline = fill_la[7:4];
@@ -150,6 +154,7 @@ module se30_cache030 #(
   wire        d_tagm = dtag[line] == {la[31:8], fc};
   wire        d_vhit = d_tagm && dval[line][ent];
   assign d_hit = ed && d_vhit;
+  assign d_lnew = !d_tagm || (dval[line] == 4'b0);
 
 
   // the fill: at fill_la (the cycle's address, latched by the wrapper)

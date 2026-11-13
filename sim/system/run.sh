@@ -33,6 +33,7 @@ RTL=../../rtl
 ( cd ../kernel_bus && python gen_program.py --port 32 ) || exit 1
 ( cd ../kernel_bus && python gen_program.py --port 32 --cache 0x0101 --out ../system/cacheon ) || exit 1
 ( cd ../kernel_bus && python gen_program.py --port 32 --cache 0x2101 --out ../system/cachewa ) || exit 1
+( cd ../kernel_bus && python gen_program.py --port 32 --cache 0x3919 --out ../system/burston ) || exit 1
 python gen_cache_program.py || exit 1
 python gen_vram_program.py || exit 1
 python gen_berr_program.py || exit 1
@@ -55,6 +56,7 @@ for run in ${RUNS:-plain cacheon cachewa cachetest vramtest lanetest berrtest ti
     plain)     log=run.log;           args="" ;;
     cacheon)   log=run_cacheon.log;   args="+PROG=cacheon +CACHEON" ;;
     cachewa)   log=run_cachewa.log;   args="+PROG=cachewa +CACHEON" ;;
+    burston)   log=run_burston.log;   args="+PROG=burston +CACHEON +BURSTON" ;;     # the IIci ROM's CACR (BURST=1: the fills run)
     cachetest) log=run_cachetest.log; args="+PROG=cachetest +CACHETEST" ;;
     vramtest)  log=run_vramtest.log;  args="+PROG=vramtest +VRAMTEST" ;;
     lanetest)  log=run_lanetest.log;  args="+PROG=lanetest +LANETEST" ;;
@@ -65,7 +67,7 @@ for run in ${RUNS:-plain cacheon cachewa cachetest vramtest lanetest berrtest ti
     tracecache) log=run_tracecache.log; args="+PROG=tracecache +TRACETEST" ;;
   esac
   [ -n "$TAG" ] && { log=${log%.log}_$TAG.log; args="$args +KTRACE=kt_${run}_$TAG.txt"; }
-  "$MODELSIM/vsim.exe" -c -quiet -gKCLK=${KCLK:-0} -gKBUS=${KBUS:-${KCLK:-0}} $args -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_system > $log 2>&1
+  "$MODELSIM/vsim.exe" -c -quiet -gKCLK=${KCLK:-0} -gKBUS=${KBUS:-${KCLK:-0}} -gBURST=${BURST:-0} $args -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_se30_system > $log 2>&1
   echo "-- $run"
   grep -E '^# (---- |==== |FAIL )' $log | sed 's/^# //'
   grep -q '^# ==== PASS' $log || ok=1

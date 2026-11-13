@@ -28427,6 +28427,52 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   512 KB ROM, so not 64 + 64); (3) monitors: 640 x 480 only, or the
   portrait too; (4) the order: ROM-on-SE/30 bench first, then MDU +
   memory, then RBV + video, then the cache card.
+  DANIEL'S ANSWERS (2026-11-13): (1) "Yes, add bursts"; (2) RAM limited
+  to 32 MB at this stage; (3) 640 x 480 only at this stage; (4) the
+  order as proposed - MDU + memory, then RBV + video, then the cache card.
+- *BURST FILLS (2026-11-13; Daniel: "Yes, add bursts").* The rules, UM
+  6.1.3.2 and 7.3.7: CBREQ* on a cachable read that misses its line (the
+  tag differs, or all four entries invalid) with the cache enabled, its
+  burst enable (IBE/DBE) set and not frozen; never a read-modify-write's,
+  never the first part of an operand crossing the 16-byte line; a burst
+  only from a 32-bit port terminating with STERM* and CBACK*; address held,
+  the line's entries modulo 16, up to four longs, CBREQ* negated after the
+  third; the first long goes to the EU at once, the fill longs "not
+  available to the EU until the burst operation is complete"; aborted by
+  CIIN*, BERR* (no exception in a fill beat) or CBACK* negated early.
+  BUILT (rtl/tg68k/tg68k.v "BURST FILLS"; se30_cache030.v i_lnew/d_lnew):
+  a BURST parameter, live only with KCLK (the IIci); new ports cbreq out,
+  cback in. The first beat is any cycle (the kernel acknowledged as
+  today, the pace credits it); CBACK* with its 32-bit end takes the
+  wrapper to s = 6, AS*/DS*/address held, a long at each termination
+  into the cache (fill_ok, the entry advancing modulo 4 in cyc_la), done
+  at four longs, a bus error, a narrower termination or CBACK* negated.
+  Meanwhile the kernel steps on internal beats and cache hits (kc_hit
+  takes kk_brst as it takes kk_post), but not a hit into the line being
+  filled (kc_bblk, clk_k registers of the line and cache); anything needing
+  the bus waits (kc_take needs kk_s0). The fill beats credit the pace
+  nothing (no instruction's wait states). No CIIN* on our machines.
+  BURST = 0 or KCLK = 0 makes every new term a constant - the SE/30 and
+  IIcx logic is unchanged by construction (se30_machine.v ties cback low).
+  SIMPLIFICATION, recorded: a write during a burst waits for its end; a
+  68030's write pending buffer would take it and go on. To measure when
+  the IIci memory exists.
+  BENCH (sim/system): BURST = 1 (with KCLK = 1) makes the RAM model answer
+  CBREQ* with CBACK* and three more longs at two-clock beats (GLUE's
+  DSACK* masked while the wrapper holds the bus); a new run, burston, is
+  the kernel bench's whole program after CACR = $3919 (the IIci ROM's).
+  The bench's end detection now also takes the kernel's own decode of the
+  STOP (with bursts its long can arrive in a fill and never be fetched on
+  the bus - the first run's "STOP not reached" was that). burston: PASS
+  25 checks, 64 bursts, 192 fill beats, every result slot right. A new
+  check in every BURST run: with +BURSTON bursts ran, three fill beats
+  each; without, none at all (the enables never set, CBREQ* never out).
+  RESULTS: sim/system KCLK = 1 BURST = 1, all twelve runs PASS (17 min);
+  KCLK = 0 plain and cacheon PASS; sim/machine SE/30 PASS 17.
+  NOT YET: the identical-build check of the shared files (deferred by
+  Daniel to the IIci's end); the abort paths (CBACK* negated early, a
+  bus error in a fill beat) are built but no bench drives them - the
+  IIci's MDU completes every burst it acknowledges.
 
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,

@@ -264,6 +264,7 @@ module se30_machine #(
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(cpu_cdis), .coff(dbg_coff), .pace_en(pace_en), .post_en(1'b1), .reset_out_n(reset_out_n), .halted(halted),
+    .cbreq(), .cback(1'b0),                // no bursts: CBACK* is pulled up on the SE/30 and IIcx boards
     .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_trg(dbg_trg), .dbg_exc(dbg_exc), .dbg_cache(dbg_cache), .dbg_pace(dbg_pace), .dbg_mmuf(dbg_mmuf),
     .dbg_rpr(dbg_rpr), .dbg_rpk(dbg_rpk), .dbg_jtp(dbg_jtp), .dbg_jte(dbg_jte));
 

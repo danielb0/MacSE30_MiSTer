@@ -95,7 +95,11 @@ module tb_se30_system;
   wire phi1 = !phi, phi2 = phi;
   // the devices' C16M enable: under KCLK they run a clk behind, on phi2, as
   // se30_machine.v runs them (tg68k.v item 7: the bus in clk_k registers)
-  parameter KBUS = KCLK;                 // 0 with KCLK = 1: a wrapper without the registered bus (the reference)
+  parameter KBUS = KCLK;
+  // BURST=1 (with KCLK=1; the IIci's burst fills, tg68k.v BURST FILLS): the
+  // RAM answers CBREQ* with CBACK* on its 32-bit termination, then three
+  // more longs a beat every two CPU clocks, the line's next entries modulo 16
+  parameter BURST = 0;                 // 0 with KCLK = 1: a wrapper without the registered bus (the reference)
   wire cen = KBUS ? phi2 : phi1;
   reg reset_n = 0;
   reg pace_en = 1;                         // +NOPACE: the kernel unpaced (plan 1.17.5)
@@ -123,12 +127,16 @@ module tb_se30_system;
   wire        cpu_as_n, cpu_ds_n, cpu_rw_n, berr, reset_out_n, halted;
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
+  wire  [1:0] dsack_g;                     // GLUE's
+  wire [31:0] din_g;
+  wire        cbreq, cback;
 
-  tg68k #(.KCLK(KCLK)) cpu (
+  tg68k #(.KCLK(KCLK), .BURST(BURST)) cpu (
     .clk(clk), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .coff(2'b00), .pace_en(pace_en), .post_en(post_en), .reset_out_n(reset_out_n), .halted(halted));
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .coff(2'b00), .pace_en(pace_en), .post_en(post_en), .reset_out_n(reset_out_n), .halted(halted),
+    .cbreq(cbreq), .cback(cback));
 
 `ifdef KTRACE
   // IIci stage 1 (SE30_PLAN.md, STAGE 1 DESIGN; sim/machine's twin): every
@@ -179,8 +187,8 @@ module tb_se30_system;
   se30_glue glue (
     .clk(clk), .c16_en(cen), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc),
-    .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n),
+    .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(din_g),
+    .dsack_n(dsack_g), .berr(berr), .ipl_n(ipl_n),
     .ram_req(ram_req), .ram_we(ram_we), .ram_addr(ram_addr), .ram_be(ram_be), .ram_wdata(ram_wdata),
     .ram_rdata(ram_rdata), .ram_ack(ram_ack), .ram_refresh(ram_refresh),
     .rom_req(rom_req), .rom_addr(rom_addr), .rom_rdata(rom_rdata), .rom_ack(rom_ack),
@@ -230,6 +238,25 @@ module tb_se30_system;
     end
   end
 
+  // the burst (BURST): CBACK* with a RAM read's termination while CBREQ* is
+  // asserted; once the wrapper holds the bus for the fill (its s = 6), GLUE's
+  // DSACK* is masked (it holds its own to AS*'s rise) and this answers
+  reg   [1:0] b_ent = 0;                   // the next long's entry in the line
+  reg         b_on = 0, b_ph = 0;
+  reg  [31:0] b_dat = 0;
+  wire        b_fill = BURST && (cpu.s == 3'd6);
+  assign cback   = BURST && cbreq && cpu_rw_n && (cpu_addr[31:30] == 2'b00);
+  assign dsack_n = b_fill ? (b_on ? 2'b00 : 2'b11) : dsack_g;
+  assign cpu_din = b_fill ? b_dat : din_g;
+  always @(posedge clk) if (cen) begin
+    if (b_fill && !cpu_as_n) begin
+      b_ph <= !b_ph; b_on <= !b_ph;                                   // every second CPU clock
+      if (!b_ph) begin b_dat <= ram[{cpu_addr[16:4], b_ent}]; b_ent <= b_ent + 2'd1; end
+    end else begin b_ph <= 0; b_on <= 0; b_ent <= cpu_addr[3:2] + 2'd1; end
+  end
+  integer b_bursts = 0, b_beats = 0;
+  always @(posedge clk) if (phi1 && cpu.b_beat && dsack_n == 2'b00 && !berr) b_beats = b_beats + 1;
+
   integer pass = 0, fails = 0;
 
   // plan 1.17.7: the wrapper posts writes only to ports that always
@@ -245,21 +272,26 @@ module tb_se30_system;
   integer as_clocks = 0, cyc_min = 1000, cyc_max = 0, cycles = 0, fetch_cycles = 0, data_cycles = 0;
   integer idle_between = 0, gaps = 0, long_cycles = 0, cpu_space_cycles = 0, hits = 0;
   reg as_q = 1; reg [31:0] first_addr; reg [2:0] first_fc;
+  reg c_burst = 0;                                     // BURST: this cycle went on into its fill
   always @(posedge clk) if (phi1) begin
     if (!cpu_as_n) as_clocks = as_clocks + 1;
+    if (!cpu_as_n && cpu.s == 3'd6) c_burst = 1;
     if (!cpu_as_n && as_q) begin first_addr = cpu_addr; first_fc = cpu_fc; idle_between = 0; end
     if (cpu_as_n && !as_q) begin
       cycles = cycles + 1;
       if (first_fc == 3'd7) begin                      // CPU space: the acknowledge, terminated by AVEC in 3
         cpu_space_cycles = cpu_space_cycles + 1;
         if (as_clocks + 1 != 3) begin fails = fails + 1; $display("FAIL: a CPU-space cycle of %0d clocks, expected AVEC's 3", as_clocks + 1); end
+      end else if (c_burst) begin                     // a burst: counted apart, not metered as one cycle
+        b_bursts = b_bursts + 1;
+        if (first_fc == 3'd6) fetch_cycles = fetch_cycles + 1; else data_cycles = data_cycles + 1;
       end else begin
         if (as_clocks + 1 < cyc_min) cyc_min = as_clocks + 1;
         if (as_clocks + 1 > cyc_max) cyc_max = as_clocks + 1;
         if (as_clocks + 1 > 4) long_cycles = long_cycles + 1;
         if (first_fc == 3'd6) fetch_cycles = fetch_cycles + 1; else data_cycles = data_cycles + 1;
       end
-      as_clocks = 0;
+      as_clocks = 0; c_burst = 0;
     end
     if (cpu_as_n && as_q && cpu.k_req && !cpu.hit_ack && !cpu.f_hit) idle_between = idle_between + 1;
     if (cpu.hit_ack) hits = hits + 1;
@@ -413,6 +445,8 @@ module tb_se30_system;
   reg done = 0; integer tail = -1;
   always @(posedge clk) if (phi1 && reset_n && !done) begin
     if (!cpu_as_n && cpu_fc == 3'd6 && cpu_addr[31:2] == stop_at[31:2] && tail < 0) tail = 200;
+    // BURST: the STOP's long may have come in a burst's fill and never be fetched on the bus
+    if (BURST && cpu.k_opcode_pc == stop_at && cpu.k_opcode == 16'h4E72 && tail < 0) tail = 200;
     if (tail > 0) tail = tail - 1;
     if (tail == 0) done <= 1;
   end
@@ -439,7 +473,12 @@ module tb_se30_system;
     n = 0;
     while (!done && !halted && n < (timetest ? 2000000 : 400000)) begin @(posedge clk); n = n + 1; end
     if (halted) begin fails = fails + 1; $display("FAIL: the CPU halted (double bus fault) after %0d clocks", n); end
-    if (!done) begin fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n); end
+    if (!done) begin
+      fails = fails + 1; $display("FAIL: STOP not reached after %0d clocks", n);
+      $display("      at the end: s %0d as* %b addr %08x fc %0d busstate %b k_addr %08x pc %08x op %04x decode %b b_done %b brst %b bblk %b anyhit %b",
+               cpu.s, cpu_as_n, cpu_addr, cpu_fc, cpu.k_busstate, cpu.k_addr, cpu.k_opcode_pc, cpu.k_opcode, cpu.k_decode,
+               cpu.b_done, cpu.kk_brst, cpu.kc_bblk, cpu.kc_anyhit);
+    end
     else pass = pass + 1;
     if (berrtest) begin                                                 // the SCSI handshake bus error (plan 9.6 item 3)
       v = ram[32'h3000 >> 2]; want = ram[32'h3004 >> 2];
@@ -554,6 +593,14 @@ module tb_se30_system;
     $display("---- %0d bus cycles (%0d fetch, %0d data, %0d CPU space): RAM %0d to %0d C16M clocks, %0d over 4 (refresh stalls); %0d idle clocks with a request waiting",
              cycles, fetch_cycles, data_cycles, cpu_space_cycles, cyc_min, cyc_max, long_cycles, idle_between);
     $display("---- %0d fetches and reads answered from the caches", hits);
+    if (BURST && $test$plusargs("BURSTON")) begin       // the program turned the bursts on: some must have run, whole
+      $display("---- %0d bursts, %0d fill beats", b_bursts, b_beats);
+      if (b_bursts > 0 && b_beats == 3 * b_bursts) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: %0d bursts with %0d fill beats, expected three each", b_bursts, b_beats); end
+    end else if (BURST) begin                          // IBE/DBE never set: CBREQ* never asserted
+      if (b_bursts == 0 && b_beats == 0) pass = pass + 1;
+      else begin fails = fails + 1; $display("FAIL: %0d bursts, %0d fill beats, with the burst enables never set", b_bursts, b_beats); end
+    end
     if (cpu_space_cycles == (cachetest ? 0 : 1)) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0d CPU-space cycles, expected %0d", cpu_space_cycles, cachetest ? 0 : 1); end
     if (cacheon || cachetest) begin                 // the cache was on: it must have hit
       if (hits > 0) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: the cache was enabled and nothing hit"); end

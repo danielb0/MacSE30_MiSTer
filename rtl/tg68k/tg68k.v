@@ -92,11 +92,33 @@
 //   them today (kc_end) - a cycle is as many clocks as today's.  A bus error
 //   seen in the wait states so reaches the kernel one CPU clock later than
 //   today.  The interrupt level comes through a clk_k register.
+//
+// BURST FILLS (BURST = 1, KCLK only: the IIci, whose MDU answers CBREQ*;
+// UM 6.1.3.2, 7.3.7)
+//   CBREQ* goes out with a cachable read that the cache, its burst enable
+//   (IBE/DBE) on and not frozen, holds nothing of in its line (the tag
+//   differs or all four entries are invalid) - not a read-modify-write's,
+//   not CI, not CPU space or the walker's, not the first part of an operand
+//   that crosses the 16-byte line.  A 32-bit termination with CBACK* at the
+//   end of that cycle keeps AS*, DS* and the address on the bus (s = 6) and
+//   takes a long at each termination after it, for the line's next entries
+//   modulo 16 (the memory counts A3-A2), to four longs; CBREQ* is negated
+//   after the third.  The kernel has the first long as from any cycle; the
+//   others go only into the cache.  A bus error ends the burst with no fill
+//   and no exception; CBACK* negated ends it after that beat; there is no
+//   CIIN* on our machines.  While the burst runs the kernel goes on with
+//   internal beats and hits, but a lookup into the line being filled waits
+//   for the burst's end ("data from the burst fill cycles is not available
+//   to the EU until the burst operation is complete"), and anything that
+//   needs the bus waits for it.  The pace credits the first beat as any
+//   cycle; the fill beats are no instruction's wait states.  The bench
+//   here is cback tied low: every BURST term is then constant.
 
 `timescale 1ns/1ps
 
 module tg68k #(
-  parameter KCLK = 0                   // 1: the kernel on clk_k (CLOCKING above)
+  parameter KCLK = 0,                  // 1: the kernel on clk_k (CLOCKING above)
+  parameter BURST = 0                  // 1 (with KCLK): burst fills on CBACK* (BURST FILLS above)
 ) (
   input         clk,                   // 2 x C16M
   input         clk_k,                 // KCLK: the CPU clock, clk / 2, rising at the end of each phi1 clk
@@ -116,6 +138,8 @@ module tg68k #(
   input  [31:0] cpu_din,
   input   [1:0] dsack_n,               // {DSACK1*, DSACK0*}
   input         berr,
+  output        cbreq,                 // CBREQ* asserted (active high here)
+  input         cback,                 // CBACK* asserted, with a 32-bit termination (BURST only)
   input   [2:0] ipl_n,
   input         cdis,                  // CDIS* asserted (VIA2 PB0 low): the caches disabled
   input   [1:0] coff,                  // {instruction cache off, data cache off}: the JTAG experiment (KNOWN ISSUES 20)
@@ -299,7 +323,16 @@ module tg68k #(
   wire        k_dread  = !wsel && (k_busstate == 2'b10) && !park;
   wire        k_dwrite = !wsel && (k_busstate == 2'b11) && !park;
   wire        i_hit, d_hit;
+  wire        i_lnew, d_lnew;          // the line holds nothing of the request (BURST)
   wire [31:0] i_q, d_q;
+  // BURST FILLS (the header): the burst state, s = 6 after the first beat
+  localparam  BR = (BURST != 0) && (KCLK != 0);
+  reg         cyc_burst;               // this cycle asked for a burst (CBREQ*)
+  reg   [1:0] b_n;                     // longs the burst has brought
+  reg         b_done;                  // the last beat has ended: AS* rises at the next phi2 edge
+  reg         b_adv;                   // a beat ended: the next entry at the next phi2 edge
+  reg         e_cback;                 // CBACK* as the first beat's end took it
+  wire        b_beat   = BR && (s == 3'd6) && !b_done;                    // a fill beat may end at this phi1 edge
   wire        f_hit    = k_fetch && i_hit;
   wire        r_hit    = k_dread && !k_rmc && d_hit && (k_fc != 3'd7);
   // (plan 1.17.2) the kernel's destination read for CLR, Scc and MOVE from
@@ -320,7 +353,7 @@ module tg68k #(
   reg   [2:0] cyc_fc;
   // KCLK: the cache's clock is clk_k, and the fill is at the phi1 edge
   // before S5 - the same data, DSACK and BERR (sim/machine EARLYMON)
-  wire        fill_ok  = (KCLK ? kc_end : (phi2 && (s == 3'd5))) && !berr && (dsack_n == 2'b00);
+  wire        fill_ok  = ((KCLK ? kc_end : (phi2 && (s == 3'd5))) || b_beat) && !berr && (dsack_n == 2'b00);
   wire        i_fill   = fill_ok && cyc_fill;
   wire        d_fill   = fill_ok && cyc_dfill;
   // the write's bytes: from A1-A0, as many as SIZ says remain, to the long's end
@@ -379,11 +412,19 @@ module tg68k #(
   se30_cache030 #(.ASYNC(KCLK)) cache (
     .clk(c_clk), .reset_n(reset_n),
     .cacr(k_cacr[13:0] & ~{5'b0, coff[0], 7'b0, coff[1]}), .caar(k_cache_op_addr[7:2]), .cdis(KCLK ? kk_cdis : cdis),   // coff: EI/ED cleared
-    .la(k_addr_log[31:2]), .fc(k_fc), .i_hit(i_hit), .i_q(i_q),
+    .la(k_addr_log[31:2]), .fc(k_fc), .i_hit(i_hit), .i_lnew(i_lnew), .i_q(i_q),
     .i_fill(KCLK ? kk_ifill : i_fill), .fill_la(KCLK ? kk_fla : cyc_la), .fill_fc(KCLK ? kk_ffc : cyc_fc), .fill_data(KCLK ? kk_din : cpu_din),
-    .d_hit(d_hit), .d_q(d_q), .d_fill(KCLK ? kk_dfill : d_fill),
+    .d_hit(d_hit), .d_lnew(d_lnew), .d_q(d_q), .d_fill(KCLK ? kk_dfill : d_fill),
     .d_wr(KCLK ? d_wr_q : d_wr), .d_wbe(d_wbe), .d_wdata(k_dout), .d_wlong(k_siz == 2'b00 && k_addr[1:0] == 2'b00),
     .d_inv(d_inv));
+  // BURST: CBREQ* for the cycle about to start (UM 6.1.3.2's conditions; the
+  // cache's own enable, burst enable and freeze, CDIS* and the JTAG coff)
+  wire [13:0] b_cacr   = k_cacr[13:0] & ~{5'b0, coff[0], 7'b0, coff[1]};
+  wire        b_cdis   = KCLK ? kk_cdis : cdis;
+  wire  [4:0] b_reach  = {1'b0, k_addr[3:0]} + {2'b0, w_size};            // an operand's end in its 16-byte line
+  wire        b_icond  = b_cacr[0] && b_cacr[4] && !b_cacr[1] && !b_cdis && i_lnew;
+  wire        b_dcond  = b_cacr[8] && b_cacr[12] && !b_cacr[9] && !b_cdis && d_lnew && !k_rmc && (b_reach <= 5'd16);
+  wire        b_req    = BR && !k_ci && (k_fc != 3'd7) && ((k_fetch && b_icond) || (k_dread && b_dcond));
 
   // ECS (UM 5.6.2, 7.1.1): "the earliest indication that the processor is
   // initiating a bus cycle" - the address, FC, SIZ and R/W are on the bus
@@ -411,11 +452,13 @@ module tg68k #(
   reg   [2:0] kb_fc;
   reg   [1:0] kb_siz;
   reg         kb_rw, kb_as_n, kb_ds_n, kb_ecs;
+  reg         kb_cbreq;                // BURST: CBREQ*, negated after the third long
   always @(posedge clk_k or negedge reset_n)
     if (!reset_n) begin
-      kb_addr <= 0; kb_dout <= 0; kb_fc <= 0; kb_siz <= 0; kb_rw <= 1; kb_as_n <= 1; kb_ds_n <= 1; kb_ecs <= 0;
+      kb_addr <= 0; kb_dout <= 0; kb_fc <= 0; kb_siz <= 0; kb_rw <= 1; kb_as_n <= 1; kb_ds_n <= 1; kb_ecs <= 0; kb_cbreq <= 0;
     end else begin
       kb_as_n <= as_n_r; kb_ds_n <= ds_n_r; kb_ecs <= (s == 3'd2);
+      kb_cbreq <= BR && cyc_burst && (s != 3'd0) && !(s == 3'd6 && b_n == 2'd3);
       if (s == 3'd2) begin kb_addr <= eff_addr; kb_rw <= eff_rw; kb_fc <= eff_fc; kb_siz <= eff_siz; kb_dout <= eff_dout; end
     end
   assign ecs      = KCLK ? (kb_ecs && phi2) : ecs_s;
@@ -426,6 +469,7 @@ module tg68k #(
   assign cpu_fc   = KCLK ? kb_fc   : eff_fc;
   assign cpu_siz  = KCLK ? kb_siz  : eff_siz;
   assign cpu_dout = KCLK ? kb_dout : eff_dout;
+  assign cbreq    = BR ? kb_cbreq : 1'b0;
 
   // the bytes a walker beat brings, from the lanes the port answered on
   wire  [2:0] w_room = (dsack_r == 2'b10) ? 3'd1 : (dsack_r == 2'b01) ? 3'd2 - {2'b0, walk_done[0]} : 3'd4 - walk_done;
@@ -447,6 +491,7 @@ module tg68k #(
       ack_pending <= 0; ack_berr <= 0; walk <= 0; walk_done <= 0; walk_buf <= 0; e_berr <= 0; e_dsack <= 2'b11;
       w_ack_s <= 0; w_data_s <= 0; berr_hold <= 0;
       hit_ack <= 0; hit_d <= 0; hit_z <= 0; cyc_fill <= 0; cyc_dfill <= 0; cyc_la <= 0; cyc_fc <= 0;
+      cyc_burst <= 0; b_n <= 0; b_done <= 0; b_adv <= 0; e_cback <= 0;
       post <= 0; post_ack <= 0; pb_addr <= 0; pb_dout <= 0; pb_lanes <= 0; pb_lane <= 0; pb_n <= 0; pb_rem <= 0; pb_fc <= 0;
     end else begin
       if (!KCLK || phi1) w_ack_s <= 0;                                 // KCLK: held to the kernel's edge
@@ -459,7 +504,13 @@ module tg68k #(
           else begin walk_done <= walk_done + w_n; walk_buf <= w_long; end
         end
         if (s == 3'd2) s <= 3'd3;
-        if (KCLK ? kc_end : (s == 3'd4)) begin s <= 3'd5; e_berr <= berr; e_dsack <= dsack_n; end   // KCLK: the cycle's end, sampled here
+        if (KCLK ? kc_end : (s == 3'd4)) begin s <= 3'd5; e_berr <= berr; e_dsack <= dsack_n; e_cback <= cback; end   // KCLK: the cycle's end, sampled here
+        // BURST: a fill beat ends - the last at four longs, a bus error, a
+        // narrower termination or CBACK* negated (filled by fill_ok above)
+        if (b_beat && (berr || dsack_n != 2'b11)) begin
+          b_n <= b_n + 2'd1; b_adv <= 1;
+          if (berr || dsack_n != 2'b00 || !cback || b_n == 2'd3) b_done <= 1;
+        end
         if (k_make_berr || k_trap_berr || k_cp_berr_ack) berr_hold <= 0;   // (7d B5: taken as no coprocessor)
       end
       if (phi2) begin
@@ -478,7 +529,7 @@ module tg68k #(
                   as_n_r <= 0; ds_n_r <= !eff_rw ? 1'b1 : 1'b0; s <= 3'd2;
                   cyc_fill  <= k_fetch && !k_ci && (k_fc != 3'd7);
                   cyc_dfill <= k_dread && !k_ci && (k_fc != 3'd7);
-                  cyc_la <= k_addr_log[31:2]; cyc_fc <= k_fc;
+                  cyc_la <= k_addr_log[31:2]; cyc_fc <= k_fc; cyc_burst <= b_req;
                   if (k_post) begin                                          // posted: the buffer takes it from here
                     post <= 1; post_ack <= 1; dsack_r <= 2'b00;
                     pb_addr <= k_addr; pb_dout <= k_dout; pb_lanes <= k_dout; pb_lane <= k_addr[1:0];
@@ -517,8 +568,16 @@ module tg68k #(
                   dsack_r <= e_dsack; if (!walk) berr_hold <= 1;
                 end else begin                                             // S5: latch at the end of S4
                   din_r <= KCLK ? kk_din : cpu_din; if (!cp_local) dsack_r <= dsack5;
-                  as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; ack_pending <= 1;
+                  ack_pending <= 1;
+                  if (BR && cyc_burst && e_cback && e_dsack == 2'b00 && !berr5) begin   // BURST: on to the fill beats
+                    s <= 3'd6; b_n <= 2'd1; b_done <= 0; b_adv <= 0; cyc_la[3:2] <= cyc_la[3:2] + 2'd1;
+                  end else begin as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; end
                   if (berr5) begin ack_berr <= 1; if (!walk) berr_hold <= 1; end
+                end
+          3'd6: if (b_done) begin                                          // BURST: the last beat has ended
+                  as_n_r <= 1; ds_n_r <= 1; s <= 3'd0; b_done <= 0; b_adv <= 0; cyc_burst <= 0;
+                end else if (b_adv) begin                                    // the next entry, modulo 16
+                  b_adv <= 0; cyc_la[3:2] <= cyc_la[3:2] + 2'd1;
                 end
           default: ;
         endcase
@@ -545,6 +604,11 @@ module tg68k #(
   reg         kk_s0, kk_post, kk_walk, kk_wack, kk_cyc, kk_bh, kk_wberr, kk_fs;
   reg  [31:0] kk_wdata;
   reg   [1:0] kk_dsack;
+  reg         kk_brst, kk_bi, kk_bd;   // BURST: a burst runs, into the instruction / data cache ...
+  reg   [3:0] kk_bline;                //   ... at this line
+  always @(posedge clk_k or negedge reset_n)
+    if (!reset_n) begin kk_brst <= 0; kk_bi <= 0; kk_bd <= 0; kk_bline <= 0; end
+    else begin kk_brst <= BR && (s == 3'd6); kk_bi <= cyc_fill; kk_bd <= cyc_dfill; kk_bline <= cyc_la[7:4]; end
   reg         kk_pgo_q, kk_pgo_p;      // the pace's p_go for the decisions at Q, and at the next P (the pace, below)
   wire        kc_s4    = kc_end && !post;                                              // acknowledged at Q
   wire        kc_cpn   = (s == 3'd2) && cp_local && !iack;                             // no coprocessor: BERR at S3
@@ -560,7 +624,7 @@ module tg68k #(
       kk_wack  <= kc_wdone;
       if (kc_wdone) kk_wdata <= w_long;
       kk_cyc   <= (kc_s4 || kc_cpn) && !walk;
-      kk_din   <= (kc_s4 && !berr) ? cpu_din : din_r;
+      kk_din   <= ((kc_s4 || b_beat) && !berr) ? cpu_din : din_r;
       kk_dsack <= kc_s4 ? (cp_local ? dsack_r : dsack_n) : (s == 3'd2 && cp_local && iack) ? 2'b00 : dsack_r;
       kk_bh    <= (berr_hold && !(k_make_berr || k_trap_berr || k_cp_berr_ack)) ||
                   (kc_s4 && berr && !walk) || (kc_end && post && berr) || (kc_cpn && !walk);
@@ -575,7 +639,9 @@ module tg68k #(
   wire        kc_zs     = (kc_dread && k_wronly) || ((kc_dread || kc_dwrite) && k_dibsub);   // z_hit, s_hit
   wire        kc_anyhit = kc_fhit || (kc_dread && !k_rmc && d_hit && (k_fc != 3'd7)) || kc_zs;
   wire        kc_stallq = k_decode && !kk_pgo_q;
-  wire        kc_hit    = kc_anyhit && !kc_stallq && (kk_post || kk_s0);
+  // BURST: hits go on during a burst, but not into the line it fills
+  wire        kc_bblk   = kk_brst && (k_addr_log[7:4] == kk_bline) && ((kk_bi && kc_fetch) || (kk_bd && kc_dread && !kc_zs));
+  wire        kc_hit    = kc_anyhit && !kc_stallq && (kk_post || kk_s0 || kk_brst) && !kc_bblk;
   wire        kc_take   = kk_s0 && !kk_post && !kc_anyhit && (kc_wsel || (k_req && !park)) && !kc_stallq;
   wire        kc_pack   = kc_take && post_en && kc_dwrite && !k_rmc && (k_fc != 3'd7) && ((k_addr[31:30] == 2'b00) || pb_vid);
   wire        kc_ack    = kk_cyc || kc_hit || kc_pack;
