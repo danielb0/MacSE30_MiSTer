@@ -1,0 +1,4 @@
+# The IIci's one PLL (SE30_PLAN.md "THE MacIIci TOP AND ITS SDRAM"): written
+# by hand in the shape the Altera PLL wizard emits, as rtl/pll.qip is.
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) pll_iici.v ]
+set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) pll_iici/pll_iici_0002.v ]

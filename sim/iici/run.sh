@@ -9,6 +9,8 @@
 #   CHIME     "short" (default) skips the boot chime in the bench's copy
 #             (its body returns at once); "full" leaves it
 #   CYCLES    the bus-cycle limit (default 200000)
+#   PORTRAIT  1: the Portrait Display
+#   SDRAM     1: the memory through rtl/iici_sdram.v and the chip model
 # Exit status: 0 on "==== PASS".
 set -u
 cd "$(dirname "$0")"
@@ -41,9 +43,9 @@ done
   "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/iici_mdu.v" "$RTL/iici_rbv.v" "$RTL/iici_machine.v" \
   "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/iicx_nuchip.v" "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" \
   "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" \
-  "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v tb_iici_machine.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }
+  "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v "$RTL/iici_sdram.v" ../sdram/sdram_model.v tb_iici_machine.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }
 T0=$(date +%s)
-"$MODELSIM/vsim.exe" -c -quiet ${VSIMARGS:-} -gPORTRAIT=${PORTRAIT:-0} +CYCLES=${CYCLES:-200000} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine > run.log 2>&1
+"$MODELSIM/vsim.exe" -c -quiet ${VSIMARGS:-} -gPORTRAIT=${PORTRAIT:-0} -gSDRAM=${SDRAM:-0} +CYCLES=${CYCLES:-200000} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine > run.log 2>&1
 T1=$(date +%s)
 grep -E '^# (---- |==== |FAIL |      )' run.log | sed 's/^# //'
 echo "---- ModelSim wall clock: $((T1 - T0)) s"

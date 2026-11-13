@@ -28743,6 +28743,76 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     "off" that had waited for it).
   NEXT for it: the OSD option and clk_vid's PLL output in the MacIIci
   top; the ROM's driver with the portrait (sense 001) on the board.
+- *THE MacIIci TOP AND ITS SDRAM (2026-11-13; Daniel: "Yes, the top
+  next"). Design question first: the controller's clock.*
+  THE BUDGET: the KCLK wrapper puts AS* and ECS* on the same edge (P0);
+  the MDU terminates a 5-clock read at its phi2 edge 2.5 CPU clocks on
+  (P0 + 100 ns) and the wrapper takes the data at the phi1 edge after
+  (kc_end: P0 + 110 ns). The request reaches the controller from clk_sys
+  registers (kb_addr) through the MDU's decode.
+  se30_sdram's pipeline (94 MHz, proven on the board: the trained
+  capture, the A12/A11 mask, single-location writes, pins loaded a clock
+  ahead): sample, ACTIVE, READ after tRCD (AS4C32M16SB-7: 21 ns), CL,
+  the capture, dq_w, dq_m, cpu_rdata.
+  - At 100 MHz (2 x clk_sys): tRCD 3 clocks, CL2: the data in cpu_rdata
+    about 11 clocks = 110 ns after P0 - not before the wrapper's edge.
+    Every RAM read would be 6 clocks, not DC3's 5.
+  - At 150 MHz (3 x clk_sys): tRCD 4 clocks, CL3 (the -6/-7 chips' CL2
+    stops at 133 MHz): the data about 14 clocks = 93 ns after P0 - in
+    time, IF the MDU terminates at P0 + 100 on the controller's word that
+    the data will be there by the next edge ("acknowledge ahead"; the
+    wrapper takes it 10 ns later). se30_sdram at 150 MHz failed by 2.2
+    ns (internal) and 1.1 (capture) in the KCLK vehicle: it was built for
+    94 MHz, so this is a new controller derived from it, its decisions
+    registered a clock ahead for 6.67 ns, the capture phases re-derived
+    (a 150 MHz CL3 eye is about 3.8 ns), the training kept.
+  - The PLL: one VCO for clk_sys 50, clk_k 25, clk_mem 150 and its three
+    shifted copies, and clk_vid: 1200 MHz gives 50/25/150 exactly and
+    57.14 MHz for clk_vid (/21; Table 12-5's 57.28 less 0.24 %: the
+    portrait at 74.83 Hz; 640 x 480's 30.24 MHz exact from it as 1323 dots
+    in 2500 clocks). Phase steps 104 ps.
+  - The video port in the same controller: a burst of 8 longs (16 words,
+    eight READs in one row). A CPU read that meets one in the SDRAM waits
+    for it - on the real IIci a bank-B access never waits for video (G
+    p.413): late cycles, counted by dbg_late; the bank interleave that
+    would hide them is a later refinement.
+  DANIEL (2026-11-13): "150 MHz, exact timing"; then "You can proceed to
+  the compile, when ready".
+  BUILT:
+  - rtl/iici_sdram.v: se30_sdram's controller (its lessons kept) at 150
+    MHz, CL3, MODE $0231, tRCD 4, the MDU's ports: m_req sampled on the
+    first clk_mem edge, ACTIVE at 2, READ at 6; a single long's
+    acknowledge on its low word's own clock (14), held three clocks so
+    exactly one clk_sys edge (15) sees it; a burst's four READs two clocks
+    apart, the line in wrap order, the longs out three clocks apart; the
+    video's eight READs; writes posted (two WRITEs, acknowledged at the
+    first); two AUTO REFRESH in each MDU window, a forced one if the
+    windows stop; the training at the new clocks. FOUND ON THE BENCH: at
+    150 MHz the board's delays (clock out, tAC, data in) are 2.4 clocks,
+    one more than at 94 MHz - RD_LAT 7; the acknowledge-ahead was not
+    needed once the first long leaves on its own clock.
+  - sim/sdram_iici (iverilog): PASS 11 - the training (both captures clean
+    in the model; with A moved out of the eye it chose B and read right),
+    a read acknowledged at the fifth clk_sys edge, masked writes, write/
+    read pairs back to back, a burst 5-2-2-2 in wrap order, a video burst
+    of eight, the refresh window; the chip model's datasheet checks clean
+    at tCK 6.667 (sim/sdram_model.v's tAC is now a parameter, default
+    6.0: sim/sdram's bench unchanged and passing). A bench lesson: an
+    assign's delay is inertial, and at 150 MHz it swallowed the 3.33 ns
+    clock half-periods behind 4 ns - transport delays only.
+  - rtl/pll_iici (one VCO, seven outputs as above; capture phases A =
+    clk_mem - 1.15 ns, B = - 2.60 ns, PROVISIONAL), MacIIci.sv (lean: no
+    probe deck; OSD memory 16/4 MB on any module, 8/32 MB with bank B on
+    64 MB and up; the monitor; soft power as the IIcx's), MacIIci.sdc,
+    MacIIci.qsf (the IIcx's settings, files_iici.qip), MacIIci.qpf.
+  - sim/iici SDRAM=1: the IIci ROM through iici_sdram and the chip model
+    (ROM preloaded): PASS 12, to the same RAM-test fill (11,176 cycles);
+    98 terminations late (0.88 % of bus cycles) - reads that met a video
+    burst in the shared chip, as predicted above; bounded by a check (< 2
+    %), the bank interleave still the cure. Behavioural memory: PASS 12.
+  - Analysis & Synthesis (QUARTUS_REVISION=MacIIci build_only.sh --check,
+    10 min): 0 errors; 78,021 logic cells, 1,841 RAM segments, 8 PLLs.
+  NEXT: the full compile; then sta_corners for the capture phases.
 
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,

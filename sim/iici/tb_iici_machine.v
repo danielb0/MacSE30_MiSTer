@@ -28,8 +28,15 @@
 
 module tb_iici_machine;
   parameter PORTRAIT = 0;              // run.sh's PORTRAIT=1: the Portrait Display
-  reg clk_sys = 0, clk_k = 0;
-  always begin #10 clk_sys = ~clk_sys; if (clk_sys) clk_k = ~clk_k; end
+  parameter SDRAM = 0;                 // run.sh's SDRAM=1: the memory through rtl/iici_sdram.v and the chip model
+  // clk_mem 150 MHz, clk_sys its third, clk_k clk_sys's half: one process
+  reg clk_mem = 0, clk_sys = 0, clk_k = 0;
+  integer cdiv = 0;
+  always begin
+    #3.33333 clk_mem = ~clk_mem;
+    cdiv = cdiv + 1;
+    if (cdiv == 3) begin cdiv = 0; clk_sys = ~clk_sys; if (clk_sys) clk_k = ~clk_k; end
+  end
   reg clk_vid = 0;
   always #8.729 clk_vid = ~clk_vid;     // 57.28 MHz
   reg tk = 0, tk_q = 0;
@@ -56,8 +63,10 @@ module tb_iici_machine;
   wire [24:0] mem_addr;
   wire  [3:0] mem_be;
   wire [31:0] mem_wdata;
-  reg  [31:0] mem_rdata = 0;
-  reg         mem_ack = 0;
+  reg  [31:0] bm_rdata = 0;
+  reg         bm_ack = 0;
+  wire [31:0] mem_rdata;
+  wire        mem_ack;
   integer     mreqs = 0, mbursts = 0;
 
   function [31:0] mread(input [24:0] ad);
@@ -80,22 +89,25 @@ module tb_iici_machine;
   // the video port: 8 longs of bank A from v_addr, one a clk after LAT
   wire        v_req, ce_pix, hsync_n, vsync_n;
   wire [24:0] v_addr;
-  reg  [31:0] v_rdata = 0;
-  reg         v_ack = 0;
+  reg  [31:0] bv_rdata = 0;
+  reg         bv_ack = 0;
+  wire [31:0] v_rdata;
+  wire        v_ack;
   integer     vbursts = 0, vsyncs = 0;
   initial begin : vport
     integer k; reg [24:0] ad;
     forever begin
       @(posedge clk_sys);
-      if (v_req) begin
+      if (v_req && !SDRAM) begin
         vbursts = vbursts + 1; ad = v_addr;
         repeat (LAT - 1) @(posedge clk_sys);
         for (k = 0; k < 8; k = k + 1) begin
-          v_rdata <= mread(ad + k); v_ack <= 1; @(posedge clk_sys); v_ack <= 0;
+          bv_rdata <= mread(ad + k); bv_ack <= 1; @(posedge clk_sys); bv_ack <= 0;
         end
       end
     end
   end
+  always @(posedge clk_sys) if (v_req && SDRAM) vbursts = vbursts + 1;
   reg vs_q = 1;
   always @(posedge clk_vid) begin if (!vsync_n && vs_q) vsyncs = vsyncs + 1; vs_q <= vsync_n; end
 
@@ -103,18 +115,70 @@ module tb_iici_machine;
     integer k; reg [24:0] ad; reg we, bu; reg [3:0] be; reg [31:0] w;
     forever begin
       @(posedge clk_sys);
-      if (mem_req) begin
+      if (mem_req && !SDRAM) begin
         mreqs = mreqs + 1; if (mem_burst) mbursts = mbursts + 1;
         ad = mem_addr; we = mem_we; bu = mem_burst; be = mem_be; w = mem_wdata;
         repeat (LAT - 1) @(posedge clk_sys);
         for (k = 0; k < (bu ? 4 : 1); k = k + 1) begin
           if (we) mwrite(ad, be, w);
-          else mem_rdata <= mread({ad[24:2], ad[1:0] + k[1:0]});
-          mem_ack <= 1; @(posedge clk_sys); mem_ack <= 0;
+          else bm_rdata <= mread({ad[24:2], ad[1:0] + k[1:0]});
+          bm_ack <= 1; @(posedge clk_sys); bm_ack <= 0;
         end
       end
     end
   end
+
+  // ---------------------------------------------- SDRAM=1: the real path
+  // rtl/iici_sdram.v and sim/sdram's chip model (32 MB, CL3, tAC 5.4) with
+  // the ROM preloaded at word $C00000 and never-written words random; the
+  // board delays and capture phases of sim/sdram_iici
+  wire        s_ready, s_mack, s_vack, s_capsel;
+  wire [31:0] s_mrdata, s_vrdata;
+  reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
+  always @(clk_mem) begin
+    clk_sdc  <= #(1.0) clk_mem;
+    clk_capa <= #(6.66667 - 1.2) clk_mem;
+    clk_capb <= #(6.66667 - 2.6) clk_mem;
+  end
+  reg sd_rst_n = 0;
+  initial #100 sd_rst_n = 1;
+  generate if (SDRAM) begin : g_sd
+    wire        sd_clk, sd_cke, sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n;
+    wire [12:0] sd_addr;
+    wire  [1:0] sd_ba, sd_dqm;
+    wire [15:0] sd_dq;
+    iici_sdram #(.TR_READS_LOG2(5)) sdram (
+      .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(sd_rst_n),
+      .ready(s_ready), .cap_sel(s_capsel), .cap_ok(), .cap_fail_a(), .cap_fail_b(), .c1_ok(), .c1_fail(),
+      .m_req(mem_req), .m_we(mem_we), .m_burst(mem_burst), .m_addr(mem_addr), .m_be(mem_be), .m_wdata(mem_wdata),
+      .m_rdata(s_mrdata), .m_ack(s_mack), .m_refresh(mem_refresh), .v_req(v_req), .v_addr(v_addr), .v_rdata(s_vrdata), .v_ack(s_vack),
+      .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),
+      .dk_req(1'b0), .dk_we(1'b0), .dk_addr(24'd0), .dk_wdata(16'd0), .dk_rdata(), .dk_ack(),
+      .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq), .sd_dqm(sd_dqm),
+      .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
+    reg         clk_c = 0, cke_c = 1, cs_c = 1, ras_c = 1, cas_c = 1, we_c = 1, oe_c = 0;
+    reg  [12:0] a_c = 0;
+    reg   [1:0] ba_c = 0;
+    reg  [15:0] do_c = 0, dq_back = 16'hzzzz;
+    wire [15:0] dq_chip;
+    always @(sd_clk) clk_c <= #(4.0) sd_clk;
+    always @(sd_cke or sd_cs_n or sd_ras_n or sd_cas_n or sd_we_n or sd_addr or sd_ba or sdram.dq_oe or sdram.dq_out) begin
+      {cke_c, cs_c, ras_c, cas_c, we_c, a_c, ba_c} <= #(4.0) {sd_cke, sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n, sd_addr, sd_ba};
+      oe_c <= #(4.0) sdram.dq_oe; do_c <= #(4.0) sdram.dq_out;
+    end
+    assign dq_chip = oe_c ? do_c : 16'hzzzz;
+    always @(dq_chip or sdram.dq_oe) dq_back <= #(2.0) (sdram.dq_oe ? 16'hzzzz : dq_chip);
+    assign sd_dq = dq_back;
+    sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1), .COL_BITS(9), .tCK(6.66667), .tAC(5.4)) chip (
+      .clk(clk_c), .cke(cke_c), .cs_n(cs_c), .ras_n(ras_c), .cas_n(cas_c), .we_n(we_c),
+      .ba(ba_c), .addr(a_c), .dqm(a_c[12:11]), .dq(dq_chip));
+  end else begin : g_nosd
+    assign s_ready = 1'b1; assign s_capsel = 1'b0; assign s_mack = 1'b0; assign s_vack = 1'b0; assign s_mrdata = 32'h0; assign s_vrdata = 32'h0;
+  end endgenerate
+  assign mem_rdata = SDRAM ? s_mrdata : bm_rdata;
+  assign mem_ack   = SDRAM ? s_mack   : bm_ack;
+  assign v_rdata   = SDRAM ? s_vrdata : bv_rdata;
+  assign v_ack     = SDRAM ? s_vack   : bv_ack;
 
   // ---------------------------------------------------------- machine
   wire [31:0] cpu_addr;
@@ -125,7 +189,7 @@ module tb_iici_machine;
   wire [15:0] late;
 
   iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/")) machine (
-    .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2),
+    .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(SDRAM ? 2'd0 : 2'd2),
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
     .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_refresh(mem_refresh),
     .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
@@ -258,6 +322,8 @@ module tb_iici_machine;
   initial begin
     if (!$value$plusargs("CYCLES=%d", maxcyc)) maxcyc = 200000;
     $display("---- power-up: the ROM's vector PC %08x", exp_pc);
+    while (s_ready !== 1'b1) @(posedge clk_sys);
+    if (SDRAM) $display("      SDRAM ready at %0.1f us (training through capture %s)", $realtime / 1000.0, s_capsel ? "B" : "A");
     repeat (20) @(posedge clk_sys); #1 reset_n = 1;
     while (!halted && since_new < LOOP_CYCLES && cycles < maxcyc) @(posedge clk_sys);
     repeat (40) @(posedge clk_sys);
@@ -266,7 +332,7 @@ module tb_iici_machine;
     for (i = 0; i < NLOG; i = i + 1)
       $display("      %3d  %08x  fc %0d  %s  %0d clocks", i, log_addr[i], log_fc[i], log_rw[i] ? "rd" : "wr", log_len[i]);
     check(log_addr[0] == 32'h0 && log_addr[1] == 32'h4 && log_fc[0] == 3'd6, "the vector from $0 and $4 (the overlay)");
-    check(log_len[0] == 5 && log_len[1] == 5, "the vector reads are five clocks (ROM, G Table 5-9)");
+    check(SDRAM || (log_len[0] == 5 && log_len[1] == 5), "the vector reads are five clocks (ROM, G Table 5-9)");
     check((log_addr[2] == {exp_pc[31:2], 2'b00}) || (log_addr[2] == 32'h8 && log_addr[3] == {exp_pc[31:2], 2'b00}),
           "the first fetch is at the ROM's reset PC");
     check(overlay_off >= 2 && overlay_off <= 4, "the overlay ends at the first $4xxxxxxx access");
@@ -291,9 +357,18 @@ module tb_iici_machine;
     for (i = 0; i < NRING; i = i + 1) $display("        %08x", ring[(ring_i + i) % NRING]);
     $display("      D6 %08x  D7 %08x", regs[63:32], regs[31:0]);
 
-    check(late == 0, "the memory port was never late (80 ns to the first long)");
+    // SDRAM=1: the controller shares one chip between the CPU and the video,
+    // so a read that meets a video burst is late (plan: the bank interleave
+    // is the refinement) - measured and bounded, not zero
+    if (SDRAM) begin
+      $display("      SDRAM: %0d late of %0d memory cycles (%0.2f %%)", late, cycles, 100.0 * late / cycles);
+      check(late * 100 < cycles * 2, "SDRAM: late terminations under 2 % of the bus cycles");
+      check(ram_rd > 0 && ram_rd_bad + ram_wr_bad <= late, "SDRAM: every RAM cycle off its documented clocks was a late one");
+    end else begin
+      check(late == 0, "the memory port was never late (80 ns to the first long)");
+      check(ram_rd > 0 && ram_rd_bad == 0 && ram_wr_bad == 0, "every RAM read and write took its documented clocks (refresh aside: see the lengths)");
+    end
     check(vbursts > 0 && machine.rbv.dbg_underflow == 0, "the RBV fetched from bank A and its FIFO never ran dry (the run is under one frame)");
-    check(ram_rd > 0 && ram_rd_bad == 0 && ram_wr_bad == 0, "every RAM read and write took its documented clocks (refresh aside: see the lengths)");
     check(burst_bad == 0, "every burst was 5-2-2-2 with four longs");
     check(!halted && since_new >= LOOP_CYCLES, "the run ends in a long loop (the RAM tests' fill), not a halt or the cycle limit");
     check(ram_wr > 1000, "the ROM wrote RAM: the RAM tests began");

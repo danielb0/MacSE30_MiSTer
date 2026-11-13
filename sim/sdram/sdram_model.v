@@ -38,7 +38,7 @@ module sdram_model (
 );
 
   // --------------------------------------------------- the datasheet
-  localparam real tAC   = 6.0;          // access time from the edge, CL2 (ns)
+  parameter  real tAC   = 6.0;          // access time from the edge: CL2 6.0 (ns); the IIci's CL3 at 150 MHz 5.4 (AS4C32M16SB-7)
   localparam real tOH   = 2.5;          // data hold after the next edge
   localparam real tHZ   = 5.4;
   localparam real tRCD  = 21.0;
