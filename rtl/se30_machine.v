@@ -81,6 +81,7 @@ module se30_machine #(
   parameter EXT_DRIVE   = 1,                 // the external FDHD on /ENBL2 (plan 5.14; a build option, 10.4 item 3: MacSE30.sv passes 0 unless SE30_EXT_DRIVE is defined)
   parameter CDROM_EN    = 1,                 // the CD-ROM at SCSI ID 3 (plan Section 12; MacSE30.sv passes 0 when SE30_NO_CDROM is defined)
   parameter KCLK        = 0,                 // 1: the CPU kernel on clk_k (tg68k.v CLOCKING; the IIci's 25 MHz)
+  parameter ROM_AW      = 16,                // the ROM's longword address bits (16 = 256 KB; 17 = 512 KB, the IIci ROM bench)
   parameter IICX        = 0                  // the Macintosh IIcx build (plan Section 14): the card in slot $9 for the 1-bit video, its identity lines
 ) (
   input         clk,
@@ -279,7 +280,7 @@ module se30_machine #(
                                            // one signal, and GLUE takes the ROM's last
   wire  [3:0] ram_be;
   wire [31:0] ram_wdata;
-  wire [15:0] rom_addr;
+  wire [ROM_AW-1:0] rom_addr;
   wire        via1_sel, via2_sel, scc_sel, scsi_sel, scsi_dack, asc_sel, swim_sel, exp_sel;
   wire        scsi_drq, scsi_irq;          // the 53C80's DRQ and IRQ (below, plan 9.2)
   wire        scsi_hs_wait;                // GLUE holding the CPU for DRQ (PSCT, plan 10.4 item 3)
@@ -304,7 +305,7 @@ module se30_machine #(
   wire        scc_irq_n, scc_w_req_n;  // the SCC's /INT; its /W//REQ A and B, wired together
   wire  [7:0] scc_rdata;
 
-  se30_glue #(.IICX(IICX)) glue (
+  se30_glue #(.IICX(IICX), .ROM_AW(ROM_AW)) glue (
     .clk(clk), .c16_en(c16_en), .reset_n(reset_n),
     .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc),
     .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
@@ -367,7 +368,7 @@ module se30_machine #(
   assign ram_rdata = mem_rdata | {32{ram_empty_q}};
 
   assign mem_we    = !rom_early && ram_we && !ram_empty;
-  assign mem_addr  = rom_early ? {4'b0011, 5'b00000, rom_addr} : ram_phys;
+  assign mem_addr  = rom_early ? {4'b0011, {(21-ROM_AW){1'b0}}, rom_addr} : ram_phys;
   assign mem_be    = ram_be;
   assign mem_wdata = ram_wdata;
   assign ram_ack   = mem_ack;

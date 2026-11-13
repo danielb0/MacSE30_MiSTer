@@ -28295,6 +28295,139 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   IIcx. Logs: output_files/build_20261112_221015.log,
   sta_corners_MacSE30_iici_kclk7.log, k7_*.txt. MacSE30.qsf restored.
 
+- *THE IIci FROM THE DOCUMENTATION (2026-11-13; Daniel: "Please proceed
+  with the IIci machine files"; written before any RTL, as item (2) of
+  the session plan said).* Sources, in rank: Guide 2e (G) chapters 3, 4,
+  5 and 12 (PDF pages read as text and the figures rendered: Figure 3-8
+  is a picture, the text extract loses its labels); Designing Cards and
+  Drivers 2e ch. 18 (the cache card) and 3e ch. 15 (DC3: the MDU's RAM
+  timing figures 15-3..15-6, drawn for the IIsi, "the same MDU custom
+  chip found in the Macintosh IIci"); the IIci ROM itself (C:/temp/Mac/
+  ROMS/512KB ROMs/1989-09 - 368CADFE - Mac IIci.ROM, 512 KB, its header
+  checksum $368CADFE recomputed and matching; disassembled with MAME's
+  unidasm into the session scratchpad). No MDU or RBV data sheet exists
+  among the documents.
+  THE MACHINE, AS DOCUMENTED:
+  - CPU 68030 + 68882 at 25 MHz, the MDU making the clock (G p.115);
+    15.6672 MHz (bus error and refresh timing) and 3.672 MHz (ADB, SCC)
+    from the RBV (G p.116); E clock 783.36 kHz from the MDU.
+  - ADDRESS MAP (G Figure 3-8, rendered): RAM $00000000-$3FFFFFFF, ROM
+    $40000000, I/O $50000000-$5FFFFFFF, NuBus super slots $60000000,
+    standard slots $F1000000-$FFFFFFFF (three slots, $C-$E). I/O space:
+    VIA1 $50000000, SCC $50004000, SCSI pseudo-DMA with DRQ $50006000,
+    SCSI normal $50010000, SCSI pseudo-DMA no DRQ $50012000, Sound
+    $50014000, SWIM $50016000 ("MDU provides /DSACK0" for all of these:
+    8-bit ports); VDAC $50024000, RBV $50026000 (MDU provides /DSACK0);
+    $50040000-$50FFFFFF repeated images of $50000000-$5003FFFF (the ROM
+    uses the $50F0xxxx image: its decoder table at ROM $3484 lists VIA1
+    $50F00000, SCC $50F04000, SWIM $50F16000, SCSI $50F10000/$50F12000/
+    $50F06000, ASC $50F14000, RBV $50F26000, VDAC $50F24000, ROM
+    $40800000, diagnostic $58000000); RBV $51000000-$51FFFFFF ("MDU
+    provides chip select only"); cache data $52000000, cache tag
+    $52800000, expansion I/O and factory test $53000000-$5FFFFFFF.
+  - RAM: two banks, A at physical $00000000, B ALWAYS at $04000000 (G
+    p.166); four SIMMs a bank; the ROM sizes bank A by writing and
+    reading and maps bank B logically first, bank A's main memory after
+    it, the screen buffer at the bottom of bank A mapped to $FB000000
+    (slot $B's space) (G pp.166, 221, 412). Fast page mode required.
+    No RAM-size bits: VIA2 PA6 is the built-in video's slot interrupt
+    (v2IRQ0, "slot $0"), PA7 reserved (G Table 4-9 note).
+  - MDU RAM CYCLES (DC3 Figures 15-3..15-6, 100/80 ns fast page DRAM),
+    terminated by /STERM (synchronous), in CPU clocks: random read 5 (6
+    after a write), random write 4 (5 after a write), burst read 5-2-2-2
+    with /CBACK. CHECK: at 25 MHz a 5-2-2-2 line is 16 bytes in 440 ns
+    = 36.36 MB/s, exactly G Table 5-3's "Macintosh IIci 25 MHz 36.36
+    MB/sec maximum" (bank B, or bank A with no built-in video); a cache
+    card hit of 2 clocks is 4 bytes in 80 ns = 50 MB/s, exactly G p.196's
+    "with a cache card installed, the maximum RAM access rate is 50 MB per
+    second". The figures and the rates agree to the digit.
+  - BURSTS ARE USED: the IIci ROM writes CACR = $3919 at $40800186 (EI,
+    CI, IBE, ED, CD, DBE, WA): instruction AND data burst fills on. On the
+    SE/30 CBACK* is pulled up (no bursts); on the IIci the MDU answers
+    CBREQ* with CBACK* for RAM. Our cache (se30_cache030.v) fills one
+    long a miss - single-entry mode, right for the SE/30, wrong for the
+    IIci.
+  - VIDEO CONTENTION (G pp.221, 413-415): the screen buffer is the bottom
+    of bank A; the RBV's FIFO (16 x 32 bits, two halves of 8) asks the
+    MDU for a page-mode burst of 8 longs whenever a half empties; the
+    MDU disconnects bank A from the CPU's data bus for it; a CPU access
+    to bank A in that time waits, bank B, ROM and I/O never do. G Table
+    12-4, time spent on video in bank A, 640 x 480: 6 % (1 bpp), 13 %
+    (2), 26 % (4), 64 % (8). CHECK, mine: the burst rate over the whole
+    frame at 66.67 Hz is one per 312.5 / 156.25 / 78.1 / 39.1 CPU clocks;
+    a 20-clock burst (5 + 7 x 2 page-mode beats, + 1 precharge) gives 6.4
+    / 12.8 / 25.6 / 51.2 % - the first three exactly, 8 bpp 51 against
+    64. The 8 bpp gap is OPEN: the mechanism is modelled, not the
+    percentages, and a bench measures Table 12-4 back (the reference
+    Norton machine ran 8 bpp, so this one carries the CPU score).
+  - RBV (G pp.116-117, 166-175, 186): VIA2's functions without a 6522 -
+    no timers T1/T2, no shift register, no ACR ("parameters ... fixed by
+    the hardware"); interrupt priorities (Table 3-5: VIA1 level 1, RBV
+    2, SCC 4, NMI switch 7, parity 7); slot interrupts ORed; IFR bits 4
+    ASC, 3 SCSI IRQ, 2 /EXP.IRQ, 1 slot, 0 SCSI DRQ (Table 4-27); data
+    register B bit 7 /Par.Test, 6 v2SNDEXT, 5-4 NuBus TM acks, 3 /CFLUSH
+    (0 = flush the cache card), 2 v2PowerOff, 1 v2BusLk, 0 /CEnable (1 =
+    card disabled) (Table 4-15); monitor sense lines read at startup
+    (Table 12-8: 110 = standard 640 x 480, 001 = portrait; others: video
+    off). The REGISTER OFFSETS inside the RBV are NOT in any document we
+    have: to be read from the ROM's own accesses (the machine bench lists
+    every RBV offset the ROM touches), cross-checked against MAME and
+    NetBSD (cross-checks, not evidence).
+  - VIDEO TIMING (G Tables 12-5/12-6): 640 x 480: dot clock 30.24 MHz,
+    864 x 525 dots, 35.0 kHz, 66.67 Hz; HFP 64, HS 64, HBP 96; VFP 3, VS
+    3, VBP 39. Portrait 640 x 870: 57.28 MHz, 832 x 918, 75 Hz, 1/2/4
+    bpp only. CLUT DAC = Bt478 at $50024000. Buffer allocated in 32 KB
+    steps (64 KB at 1 bpp, 320 KB at 8 bpp).
+  - VIA1 (G Table 4-6): PA6/4/2/1 = CPU.ID3..0 inputs, IIci = 1/0/1/1
+    (PA4 = 1 with the parity option); PA4 is no overlay output: the MDU
+    does the overlay itself ("the MDU performs ROM overlay
+    automatically", G p.156; how it leaves overlay is to be read from
+    the reset code). PB7 /Par.Err in, PB6 /Par.En out (parity is a
+    special-order option: not built; the ROM finds no PGC).
+  - CACHE CARD (DC2 ch. 18, G pp.223-227): as decided 2026-11-11; DC2
+    adds: CACHE asserted at /AS inhibits the MDU's RAM/ROM/NuBus cycle
+    (not I/O); the PMMU marks NuBus and I/O non-cacheable; only the
+    68030's own accesses cached; Table 18-1: data $52000000-$527FFFFF,
+    tag $52800000-$52FFFFFF.
+  NOT DOCUMENTED (each to settle before its RTL, and say how): the RBV
+  register offsets (the ROM, above); the ROM's cycle length (no figure;
+  the ROM SIMM's timing - candidate: measure nothing, take the
+  SE/30-like one wait state as the documented relative, and see Norton);
+  I/O wait states (G's Figure 3-8 gives only the DSACK0 width; the Mac
+  II's GLUE figures, G p.135ff, are the documented relative); the
+  overlay's exit.
+  A CHEAP FIRST STEP (to verify, not assumed): the IIci ROM is Apple's
+  first "universal" ROM - its reset code is shared, and its decoder
+  tables at $33E4/$3484/$3524 are per machine family. If it boots our
+  SE/30 machine in the bench (2 min) it proves the 512 KB ROM path
+  (GLUE's rom_addr is 16 bits = 256 KB today, a parameter) and the
+  kernel on the newer ROM before any MDU exists.
+  PROPOSED FILES (the layout block above): MacIIci.qpf/.qsf/.sv/.sdc;
+  rtl/iici_machine.v; rtl/iici_mdu.v (decode, overlay, DSACK/STERM/
+  CBACK, bank A/B arbitration, refresh, E clock); rtl/iici_rbv.v (VIA2
+  emulation, interrupts, video timing, FIFO, CLUT port); rtl/iici_sdram.v
+  or a parameterised se30_sdram.v at 100 MHz (2 x a 50 MHz clk_sys);
+  rtl/iici_cachecard.v; the shared devices unchanged.
+  FIRST STEP RUN (2026-11-13): GLUE and se30_machine.v take ROM_AW
+  (default 16 = 256 KB, the released logic; 17 = 512 KB); sim/machine
+  run.sh takes a 512 KB image (its own log, run_rom512.log) and patches
+  the IIci ROM's checksum loop in the bench's copy ($408446A0 MOVE.L
+  #$3FFFE,D3 -> #2, $408446B4 BEQ -> BRA). SE/30 ROM: PASS 17 (106 s,
+  unchanged). IIci ROM on the SE/30 machine: 16 of 17 - no bus error, no
+  halt, D6 = 0, RAMSIZ prelude, RAM tests begun, ending in the chime's
+  wave-table loop ($408070F8) as the SE/30 ROM does; the one failure is
+  the SE/30 ROM's own threshold (overlay cleared at cycle 284, the check
+  says before 200). So the 512 KB ROM path and the kernel run the IIci
+  ROM to the chime. (Not proof the IIci ROM boots an SE/30 to the
+  Finder: the bench stops at the chime.)
+  DECISIONS FOR DANIEL before RTL: (1) burst fills in the 68030's cache
+  (a cache/wrapper change, inert where CBACK* never comes) - without them
+  every miss costs 5 clocks a long instead of 11 a line; (2) the RAM
+  sizes the OSD offers (bank A/B: the SDRAM's 128 MB must also hold the
+  512 KB ROM, so not 64 + 64); (3) monitors: 640 x 480 only, or the
+  portrait too; (4) the order: ROM-on-SE/30 bench first, then MDU +
+  memory, then RBV + video, then the cache card.
+
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,
   bcee411 its plan block). One untracked file, sim/regression.log.2_cacr0

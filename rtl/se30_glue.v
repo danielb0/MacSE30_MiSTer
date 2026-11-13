@@ -64,7 +64,8 @@
 `timescale 1ns/1ps
 
 module se30_glue #(
-  parameter IICX = 0                   // the IIcx (plan 14.3 item 2): NuBus behind the NuChip, no video PAL
+  parameter IICX = 0,                  // the IIcx (plan 14.3 item 2): NuBus behind the NuChip, no video PAL
+  parameter ROM_AW = 16                // the ROM's longword address bits: 16 = 256 KB; 17 = a 512 KB ROM (the IIci ROM bench)
 ) (
   input         clk,
   input         c16_en,                // one clk per C16M period (15.6672 MHz)
@@ -100,7 +101,7 @@ module se30_glue #(
 
   // ROM: 32-bit port, 256KB
   output        rom_req,
-  output [15:0] rom_addr,              // longword address
+  output [ROM_AW-1:0] rom_addr,        // longword address
   input  [31:0] rom_rdata,
   input         rom_ack,
 
@@ -346,7 +347,7 @@ module se30_glue #(
   assign ram_we    = !cpu_rw_n;
   assign ram_be    = be;
   assign ram_wdata = cpu_dout;
-  assign rom_addr  = cpu_addr[17:2];
+  assign rom_addr  = cpu_addr[ROM_AW+1:2];
 
   // ------------------------------------------------------------- clocks
   always @(posedge clk or negedge reset_n)

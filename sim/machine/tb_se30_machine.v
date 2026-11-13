@@ -54,6 +54,7 @@ module tb_se30_machine;
   // KCLK=1 (run.sh): the kernel on its own clock, clk_k = clk_sys / 2 (tg68k.v
   // CLOCKING; the IIci work), phi from it as MacSE30.sv's SE30_KCLK makes it
   parameter KCLK = 0;
+  parameter ROM_AW = 16;               // 17: a 512 KB ROM image (ROM=<the IIci ROM> run.sh)
   localparam MEMLEN = KCLK ? 5 : 4;      // a RAM or ROM cycle's clocks (below, at the meter)
   // the memory (plan 13.6): RAM_SIZE 0-3 = 8/16/32/64 MB, on a MODULE_MB
   // 32/64/128 MB module (64 and 128: 1024-column chips; 128: a second chip
@@ -142,7 +143,7 @@ module tb_se30_machine;
   wire  [1:0] dsack_n;
   wire        cpu_as_n, cpu_rw_n, berr, halted, reset_out_n;
 
-  se30_machine #(.DECLROM_HEX("declrom.hex"), .FPU_UCODE("../../rtl/fpu/ucode/"), .KCLK(KCLK), .IICX(IICX)) machine (
+  se30_machine #(.DECLROM_HEX("declrom.hex"), .FPU_UCODE("../../rtl/fpu/ucode/"), .KCLK(KCLK), .IICX(IICX), .ROM_AW(ROM_AW)) machine (
     .dbg_coff(2'b00),
     .clk(clk_sys), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .ram_size(RAM_SIZE[1:0]),
     .mem_start(mem_start), .mem_req(mem_req), .mem_we(mem_we), .mem_addr(mem_addr),
@@ -170,7 +171,7 @@ module tb_se30_machine;
     .dbg_via(), .dbg_regs(), .dbg_exc(), .dbg_swim(), .dbg_swim_vread(), .dbg_adb(), .dbg_rtc(), .dbg_scsi());
 
   // -------------------------------------------------- the ROM's vector
-  reg [15:0] romw [0:131071];
+  reg [15:0] romw [0:262143];
   initial $readmemh("rom.hex", romw);
   wire [31:0] exp_sp = {romw[0], romw[1]};
   wire [31:0] exp_pc = {romw[2], romw[3]};
@@ -201,7 +202,7 @@ module tb_se30_machine;
   // for the probe deck on hardware (plan 3.6 item 6)
   localparam LOOP_CYCLES = 3000, NIO = 40, NRING = 16;
   integer    overlay_off = -1, first_ram_wr = -1, ram_writes = 0, ramsiz_wr = -1, via2_c0 = 0;
-  reg        seen [0:65535];           // ROM-offset longwords fetched so far
+  reg        seen [0:131071];          // ROM-offset longwords fetched so far
   integer    since_new = 0, io_n = 0, ring_i = 0, berr_first = -1;
   reg [31:0] last_fetch = 0, last_as = 0;
   reg [31:0] io_a [0:NIO-1], io_d [0:NIO-1];
@@ -209,7 +210,7 @@ module tb_se30_machine;
   reg  [2:0] io_fc_l [0:NIO-1];
   integer    io_cyc [0:NIO-1];
   reg [31:0] ring [0:NRING-1];
-  initial for (i = 0; i < 65536; i = i + 1) seen[i] = 0;
+  initial for (i = 0; i < 131072; i = i + 1) seen[i] = 0;
   // +RUNTO's watch: the sizing's entry ($408035A4), its probe ($40803610),
   // D6 and RAMSIZ as they change
   integer    runto = 0, sizing_n = 0, probe_n = 0;
@@ -277,7 +278,7 @@ module tb_se30_machine;
       last_as = c_addr;
       if (c_fc == 3'd6) begin
         last_fetch = c_addr;
-        if (!seen[c_addr[17:2]]) begin seen[c_addr[17:2]] = 1; since_new = 0; end
+        if (!seen[c_addr[18:2]]) begin seen[c_addr[18:2]] = 1; since_new = 0; end
         else since_new = since_new + 1;
         ring[ring_i] = c_addr; ring_i = (ring_i + 1) % NRING;
       end else since_new = since_new + 1;
