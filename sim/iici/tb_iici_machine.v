@@ -27,8 +27,11 @@
 `timescale 1ns/1ps
 
 module tb_iici_machine;
+  parameter PORTRAIT = 0;              // run.sh's PORTRAIT=1: the Portrait Display
   reg clk_sys = 0, clk_k = 0;
   always begin #10 clk_sys = ~clk_sys; if (clk_sys) clk_k = ~clk_k; end
+  reg clk_vid = 0;
+  always #8.729 clk_vid = ~clk_vid;     // 57.28 MHz
   reg tk = 0, tk_q = 0;
   always @(posedge clk_k) tk <= ~tk;
   always @(posedge clk_sys) tk_q <= tk;
@@ -94,7 +97,7 @@ module tb_iici_machine;
     end
   end
   reg vs_q = 1;
-  always @(posedge clk_sys) begin if (!vsync_n && vs_q) vsyncs = vsyncs + 1; vs_q <= vsync_n; end
+  always @(posedge clk_vid) begin if (!vsync_n && vs_q) vsyncs = vsyncs + 1; vs_q <= vsync_n; end
 
   initial begin : port
     integer k; reg [24:0] ad; reg we, bu; reg [3:0] be; reg [31:0] w;
@@ -122,7 +125,7 @@ module tb_iici_machine;
   wire [15:0] late;
 
   iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/")) machine (
-    .clk(clk_sys), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2),
+    .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2),
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
     .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_refresh(mem_refresh),
     .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
@@ -167,7 +170,16 @@ module tb_iici_machine;
   initial for (i = 0; i < 131072; i = i + 1) seen[i] = 0;
   initial for (i = 0; i < 16; i = i + 1) len_hist[i] = 0;
 
+  // a cycle the MDU held (its `held`: a refresh window, or bank A behind a
+  // video burst) at any clk while AS* is low: its length is not checked
+  reg t_ref = 0, t_vid = 0;
+  always @(posedge clk_sys) if (!cpu_as_n && machine.mdu.held) begin
+    t_ref <= 1;
+    if (machine.mdu.v_hold != 0 || machine.mdu.v_start) t_vid <= 1;
+  end else if (cpu_as_n) begin t_ref <= 0; t_vid <= 0; end
+
   always @(posedge clk_sys) if (phi1 && reset_n) begin
+    if (!cpu_as_n) begin if (t_ref || machine.mdu.held) c_ref = 1; if (t_vid) c_vid = 1; end
     if (!cpu_as_n && as_q) begin
       c_addr = cpu_addr; c_fc = cpu_fc; c_rw = cpu_rw_n; c_berr = 0; beats = 0; beat_k = 0; beat_gaps = 0;
       c_ram = (cpu_fc != 3'd7) && (cpu_addr[31:30] == 2'b00) && !overlay; c_bank = cpu_addr[26]; c_ref = 0; c_vid = 0;
@@ -181,8 +193,6 @@ module tb_iici_machine;
         beats = beats + 1; beat_last = as_clocks;
       end
       if (berr) c_berr = 1;
-      if (machine.mdu.ref_run != 0 || machine.mdu.ref_go) c_ref = 1;   // a refresh window met: the length is not checked
-      if (!c_bank && (machine.mdu.v_hold != 0 || machine.mdu.v_start)) begin c_ref = 1; c_vid = 1; end   // ... nor a video burst's
     end
     if (cpu_as_n && !as_q) begin
       if (cycles < NLOG) begin log_addr[cycles] = c_addr; log_fc[cycles] = c_fc; log_rw[cycles] = c_rw; log_len[cycles] = as_clocks + 1; end
@@ -195,7 +205,11 @@ module tb_iici_machine;
           if (beat_k + 2 != ((prev_wr && prev_bank == c_bank && gap == 0) ? 6 : 5) && !c_ref) ram_rd_bad = ram_rd_bad + 1;
         end else begin
           ram_wr = ram_wr + 1;
-          if (beat_k + 2 != ((prev_wr && prev_bank == c_bank && gap == 0) ? 5 : 4) && !c_ref) ram_wr_bad = ram_wr_bad + 1;
+          if (beat_k + 2 != ((prev_wr && prev_bank == c_bank && gap == 0) ? 5 : 4) && !c_ref) begin
+            ram_wr_bad = ram_wr_bad + 1;
+            if (ram_wr_bad <= 6) $display("      OFF: cycle %0d write %08x: %0d clocks (prev write %0d, same bank %0d, gap %0d)",
+                                          cycles, c_addr, beat_k + 2, prev_wr, prev_bank == c_bank, gap);
+          end
         end
         if (beats > 1) begin bursts = bursts + 1; if (beats != 4 || beat_gaps != 32'h00020202) burst_bad = burst_bad + 1; end
         if (beat_k + 2 < 16) len_hist[beat_k + 2] = len_hist[beat_k + 2] + 1;

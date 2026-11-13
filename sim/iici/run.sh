@@ -43,7 +43,7 @@ done
   "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" \
   "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v tb_iici_machine.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }
 T0=$(date +%s)
-"$MODELSIM/vsim.exe" -c -quiet ${VSIMARGS:-} +CYCLES=${CYCLES:-200000} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine > run.log 2>&1
+"$MODELSIM/vsim.exe" -c -quiet ${VSIMARGS:-} -gPORTRAIT=${PORTRAIT:-0} +CYCLES=${CYCLES:-200000} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine > run.log 2>&1
 T1=$(date +%s)
 grep -E '^# (---- |==== |FAIL |      )' run.log | sed 's/^# //'
 echo "---- ModelSim wall clock: $((T1 - T0)) s"

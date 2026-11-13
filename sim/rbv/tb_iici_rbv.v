@@ -9,11 +9,13 @@
 //   4. the video interrupt: the latch at vertical sync's start only while
 //      $12 bit 6 is set, cleared by writing $40 to $12; $02 bit 6 low
 //      during vertical sync even with it off (the driver's VBL wait)
-//   5. timing: 864 x 525 dots a frame, HS 64 dots from 704, VS 3 lines
-//      from 483, blanking 640 / 480, 66.67 Hz at 30.24 MHz  Tables 12-5/6
+//   5. timing: 864 x 525 dots a frame, HS 64 dots, VS 3 lines, 640 x 480
+//      shown, 66.67 Hz; with PORTRAIT=1 832 x 918, HS 80, VS 3, 640 x
+//      870, 75.0 Hz - each from clk_vid = 57.28 MHz       Tables 12-5/6
 //   6. the Bt478: write address, R G B, readback through the read
 //      address, the pixel mask
-//   7. pixels: a frame at 1 bpp and one at 8 bpp from a frame buffer, each
+//   7. pixels: a frame at 1 bpp and one at 8 bpp (the portrait: 4 bpp,
+//      its deepest) from a frame buffer, each
 //      dot the CLUT entry of its bits (1 bpp: entries 254-255), the FIFO
 //      never empty when a pixel is due, a frame's longs fetched
 //   8. the 60.15 Hz tick on VIA1 CA1
@@ -24,8 +26,12 @@
 `timescale 1ns/1ps
 
 module tb_iici_rbv;
-  reg clk = 0, reset_n = 0;
+  parameter PORTRAIT = 0;              // run.sh runs both monitors
+  reg clk = 0, clk_vid = 0, reset_n = 0;
   always #10 clk = !clk;
+  always #8.729 clk_vid = !clk_vid;    // 57.28 MHz
+  localparam integer HT = PORTRAIT ? 832 : 864, VT = PORTRAIT ? 918 : 525, VV = PORTRAIT ? 870 : 480;
+  localparam integer HSW = PORTRAIT ? 80 : 64;
   reg [5:0] c16_acc = 0; reg c16_en = 0;      // 15.6672 MHz-ish: 5 in 16 (enough for the registers)
   always @(posedge clk) begin c16_acc <= c16_acc + 1; c16_en <= (c16_acc[1:0] == 0); end
 
@@ -44,7 +50,7 @@ module tb_iici_rbv;
   wire [15:0] under;
 
   iici_rbv rbv (
-    .clk(clk), .reset_n(reset_n), .c16_en(c16_en),
+    .clk(clk), .clk_vid(clk_vid), .reset_n(reset_n), .c16_en(c16_en), .portrait(PORTRAIT[0]),
     .rbv_sel(rbv_sel), .vdac_sel(vdac_sel), .strobe(strobe), .addr(addr), .rw(rw), .wdata(wdata), .rdata(rdata),
     .scsi_irq(scsi_irq), .scsi_drq(scsi_drq), .asc_irq_n(asc_irq_n), .exp_irq_n(exp_irq_n),
     .slot_irq_n(slot_irq_n), .nb_tm(nb_tm), .irq_n(irq_n), .tick_n(tick_n),
@@ -101,7 +107,7 @@ module tb_iici_rbv;
   // ------------------------------------------------------- the picture
   // every displayed dot of a frame against the frame buffer and the CLUT
   integer px = 0, py = 0, bad = 0, frames = 0, dots = 0, hs_w = 0, hs_at = -1, vs_lines = 0, act = 0;
-  integer depth_t = 0;
+  integer depth_t = 0, fdots = 0, frame_dots = 0;
   reg [23:0] exp_clut [0:255];
   reg        checking = 0;
   reg        vb_q = 1, hb_q = 1, vs_q = 1, hs_q = 1;
@@ -114,15 +120,17 @@ module tb_iici_rbv;
       bit0 = (x * bits) % 32;
       case (depth_t)
         0: expect_idx = {7'h7F, l[31 - bit0]};
+        2: expect_idx = {4'hF, l[31 - bit0 -: 4]};
         3: expect_idx = l[31 - bit0 -: 8];
         default: expect_idx = 8'h00;
       endcase
     end
   endfunction
-  always @(posedge clk) if (ce_pix && reset_n) begin
+  always @(posedge clk_vid) if (ce_pix && reset_n) begin
     // the output stage is two dots behind the counters: follow its blanking
     if (!hblank && hb_q) cx = 0;
-    if (!vblank && vb_q) cy = 0;
+    if (!vblank && vb_q) begin cy = 0; frame_dots = fdots; fdots = 0; end
+    fdots = fdots + 1;
     if (!hblank && !vblank && checking) begin
       if ({r, g, b} !== exp_clut[expect_idx(cx, cy)]) begin
         if (bad < 5) $display("      dot (%0d,%0d): %06x, expected %06x (index %02x)", cx, cy, {r, g, b}, exp_clut[expect_idx(cx, cy)], expect_idx(cx, cy));
@@ -168,8 +176,9 @@ module tb_iici_rbv;
     scsi_irq = 0; asc_irq_n = 1; scsi_drq = 0; exp_irq_n = 1; wr8(0, 5'h13, 8'h7F);
 
     // 3: $10
-    wr8(0, 5'h10, 8'h40); rd8(0, 5'h10); check(q == 8'h70, "$10: sense 110 read only, bit 6 as written");
-    wr8(0, 5'h10, 8'hFF); rd8(0, 5'h10); check(q == 8'hF7, "$10: the sense bits ignore writes");
+    wr8(0, 5'h10, 8'h40); rd8(0, 5'h10);
+    check(q == (PORTRAIT ? 8'h48 : 8'h70), "$10: the sense read only (110 the 640 x 480 monitor, 001 the portrait), bit 6 as written");
+    wr8(0, 5'h10, 8'hFF); rd8(0, 5'h10); check(q == (PORTRAIT ? 8'hCF : 8'hF7), "$10: the sense bits ignore writes");
 
     // 6: the Bt478
     wr8(1, 5'h00, 8'h10); wr8(1, 5'h04, 8'h12); wr8(1, 5'h04, 8'h34); wr8(1, 5'h04, 8'h56);
@@ -198,23 +207,27 @@ module tb_iici_rbv;
     wr8(0, 5'h13, 8'h7F);
 
     // 5 and 7: timing and pictures, 1 bpp then 8 bpp
-    for (depth_t = 0; depth_t <= 3; depth_t = depth_t + 3) begin
+    for (depth_t = 0; depth_t <= (PORTRAIT ? 2 : 3); depth_t = depth_t + (PORTRAIT ? 2 : 3)) begin
       wr8(0, 5'h10, depth_t[7:0]);
       while (vblank) @(posedge clk); while (!vblank) @(posedge clk);   // a whole frame with the depth set
       while (vblank) @(posedge clk);
       bad = 0; act = 0; fetched = 0; hs_w = 0; n = under; checking = 1; t0 = $time; dots = 0;
-      while (!vblank) begin @(posedge clk); if (ce_pix) dots = dots + 1; end
-      while (vblank) begin @(posedge clk); if (ce_pix) dots = dots + 1; end
+      while (!vblank) begin @(posedge clk_vid); if (ce_pix) dots = dots + 1; end
+      while (vblank) begin @(posedge clk_vid); if (ce_pix) dots = dots + 1; end
       t1 = $time; checking = 0;
+      @(posedge clk_vid); @(posedge clk_vid); dots = frame_dots;   // ce to ce, vertical blanking's fall to the next
       $display("      %0d bpp: %0d dots a frame, %0d displayed, %0d wrong, %0d longs fetched, %0d underflows, HS %0d dots in all",
                1 << depth_t, dots, act, bad, fetched, under - n, hs_w);
-      check(dots == 864 * 525, "a frame is 864 x 525 dots");
-      check(act == 640 * 480, "640 x 480 displayed");
+      check(dots == HT * VT, PORTRAIT ? "a frame is 832 x 918 dots" : "a frame is 864 x 525 dots");
+      check(act == 640 * VV, PORTRAIT ? "640 x 870 displayed" : "640 x 480 displayed");
       check(bad == 0, "every dot is its CLUT entry");
       check(under == n, "the FIFO never ran dry");
-      check(hs_w == 64 * 525, "HS is 64 dots a line");
+      check(hs_w == HSW * VT, PORTRAIT ? "HS is 80 dots a line" : "HS is 64 dots a line");
       fr = 1.0e9 / (t1 - t0);
-      if (depth_t == 0) begin $display("      %0.3f Hz", fr); check(fr > 66.6 && fr < 66.75, "66.67 Hz"); end
+      if (depth_t == 0) begin
+        $display("      %0.3f Hz", fr);
+        check(PORTRAIT ? (fr > 74.95 && fr < 75.05) : (fr > 66.6 && fr < 66.75), PORTRAIT ? "75.0 Hz" : "66.67 Hz");
+      end
     end
 
     // 8: the 60.15 Hz tick (C16M here is clk/4: 12.5 MHz, so TICK clocks are 20.8 ms)
@@ -229,11 +242,11 @@ module tb_iici_rbv;
 
   // VS width, separately: 3 lines
   integer vs_dots = 0; reg vs_seen = 0;
-  always @(posedge clk) if (ce_pix) begin
+  always @(posedge clk_vid) if (ce_pix) begin
     if (!vs_n) vs_dots = vs_dots + 1;
     if (vs_n && !vs_q && !vs_seen) begin
       vs_seen = 1;
-      if (vs_dots != 3 * 864) begin fails = fails + 1; $display("FAIL: VS is %0d dots, not 3 lines", vs_dots); end
+      if (vs_dots != 3 * HT) begin fails = fails + 1; $display("FAIL: VS is %0d dots, not 3 lines", vs_dots); end
       else pass = pass + 1;
     end
     vs_q = vs_n;

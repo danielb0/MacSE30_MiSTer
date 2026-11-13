@@ -20,7 +20,8 @@
 //   and B as the top sets them; the ROM's 128K longwords at long $600000.
 //
 // THE RBV (iici_rbv.v): the VIA2-emulation registers, the interrupts,
-//   the 60.15 Hz tick to VIA1 CA1, the 640 x 480 video and its Bt478; its
+//   the 60.15 Hz tick to VIA1 CA1, the video - 640 x 480 or the Portrait
+//   Display's 640 x 870, on clk_vid - and its Bt478; its
 //   screen buffer through the MDU's video bursts and the SDRAM's video
 //   port (v_*).
 //
@@ -41,6 +42,8 @@ module iici_machine #(
 ) (
   input         clk,
   input         clk_k,
+  input         clk_vid,               // 57.28 MHz: the RBV's video (THE PORTRAIT DISPLAY)
+  input         portrait,              // the monitor: 1 = the Portrait Display, 0 = 640 x 480 (latched at reset by the top)
   input         phi1,
   input         phi2,
   input         reset_n,
@@ -63,7 +66,7 @@ module iici_machine #(
   input  [31:0] v_rdata,
   input         v_ack,
 
-  // the picture
+  // the picture, on clk_vid
   output        ce_pix,
   output  [7:0] vid_r,
   output  [7:0] vid_g,
@@ -221,7 +224,7 @@ module iici_machine #(
   wire       vbl_n, poweroff_n;
   wire [7:0] rbv_rdata;
   iici_rbv rbv (
-    .clk(clk), .reset_n(via_reset_n), .c16_en(c16_en),
+    .clk(clk), .clk_vid(clk_vid), .reset_n(via_reset_n), .c16_en(c16_en), .portrait(portrait),
     .rbv_sel(rbv_sel), .vdac_sel(vdac_sel), .strobe(dev_strobe && c16_en), .addr(dev_addr[4:0]), .rw(dev_rw),
     .wdata(dev_wdata), .rdata(rbv_rdata),
     .scsi_irq(scsi_irq), .scsi_drq(scsi_drq), .asc_irq_n(asc_irq_n), .exp_irq_n(1'b1),

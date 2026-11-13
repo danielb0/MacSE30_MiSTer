@@ -28690,6 +28690,59 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   the real ROM (the bench's run ends in the RAM tests, before any driver
   opens); Table 12-4's contention percentages measured; the scaler path
   (MacIIci.sv) and the SDRAM's video port.
+- *THE PORTRAIT DISPLAY (2026-11-13; Daniel: "Please add it now. It would
+  be a nice differentiator from the IIcx. We should have it in the first
+  release." - this supersedes his "640 x 480 only at this stage").* The
+  IIci's built-in video drives Apple's 15" Portrait Display (monochrome)
+  with no card: sense 001 (G Table 12-8; the driver's Open treats sense 1
+  as the portrait, $4087F30C). G Tables 12-5/12-6, 640 x 870: dot clock
+  57.28 MHz, 832 dots a line (FP 32, HS 80, BP 80), 918 lines (FP 3, VS
+  3, BP 42), 68.85 kHz, 75.0 Hz; 1, 2 and 4 bpp (Table 12-4: no 8 bpp).
+  DESIGN:
+  - An OSD choice, latched at reset (the ROM reads the sense once, at
+    start-up, as a real IIci with its monitor swapped): the sense the RBV
+    reports at $10 and the timing it runs.
+  - The video side of the RBV on its own clock, clk_vid = 57.28 MHz: the
+    portrait takes a dot every clock; 640 x 480 a dot on 189 of every 358
+    (30.24 MHz exactly; the scaler takes ce_pix). 57.28 MHz is above
+    clk_sys's 50, so no enable of clk_sys could make it.
+  - The crossing: the FIFO becomes a dual-clock FIFO (16 longs, Gray
+    pointers): written in clk from the MDU's bursts, read in clk_vid.
+    The frame restart is a handshake: at vertical blanking the video side
+    asks; clk's side, once no burst is under way, restarts the MDU's
+    address (vid_frame) and stops asking for bursts; the video side
+    empties the FIFO (its read pointer to the write pointer) and lets the
+    filling start. The registers stay in clk; depth, video off and the
+    monitor reach clk_vid through two flip-flops (they change only
+    between frames); vertical sync comes back the same way for the
+    interrupt latch and $02. The CLUT: written in clk, read in clk_vid
+    (a dual-clock M10K), and a copy read in clk for the DAC's readback.
+  - The monochrome monitor shows what the DAC drives (READING: the driver
+    sets its flag for sense 1 at Open and loads greys; the core outputs
+    the CLUT's colours unchanged).
+  - The PLL: clk_vid from the main PLL (the IIcx's dot-clock lesson,
+    KNOWN ISSUES 24) - the MacIIci top's step. Analog VGA at 68.85 kHz is
+    no standard mode; HDMI through the scaler shows the 870 lines
+    pillarboxed.
+  - Bandwidth: Table 12-4's 13/26/65 % of bank A at 1/2/4 bpp - the
+    MDU's contention model needs no change, the bursts come faster.
+  BUILT (2026-11-13): iici_rbv.v's video side on clk_vid, the dual-clock
+  FIFO and the frame handshake, the two monitors' numbers; iici_machine.v
+  takes clk_vid and `portrait`.
+  - sim/rbv runs both monitors (PORTRAIT=0/1), PASS 35 each: the
+    portrait 832 x 918 dots, 640 x 870 shown, HS 80, VS 3, 75.0 Hz (74.996
+    to the bench clock's rounding), sense 001; whole frames at 1 and 4
+    bpp, every dot its CLUT entry, the FIFO never dry across the
+    crossing. Planted: a wrong portrait HS width and the frame
+    handshake's FIFO flush removed - each fails it.
+  - sim/iici both monitors, PASS 12 each; the ROM's run unchanged. The
+    portrait's load shows already at 1 bpp: 501 video bursts against 149
+    in the same stretch, 468 bank-A cycles behind one against 130. The
+    bench now tags a cycle the MDU held at any clk (it looked at phi1
+    edges only and missed a burst's last clock - 2 and 4 writes counted
+    "off" that had waited for it).
+  NEXT for it: the OSD option and clk_vid's PLL output in the MacIIci
+  top; the ROM's driver with the portrait (sense 001) on the board.
 
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,
