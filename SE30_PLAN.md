@@ -28813,6 +28813,38 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   - Analysis & Synthesis (QUARTUS_REVISION=MacIIci build_only.sh --check,
     10 min): 0 errors; 78,021 logic cells, 1,841 RAM segments, 8 PLLs.
   NEXT: the full compile; then sta_corners for the capture phases.
+  THE COMPILES (2026-11-13; Daniel: "Please go ahead with the fix, the
+  bench and the compile", then "If this compile fails, then do not proceed
+  with another one"):
+  1. Did not route: clk_k (8,777 registers) and clk_vid went to REGIONAL
+     clocks - the kernel confined to one quadrant (the congestion was in
+     it) and skewed against clk_sys (3 ns of hold padding). Fixed: GLOBAL
+     CLOCK on outclk_wire[5] and [6] in MacIIci.qsf.
+  2. Routed, -2.025: the SDRAM's arbitration into sd_addr's I/O cells
+     (-2.0), three capture bits' dq_q -> dq_w (-1.6). Fixed: the other
+     requests chosen a clock ahead (o_*), busy_z, ref_force.
+  3. LogicLock regions for dq_w: NOT IN THE LITE LICENCE ("Current license
+     file does not support LogicLock regions"), removed by Quartus; the
+     fitter then crashed (access violation). Regions taken out.
+  4. -1.580: seq / init_cnt comparisons into the pins' registers; dq_q ->
+     dq_w of three far-edge pins (X82, X60) - the fitter puts dq_w at the
+     core (47,35), right for the half-period dq_w -> dq_m hop.
+  5. -1.555 (23:50; 38,687 ALMs): flags registered from seq_n/init_n; the
+     capture chain one longer (dq_x); the MDU's request sampled on the
+     second edge (multicycle); m_soon three clocks before a read's first
+     long and the MDU terminating on it, the CPU taking the long live at
+     the wrapper's edge (the KCLK wrapper takes data a clk after the
+     termination) - reads stay 5 clocks with the data at clock 16 of 18.
+     LEFT: the CPU decision (m_pend, m_new, state) -> sd_addr[8], -1.56:
+     sd_addr's ~10-source mux itself; dq_q[11] -> dq_w[11], -0.35 (pin
+     AE23, the far corner). Everything else met: the clk_k/clk_sys holds
+     now positive, the kernel, MDU, RBV, FPU.
+  STOPPED here (Daniel's rule). PROPOSED NEXT, for Daniel: (a) one
+  pipeline register in front of every SDRAM pin (command, address, bank,
+  data, enable) - each I/O register fed by one fabric register, the cost
+  one clock everywhere, covered by m_soon's slack (data at 17 of 18); (b) a
+  location assignment for dq_w[11] and dq_w[8] beside their pins (X81,
+  Y1-4: compile 4 had registers there) - Lite allows single-node locations.
 
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,
