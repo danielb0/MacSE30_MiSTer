@@ -94,6 +94,13 @@ set_instance_assignment -name D1_DELAY 0 -to SDRAM_DQ[*]
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[0]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[1]"
 set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[2]"
+# The IIci's clk_k (the CPU kernel, ~8,800 registers) and clk_vid on global
+# clocks too: the first compile (2026-11-13) left them regional - the kernel
+# confined to one quadrant (the router's congestion was inside it) and
+# skewed against clk_sys (3 ns of hold padding per clk_k <-> clk_sys path):
+# it did not route.
+set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[5]"
+set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst|altera_pll_i|outclk_wire[6]"
 # KNOWN ISSUES 24: the framework's pll_cfg_hdmi writes Main's HDMI divider to
 # physical counter C5 and nowhere else, and pll_hdmi reaches the HDMI clock
 # switch from C5 only at FRACTIONALPLL_X0_Y1 (every other core's site).  The
@@ -101,6 +108,69 @@ set_instance_assignment -name GLOBAL_SIGNAL "GLOBAL CLOCK" -to "emu|pll|pll_inst
 # every HDMI mode but 1080p broke.  Pinned, so no fit can move it again.
 set_location_assignment FRACTIONALPLL_X0_Y1_N0 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|altera_cyclonev_pll_base:fpll_0|fpll"
 set_location_assignment PLLOUTPUTCOUNTER_X0_Y5_N1 -to "pll_hdmi:pll_hdmi|pll_hdmi_0002:pll_hdmi_inst|altera_pll:altera_pll_i|altera_cyclonev_pll:cyclonev_pll|counter[0].output_counter"
+
+
+# The read capture's first fabric registers (rtl/iici_sdram.v dq_w) beside their pins:
+# at 150 MHz the I/O cell -> fabric hop has one 6.67 ns period, and the first full
+# compile (2026-11-13) left three bits' registers far from their pins (-1.6 ns).  The
+# SDRAM_DQ pins sit along the bottom (Y0) and top (Y81) edges at X 8-82: one small
+# region per group of neighbouring pins (the fit report's pin coordinates).
+set_global_assignment -name LL_ENABLED ON -section_id dqw_b8
+set_global_assignment -name LL_AUTO_SIZE OFF -section_id dqw_b8
+set_global_assignment -name LL_STATE LOCKED -section_id dqw_b8
+set_global_assignment -name LL_RESERVED OFF -section_id dqw_b8
+set_global_assignment -name LL_CORE_ONLY OFF -section_id dqw_b8
+set_global_assignment -name LL_WIDTH 6 -section_id dqw_b8
+set_global_assignment -name LL_HEIGHT 3 -section_id dqw_b8
+set_global_assignment -name LL_ORIGIN X6_Y1 -section_id dqw_b8
+set_instance_assignment -name LL_MEMBER_OF dqw_b8 -to "emu:emu|iici_sdram:sdram|dq_w[10]" -section_id dqw_b8
+set_instance_assignment -name LL_MEMBER_OF dqw_b8 -to "emu:emu|iici_sdram:sdram|dq_w[13]" -section_id dqw_b8
+set_global_assignment -name LL_ENABLED ON -section_id dqw_b34
+set_global_assignment -name LL_AUTO_SIZE OFF -section_id dqw_b34
+set_global_assignment -name LL_STATE LOCKED -section_id dqw_b34
+set_global_assignment -name LL_RESERVED OFF -section_id dqw_b34
+set_global_assignment -name LL_CORE_ONLY OFF -section_id dqw_b34
+set_global_assignment -name LL_WIDTH 20 -section_id dqw_b34
+set_global_assignment -name LL_HEIGHT 3 -section_id dqw_b34
+set_global_assignment -name LL_ORIGIN X24_Y1 -section_id dqw_b34
+set_instance_assignment -name LL_MEMBER_OF dqw_b34 -to "emu:emu|iici_sdram:sdram|dq_w[14]" -section_id dqw_b34
+set_instance_assignment -name LL_MEMBER_OF dqw_b34 -to "emu:emu|iici_sdram:sdram|dq_w[7]" -section_id dqw_b34
+set_instance_assignment -name LL_MEMBER_OF dqw_b34 -to "emu:emu|iici_sdram:sdram|dq_w[15]" -section_id dqw_b34
+set_instance_assignment -name LL_MEMBER_OF dqw_b34 -to "emu:emu|iici_sdram:sdram|dq_w[0]" -section_id dqw_b34
+set_instance_assignment -name LL_MEMBER_OF dqw_b34 -to "emu:emu|iici_sdram:sdram|dq_w[3]" -section_id dqw_b34
+set_global_assignment -name LL_ENABLED ON -section_id dqw_b60
+set_global_assignment -name LL_AUTO_SIZE OFF -section_id dqw_b60
+set_global_assignment -name LL_STATE LOCKED -section_id dqw_b60
+set_global_assignment -name LL_RESERVED OFF -section_id dqw_b60
+set_global_assignment -name LL_CORE_ONLY OFF -section_id dqw_b60
+set_global_assignment -name LL_WIDTH 8 -section_id dqw_b60
+set_global_assignment -name LL_HEIGHT 3 -section_id dqw_b60
+set_global_assignment -name LL_ORIGIN X58_Y1 -section_id dqw_b60
+set_instance_assignment -name LL_MEMBER_OF dqw_b60 -to "emu:emu|iici_sdram:sdram|dq_w[4]" -section_id dqw_b60
+set_instance_assignment -name LL_MEMBER_OF dqw_b60 -to "emu:emu|iici_sdram:sdram|dq_w[12]" -section_id dqw_b60
+set_instance_assignment -name LL_MEMBER_OF dqw_b60 -to "emu:emu|iici_sdram:sdram|dq_w[6]" -section_id dqw_b60
+set_global_assignment -name LL_ENABLED ON -section_id dqw_b80
+set_global_assignment -name LL_AUTO_SIZE OFF -section_id dqw_b80
+set_global_assignment -name LL_STATE LOCKED -section_id dqw_b80
+set_global_assignment -name LL_RESERVED OFF -section_id dqw_b80
+set_global_assignment -name LL_CORE_ONLY OFF -section_id dqw_b80
+set_global_assignment -name LL_WIDTH 12 -section_id dqw_b80
+set_global_assignment -name LL_HEIGHT 3 -section_id dqw_b80
+set_global_assignment -name LL_ORIGIN X74_Y1 -section_id dqw_b80
+set_instance_assignment -name LL_MEMBER_OF dqw_b80 -to "emu:emu|iici_sdram:sdram|dq_w[9]" -section_id dqw_b80
+set_instance_assignment -name LL_MEMBER_OF dqw_b80 -to "emu:emu|iici_sdram:sdram|dq_w[8]" -section_id dqw_b80
+set_instance_assignment -name LL_MEMBER_OF dqw_b80 -to "emu:emu|iici_sdram:sdram|dq_w[11]" -section_id dqw_b80
+set_global_assignment -name LL_ENABLED ON -section_id dqw_t35
+set_global_assignment -name LL_AUTO_SIZE OFF -section_id dqw_t35
+set_global_assignment -name LL_STATE LOCKED -section_id dqw_t35
+set_global_assignment -name LL_RESERVED OFF -section_id dqw_t35
+set_global_assignment -name LL_CORE_ONLY OFF -section_id dqw_t35
+set_global_assignment -name LL_WIDTH 12 -section_id dqw_t35
+set_global_assignment -name LL_HEIGHT 3 -section_id dqw_t35
+set_global_assignment -name LL_ORIGIN X30_Y78 -section_id dqw_t35
+set_instance_assignment -name LL_MEMBER_OF dqw_t35 -to "emu:emu|iici_sdram:sdram|dq_w[2]" -section_id dqw_t35
+set_instance_assignment -name LL_MEMBER_OF dqw_t35 -to "emu:emu|iici_sdram:sdram|dq_w[1]" -section_id dqw_t35
+set_instance_assignment -name LL_MEMBER_OF dqw_t35 -to "emu:emu|iici_sdram:sdram|dq_w[5]" -section_id dqw_t35
 
 source sys/sys.tcl
 source sys/sys_analog.tcl

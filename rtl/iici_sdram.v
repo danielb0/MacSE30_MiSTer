@@ -233,6 +233,14 @@ module iici_sdram #(
   reg  [3:0] state;
   reg  [4:0] seq;
   reg  [4:0] busy;
+  reg  [4:0] busy_n;                   // busy's next value (blocking, within the clock)
+  reg        busy_z;                   // busy is 0 this clock (registered from busy_n)
+  reg        ref_force;                // a refresh is overdue (registered)
+  localparam [2:0] O_NONE = 3'd0, O_REF = 3'd1, O_VID = 3'd2, O_DL = 3'd3, O_DK = 3'd4;
+  reg  [2:0] o_kind;                   // the other request, chosen a clock ahead
+  reg        o_chip;
+  reg  [1:0] o_ba;
+  reg [12:0] o_row;
   reg [10:0] ref_cnt;
   reg  [1:0] ref_owed;                 // refreshes the MDU's window asked for
   reg [14:0] init_cnt;
@@ -269,7 +277,8 @@ module iici_sdram #(
   integer i;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0;
+      state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0; busy_z <= 1; ref_force <= 0;
+      o_kind <= O_NONE; o_chip <= 0; o_ba <= 0; o_row <= 0;
       cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_pre <= 0; oe_pre <= 0;
       m_ack <= 0; m_rdata <= 0; v_ack <= 0; v_rdata <= 0; dl_ack <= 0; dk_ack <= 0; dk_rdata <= 0;
       ref_cnt <= 0; ref_owed <= 0; m_pend <= 0; v_pend <= 0;
@@ -282,7 +291,7 @@ module iici_sdram #(
     end else begin
       cmd <= CMD_NOP;
       c1_dup <= 0;
-      if (busy != 0) busy <= busy - 1'b1;
+      busy_n = (busy != 0) ? busy - 1'b1 : 5'd0;
       if (ref_cnt != 11'h7FF) ref_cnt <= ref_cnt + 1'b1;
       if (state != S_INIT) sd_addr[12:11] <= 2'b00;
       if (m_new) m_pend <= 1;
@@ -356,7 +365,7 @@ module iici_sdram #(
               end
               if (seq == 5'd20) begin
                 seq <= 0;
-                if (tr_c1) begin state <= S_IDLE; ref_cnt <= 0; busy <= 0; end
+                if (tr_c1) begin state <= S_IDLE; ref_cnt <= 0; busy_n = 0; end
                 else if (!tr_pass) begin tr_pass <= 1; tr_step <= 1; end
                 else begin tr_c1 <= 1; tr_step <= 0; end
               end
@@ -366,8 +375,12 @@ module iici_sdram #(
 
         // the CPU first, then refresh, then video, then the download and
         // the disk
+        // The CPU's request decides on its own clock (the 5-clock read
+        // needs ACTIVE at 2); every other request was chosen a clock ahead
+        // (o_*, below) and the chip's readiness too (busy_z): the first
+        // compile's -2.0 ns was this arbitration into sd_addr's I/O cells.
         S_IDLE: begin
-          if (busy == 0) begin
+          if (busy_z) begin
             if (m_pend || m_new) begin
               cmd <= {a_word[25], CMD_ACTIVE[2:0]}; sd_ba <= a_word[23:22]; sd_addr <= a_word[21:9];
               a_chip <= a_word[25]; a_bank <= a_word[23:22]; a_col <= {a_word[24], a_word[8:0]};
@@ -375,25 +388,27 @@ module iici_sdram #(
               a_be <= xm_be; a_wdata <= xm_wdata;
               m_pend <= 0; seq <= 1;
               // the next ACTIVE: tRC, or a burst's last READ + 2 + tRP
-              busy <= (xm_burst && !xm_we) ? 5'd16 : ACT_BUSY;
+              busy_n = (xm_burst && !xm_we) ? 5'd16 : ACT_BUSY;
               state <= xm_we ? S_WR : S_RD;
-            end else if (ref_owed != 0 || ref_cnt >= REF_FORCE) begin
-              cmd <= CMD_REFRESH; busy <= REF_BUSY; ref_cnt <= 0;
+            end else if (o_kind == O_REF) begin
+              cmd <= CMD_REFRESH; busy_n = REF_BUSY; ref_cnt <= 0;
               if (ref_owed != 0) ref_owed <= ref_owed - 1'b1;
               c1_dup <= 1; c1_cmd <= CMD_REFRESH[2:0];
-            end else if (v_pend) begin
-              cmd <= {w_word[25], CMD_ACTIVE[2:0]}; sd_ba <= w_word[23:22]; sd_addr <= w_word[21:9];
-              a_chip <= w_word[25]; a_bank <= w_word[23:22]; a_col <= {w_word[24], w_word[8:0]};
-              a_n <= 0; rd_cnt <= 0; a_len <= 3'd0;              // eight (a_n wraps at 8)
-              v_pend <= 0; seq <= 1; busy <= 5'd24;
-              state <= S_VID;
-            end else if (xs_dl_req && !dl_ack) begin
-              cmd <= CMD_ACTIVE; sd_ba <= xs_dl_addr[23:22]; sd_addr <= xs_dl_addr[21:9];
-              seq <= 1; busy <= ACT_BUSY; state <= S_DL;
-            end else if (xs_dk_req && !dk_ack) begin
-              cmd <= CMD_ACTIVE; sd_ba <= xs_dk_addr[23:22]; sd_addr <= xs_dk_addr[21:9];
-              k_we_r <= xs_dk_we; k_bank_r <= xs_dk_addr[23:22]; k_col_r <= xs_dk_addr[8:0]; k_wdata_r <= xs_dk_wdata;
-              seq <= 1; busy <= ACT_BUSY; state <= S_DK;
+            end else if (o_kind != O_NONE) begin
+              cmd <= {o_chip, CMD_ACTIVE[2:0]}; sd_ba <= o_ba; sd_addr <= o_row;
+              seq <= 1;
+              case (o_kind)
+                O_VID: begin
+                  a_chip <= w_word[25]; a_bank <= w_word[23:22]; a_col <= {w_word[24], w_word[8:0]};
+                  a_n <= 0; rd_cnt <= 0; a_len <= 3'd0;      // eight (a_n wraps at 8)
+                  v_pend <= 0; busy_n = 5'd24; state <= S_VID;
+                end
+                O_DL: begin busy_n = ACT_BUSY; state <= S_DL; end
+                default: begin                               // O_DK
+                  k_we_r <= xs_dk_we; k_bank_r <= xs_dk_addr[23:22]; k_col_r <= xs_dk_addr[8:0]; k_wdata_r <= xs_dk_wdata;
+                  busy_n = ACT_BUSY; state <= S_DK;
+                end
+              endcase
             end
           end
         end
@@ -468,6 +483,16 @@ module iici_sdram #(
         cmd <= {1'b1, c1_cmd};
         if (state == S_INIT) sd_addr <= c1_addr;
       end
+      busy <= busy_n; busy_z <= (busy_n == 0);
+      // the next clock's other request, chosen now: refresh, the video,
+      // the download, the disk (a clock stale: the issued one's flag clears
+      // while the chip is busy, so it is never issued twice)
+      ref_force <= (ref_cnt >= REF_FORCE);
+      if (ref_owed != 0 || ref_force) begin o_kind <= O_REF; end
+      else if (v_pend) begin o_kind <= O_VID; o_chip <= w_word[25]; o_ba <= w_word[23:22]; o_row <= w_word[21:9]; end
+      else if (xs_dl_req && !dl_ack) begin o_kind <= O_DL; o_chip <= 1'b0; o_ba <= xs_dl_addr[23:22]; o_row <= xs_dl_addr[21:9]; end
+      else if (xs_dk_req && !dk_ack) begin o_kind <= O_DK; o_chip <= 1'b0; o_ba <= xs_dk_addr[23:22]; o_row <= xs_dk_addr[21:9]; end
+      else o_kind <= O_NONE;
     end
 
 endmodule

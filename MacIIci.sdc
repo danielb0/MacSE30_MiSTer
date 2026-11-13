@@ -44,8 +44,14 @@ set_input_delay  -clock sdram_clk -min 2.5 [get_ports {SDRAM_DQ[*]}]
 # iici_time_capture - the reading is that at every corner at least ONE of
 # the two captures meets, never both.  The phases are PROVISIONAL (the
 # controller's header): this compile's STA is what re-derives them.
+# The capture edge from sdram_clk's launch: A (clk_mem - 1.15) takes the word
+# on its THIRD edge after the launch, B (clk_mem - 2.60) on its SECOND - the
+# phases differ by more than the launch's offset (unlike the SE/30's, where
+# both were the second).  The default hold check one edge earlier is the
+# next word's, as MacSE30.sdc explains.
 if {[info exists ::iici_time_capture]} {
-  set_multicycle_path -setup -end 2 -from [get_clocks {sdram_clk}] -to [get_keepers {*|iici_sdram:sdram|dq_q[*]}]
+  set_multicycle_path -setup -end 3 -from [get_clocks {sdram_clk}] -to_clock [get_clocks [format $pll_out 3]] -to [get_keepers {*|iici_sdram:sdram|dq_q[*]}]
+  set_multicycle_path -setup -end 2 -from [get_clocks {sdram_clk}] -to_clock [get_clocks [format $pll_out 4]] -to [get_keepers {*|iici_sdram:sdram|dq_q[*]}]
 } else {
   set_false_path -from [get_clocks {sdram_clk}] -to [get_keepers {*|iici_sdram:sdram|dq_q[*]}]
 }
