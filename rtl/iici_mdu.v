@@ -102,6 +102,7 @@ module iici_mdu #(
   output [31:0] m_wdata,
   input  [31:0] m_rdata,
   input         m_ack,
+  input         m_soon,                // the port's word: a read's first long will be on m_rdata by the next clk edge
   output reg    m_refresh,             // one clk: the RAM's refresh starts (the SDRAM refreshes in its window)
 
   // the RBV's screen buffer: 8 longs a request, from bank A's base on
@@ -267,20 +268,27 @@ module iici_mdu #(
   wire       ack_w  = m_ack && m_wpend;
   wire       ack_r  = m_ack && !m_wpend;
   wire [2:0] m_have = m_got + (ack_r ? 3'd1 : 3'd0);
-  wire       hold_go = m_hold && (ack_w || !m_wpend);
-  wire       blocked = m_wpend && !ack_w;
-  assign m_req   = (mem_start && !blocked) || hold_go;
-  assign m_we    = hold_go ? q_we    : !cpu_rw_n;
-  assign m_burst = hold_go ? q_burst : burst_ok;
-  assign m_addr  = hold_go ? q_addr  : (d_rom ? rom_phys : ram_phys);
-  assign m_be    = hold_go ? q_be    : be;
-  assign m_wdata = hold_go ? q_wdata : cpu_dout;
+  // The request and the decision both read the registered pending flag, so
+  // they always agree; a held request goes out as a registered pulse a whole
+  // clk long (the controller samples it at its own edges, iici_sdram.v).
+  reg        q_go;
+  wire       blocked = m_wpend;
+  assign m_req   = (mem_start && !blocked) || q_go;
+  assign m_we    = q_go ? q_we    : !cpu_rw_n;
+  assign m_burst = q_go ? q_burst : burst_ok;
+  assign m_addr  = q_go ? q_addr  : (d_rom ? rom_phys : ram_phys);
+  assign m_be    = q_go ? q_be    : be;
+  assign m_wdata = q_go ? q_wdata : cpu_dout;
+  // m_soon, latched: the termination may come on it, and the CPU then takes
+  // the long straight off m_rdata at the wrapper's edge after (m_live) -
+  // the KCLK wrapper takes a cycle's data a clk after its termination
+  reg        soon_l, m_live;
   wire [31:0] m_next = (m_used == m_got) ? m_rdata : m_buf[m_used[1:0]];
 
   integer i;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      ovl <= 1; m_act <= 0; m_done <= 0; m_refresh <= 0; m_wpend <= 0; m_hold <= 0; m_brst <= 0; m_cnt <= 0; m_due <= 0;
+      ovl <= 1; m_act <= 0; m_done <= 0; m_refresh <= 0; m_wpend <= 0; m_hold <= 0; q_go <= 0; soon_l <= 0; m_live <= 0; m_brst <= 0; m_cnt <= 0; m_due <= 0;
       m_got <= 0; m_used <= 0; b_ph <= 0; b_on <= 0; m_din <= 0; rec_a <= 0; rec_b <= 0;
       q_we <= 0; q_burst <= 0; q_addr <= 0; q_be <= 0; q_wdata <= 0; m_bank <= 0;
       late <= 0; m_wr_end <= 0; as_hi_c <= 0;
@@ -299,14 +307,17 @@ module iici_mdu #(
       // the port's longs, in order
       if (ack_w) m_wpend <= 0;
       if (ack_r && m_got != 3'd4) begin m_buf[m_got[1:0]] <= m_rdata; m_got <= m_got + 1'b1; end
+      q_go <= 0;
+      if (mem_start || q_go) soon_l <= 0;
+      else if (m_soon) soon_l <= 1;
       if (mem_start) begin
         m_got <= 0;
         if (blocked) begin
           m_hold <= 1; q_we <= !cpu_rw_n; q_burst <= burst_ok;
           q_addr <= d_rom ? rom_phys : ram_phys; q_be <= be; q_wdata <= cpu_dout;
         end else m_wpend <= !cpu_rw_n;
-      end else if (hold_go) begin
-        m_hold <= 0; m_wpend <= q_we;
+      end else if (m_hold && !m_wpend) begin
+        m_hold <= 0; q_go <= 1; m_wpend <= q_we;
       end
       if (c16_en) begin
         refcnt <= (refcnt == 8'd243) ? 8'd0 : refcnt + 1'b1;
@@ -320,6 +331,7 @@ module iici_mdu #(
         else if (v_start) begin v_pend <= 0; v_hold <= VB - 1; v_req <= 1; v_base <= v_ptr; v_ptr <= v_ptr + 22'd8; end
         if (ref_run != 0) ref_run <= ref_run - 1'b1;
         else if (ref_go) begin ref_pend <= 0; ref_run <= REF - 1; m_refresh <= 1; end
+        m_live <= 0;
         if (!m_act) begin
           // first seen: start counting once a refresh has let go of the RAM
           if (!cpu_as_n && d_mem && !held) begin
@@ -339,8 +351,9 @@ module iici_mdu #(
             // the first termination: due, and the data in (an empty bank
             // and a write need none)
             if (m_cnt >= m_due) begin
-              if (empty || !cpu_rw_n || (m_have != 0)) begin
+              if (empty || !cpu_rw_n || (m_have != 0) || soon_l || m_soon) begin
                 m_done <= 1; b_on <= 1; m_used <= 3'd1;
+                m_live <= !empty && cpu_rw_n && (m_have == 0);
                 m_din <= empty ? 32'hFFFFFFFF : (m_got == 0) ? m_rdata : m_buf[0];
                 if (m_cnt > m_due) late <= late + 1'b1;
               end
@@ -427,7 +440,7 @@ module iici_mdu #(
   // ------------------------------------------------------------ the bus
   wire dev_ack = !cpu_as_n && active && done && d_dev;
   assign cpu_din  = d_fpu ? fpu_rdata : d_slot ? nb_rdata :
-                    d_dev ? {(active && done) ? dev_q : rbyte, 24'h000000} : m_din;
+                    d_dev ? {(active && done) ? dev_q : rbyte, 24'h000000} : m_live ? m_rdata : m_din;
   assign dsack_n  = d_fpu ? fpu_dsack_n : d_slot ? nb_dsack_n :
                     berr_r ? 2'b11 :
                     (!cpu_as_n && d_mem && mem_ack) ? 2'b00 :

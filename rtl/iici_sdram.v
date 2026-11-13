@@ -85,6 +85,7 @@ module iici_sdram #(
   input      [31:0] m_wdata,
   output reg [31:0] m_rdata,
   output reg        m_ack,             // three clocks: one clk_sys edge
+  output reg        m_soon,            // three clocks, three before a read's first m_ack: the long will be on m_rdata by the next clk_sys edge
   input             m_refresh,         // one clk_sys clock: the MDU's refresh window
   input             v_req,             // one clk_sys clock: eight longs from v_addr
   input      [24:0] v_addr,
@@ -135,7 +136,7 @@ module iici_sdram #(
   // the READ: CL 3, the board's delays (clock out, tAC, data in: 2.4 of
   // these clocks in the benches' numbers, the board's STA), dq_q, dq_w,
   // dq_m - one more than the SE/30's at 94 MHz
-  localparam [4:0] RD_LAT  = 5'd7;
+  localparam [4:0] RD_LAT  = 5'd8;
   localparam [15:0] TR_W1 = 16'hA5C3, TR_W2 = 16'h5A3C;
   localparam  [1:0] TR_BANK = 2'd3;
   localparam [12:0] TR_ROW  = 13'd8191;
@@ -180,9 +181,13 @@ module iici_sdram #(
     .inclk({clk_capb, clk_capa, 2'b00}), .clkselect({1'b1, cap_sel}), .ena(1'b1), .outclk(clk_cap)
   );
 `endif
-  reg [15:0] dq_q, dq_w, dq_m;
-  always @(posedge clk_cap) begin dq_q <= sd_dq; dq_w <= dq_q; end
-  always @(negedge clk) dq_m <= dq_w;
+  // one register longer than se30_sdram's (dq_x): at 150 MHz a pin at the
+  // chip's far edge cannot reach the core's registers in one period (compile
+  // 4: three bits at -0.6 to -1.5 ns); two full periods on the capture clock
+  // let the fitter split the route
+  reg [15:0] dq_q, dq_w, dq_x, dq_m;
+  always @(posedge clk_cap) begin dq_q <= sd_dq; dq_w <= dq_q; dq_x <= dq_w; end
+  always @(negedge clk) dq_m <= dq_x;
 
   // ------------------------------------------------ the inputs
   // The MDU's request: sampled on every clock, taken on its rise (it is up
@@ -191,7 +196,7 @@ module iici_sdram #(
   reg        phi_q, phi_qq;
   always @(posedge clk) begin phi_q <= phi; phi_qq <= phi_q; end
   wire       sample_en = (phi_q != phi_qq);
-  reg        mq, mq_q, vq, vq_q, rq, rq_q;
+  reg        mq, m_new, vq, vq_q, rq, rq_q;
   reg        xm_we, xm_burst;
   reg [24:0] xm_addr, xv_addr;
   reg  [3:0] xm_be;
@@ -201,17 +206,25 @@ module iici_sdram #(
   reg [15:0] xs_dl_data, xs_dk_wdata;
   reg        m_pend, v_pend, r_pend;
   always @(posedge clk) begin
-    mq <= m_req; mq_q <= mq;
+    // the MDU's request on the SECOND edge after the clk_sys edge (as the
+    // download's): 13.3 ns from the wrapper's kb_* registers through the
+    // MDU's decode (MacIIci.sdc's multicycle on mq, m_new and xm_*); the
+    // read's data has the time to spare since the MDU terminates on m_soon
+    m_new <= 0;
+    if (sample_en) begin
+      mq <= m_req;
+      if (m_req && !mq) begin
+        xm_we <= m_we; xm_burst <= m_burst; xm_addr <= m_addr; xm_be <= m_be; xm_wdata <= m_wdata; m_new <= 1;
+      end
+    end
     vq <= v_req; vq_q <= vq;
     rq <= m_refresh; rq_q <= rq;
-    if (m_req && !mq) begin xm_we <= m_we; xm_burst <= m_burst; xm_addr <= m_addr; xm_be <= m_be; xm_wdata <= m_wdata; end
     if (v_req && !vq) xv_addr <= v_addr;
     if (sample_en) begin
       xs_dl_req <= dl_req; xs_dl_addr <= dl_addr; xs_dl_data <= dl_data;
       xs_dk_req <= dk_req; xs_dk_we <= dk_we; xs_dk_addr <= dk_addr; xs_dk_wdata <= dk_wdata;
     end
   end
-  wire m_new = mq && !mq_q;            // a request, one clock (the clock after it was sampled)
   wire v_new = vq && !vq_q;
   wire r_new = rq && !rq_q;
 
@@ -226,6 +239,7 @@ module iici_sdram #(
   reg [31:0] vb [0:7];
   reg  [3:0] vb_in, vb_out;
   reg  [1:0] m_hold, v_hold;           // the acknowledge's remaining clocks
+  reg  [1:0] soon_hold;                // m_soon's remaining clocks
   reg        m_wack;                   // a write's acknowledge, to go out
 
   // --------------------------------------------------- the sequencer
@@ -234,6 +248,12 @@ module iici_sdram #(
   reg  [4:0] seq;
   reg  [4:0] busy;
   reg  [4:0] busy_n;                   // busy's next value (blocking, within the clock)
+  // seq's and init_cnt's comparisons for the pins' registers, registered from
+  // their next values (compile 4: seq -> cmd -1.58, init_cnt -> sd_addr -1.45)
+  reg  [4:0] seq_n;
+  reg        f_s0, f_sR, f_sR1, f_geR, f_even;
+  reg [14:0] init_n;
+  reg        ih_pause, ih_12, ih_3;
   reg        busy_z;                   // busy is 0 this clock (registered from busy_n)
   reg        ref_force;                // a refresh is overdue (registered)
   localparam [2:0] O_NONE = 3'd0, O_REF = 3'd1, O_VID = 3'd2, O_DL = 3'd3, O_DK = 3'd4;
@@ -279,8 +299,9 @@ module iici_sdram #(
     if (!reset_n) begin
       state <= S_INIT; init_cnt <= 0; init_step <= 0; seq <= 0; busy <= 0; busy_z <= 1; ref_force <= 0;
       o_kind <= O_NONE; o_chip <= 0; o_ba <= 0; o_row <= 0;
+      f_s0 <= 1; f_sR <= 0; f_sR1 <= 0; f_geR <= 0; f_even <= 1; ih_pause <= 0; ih_12 <= 0; ih_3 <= 0;
       cmd <= CMD_INHIBIT; sd_addr <= 0; sd_ba <= 0; dq_pre <= 0; oe_pre <= 0;
-      m_ack <= 0; m_rdata <= 0; v_ack <= 0; v_rdata <= 0; dl_ack <= 0; dk_ack <= 0; dk_rdata <= 0;
+      m_ack <= 0; m_soon <= 0; soon_hold <= 0; m_rdata <= 0; v_ack <= 0; v_rdata <= 0; dl_ack <= 0; dk_ack <= 0; dk_rdata <= 0;
       ref_cnt <= 0; ref_owed <= 0; m_pend <= 0; v_pend <= 0;
       mb_in <= 0; mb_out <= 0; vb_in <= 0; vb_out <= 0; m_hold <= 0; v_hold <= 0; m_wack <= 0;
       a_chip <= 0; a_bank <= 0; a_col <= 0; a_ent <= 0; a_n <= 0; a_len <= 0; a_be <= 0; a_wdata <= 0; rd_cnt <= 0; hi_w <= 0;
@@ -292,6 +313,7 @@ module iici_sdram #(
       cmd <= CMD_NOP;
       c1_dup <= 0;
       busy_n = (busy != 0) ? busy - 1'b1 : 5'd0;
+      seq_n = seq; init_n = init_cnt;
       if (ref_cnt != 11'h7FF) ref_cnt <= ref_cnt + 1'b1;
       if (state != S_INIT) sd_addr[12:11] <= 2'b00;
       if (m_new) m_pend <= 1;
@@ -306,26 +328,27 @@ module iici_sdram #(
       else if (mb_out != mb_in) begin m_rdata <= mb[mb_out[1:0]]; mb_out <= mb_out + 1'b1; m_ack <= 1; m_hold <= 2'd3; end
       if (v_hold != 0) begin v_hold <= v_hold - 1'b1; if (v_hold == 2'd1) v_ack <= 0; end
       else if (vb_out != vb_in) begin v_rdata <= vb[vb_out[2:0]]; vb_out <= vb_out + 1'b1; v_ack <= 1; v_hold <= 2'd3; end
+      if (soon_hold != 0) begin soon_hold <= soon_hold - 1'b1; if (soon_hold == 2'd1) m_soon <= 0; end
 
       case (state)
         S_INIT: begin
           sd_addr[12:11] <= 2'b11;
-          init_cnt <= init_cnt + 1'b1;
+          init_n = init_cnt + 1'b1;
           case (init_step)
-            4'd0:  if (init_cnt == INIT_PAUSE) begin init_step <= 1; init_cnt <= 0; end
+            4'd0:  if (ih_pause) begin init_step <= 1; init_n = 0; end
             4'd1:  begin
-              cmd <= CMD_PRECHARGE; sd_addr[10] <= 1'b1; init_step <= 2; init_cnt <= 0;
+              cmd <= CMD_PRECHARGE; sd_addr[10] <= 1'b1; init_step <= 2; init_n = 0;
               c1_dup <= 1; c1_cmd <= CMD_PRECHARGE[2:0]; c1_addr <= 13'h1C00;
             end
-            4'd10: if (init_cnt == 15'd12) begin
-              cmd <= CMD_LOAD_MODE; sd_addr <= MODE; sd_ba <= 0; init_step <= 11; init_cnt <= 0;
+            4'd10: if (ih_12) begin
+              cmd <= CMD_LOAD_MODE; sd_addr <= MODE; sd_ba <= 0; init_step <= 11; init_n = 0;
               c1_dup <= 1; c1_cmd <= CMD_LOAD_MODE[2:0]; c1_addr <= MODE;
             end
-            4'd11: if (init_cnt == 15'd3) begin
-              state <= S_TRAIN; tr_step <= 0; tr_pass <= 0; tr_c1 <= 0; tr_n <= 0; tr_good <= 0; seq <= 0; cap_sel <= 0;
+            4'd11: if (ih_3) begin
+              state <= S_TRAIN; tr_step <= 0; tr_pass <= 0; tr_c1 <= 0; tr_n <= 0; tr_good <= 0; seq_n = 0; cap_sel <= 0;
             end
-            default: if (init_cnt == 15'd12) begin
-              cmd <= CMD_REFRESH; init_step <= init_step + 1'b1; init_cnt <= 0;
+            default: if (ih_12) begin
+              cmd <= CMD_REFRESH; init_step <= init_step + 1'b1; init_n = 0;
               c1_dup <= 1; c1_cmd <= CMD_REFRESH[2:0]; c1_addr <= 13'h1800;
             end
           endcase
@@ -335,23 +358,23 @@ module iici_sdram #(
         // 0, the column command at T_RCD, a read's words from dq_m at
         // T_RCD + 6 and + 7, the next ACTIVE after tRC
         S_TRAIN: begin
-          seq <= seq + 1'b1;
+          seq_n = seq + 1'b1;
           case (tr_step)
             2'd0: begin
-              if (seq == 0) begin cmd <= {tr_c1, CMD_ACTIVE[2:0]}; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
-              if (seq == T_RCD) begin cmd <= {tr_c1, CMD_WRITE[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b0, TR_COL}; end
-              if (seq == T_RCD + 1) begin cmd <= {tr_c1, CMD_WRITE[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, TR_COL | 10'd1}; end
-              if (seq == 5'd14) begin tr_step <= 1; seq <= 0; end
+              if (f_s0) begin cmd <= {tr_c1, CMD_ACTIVE[2:0]}; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
+              if (f_sR) begin cmd <= {tr_c1, CMD_WRITE[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b0, TR_COL}; end
+              if (f_sR1) begin cmd <= {tr_c1, CMD_WRITE[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, TR_COL | 10'd1}; end
+              if (seq == 5'd14) begin tr_step <= 1; seq_n = 0; end
             end
             2'd1: begin
-              if (seq == 0) begin cmd <= {tr_c1, CMD_ACTIVE[2:0]}; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
-              if (seq == T_RCD) begin cmd <= {tr_c1, CMD_READ[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, TR_COL}; end
+              if (f_s0) begin cmd <= {tr_c1, CMD_ACTIVE[2:0]}; sd_ba <= TR_BANK; sd_addr <= TR_ROW; end
+              if (f_sR) begin cmd <= {tr_c1, CMD_READ[2:0]}; sd_ba <= TR_BANK; sd_addr <= {2'b00, 1'b1, TR_COL}; end
               if (seq == T_RCD + RD_LAT) tr_w1 <= dq_m;
               if (seq == T_RCD + RD_LAT + 1) begin
                 if (tr_w1 == TR_W1 && dq_m == TR_W2) tr_good <= tr_good + 1'b1;
                 tr_n <= tr_n + 1'b1;
               end
-              if (seq == 5'd14) begin seq <= 0; if (tr_n == TR_READS) tr_step <= 2; end   // after the takes
+              if (seq == 5'd14) begin seq_n = 0; if (tr_n == TR_READS) tr_step <= 2; end   // after the takes
             end
             default: begin
               if (seq == 0) begin
@@ -364,7 +387,7 @@ module iici_sdram #(
                 tr_n <= 0; tr_good <= 0;
               end
               if (seq == 5'd20) begin
-                seq <= 0;
+                seq_n = 0;
                 if (tr_c1) begin state <= S_IDLE; ref_cnt <= 0; busy_n = 0; end
                 else if (!tr_pass) begin tr_pass <= 1; tr_step <= 1; end
                 else begin tr_c1 <= 1; tr_step <= 0; end
@@ -386,7 +409,7 @@ module iici_sdram #(
               a_chip <= a_word[25]; a_bank <= a_word[23:22]; a_col <= {a_word[24], a_word[8:0]};
               a_ent <= xm_addr[1:0]; a_n <= 0; rd_cnt <= 0; a_len <= xm_burst ? 3'd4 : 3'd1;
               a_be <= xm_be; a_wdata <= xm_wdata;
-              m_pend <= 0; seq <= 1;
+              m_pend <= 0; seq_n = 1;
               // the next ACTIVE: tRC, or a burst's last READ + 2 + tRP
               busy_n = (xm_burst && !xm_we) ? 5'd16 : ACT_BUSY;
               state <= xm_we ? S_WR : S_RD;
@@ -396,7 +419,7 @@ module iici_sdram #(
               c1_dup <= 1; c1_cmd <= CMD_REFRESH[2:0];
             end else if (o_kind != O_NONE) begin
               cmd <= {o_chip, CMD_ACTIVE[2:0]}; sd_ba <= o_ba; sd_addr <= o_row;
-              seq <= 1;
+              seq_n = 1;
               case (o_kind)
                 O_VID: begin
                   a_chip <= w_word[25]; a_bank <= w_word[23:22]; a_col <= {w_word[24], w_word[8:0]};
@@ -417,12 +440,16 @@ module iici_sdram #(
         // from T_RCD, the last auto-precharged; the words from dq_m at
         // T_RCD + 6 on, one a clock
         S_RD, S_VID: begin
-          seq <= seq + 1'b1;
-          if (seq >= T_RCD && seq[0] == T_RCD[0] && (state == S_VID ? (a_n != 3'd0 || seq == T_RCD) : (a_n < a_len))) begin
+          seq_n = seq + 1'b1;
+          if (f_geR && f_even && (state == S_VID ? (a_n != 3'd0 || f_sR) : (a_n < a_len))) begin
             cmd <= {a_chip, CMD_READ[2:0]}; sd_ba <= a_bank;
             sd_addr <= {2'b00, (state == S_VID) ? (a_n == 3'd7) : (a_n == a_len - 1'b1), col_n};
             a_n <= a_n + 1'b1;
           end
+          // m_soon three clocks before the first long's m_ack (the clock its
+          // low word arrives, T_RCD + RD_LAT + 1): whichever clk_sys edge
+          // sees it, the long is on m_rdata by the next
+          if (state == S_RD && seq == T_RCD + RD_LAT - 5'd2) begin m_soon <= 1; soon_hold <= 2'd3; end
           if (seq >= T_RCD + RD_LAT) begin
             rd_cnt <= rd_cnt + 1'b1;
             if (!rd_cnt[0]) hi_w <= dq_m;
@@ -440,26 +467,26 @@ module iici_sdram #(
         // a CPU write: two single-location WRITEs, the second auto-
         // precharged, acknowledged at the first (posted)
         S_WR: begin
-          seq <= seq + 1'b1;
-          if (seq == T_RCD) begin
+          seq_n = seq + 1'b1;
+          if (f_sR) begin
             cmd <= {a_chip, CMD_WRITE[2:0]}; sd_ba <= a_bank; sd_addr <= {~a_be[3:2], 1'b0, a_col};
             m_wack <= 1;
           end
-          if (seq == T_RCD + 1) begin
+          if (f_sR1) begin
             cmd <= {a_chip, CMD_WRITE[2:0]}; sd_ba <= a_bank; sd_addr <= {~a_be[1:0], 1'b1, a_col | 10'd1};
           end
           if (seq == T_RCD + 2) state <= S_IDLE;           // busy holds the next ACTIVE for tWR + tRP
         end
 
         S_DL: begin
-          seq <= seq + 1'b1;
-          if (seq == T_RCD) begin cmd <= CMD_WRITE; sd_ba <= xs_dl_addr[23:22]; sd_addr <= {2'b00, 1'b1, 1'b0, xs_dl_addr[8:0]}; dl_ack <= 1; end
+          seq_n = seq + 1'b1;
+          if (f_sR) begin cmd <= CMD_WRITE; sd_ba <= xs_dl_addr[23:22]; sd_addr <= {2'b00, 1'b1, 1'b0, xs_dl_addr[8:0]}; dl_ack <= 1; end
           if (seq == T_RCD + 1) state <= S_IDLE;
         end
 
         S_DK: begin
-          seq <= seq + 1'b1;
-          if (seq == T_RCD) begin
+          seq_n = seq + 1'b1;
+          if (f_sR) begin
             cmd <= k_we_r ? CMD_WRITE : CMD_READ; sd_ba <= k_bank_r; sd_addr <= {2'b00, 1'b1, 1'b0, k_col_r};
             if (k_we_r) dk_ack <= 1;
           end
@@ -473,8 +500,8 @@ module iici_sdram #(
       // the data pins' next clock
       oe_pre <= 1'b0;
       case (state)
-        S_TRAIN: if (tr_step == 2'd0) begin oe_pre <= 1'b1; dq_pre <= (seq == T_RCD) ? TR_W2 : TR_W1; end
-        S_WR:    begin oe_pre <= 1'b1; dq_pre <= (seq >= T_RCD) ? a_wdata[15:0] : a_wdata[31:16]; end
+        S_TRAIN: if (tr_step == 2'd0) begin oe_pre <= 1'b1; dq_pre <= f_sR ? TR_W2 : TR_W1; end
+        S_WR:    begin oe_pre <= 1'b1; dq_pre <= f_geR ? a_wdata[15:0] : a_wdata[31:16]; end
         S_DL:    begin oe_pre <= 1'b1; dq_pre <= xs_dl_data; end
         S_DK:    if (k_we_r) begin oe_pre <= 1'b1; dq_pre <= k_wdata_r; end
         default: ;
@@ -484,6 +511,11 @@ module iici_sdram #(
         if (state == S_INIT) sd_addr <= c1_addr;
       end
       busy <= busy_n; busy_z <= (busy_n == 0);
+      seq <= seq_n;
+      f_s0 <= (seq_n == 5'd0); f_sR <= (seq_n == T_RCD); f_sR1 <= (seq_n == T_RCD + 5'd1);
+      f_geR <= (seq_n >= T_RCD); f_even <= !seq_n[0];
+      init_cnt <= init_n;
+      ih_pause <= (init_n == INIT_PAUSE); ih_12 <= (init_n == 15'd12); ih_3 <= (init_n == 15'd3);
       // the next clock's other request, chosen now: refresh, the video,
       // the download, the disk (a clock stale: the issued one's flag clears
       // while the chip is busy, so it is never issued twice)

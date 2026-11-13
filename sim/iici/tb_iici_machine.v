@@ -132,7 +132,7 @@ module tb_iici_machine;
   // rtl/iici_sdram.v and sim/sdram's chip model (32 MB, CL3, tAC 5.4) with
   // the ROM preloaded at word $C00000 and never-written words random; the
   // board delays and capture phases of sim/sdram_iici
-  wire        s_ready, s_mack, s_vack, s_capsel;
+  wire        s_ready, s_mack, s_vack, s_capsel, s_msoon;
   wire [31:0] s_mrdata, s_vrdata;
   reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
   always @(clk_mem) begin
@@ -151,7 +151,7 @@ module tb_iici_machine;
       .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(sd_rst_n),
       .ready(s_ready), .cap_sel(s_capsel), .cap_ok(), .cap_fail_a(), .cap_fail_b(), .c1_ok(), .c1_fail(),
       .m_req(mem_req), .m_we(mem_we), .m_burst(mem_burst), .m_addr(mem_addr), .m_be(mem_be), .m_wdata(mem_wdata),
-      .m_rdata(s_mrdata), .m_ack(s_mack), .m_refresh(mem_refresh), .v_req(v_req), .v_addr(v_addr), .v_rdata(s_vrdata), .v_ack(s_vack),
+      .m_rdata(s_mrdata), .m_ack(s_mack), .m_soon(s_msoon), .m_refresh(mem_refresh), .v_req(v_req), .v_addr(v_addr), .v_rdata(s_vrdata), .v_ack(s_vack),
       .dl_req(1'b0), .dl_addr(24'd0), .dl_data(16'd0), .dl_ack(),
       .dk_req(1'b0), .dk_we(1'b0), .dk_addr(24'd0), .dk_wdata(16'd0), .dk_rdata(), .dk_ack(),
       .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq), .sd_dqm(sd_dqm),
@@ -173,7 +173,7 @@ module tb_iici_machine;
       .clk(clk_c), .cke(cke_c), .cs_n(cs_c), .ras_n(ras_c), .cas_n(cas_c), .we_n(we_c),
       .ba(ba_c), .addr(a_c), .dqm(a_c[12:11]), .dq(dq_chip));
   end else begin : g_nosd
-    assign s_ready = 1'b1; assign s_capsel = 1'b0; assign s_mack = 1'b0; assign s_vack = 1'b0; assign s_mrdata = 32'h0; assign s_vrdata = 32'h0;
+    assign s_ready = 1'b1; assign s_capsel = 1'b0; assign s_mack = 1'b0; assign s_msoon = 1'b0; assign s_vack = 1'b0; assign s_mrdata = 32'h0; assign s_vrdata = 32'h0;
   end endgenerate
   assign mem_rdata = SDRAM ? s_mrdata : bm_rdata;
   assign mem_ack   = SDRAM ? s_mack   : bm_ack;
@@ -191,7 +191,7 @@ module tb_iici_machine;
   iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/")) machine (
     .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(SDRAM ? 2'd0 : 2'd2),
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
-    .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_refresh(mem_refresh),
+    .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(SDRAM ? s_msoon : 1'b0), .mem_refresh(mem_refresh),
     .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
     .ce_pix(ce_pix), .vid_r(), .vid_g(), .vid_b(), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(), .vblank(), .poweroff_req(),
     .nmi_n(1'b1), .pace_en(1'b1),

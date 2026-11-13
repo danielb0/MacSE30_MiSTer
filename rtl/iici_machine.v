@@ -59,6 +59,7 @@ module iici_machine #(
   output [31:0] mem_wdata,
   input  [31:0] mem_rdata,
   input         mem_ack,
+  input         mem_soon,              // iici_sdram's m_soon (iici_mdu.v)
   output        mem_refresh,
   // the video's port: 8 longs a request (iici_mdu.v)
   output        v_req,
@@ -187,7 +188,7 @@ module iici_machine #(
     .cbreq(cbreq), .cback(cback),
     .bank_a(bank_a), .bank_b(bank_b),
     .m_req(mem_req), .m_we(mem_we), .m_burst(mem_burst), .m_addr(mem_addr), .m_be(mem_be), .m_wdata(mem_wdata),
-    .m_rdata(mem_rdata), .m_ack(mem_ack), .m_refresh(mem_refresh),
+    .m_rdata(mem_rdata), .m_ack(mem_ack), .m_soon(mem_soon), .m_refresh(mem_refresh),
     .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(vid_ld), .vid_data(vid_data),
     .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
     .via1_sel(via1_sel), .scc_sel(scc_sel), .scsi_sel(scsi_sel), .scsi_dack(scsi_dack), .asc_sel(asc_sel),

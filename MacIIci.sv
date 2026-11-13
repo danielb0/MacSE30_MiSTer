@@ -405,7 +405,7 @@ se30_flp_dkmux flp_dkmux
 wire        cap_sel;
 wire  [1:0] cap_ok;
 wire [13:0] cap_fail_a, cap_fail_b;
-wire        mem_req, mem_we, mem_burst, mem_ack, mem_refresh, v_req, v_ack;
+wire        mem_req, mem_we, mem_burst, mem_ack, mem_soon, mem_refresh, v_req, v_ack;
 wire [24:0] mem_addr, v_addr;
 wire  [3:0] mem_be;
 wire [31:0] mem_wdata, mem_rdata, v_rdata;
@@ -416,7 +416,7 @@ iici_sdram sdram
 	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
 	.c1_ok(), .c1_fail(),
 	.m_req(mem_req), .m_we(mem_we), .m_burst(mem_burst), .m_addr(mem_addr), .m_be(mem_be), .m_wdata(mem_wdata),
-	.m_rdata(mem_rdata), .m_ack(mem_ack), .m_refresh(mem_refresh),
+	.m_rdata(mem_rdata), .m_ack(mem_ack), .m_soon(mem_soon), .m_refresh(mem_refresh),
 	.v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
 	.dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
 	.dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
@@ -437,7 +437,7 @@ iici_machine machine
 	.clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(portrait), .phi1(phi1), .phi2(phi2),
 	.reset_n(machine_reset_n), .bank_a(bank_a), .bank_b(bank_b),
 	.mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
-	.mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_refresh(mem_refresh),
+	.mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(mem_soon), .mem_refresh(mem_refresh),
 	.v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
 	.ce_pix(ce_pix), .vid_r(vid_r), .vid_g(vid_g), .vid_b(vid_b),
 	.hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank), .poweroff_req(poweroff_req),

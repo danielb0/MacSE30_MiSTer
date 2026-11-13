@@ -15,15 +15,18 @@ derive_clock_uncertainty
 set pll_out {emu|pll|pll_inst|altera_pll_i|general[%d].gpll~PLL_OUTPUT_COUNTER|divclk}
 
 # ----------------------------------------------------------------------------
-# clk_sys -> clk_mem.  The MDU's request (m_req and its bundle) is sampled on
-# the FIRST clk_mem edge after the clk_sys edge (rtl/iici_sdram.v: mq, xm_*):
-# 6.67 ns, the path from the wrapper's kb_* registers through the MDU's
-# decode - timed honestly, no credit.  The download and disk ports' xs_*
-# registers are sampled on the second edge (sample_en, as se30_sdram's), and
-# take that credit.
+# clk_sys -> clk_mem.  The download and disk ports' xs_* registers are
+# sampled on the second clk_mem edge after the clk_sys edge (sample_en, as
+# se30_sdram's), and take that credit; so does the MDU's request (below).
 # ----------------------------------------------------------------------------
 set_multicycle_path -setup -end 2 -from [get_clocks [format $pll_out 0]] -to [get_keepers {*|iici_sdram:sdram|xs_*}]
 set_multicycle_path -hold  -end 1 -from [get_clocks [format $pll_out 0]] -to [get_keepers {*|iici_sdram:sdram|xs_*}]
+# Since compile 5's design the MDU's request is sampled on the second edge too
+# (mq, m_new, xm_*: iici_sdram.v), from the wrapper's kb_* registers (clk_k)
+# and the MDU's (clk_sys) - both move at clk_sys edges.
+set iici_req [get_keepers {*|iici_sdram:sdram|xm_* *|iici_sdram:sdram|mq *|iici_sdram:sdram|m_new}]
+set_multicycle_path -setup -end 2 -from [get_clocks [list [format $pll_out 0] [format $pll_out 5]]] -to $iici_req
+set_multicycle_path -hold  -end 1 -from [get_clocks [list [format $pll_out 0] [format $pll_out 5]]] -to $iici_req
 
 # ----------------------------------------------------------------------------
 # The SDRAM's pins (MacSE30.sdc's derivation at 150 MHz, CL3).

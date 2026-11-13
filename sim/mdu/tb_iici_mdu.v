@@ -58,7 +58,8 @@ module tb_iici_mdu;
   wire  [3:0] m_be;
   wire [31:0] m_wdata;
   reg  [31:0] m_rdata = 0;
-  reg         m_ack = 0;
+  reg         m_ack = 0, m_soon = 0;
+  integer     SOON = 0;                // the port's m_soon one clk before each first long (iici_sdram's)
   wire [15:0] late;
   reg         vid_req = 0, vid_frame = 0;
   wire        v_req;
@@ -74,7 +75,7 @@ module tb_iici_mdu;
     .cpu_din(din), .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cbreq(cbreq), .cback(cback),
     .bank_a(bank_a), .bank_b(bank_b),
     .m_req(m_req), .m_we(m_we), .m_burst(m_burst), .m_addr(m_addr), .m_be(m_be), .m_wdata(m_wdata),
-    .m_rdata(m_rdata), .m_ack(m_ack), .m_refresh(),
+    .m_rdata(m_rdata), .m_ack(m_ack), .m_soon(m_soon), .m_refresh(),
     .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(), .vid_data(), .v_req(v_req), .v_addr(v_addr), .v_rdata(32'h0), .v_ack(1'b0),
     .via1_sel(), .scc_sel(), .scsi_sel(), .scsi_dack(), .asc_sel(), .swim_sel(), .vdac_sel(), .rbv_sel(),
     .dev_strobe(), .dev_addr(), .dev_rw(), .dev_wdata(), .dev_rdata(8'h5A), .scsi_drq(drq),
@@ -108,7 +109,9 @@ module tb_iici_mdu;
         reqs = reqs + 1; last_maddr = m_addr; last_burst = m_burst; last_we = m_we;
         ad = m_addr; w = m_wdata; be = m_be;
         n = m_burst ? 4 : 1;
-        repeat (LAT - 1) @(posedge clk);
+        repeat (LAT - 2) @(posedge clk);
+        if (SOON && !last_we) begin m_soon <= 1; @(posedge clk); m_soon <= 0; end
+        else @(posedge clk);
         for (k = 0; k < n; k = k + 1) begin
           if (!last_we) m_rdata <= rd({ad[24:2], ad[1:0] + k[1:0]});
           else begin
@@ -245,6 +248,18 @@ module tb_iici_mdu;
     LAT = 4; x = late;
     for (i = 0; i < 20; i = i + 1) cyc(32'h00003000 + 4*i, i & 1, i, i % 3 == 0);
     check(late == x, "LAT 4 (80 ns from the request): never late");
+
+    // the acknowledge ahead (iici_sdram's m_soon): a port one clk later than
+    // the termination still makes a 5-clock read, the CPU taking the long
+    // off m_rdata at the wrapper's edge after
+    SOON = 1; LAT = 5; x = late;
+    cyc(32'h00001000, 1, 0, 0);
+    check(len == 5 && d[0] == 32'hCAFEF00D && late == x, "m_soon: a read whose long comes a clk after its termination is 5 clocks, the data right");
+    for (i = 0; i < 4; i = i + 1) cyc(32'h00006000 + 4*i, 0, 32'hD0000000 + i, 0);
+    gap_extra = 1; cyc(32'h00006004, 1, 0, 1); gap_extra = 0;
+    check(len == 5 && nbeat == 4 && beat_at == 32'h00020202 && d[0] == 32'hD0000001 && d[1] == 32'hD0000002 && d[3] == 32'hD0000000,
+          "m_soon: a burst 5-2-2-2 in wrap order");
+    SOON = 0; LAT = 4;
 
     // 8: refresh, over 200 us of back-to-back reads
     refd = 0; nref = 0; t0 = $realtime;
