@@ -28473,6 +28473,92 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   Daniel to the IIci's end); the abort paths (CBACK* negated early, a
   bus error in a fill beat) are built but no bench drives them - the
   IIci's MDU completes every burst it acknowledges.
+- *THE MDU (2026-11-13; Daniel: "Yes, start the MDU").* Design before RTL,
+  each open point settled from the documentation or marked.
+  SETTLED FROM THE DOCUMENTS:
+  - ROM: G Table 5-9, "Macintosh IIci MC68030 20.0 MB/sec" = 4 bytes in
+    200 ns = 5 clocks at 25 MHz. (The table checks against what we built:
+    SE/30 15.67 MB/s = 4 clocks at 15.67 MHz, our GLUE's; Mac II 12.53 =
+    5 clocks, its two wait states, G p.7747.) ROM at $40000000-$4FFFFFFF,
+    the 512 KB repeating.
+  - RAM: DC3 Figures 15-3..15-6 (above): read 5, write 4, each +1 after a
+    write; burst 5-2-2-2 when CBREQ*; bank A at $0, bank B at $04000000
+    (A26), A27-A29 ignored (READING: G gives RAM $0-$3FFFFFFF and two
+    banks, nothing above A26 decoded). A bank aliases modulo its SIMMs'
+    size and an empty bank reads all ones - se30_simms's rule, the same
+    chips (plan 13.4). Bank sizes as inputs (empty / 1 / 4 / 16 MB);
+    Daniel's 32 MB cap leaves 16 + 16 the largest. SDRAM: bank A at 0,
+    bank B at 32 MB, the 16-32 MB system region between (the SE/30's
+    layout).
+  - I/O (G Figure 3-8, the text extract's brackets): $50000000-$50007FFF,
+    $50010000-$50017FFF and $50024000-$50027FFF "MDU provides /DSACK0";
+    $50008000-$5000FFFF, $50018000-$50023FFF and $50028000-$5003FFFF
+    nothing; the whole repeating every $40000 to $50FFFFFF. So A17 IS
+    decoded (unlike GLUE): the ROM's own identification code checks it
+    ($40803064: VIA1's IER must NOT reappear at +$20000; $40803082: it
+    must at +$40000 and not at +$20000). Windows of $2000 on A17-A13:
+    VIA1 0, (VIA2's place, $2000: in the acknowledged range, nothing
+    there - READING: acknowledged, reads $FF), SCC 2, SCSI handshake 3,
+    SCSI 8, pseudo-DMA 9, sound A, SWIM B, VDAC 12, RBV 13.
+    $51000000-$51FFFFFF: "chip select only" (the RBV acknowledges, the
+    RBV step's), $52 cache card, $53-$5F expansion/test: no acknowledge
+    here, bus error.
+  - Clocks: the CPU's 25 MHz (phi1/phi2 at 50 MHz, the KCLK wrapper) for
+    RAM and ROM; 15.6672 MHz "used for bus error and refresh timing" (G
+    p.116) for the rest - an enable from a phase accumulator on clk_sys
+    (exactly 4896/15625 of 50 MHz). The 8-bit devices are the SE/30's
+    chips on the same 15.6672 MHz: their cycles keep GLUE's timings in
+    that clock (READING: the MDU's I/O wait states are not documented;
+    same chips, same clock). E = C16M/20 and C3M as GLUE's. Refresh
+    every 15.6 us, a window of one RAM cycle (5 CPU clocks).
+  - Interrupts: Table 3-5, VIA1 1, RBV 2, SCC 4, NMI 7, autovectored.
+  - Overlay: G p.115 "the MDU performs ROM overlay automatically"; VIA1
+    PA4 is a CPU.ID input on the IIci (Table 4-6), so p.244's "the Reset
+    handler causes the Overlay signal to go low" cannot be a VIA line
+    there. The documented automatic overlays (the SE's BBU, p.125, and
+    the Portable's CPUGLU, p.231) end at the first access to the ROM's
+    normal range; READING for the MDU: overlay set at power-on reset,
+    cleared by the first access to $4xxxxxxx - the reset handler's first
+    fetch ($4080002A). The ROM bench is the check (no read of low memory
+    expecting ROM after it).
+  - Bus error: no acknowledge within the timeout (15.6672 MHz timing,
+    length not documented): UI6's rule on a 22.25 kHz tick, as the IIcx
+    GLUE (18-63 us). FC = 7 never times out.
+  NOT IN THIS STEP: video's bank A bursts (the RBV step; the MDU's port
+  for them is designed then), the NuChip30 (slots: the IIcx's NuChip
+  behind slot_sel, as GLUE's IICX path), the cache card's CACHE inhibit.
+  THE MEMORY PORT: the MDU asks for a long (or a burst of four, wrapping
+  in the 16-byte line) when it sees AS*, and the SDRAM side returns each
+  long with a strobe; the MDU terminates at the documented clock, or
+  later only if the data is late (never earlier). A bench check counts
+  the late ones: at 100 MHz SDRAM there must be none.
+  BENCH: sim/mdu - every window acknowledged or bus-errored as above,
+  the overlay's exit, read 5 / 6, write 4 / 5, ROM 5, burst 5-2-2-2 with
+  the line's longs in wrap order, refresh's window, the 15.6672 MHz
+  enable's average.
+  BUILT (rtl/iici_mdu.v, sim/mdu, iverilog, 3 s): PASS 74 checks; three
+  planted defects (a read one clock long, the overlay never clearing,
+  A17 ignored) each fail it. What the building settled:
+  - ECS* gives no head start on the KCLK wrapper: it comes with AS*
+    (tg68k.v kb_ecs). So the request leaves the MDU combinationally with
+    ECS* (as se30_machine's mem_start), and the termination takes the
+    long arriving on its own clk: the SDRAM has 80 ns (4 clks of 50 MHz)
+    from the edge that first sees the request to the read's data. A 100
+    MHz SDRAM (ACT, tRCD 2, READ, CL 2, capture) needs about 60-70: a
+    margin, not a large one - the SDRAM step's bench counts dbg_late.
+  - Writes are posted: terminated at their clock, the next request held
+    until the write's acknowledge (the SDRAM keeps the order).
+  - "After a write" (DC3) is taken as back to back: the next cycle at the
+    wrapper's tightest gap (AS* high one clock) in the same bank (REC =
+    1); a clock later, or the other bank, is not delayed. To check
+    against the real wrapper's gaps in the machine bench.
+  - The MDU's refresh window is also the SDRAM's (m_refresh), so the two
+    never collide; a request in the window waits only for the window.
+  - Device cycles run on c16_en; AS* is watched every clk between
+    enables (one CPU clock of AS* high is shorter than a C16M period).
+  NEXT: iici_machine.v (the MDU, the shared devices, an RBV stand-in for
+  the ROM's VIA2 accesses until the RBV step), the IIci ROM in its bench,
+  and the SDRAM controller at 100 MHz.
 
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,
