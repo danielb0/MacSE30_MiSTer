@@ -38,7 +38,7 @@ for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; d
 done
 "$MODELSIM/vlog.exe" -sv +define+SIMULATION -work work +incdir+$RTL/fpu +incdir+$RTL/fpu/ucode \
   "$RTL/fpu/se30_fpu.v" "$RTL/fpu/se30_fpu_apu.v" "$RTL/fpu/se30_fpu_unpack.v" "$RTL/fpu/se30_fpu_cond.v" \
-  "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/iici_mdu.v" "$RTL/iici_machine.v" \
+  "$RTL/tg68k/tg68k.v" "$RTL/tg68k/se30_cache030.v" "$RTL/tg68k/se30_pace030.v" "$RTL/iici_mdu.v" "$RTL/iici_rbv.v" "$RTL/iici_machine.v" \
   "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/iicx_nuchip.v" "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" \
   "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" \
   "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v tb_iici_machine.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }

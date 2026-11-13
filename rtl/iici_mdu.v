@@ -66,7 +66,8 @@ module iici_mdu #(
   parameter C16_NUM = 4896,            // c16_en = C16_NUM / C16_DEN of clk (15.6672 MHz from 50)
   parameter C16_DEN = 15625,
   parameter REC     = 1,               // CPU clocks after a RAM write's end in which its bank adds a clock (back to back: calibrated to the wrapper's gap)
-  parameter REF     = 5                // CPU clocks a refresh holds the RAM
+  parameter REF     = 5,               // CPU clocks a refresh holds the RAM
+  parameter VB      = 20               // CPU clocks a video burst holds bank A (5 + 7 x 2 + 1)
 ) (
   input         clk,
   input         cpu_en,                // one clk per CPU clock
@@ -102,6 +103,17 @@ module iici_mdu #(
   input  [31:0] m_rdata,
   input         m_ack,
   output reg    m_refresh,             // one clk: the RAM's refresh starts (the SDRAM refreshes in its window)
+
+  // the RBV's screen buffer: 8 longs a request, from bank A's base on
+  // (G p.413); the longs from the SDRAM's video port, passed through
+  input         vid_req,
+  input         vid_frame,
+  output reg    vid_ld,
+  output reg [31:0] vid_data,
+  output reg    v_req,                 // one clk: 8 longs from v_addr
+  output [24:0] v_addr,
+  input  [31:0] v_rdata,
+  input         v_ack,
 
   // 8-bit devices, on D31-D24
   output        via1_sel,
@@ -231,7 +243,15 @@ module iici_mdu #(
   // own then (m_refresh).
   wire mem_start = ecs && d_mem && !empty && !(d_rom && !cpu_rw_n);
   wire ref_go    = (ref_run == 0) && ref_pend && !m_act;     // a refresh starts at this cpu_en, before any new cycle
-  wire held      = d_ram && ((ref_run != 0) || ref_go);     // a RAM cycle waits out a refresh
+  // the video's bursts (THE RBV): a request starts a burst at a CPU clock
+  // no CPU bank-A cycle holds; the burst holds bank A VB clocks
+  reg        v_q, v_pend, m_ram_a;
+  reg  [4:0] v_hold;
+  reg [21:0] v_ptr, v_base;
+  wire v_start   = (v_hold == 0) && v_pend && !(m_act && m_ram_a);
+  assign v_addr  = {3'b000, v_base};
+  wire held      = d_ram && ((ref_run != 0) || ref_go ||
+                             (!bank && ((v_hold != 0) || v_start)));   // a RAM cycle waits out a refresh; bank A a video burst
   wire rec_hit   = d_ram && (bank ? (rec_b != 0) : (rec_a != 0));
   wire [3:0] due0 = d_rom ? 4'd2 : (cpu_rw_n ? 4'd2 : 4'd1);   // 5 / 4 clocks: L - 3
 
@@ -264,10 +284,15 @@ module iici_mdu #(
       m_got <= 0; m_used <= 0; b_ph <= 0; b_on <= 0; m_din <= 0; rec_a <= 0; rec_b <= 0;
       q_we <= 0; q_burst <= 0; q_addr <= 0; q_be <= 0; q_wdata <= 0; m_bank <= 0;
       late <= 0; m_wr_end <= 0; as_hi_c <= 0;
+      v_q <= 0; v_pend <= 0; v_hold <= 0; v_ptr <= 0; v_base <= 0; v_req <= 0; vid_ld <= 0; vid_data <= 0; m_ram_a <= 0;
       refcnt <= 0; ref_pend <= 0; ref_run <= 0;
       for (i = 0; i < 4; i = i + 1) m_buf[i] <= 0;
     end else begin
-      m_refresh <= 0;
+      m_refresh <= 0; v_req <= 0;
+      v_q <= vid_req;
+      if (vid_req && !v_q) v_pend <= 1;
+      if (vid_frame) v_ptr <= 0;
+      vid_ld <= v_ack; vid_data <= v_rdata;
       if (cpu_as_n) as_hi_c <= 1;
       // the overlay ends at the first access to the ROM's own range
       if (!cpu_as_n && !fc7 && cpu_addr[31:28] == 4'h4) ovl <= 0;
@@ -291,19 +316,21 @@ module iici_mdu #(
         as_hi_c <= 0;
         if (rec_a != 0) rec_a <= rec_a - 1'b1;
         if (rec_b != 0) rec_b <= rec_b - 1'b1;
+        if (v_hold != 0) v_hold <= v_hold - 1'b1;
+        else if (v_start) begin v_pend <= 0; v_hold <= VB - 1; v_req <= 1; v_base <= v_ptr; v_ptr <= v_ptr + 22'd8; end
         if (ref_run != 0) ref_run <= ref_run - 1'b1;
         else if (ref_go) begin ref_pend <= 0; ref_run <= REF - 1; m_refresh <= 1; end
         if (!m_act) begin
           // first seen: start counting once a refresh has let go of the RAM
           if (!cpu_as_n && d_mem && !held) begin
             m_act <= 1; m_done <= 0; m_cnt <= 4'd1; m_used <= 0; b_ph <= 0; b_on <= 0;
-            m_brst <= burst_ok; m_bank <= bank;
+            m_brst <= burst_ok; m_bank <= bank; m_ram_a <= d_ram && !bank;
             m_due <= due0 + (rec_hit ? 4'd1 : 4'd0);
             if (d_ram && !cpu_rw_n) m_wr_end <= 1; else m_wr_end <= 0;
           end
         end else if (cpu_as_n || as_hi_c) begin
           // the cycle is over: a RAM write starts its bank's recovery
-          m_act <= 0; m_done <= 0; b_on <= 0; m_brst <= 0;
+          m_act <= 0; m_done <= 0; b_on <= 0; m_brst <= 0; m_ram_a <= 0;
           if (m_wr_end) begin if (m_bank) rec_b <= REC; else rec_a <= REC; end
           m_wr_end <= 0;
         end else begin

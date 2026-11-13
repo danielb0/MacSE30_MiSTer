@@ -74,6 +74,28 @@ module tb_iici_machine;
     end
   endtask
 
+  // the video port: 8 longs of bank A from v_addr, one a clk after LAT
+  wire        v_req, ce_pix, hsync_n, vsync_n;
+  wire [24:0] v_addr;
+  reg  [31:0] v_rdata = 0;
+  reg         v_ack = 0;
+  integer     vbursts = 0, vsyncs = 0;
+  initial begin : vport
+    integer k; reg [24:0] ad;
+    forever begin
+      @(posedge clk_sys);
+      if (v_req) begin
+        vbursts = vbursts + 1; ad = v_addr;
+        repeat (LAT - 1) @(posedge clk_sys);
+        for (k = 0; k < 8; k = k + 1) begin
+          v_rdata <= mread(ad + k); v_ack <= 1; @(posedge clk_sys); v_ack <= 0;
+        end
+      end
+    end
+  end
+  reg vs_q = 1;
+  always @(posedge clk_sys) begin if (!vsync_n && vs_q) vsyncs = vsyncs + 1; vs_q <= vsync_n; end
+
   initial begin : port
     integer k; reg [24:0] ad; reg we, bu; reg [3:0] be; reg [31:0] w;
     forever begin
@@ -103,6 +125,8 @@ module tb_iici_machine;
     .clk(clk_sys), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2),
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
     .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_refresh(mem_refresh),
+    .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
+    .ce_pix(ce_pix), .vid_r(), .vid_g(), .vid_b(), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(), .vblank(), .poweroff_req(),
     .nmi_n(1'b1), .pace_en(1'b1),
     .ps2_key(11'd0), .ps2_mouse(25'd0), .timestamp(33'd0),
     .pram_h_we(1'b0), .pram_h_addr(8'd0), .pram_h_wdata(8'd0), .pram_h_raddr(8'd0), .pram_h_rdata(), .pram_wr(),
@@ -127,13 +151,13 @@ module tb_iici_machine;
   reg        log_rw   [0:NLOG-1];
   integer    log_len  [0:NLOG-1];
   integer cycles = 0, as_clocks = 0, berrs = 0, since_new = 0, ring_i = 0, io_n = 0, rbv_n = 0, be_n = 0;
-  integer overlay_off = -1, ram_refd = 0, ram_rd = 0, ram_wr = 0, ram_rd_bad = 0, ram_wr_bad = 0, bursts = 0, burst_bad = 0;
+  integer overlay_off = -1, ram_refd = 0, ram_vidd = 0, ram_rd = 0, ram_wr = 0, ram_rd_bad = 0, ram_wr_bad = 0, bursts = 0, burst_bad = 0;
   integer beat_k, beats, beat_last; reg [31:0] beat_gaps;
   integer len_hist [0:15];
   reg as_q = 1, prev_wr = 0, prev_bank = 0;
   reg [1:0] ds_q = 2'b11;
   integer gap = 9;
-  reg [31:0] c_addr, c_data; reg [2:0] c_fc; reg c_rw, c_berr, c_ram, c_bank, c_ref;
+  reg [31:0] c_addr, c_data; reg [2:0] c_fc; reg c_rw, c_berr, c_ram, c_bank, c_ref, c_vid;
   reg [31:0] ring [0:NRING-1];
   reg [31:0] io_a [0:NIO-1], io_d [0:NIO-1]; reg io_rw_l [0:NIO-1]; integer io_cyc [0:NIO-1];
   reg [31:0] rbv_a [0:NRBV-1], rbv_d [0:NRBV-1]; reg rbv_rw [0:NRBV-1];
@@ -146,7 +170,7 @@ module tb_iici_machine;
   always @(posedge clk_sys) if (phi1 && reset_n) begin
     if (!cpu_as_n && as_q) begin
       c_addr = cpu_addr; c_fc = cpu_fc; c_rw = cpu_rw_n; c_berr = 0; beats = 0; beat_k = 0; beat_gaps = 0;
-      c_ram = (cpu_fc != 3'd7) && (cpu_addr[31:30] == 2'b00) && !overlay; c_bank = cpu_addr[26]; c_ref = 0;
+      c_ram = (cpu_fc != 3'd7) && (cpu_addr[31:30] == 2'b00) && !overlay; c_bank = cpu_addr[26]; c_ref = 0; c_vid = 0;
     end
     if (!cpu_as_n) begin
       as_clocks = as_clocks + 1;
@@ -158,11 +182,13 @@ module tb_iici_machine;
       end
       if (berr) c_berr = 1;
       if (machine.mdu.ref_run != 0 || machine.mdu.ref_go) c_ref = 1;   // a refresh window met: the length is not checked
+      if (!c_bank && (machine.mdu.v_hold != 0 || machine.mdu.v_start)) begin c_ref = 1; c_vid = 1; end   // ... nor a video burst's
     end
     if (cpu_as_n && !as_q) begin
       if (cycles < NLOG) begin log_addr[cycles] = c_addr; log_fc[cycles] = c_fc; log_rw[cycles] = c_rw; log_len[cycles] = as_clocks + 1; end
       if (c_ram) begin
         if (c_ref) ram_refd = ram_refd + 1;
+        if (c_vid) ram_vidd = ram_vidd + 1;
         // the first termination's clocks: AS* low clocks to it, plus S0 and S4/S5
         if (c_rw) begin
           ram_rd = ram_rd + 1;
@@ -235,7 +261,8 @@ module tb_iici_machine;
              halted ? "the CPU HALTED" : (since_new >= LOOP_CYCLES) ? "a LOOP (no new instruction address)" : "the cycle limit");
     $display("      RAM: %0d reads (%0d off the documented length), %0d writes (%0d off), %0d bursts (%0d not 5-2-2-2)",
              ram_rd, ram_rd_bad, ram_wr, ram_wr_bad, bursts, burst_bad);
-    $display("      %0d RAM cycles met a refresh window (lengths not checked)", ram_refd);
+    $display("      %0d RAM cycles met a refresh window or a video burst (lengths not checked), %0d of them bank A behind a video burst", ram_refd, ram_vidd);
+    $display("      video: %0d bursts (8 longs each), %0d vertical syncs, %0d FIFO underflows", vbursts, vsyncs, machine.rbv.dbg_underflow);
     $display("      RAM first-termination lengths: 4:%0d 5:%0d 6:%0d 7:%0d 8+:%0d (refresh adds up to 5)",
              len_hist[4], len_hist[5], len_hist[6], len_hist[7], len_hist[8] + len_hist[9] + len_hist[10] + len_hist[11] + len_hist[12]);
     $display("      memory port: %0d requests, %0d bursts, %0d late", mreqs, mbursts, late);
@@ -251,6 +278,7 @@ module tb_iici_machine;
     $display("      D6 %08x  D7 %08x", regs[63:32], regs[31:0]);
 
     check(late == 0, "the memory port was never late (80 ns to the first long)");
+    check(vbursts > 0 && machine.rbv.dbg_underflow == 0, "the RBV fetched from bank A and its FIFO never ran dry (the run is under one frame)");
     check(ram_rd > 0 && ram_rd_bad == 0 && ram_wr_bad == 0, "every RAM read and write took its documented clocks (refresh aside: see the lengths)");
     check(burst_bad == 0, "every burst was 5-2-2-2 with four longs");
     check(!halted && since_new >= LOOP_CYCLES, "the run ends in a long loop (the RAM tests' fill), not a halt or the cycle limit");

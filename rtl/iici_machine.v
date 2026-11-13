@@ -19,21 +19,18 @@
 //   (or four, a burst) answered with m_ack, writes posted.  RAM banks A
 //   and B as the top sets them; the ROM's 128K longwords at long $600000.
 //
-// THE RBV - A STAND-IN UNTIL ITS STEP (plan "THE IIci MACHINE"): the ROM's
-//   accesses to $50F26000 reach a register file that keeps what is
-//   written (32 bytes, A4-A0) and raises no interrupt; the 60.15 Hz tick
-//   (VIA1 CA1, the SE/30's from VIA2's T1 - the RBV has no timers, G
-//   p.116) is made here, every 260,469 C16M clocks.  The machine bench
-//   lists every RBV access the ROM makes: the RBV's register offsets are
-//   documented nowhere we have, and are to be read from those.
+// THE RBV (iici_rbv.v): the VIA2-emulation registers, the interrupts,
+//   the 60.15 Hz tick to VIA1 CA1, the 640 x 480 video and its Bt478; its
+//   screen buffer through the MDU's video bursts and the SDRAM's video
+//   port (v_*).
 //
 // VIA1 (G Table 4-6): PA7 vSCCWrReq, PA6/4/2/1 CPU.ID3-0 = 1/0/1/1 (the
 //   IIci without parity, Table 4-8), PA5 vHeadSel, PA3 vSync, PA0 reserved;
 //   port B as the SE/30's (ADB, the clock chip), PB7 /Par.Err high (no
 //   parity option).
 //
-// NOT HERE YET - video (the RBV step), the cache card, NuBus cards: every
-//   slot is empty (the NuChip times it out).
+// NOT HERE YET - the cache card, NuBus cards: every slot is empty (the
+//   NuChip times it out).
 
 `timescale 1ns/1ps
 
@@ -60,6 +57,22 @@ module iici_machine #(
   input  [31:0] mem_rdata,
   input         mem_ack,
   output        mem_refresh,
+  // the video's port: 8 longs a request (iici_mdu.v)
+  output        v_req,
+  output [24:0] v_addr,
+  input  [31:0] v_rdata,
+  input         v_ack,
+
+  // the picture
+  output        ce_pix,
+  output  [7:0] vid_r,
+  output  [7:0] vid_g,
+  output  [7:0] vid_b,
+  output        hsync_n,
+  output        vsync_n,
+  output        hblank,
+  output        vblank,
+  output        poweroff_req,          // data B's v2PowerOff
 
   input         nmi_n,
   input         pace_en,
@@ -161,6 +174,8 @@ module iici_machine #(
   wire        nb_berr;
   wire  [3:0] slot_be;
   wire        via1_irq_n, rbv_irq_n, scc_irq_n;
+  wire        vid_req, vid_frame, vid_ld, asc_irq_n;
+  wire [31:0] vid_data;
 
   iici_mdu #(.ROM_AW(ROM_AW)) mdu (
     .clk(clk), .cpu_en(phi2), .reset_n(reset_n), .c16_en(c16_en),
@@ -170,6 +185,8 @@ module iici_machine #(
     .bank_a(bank_a), .bank_b(bank_b),
     .m_req(mem_req), .m_we(mem_we), .m_burst(mem_burst), .m_addr(mem_addr), .m_be(mem_be), .m_wdata(mem_wdata),
     .m_rdata(mem_rdata), .m_ack(mem_ack), .m_refresh(mem_refresh),
+    .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(vid_ld), .vid_data(vid_data),
+    .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
     .via1_sel(via1_sel), .scc_sel(scc_sel), .scsi_sel(scsi_sel), .scsi_dack(scsi_dack), .asc_sel(asc_sel),
     .swim_sel(swim_sel), .vdac_sel(vdac_sel), .rbv_sel(rbv_sel),
     .dev_strobe(dev_strobe), .dev_addr(dev_addr), .dev_rw(dev_rw), .dev_wdata(dev_wdata), .dev_rdata(dev_rdata),
@@ -199,29 +216,27 @@ module iici_machine #(
     .rdata(nb_rdata), .dsack_n(nb_dsack_n), .berr(nb_berr), .tm_pb54(nb_tm), .nb_tick(),
     .card_sel(), .card_addr(card_addr_nc), .card_rw(), .card_be(), .card_wdata(), .card_rdata(32'h0), .card_ack(1'b0));
 
-  // ------------------------------------------------- the RBV stand-in
+  // ------------------------------------------------------------- RBV
   wire       via_reset_n = reset_n && reset_out_n;
-  reg  [7:0] rbv_reg [0:31];
-  reg [17:0] tick_cnt;
-  reg        vbl_n;
-  integer    ri;
-  always @(posedge clk or negedge via_reset_n)
-    if (!via_reset_n) begin
-      for (ri = 0; ri < 32; ri = ri + 1) rbv_reg[ri] <= 8'h00;
-      tick_cnt <= 0; vbl_n <= 1;
-    end else if (c16_en) begin
-      if (rbv_sel && dev_strobe && !dev_rw) rbv_reg[dev_addr[4:0]] <= dev_wdata;
-      tick_cnt <= (tick_cnt == 18'd260468) ? 18'd0 : tick_cnt + 1'b1;
-      vbl_n <= !(tick_cnt < 18'd16);                          // a short low pulse each 16.63 ms
-    end
-  wire [7:0] rbv_rdata = rbv_reg[dev_addr[4:0]];
-  assign rbv_irq_n = 1'b1;
+  wire       vbl_n, poweroff_n;
+  wire [7:0] rbv_rdata;
+  iici_rbv rbv (
+    .clk(clk), .reset_n(via_reset_n), .c16_en(c16_en),
+    .rbv_sel(rbv_sel), .vdac_sel(vdac_sel), .strobe(dev_strobe && c16_en), .addr(dev_addr[4:0]), .rw(dev_rw),
+    .wdata(dev_wdata), .rdata(rbv_rdata),
+    .scsi_irq(scsi_irq), .scsi_drq(scsi_drq), .asc_irq_n(asc_irq_n), .exp_irq_n(1'b1),
+    .slot_irq_n(3'b111), .nb_tm(nb_tm), .irq_n(rbv_irq_n), .tick_n(vbl_n),
+    .cflush_n(), .cenable_n(), .poweroff_n(poweroff_n), .buslk_n(),
+    .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(vid_ld), .vid_data(vid_data),
+    .ce_pix(ce_pix), .r(vid_r), .g(vid_g), .b(vid_b), .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank),
+    .dbg_underflow());
+  assign poweroff_req = !poweroff_n;
 
   // ------------------------------------------------------------- VIA1
   wire        adb_int_n, adb_sclk, adb_dio, via1_cb2_out, via1_cb2_oe;
   wire        rtc_d_out, rtc_d_oe, rtc_1hz, rtc_d;
   wire  [7:0] via1_rdata, swim_rdata, asc_rdata, scsi_rdata, scc_rdata;
-  wire        asc_irq_n, scc_w_req_n;
+  wire        scc_w_req_n;
   wire  [7:0] via1_pa_out, via1_pa_oe, via1_pb_out, via1_pb_oe;
   // Table 4-6: PA7 vSCCWrReq, CPU.ID3-0 on PA6/4/2/1 = 1/0/1/1, PA0 reserved (reads 1)
   wire  [7:0] via1_pa_ext = {scc_w_req_n, 1'b1, 1'b1, 1'b0, 1'b1, 1'b1, 1'b1, 1'b1};
@@ -230,7 +245,7 @@ module iici_machine #(
   wire  [7:0] via1_pb_pin = (via1_pb_oe & via1_pb_out) | (~via1_pb_oe & via1_pb_ext);
 
   assign dev_rdata = via1_sel ? via1_rdata : swim_sel ? swim_rdata : asc_sel ? asc_rdata :
-                     (scsi_sel || scsi_dack) ? scsi_rdata : scc_sel ? scc_rdata : rbv_sel ? rbv_rdata : 8'h00;
+                     (scsi_sel || scsi_dack) ? scsi_rdata : scc_sel ? scc_rdata : (rbv_sel || vdac_sel) ? rbv_rdata : 8'h00;
 
   se30_via via1 (
     .clk(clk), .c16_en(c16_en), .reset_n(via_reset_n), .e_clk(e_clk),
@@ -238,7 +253,7 @@ module iici_machine #(
     .rdata(via1_rdata), .irq_n(via1_irq_n),
     .pa_in(via1_pa_pin), .pa_out(via1_pa_out), .pa_oe(via1_pa_oe),
     .pb_in(via1_pb_pin), .pb_out(via1_pb_out), .pb_oe(via1_pb_oe),
-    .ca1(vbl_n),                                         // the 60.15 Hz tick (the RBV's)
+    .ca1(vbl_n),                                         // the RBV's 60.15 Hz tick
     .ca2_in(rtc_1hz), .ca2_out(), .ca2_oe(),
     .cb1_in(adb_sclk), .cb1_out(), .cb1_oe(),
     .cb2_in(adb_dio), .cb2_out(via1_cb2_out), .cb2_oe(via1_cb2_oe),

@@ -60,6 +60,12 @@ module tb_iici_mdu;
   reg  [31:0] m_rdata = 0;
   reg         m_ack = 0;
   wire [15:0] late;
+  reg         vid_req = 0, vid_frame = 0;
+  wire        v_req;
+  wire [24:0] v_addr;
+  integer     v_reqs = 0;
+  reg  [24:0] v_last = 0;
+  always @(posedge clk) if (v_req) begin v_reqs = v_reqs + 1; v_last = v_addr; end
   wire        overlay;
 
   iici_mdu mdu (
@@ -69,6 +75,7 @@ module tb_iici_mdu;
     .bank_a(bank_a), .bank_b(bank_b),
     .m_req(m_req), .m_we(m_we), .m_burst(m_burst), .m_addr(m_addr), .m_be(m_be), .m_wdata(m_wdata),
     .m_rdata(m_rdata), .m_ack(m_ack), .m_refresh(),
+    .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(), .vid_data(), .v_req(v_req), .v_addr(v_addr), .v_rdata(32'h0), .v_ack(1'b0),
     .via1_sel(), .scc_sel(), .scsi_sel(), .scsi_dack(), .asc_sel(), .swim_sel(), .vdac_sel(), .rbv_sel(),
     .dev_strobe(), .dev_addr(), .dev_rw(), .dev_wdata(), .dev_rdata(8'h5A), .scsi_drq(drq),
     .e_clk(), .c3m_en(),
@@ -221,6 +228,16 @@ module tb_iici_mdu;
     cyc(32'h52000000, 1, 0, 0); check(got_berr, "$52000000 (cache card): bus error with no card");
     cyc(32'h58000000, 1, 0, 0); check(got_berr, "$58000000: bus error");
     drq = 0; cyc(32'h50F06000, 1, 0, 0); drq = 1; check(got_berr, "the handshake port with no DRQ bus-errors");
+
+    // video bursts (THE RBV): bank A waits up to VB = 20 clocks, bank B never
+    @(posedge clk); vid_frame = 1; @(posedge clk); vid_frame = 0;
+    @(posedge clk); vid_req = 1; repeat (4) @(posedge clk); vid_req = 0;
+    gap_extra = 2; cyc(32'h00005000, 1, 0, 0); gap_extra = 0;
+    check(len > 5 && len <= 5 + 20 && v_reqs == 1 && v_last == 25'h0, "a bank-A read waits for a video burst; the burst asks for the base");
+    vid_req = 1; repeat (4) @(posedge clk); vid_req = 0;
+    gap_extra = 2; cyc(32'h04005000, 1, 0, 0); gap_extra = 0;
+    check(len == 5 && v_reqs == 2 && v_last == 25'h8, "a bank-B read does not wait; the next burst is 8 longs on");
+    repeat (60) @(posedge clk);
 
     // 7: a late memory delays, never advances
     LAT = 14; x = late;

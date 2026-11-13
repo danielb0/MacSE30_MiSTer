@@ -28599,6 +28599,97 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     RAM: hours beyond), as sim/machine's ends in the SE/30's; D6 = 0.
   NOT YET: the SDRAM controller (the bench's memory is behavioural), the
   RBV and video, a MacIIci top and its timing compile.
+- *THE RBV (2026-11-13; Daniel: "Yes, the RBV next").* Design before RTL.
+  The register offsets come from the ROM's own code (no document has
+  them); the bits from the Guide.
+  REGISTERS ("the VIA portion of the RBV contains eight 8-bit
+  registers", G p.116), byte offsets on A4-A0:
+  - $00 DATA B (G Table 4-15, the IIci's bits): 7 /Par.Test out, 6
+    v2SNDEXT in, 5-4 v2TM0A/v2TM1A in (the NuChip's), 3 /CFLUSH out, 2
+    v2PowerOff out, 1 v2BusLk out, 0 /CEnable out. EVIDENCE: the start-up
+    code writes $8F ($40802F06): parity test off, no flush, power on, bus
+    unlocked, cache card disabled - Table 4-15 bit for bit. No DDR
+    ("parameters fixed by the hardware", G p.179): the directions are
+    the table's. SNDEXT tied low as the SE/30's (stereo; our output is
+    stereo) - READING.
+  - $02 SLOT INTERRUPTS, read (G Table 4-9 for the IIci): active low,
+    bit 6 v2IRQ0 the built-in video, 5-3 slots $E/$D/$C, 2-0 high (no
+    slots $9-$B), 7 high. EVIDENCE: the slot dispatcher ($40806EAA)
+    reads $02, ORs $80, inverts, ANDs $12; the video driver waits for
+    bit 6 to fall ($4087F8D4) and its interrupt handler claims a 0 there
+    ($4087F9C0).
+  - $03 INTERRUPT FLAGS (G Table 4-27): 4 ASC, 3 SCSI IRQ, 2 /EXP.IRQ,
+    1 slot (any enabled slot line), 0 SCSI DRQ; 7 = any flag enabled.
+    EVIDENCE: the dispatcher writes $82 there (clearing bit 1, the slot
+    flag, VIA style). READING: the flags follow their lines (level); a
+    write clears nothing a line still holds - the RBV has no edge
+    selection (no PCR).
+  - $10 VIDEO: bits 5-3 the monitor sense, read only (EVIDENCE: the
+    driver's Open, $4087F2FE, reads ($10) >> 3 & 7 and treats 1 as the
+    portrait, Table 12-8); 2-0 the depth 0-3 (EVIDENCE: SetMode,
+    $4087F8FC, writes the mode index there); bit 6 READING video off
+    (the start-up code writes $40 before any driver runs; the driver's
+    writes clear it). Sense = 110, the 640 x 480 monitor (Daniel: 640 x
+    480 only).
+  - $12 SLOT INTERRUPT ENABLES, $13 INTERRUPT ENABLES: VIA IER semantics
+    (bit 7 = set or clear the bits written). EVIDENCE: start-up writes
+    $13 <- $7F (all off), $12 <- $FF; the driver writes $12 <- $C0 to
+    enable the video's bit 6 and $40 to disable it.
+  - $01, $11: kept as written (READING: not decoded by anything found).
+  THE VIDEO INTERRUPT: the SE/30's rule (UI6's latch, se30_video.v),
+  by the documented analogy: a latch set at the vertical sync's start
+  and held clear while $12 bit 6 is 0 - the driver's handler disables
+  bit 6 before it runs the VBL tasks and re-enables it after. $02 bit 6
+  reads 0 while the latch is set or vertical sync is on (so the driver's
+  wait-for-VBL works with the interrupt off).
+  60.15 Hz: to VIA1 CA1, every 16.63 ms (G Table 4-15's v2VBL is the
+  parity test on the IIci: the tick is the RBV's own).
+  THE CLUT DAC: a Bt478 at $50F24000, RS2-0 on A4-A2. EVIDENCE: the
+  driver's GetEntries writes the index to +$0C (RS 011, read address)
+  and reads three bytes from +$04 (RS 001, colour data). Write address
+  +$00, pixel mask +$08. 8-bit colours (the driver stores each byte
+  as the component's high and low byte). The RBV hands the DAC the pixel
+  with its unused high bits 1: 1 bpp uses entries 254-255, 2 bpp
+  252-255, 4 bpp 240-255 (EVIDENCE: the driver's per-depth limits and
+  offsets at $4087F2B0/$4087F2B4).
+  VIDEO (G Tables 12-5/12-6, pp.413-415): 640 x 480, 30.24 MHz, 864 x
+  525 (HFP 64, HS 64, HBP 96; VFP 3, VS 3, VBP 39), 66.67 Hz. The FIFO
+  of 16 longs in two halves; a half emptied asks the MDU for 8 longs.
+  The screen buffer is bank A from physical 0, rows contiguous (the
+  MDU restarts the address at the frame's end, G p.413): 80 x 2^depth
+  bytes a row. The dot clock: an enable on clk_sys, 378/625 of 50 MHz
+  = 30.24 MHz exactly (READING: the MiSTer scaler takes ce_pix; the
+  analog output gets one clk_sys of jitter).
+  THE MDU'S SIDE: a video burst holds bank A for 20 CPU clocks (5 + 7
+  x 2 page-mode beats + 1 precharge, the 5-2-2-2 figures' rate); a CPU
+  bank-A cycle waits for it, bank B, ROM and I/O never (G p.413). The
+  longs themselves come from the SDRAM's second port at its own pace -
+  the MDU models the contention, the SDRAM delivers. The 8 bpp gap of
+  Table 12-4 (51 % against 64 %) stays OPEN, measured by the bench.
+  FILES: rtl/iici_rbv.v (registers, interrupts, timing, FIFO, shifter,
+  CLUT); iici_mdu.v gains the video port; sim/rbv (iverilog) holds the
+  registers, the interrupt, the timing and the pixels.
+  BUILT AND BENCHED (2026-11-13):
+  - sim/rbv (iverilog, ~1 min): PASS 35 - data B, $02/$03/$12/$13 as
+    above, the sense, the video latch (set at sync only with $12 bit 6,
+    cleared by $40), 864 x 525 dots at 66.667 Hz, HS 64 dots, VS 3
+    lines, the Bt478 write/readback, and a whole frame at 1 bpp and at
+    8 bpp each dot its CLUT entry with the FIFO never dry. Two planted
+    defects (the 1 bpp pixel without its high 1s; the latch ignoring its
+    enable) each fail it.
+  - sim/mdu: PASS 76 - plus a bank-A read waiting for a video burst
+    (within 20 clocks), a bank-B read not, the bursts 8 longs apart from
+    the base.
+  - sim/iici: PASS 12 - the RBV in the machine (the stand-in gone): the
+    ROM's run unchanged (the same 6 RBV accesses, every RAM cycle its
+    documented length), 153 video bursts beside it, 138 bank-A cycles
+    behind one, the FIFO never dry, the first vertical sync. The RBV's
+    counters start at vertical blanking after reset so the first frame's
+    FIFO is full (from line 0 the first dot found it empty).
+  NOT YET: the video interrupt and the driver's SetMode/SetEntries under
+  the real ROM (the bench's run ends in the RAM tests, before any driver
+  opens); Table 12-4's contention percentages measured; the scaler path
+  (MacIIci.sv) and the SDRAM's video port.
 
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,
