@@ -28559,6 +28559,46 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   NEXT: iici_machine.v (the MDU, the shared devices, an RBV stand-in for
   the ROM's VIA2 accesses until the RBV step), the IIci ROM in its bench,
   and the SDRAM controller at 100 MHz.
+- *THE IIci MACHINE (2026-11-13; Daniel: "Yes, the machine next").*
+  rtl/iici_machine.v: the 68030 (tg68k KCLK=1 BURST=1) at 25 MHz, the
+  68882 on the CPU clock (ce = phi2), the MDU, VIA1 with Table 4-6's pins
+  (CPU.ID 1/0/1/1 on PA6/4/2/1), the SCC, SCSI, SWIM + internal FDHD,
+  ASC, ADB, RTC unchanged on the MDU's c16_en; the IIcx's NuChip with no
+  card (every slot times out, NB 10 MHz from 50); no video yet. THE RBV
+  STAND-IN: 32 bytes on A4-A0 that keep what is written, no interrupt;
+  the 60.15 Hz tick to VIA1 CA1 made beside it (the RBV has no timers,
+  G p.116; the SE/30's came from VIA2's T1).
+  BENCH sim/iici (ModelSim, 161 s; behavioural memory on the MDU's port,
+  the first long 80 ns after the request; banks A and B 4 MB): PASS 11.
+  run.sh shortens the checksum (as sim/machine) and SKIPS THE CHIME in the
+  bench's ROM copy ($4080706E, the chime body every entry runs ->
+  JMP (A6)): a second of E-synchronous delay loops is hours of ModelSim.
+  WHAT IT SHOWED:
+  - The vector through the overlay in 5 clocks each, the first fetch at
+    $4080002A, the overlay off at cycle 3 - the READING holds: no read
+    of low memory expects ROM after it.
+  - The ROM picks the IIci's decoder table: its probe of $50F21C00 bus-
+    errors (A17 decoded) and $50F41C00 is VIA1 again; then RBV and VDAC
+    reads at $50F26000/$50F24000. The only bus errors are those probes
+    and $58000000, the same ones each pass.
+  - RBV OFFSETS THE ROM USES (first evidence for the RBV step): read
+    $00; write $13 <- $7F, $00 <- $8F, $10 <- $40, $12 <- $FF; read $00
+    again after the chime (returning $8F). Single bytes at $00-$13, not
+    a VIA's $200 spacing.
+  - The ROM also writes VIA2's registers at $50F02000-$50F03E00 (window
+    1, acknowledged, nothing there): its common start-up code, the IIci's
+    table listing a VIA2 base.
+  - Every RAM cycle measured its documented length - 54 reads, 7679
+    writes, none off - including +1 for a write back to back after a
+    write: the wrapper's tightest gap is one clock, where REC = 1 puts
+    it. The memory port was never late. 105 cycles met a refresh window.
+  - No burst ran: the ROM's reads in this window are of lines it just
+    wrote (the data cache allocates on writes), and bursts are RAM-only.
+    Bursts stay proved by sim/mdu and sim/system's burston.
+  - The run ends in the RAM tests' fill ($408446C8, MOVEM.L over all of
+    RAM: hours beyond), as sim/machine's ends in the SE/30's; D6 = 0.
+  NOT YET: the SDRAM controller (the bench's memory is behavioural), the
+  RBV and video, a MacIIci top and its timing compile.
 
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,
