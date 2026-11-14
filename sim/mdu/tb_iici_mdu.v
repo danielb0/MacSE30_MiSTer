@@ -78,7 +78,7 @@ module tb_iici_mdu;
     .m_rdata(m_rdata), .m_ack(m_ack), .m_soon(m_soon), .m_refresh(),
     .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(), .vid_data(), .v_req(v_req), .v_addr(v_addr), .v_rdata(32'h0), .v_ack(1'b0),
     .via1_sel(), .scc_sel(), .scsi_sel(), .scsi_dack(), .asc_sel(), .swim_sel(), .vdac_sel(), .rbv_sel(),
-    .dev_strobe(), .dev_addr(), .dev_rw(), .dev_wdata(), .dev_rdata(8'h5A), .scsi_drq(drq),
+    .dev_strobe(dev_strobe_w), .dev_addr(), .dev_rw(), .dev_wdata(), .dev_rdata(8'h5A), .scsi_drq(drq),
     .e_clk(), .c3m_en(),
     .fpu_sel(), .fpu_dsack_n(2'b11), .fpu_rdata(32'h0),
     .slot_sel(), .nb_dsack_n(2'b11), .nb_rdata(32'h0), .nb_berr(1'b0), .slot_be(),
@@ -137,6 +137,10 @@ module tb_iici_mdu;
   // one bus cycle; len = first termination's clocks; beats = the clocks
   // between the burst's terminations, packed 8 bits each; d0..d3 its data
   integer len, nbeat, gap_extra = 0;
+  wire dev_strobe_w;
+  reg  dev_strobe_q = 0;
+  integer strobes = 0, sbad = 0, s0 = 0, lmin = 99;
+  always @(posedge clk) begin dev_strobe_q <= dev_strobe_w; if (dev_strobe_w && !dev_strobe_q) strobes = strobes + 1; end
   integer verb = 0;
   initial verb = $test$plusargs("VERB");
   reg [31:0] d [0:3];
@@ -177,8 +181,8 @@ module tb_iici_mdu;
     check(overlay && last_maddr == 25'h600001 && !last_we && len == 5, "overlay: $4 reads ROM long 1 in 5 clocks");
     cyc(32'h4080002A, 1, 0, 0);
     check(!overlay && last_maddr[24:17] == 8'h30 && last_maddr[16:0] == 17'h0000A && len == 5, "ROM $4080002A: 5 clocks, overlay off");
-    cyc(32'h4FF80010, 1, 0, 0);
-    check(last_maddr == 25'h600004 && len == 5, "ROM repeats through $4xxxxxxx");
+    cyc(32'h41F80010, 1, 0, 0);
+    check(last_maddr == 25'h600004 && len == 5, "ROM repeats through $41FFFFFF (S Figure 7)");
     rq0 = reqs; cyc(32'h40800000, 0, 32'h12345678, 0);
     check(reqs == rq0 && got_ds == 2'b00, "a ROM write: acknowledged, no memory cycle");
 
@@ -213,24 +217,42 @@ module tb_iici_mdu;
     cyc(32'h04000080, 0, 32'hB2B2B2B2, 0);
     check(last_maddr == 25'h800020, "bank B at 32 MB in the SDRAM");
     cyc(32'h04400080, 1, 0, 0); check(d[0] == 32'hB2B2B2B2, "a 4 MB bank B aliases modulo 4 MB");
-    cyc(32'h08000080, 1, 0, 0); check(last_maddr == 25'h000020, "A27 ignored: $08000080 is bank A");
-    cyc(32'h3C000080, 1, 0, 0); check(last_maddr == 25'h800020, "A29-A27 ignored: $3C000080 is bank B");
+    cyc(32'h08000080, 1, 0, 0); check(got_berr, "$08000080 is above bank B: a bus error (S p.20)");
+    cyc(32'h3C000080, 1, 0, 0); check(got_berr, "$3C000080: a bus error");
 
     // 6: I/O
     for (i = 0; i < 32; i = i + 1) begin
-      w = (i == 0 || i == 1 || i == 2 || i == 3 || i == 8 || i == 9 || i == 10 || i == 11 || i == 18 || i == 19);
+      w = (i == 0 || i == 1 || i == 2 || i == 3 || i == 8 || i == 9 || i == 10 || i == 11 || i == 16 || i == 18 || i == 19);
       cyc(32'h50F00000 + i*32'h2000, 1, 0, 0);
-      check(w ? (got_ds == 2'b10 && !got_berr && d[0][31:24] == (i == 1 ? 8'hFF : 8'h5A)) : got_berr,
+      check(w ? (got_ds == 2'b10 && !got_berr && d[0][31:24] == ((i == 1 || i == 16) ? 8'hFF : 8'h5A)) : got_berr,
             w ? "an I/O window acknowledges as an 8-bit port" : "an I/O gap bus-errors");
       if (w && i == 0) check(len >= 7 && len <= 30, "VIA1: E-synchronous");
       if (w && (i == 8 || i == 11 || i == 18 || i == 19)) check(len >= 5 && len <= 8, "one-wait-state ports: one or two C16M clocks");
     end
     cyc(32'h50040000, 1, 0, 0); check(got_ds == 2'b10, "$50040000 repeats $50000000 (VIA1)");
-    cyc(32'h50020000, 1, 0, 0); check(got_berr, "$50020000 is a gap: A17 decoded");
+    cyc(32'h50020000, 1, 0, 0); check(got_ds == 2'b10 && !got_berr && d[0][31:24] == 8'hFF, "$50020000 (the new RTC's window): DSACK0*, nothing there (S Figure 8)");
+    cyc(32'h50022000, 1, 0, 0); check(got_berr, "$50022000 is a gap: a chip select only");
+    cyc(32'h50008000, 1, 0, 0); check(got_berr && len >= 396 && len <= 408, "$50008000: a bus error after 16 us of AS* (S 6.1.2)");
+    cyc(32'h08000000, 1, 0, 0); check(got_berr, "$08000000: not the MDU's RAM, a bus error (S p.20)");
+    cyc(32'h42000000, 1, 0, 0); check(got_berr, "$42000000 (expansion ROM space): a bus error");
+    cyc(32'hF0000000, 1, 0, 0); check(got_berr, "$F0000000 (slot 0's space): the MDU's own bus error");
     cyc(32'h51000000, 1, 0, 0); check(got_berr, "$51000000: no MDU acknowledge");
     cyc(32'h52000000, 1, 0, 0); check(got_berr, "$52000000 (cache card): bus error with no card");
     cyc(32'h58000000, 1, 0, 0); check(got_berr, "$58000000: bus error");
     drq = 0; cyc(32'h50F06000, 1, 0, 0); drq = 1; check(got_berr, "the handshake port with no DRQ bus-errors");
+    // device cycles back to back (a register write straight after another: the SCSI Manager's selection): each
+    // one strobes its device once and is acknowledged by its own cycle, whatever the C16M phase AS* rose at
+    for (i = 0; i < 48; i = i + 1) begin
+      repeat (i % 7) @(posedge clk);
+      s0 = strobes;
+      cyc(32'h50F10010, 0, 32'h05000000, 0); if (len < lmin) lmin = len;
+      cyc(32'h50F10000, 0, 32'h81000000, 0); if (len < lmin) lmin = len;
+      cyc(32'h50F10040, 1, 0, 0);            if (len < lmin) lmin = len;
+      repeat (4) p_edge;
+      if (strobes - s0 != 3) begin sbad = sbad + 1; if (sbad <= 4) $display("      back to back, pass %0d: %0d strobes for 3 device cycles", i, strobes - s0); end
+    end
+    $display("      device cycles back to back: shortest %0d clocks", lmin);
+    check(sbad == 0, "three SCSI register cycles back to back: one strobe each, every time");
 
     // video bursts (THE RBV): bank A waits up to VB = 20 clocks, bank B never
     @(posedge clk); vid_frame = 1; @(posedge clk); vid_frame = 0;

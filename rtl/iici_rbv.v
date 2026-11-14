@@ -4,33 +4,37 @@
 // (SE30_PLAN.md "THE RBV" and "THE PORTRAIT DISPLAY", 2026-11-13).
 //
 // WHAT IT IS
-//   No RBV data sheet exists among our documents.  The bits are the
-//   Guide's (Tables 4-9, 4-15, 4-27, 12-5, 12-6, 12-8, pp.116-117, 413-415);
-//   the register offsets are the IIci ROM's own (its start-up code, its
-//   slot-interrupt dispatcher at $40806EAA, its video driver
-//   .Display_Video_Apple_RBV1 at $4087F282); the plan's block lists the
-//   instruction behind each.  READING marks a choice no source settles.
+//   Apple's specification of the chip, drawing 343S1019-A "IC, RAM-BASED
+//   VIDEO (RBV), 128-PIN QFP" (S below; its section 6.2 the registers),
+//   with the Guide's tables (G: 4-9, 4-15, 4-27, 12-5, 12-6, 12-8).  The
+//   registers are decoded on A4, A1, A0 (S 6.1): eight of them.
 //
-// REGISTERS (byte offsets, A4-A0; "eight 8-bit registers", G p.116)
-//   $00 data B   7 /Par.Test, 3 /CFLUSH, 2 v2PowerOff, 1 v2BusLk,
-//                0 /CEnable out; 6 v2SNDEXT (tied low, READING), 5-4
-//                v2TM0A/v2TM1A in (the NuChip's).  No DDR: the
-//                directions are fixed (G p.179).
-//   $01          kept as written (READING)
-//   $02 slots    read: active low; 6 the built-in video, 5-3 slots $E-$C,
-//                2-0 and 7 high
-//   $03 IFR      4 ASC, 3 SCSI IRQ, 2 /EXP.IRQ, 1 slot, 0 SCSI DRQ, 7 any
-//                enabled; the flags follow their lines (READING: no PCR,
-//                no edge selection), a write clears nothing a line holds
-//   $10 video    5-3 monitor sense (read only: 110 the 640 x 480 monitor,
-//                001 the Portrait Display), 2-0 depth (0-3 = 1-8 bpp),
-//                6 video off (READING), 7 kept
-//   $11          kept as written (READING)
-//   $12 SIER, $13 IER   VIA IER semantics: bit 7 sets or clears
-//
-// THE VIDEO INTERRUPT (slot $0, $02 bit 6): the SE/30's UI6 rule - a latch
-//   set at the vertical sync's start, held clear while $12 bit 6 is 0;
-//   $02 bit 6 also reads 0 during vertical sync.
+// REGISTERS (S 6.2.1-6.2.8)
+//   $00 VIA2 data  0 CEN*, 1 BUS.LOCK*, 2 PWR.OFF*, 3 CFLUSH*, 7 EXP.OUT*
+//                out, as written, all 1 at reset; 4 TM1A*, 5 TM0A* in (the
+//                NuChip's); 6 SND.EXT* in (0 = the external jack in use:
+//                tied low here, MiSTer's output is the jack, as the IIcx
+//                build ties it)
+//   $01          reserved: always reads 0
+//   $02 slots    read only, the lines' levels: 5-3 slots $E-$C (SLOT6-4),
+//                2-0 SLOT3-1 (no such slots: high), 6 SLOT0.IRQ* "normally
+//                follows the level of the internal video's vertical
+//                blanking signal" (0 in blanking; with VID.3ST the SLOT0
+//                pin, not connected: 1), 7 always 0
+//   $03 flags    0 SCSI.DRQ, 1 ANY.SLOT*, 2 EXP.IRQ*, 3 SCSI.IRQ, 4
+//                SND.IRQ*; 5-6 read 0; 7 any enabled flag set.  Each flag
+//                is SET BY AN EDGE (ANY.SLOT*, EXP.IRQ*, SND.IRQ* falling;
+//                SCSI.DRQ, SCSI.IRQ rising) whether enabled or not, and
+//                cleared by writing its 1 with bit 7 a 1 (bit 7 a 0: no
+//                effect); reset clears them.  ANY.SLOT* is the OR of the
+//                slot lines enabled in $12.
+//   $10 monitor  2-0 COLORS (bit 2 always 0: 0-3 = 1-8 bpp), 5-3 MON.ID
+//                read only (110 the 640 x 480 monitor, 001 the Portrait
+//                Display), 6 VID.OFF, 7 VID.3ST
+//   $11 chip test  as written; its functions need the TEST* pin low
+//   $12 slot enables  6-0, set / clear on bit 7; reads bit 7 as 0
+//   $13 flag enables  4-0, set / clear on bit 7; reads bit 7 as 1, 5-6 as 0
+//   The level-2 interrupt (VIA2.IRQ*): any enabled flag set (S 6.2.11).
 //
 // VIDEO (G Tables 12-5, 12-6), on its own clock clk_vid = 57.28 MHz:
 //   640 x 480: a dot on PIX_NUM of every PIX_DEN clocks (30.24 MHz), 864 x
@@ -114,38 +118,45 @@ module iici_rbv #(
   output reg        vs_n,
   output reg        hblank,
   output reg        vblank,
-  output     [15:0] dbg_underflow      // dots the FIFO could not give (clk_vid)
+  output     [15:0] dbg_underflow,     // dots the FIFO could not give (clk_vid)
+  output     [31:0] dbg_reg            // {slots, 0, sier, 0, ifr, 0, ier}: the probes'
 );
 
   // =================================================================
   // clk: the registers, the interrupts, the tick, the DAC's CPU side and
   // the FIFO's write side
   // =================================================================
-  reg  [7:0] datab, r01, monp, r11;
-  reg  [6:0] sier, ier;
-  reg        vlatch;
+  reg  [7:0] datab, monp, r11;
+  reg  [6:0] sier;
+  reg  [4:0] ier, ifr;
   reg  [2:0] vs_sync;                  // vertical sync from clk_vid
+  reg  [2:0] vb_sync;                  // vertical blanking from clk_vid
   wire       vsync_c = vs_sync[1];
 
   wire [2:0] sense = portrait ? 3'b001 : 3'b110;
-  wire [7:0] slots = {1'b1, !(vlatch || vsync_c), slot_irq_n, 3'b111};
-  wire [6:0] slot_act = ~slots[6:0] & sier;
-  wire [6:0] ifr = {2'b00, !asc_irq_n, scsi_irq, !exp_irq_n, |slot_act, scsi_drq};
+  wire       vblank_c = vb_sync[1];
+  // S 6.2.3, 6.2.10: the lines' levels; bit 6 the vertical blanking's (VID.3ST: the SLOT0.IRQ* pin, high)
+  wire [7:0] slots = {1'b0, monp[7] || !vblank_c, slot_irq_n, 3'b111};
+  wire       any_slot = |(~slots[6:0] & sier);            // ANY.SLOT*, active high here
+  // S 6.2.11: the five flags' lines, each active high here; a flag is set by its line's leading edge
+  wire [4:0] fl_in = {!asc_irq_n, scsi_irq, !exp_irq_n, any_slot, scsi_drq};
+  reg  [4:0] fl_q;
   wire       any = |(ifr & ier);
   assign irq_n = !any;
+  assign dbg_reg = {slots, 1'b0, sier, 3'b000, ifr, 3'b000, ier};
 
   wire [7:0] datab_rd = {datab[7], 1'b0, nb_tm, datab[3:0]};
   reg  [7:0] reg_rd;
   always @* begin
     case (addr)
       5'h00: reg_rd = datab_rd;
-      5'h01: reg_rd = r01;
+      5'h01: reg_rd = 8'h00;
       5'h02: reg_rd = slots;
-      5'h03: reg_rd = {any, ifr};
-      5'h10: reg_rd = {monp[7:6], sense, monp[2:0]};
+      5'h03: reg_rd = {any, 2'b00, ifr};
+      5'h10: reg_rd = {monp[7:6], sense, 1'b0, monp[1:0]};
       5'h11: reg_rd = r11;
-      5'h12: reg_rd = {1'b1, sier};
-      5'h13: reg_rd = {1'b1, ier};
+      5'h12: reg_rd = {1'b0, sier};
+      5'h13: reg_rd = {3'b100, ier};
       default: reg_rd = 8'hFF;
     endcase
   end
@@ -158,15 +169,14 @@ module iici_rbv #(
   wire wr = rbv_sel && strobe && !rw;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      datab <= 8'hFF; r01 <= 0; monp <= 0; r11 <= 0; sier <= 0; ier <= 0;
+      datab <= 8'hFF; monp <= 0; r11 <= 0; sier <= 0; ier <= 0;
     end else if (wr) begin
       case (addr)
         5'h00: datab <= wdata;
-        5'h01: r01 <= wdata;
         5'h10: monp <= wdata;
         5'h11: r11 <= wdata;
         5'h12: sier <= wdata[7] ? (sier | wdata[6:0]) : (sier & ~wdata[6:0]);
-        5'h13: ier  <= wdata[7] ? (ier  | wdata[6:0]) : (ier  & ~wdata[6:0]);
+        5'h13: ier  <= wdata[7] ? (ier  | wdata[4:0]) : (ier  & ~wdata[4:0]);
         default: ;
       endcase
     end
@@ -180,14 +190,12 @@ module iici_rbv #(
       tick_n <= !(tick_cnt < 18'd16);
     end
 
-  // the video interrupt's latch, on vertical sync brought into clk
-  reg vsync_q;
+  // the flags (S 6.2.11): set by an edge, cleared by writing a 1 with bit 7 set; an edge on the clearing clock wins
   always @(posedge clk or negedge reset_n)
-    if (!reset_n) begin vlatch <= 0; vsync_q <= 0; end
+    if (!reset_n) begin ifr <= 0; fl_q <= 0; end
     else begin
-      vsync_q <= vsync_c;
-      if (!sier[6]) vlatch <= 0;
-      else if (vsync_c && !vsync_q) vlatch <= 1;
+      fl_q <= fl_in;
+      ifr <= ((wr && addr == 5'h03 && wdata[7]) ? (ifr & ~wdata[4:0]) : ifr) | (fl_in & ~fl_q);
     end
 
   // ---------------------------------------------------- the Bt478, CPU side
@@ -259,18 +267,20 @@ module iici_rbv #(
   reg        f_req, f_go;                          // (clk_vid's)
   reg  [4:0] rp_g;                                 // (clk_vid's: the read pointer's Gray code)
   reg        vsync_v;                              // (clk_vid's: vertical sync)
+  reg        vblk_v;                               // (clk_vid's: vertical blanking)
   assign vid_req = busy && (got != 4'd8);
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       wp <= 0; wp_g <= 0; rp_g_s1 <= 0; rp_g_s2 <= 0; got <= 0; busy <= 0; hold <= 1;
       f_req_s1 <= 0; f_req_s2 <= 0; f_seen <= 0; f_ack <= 0; f_go_s1 <= 0; f_go_s2 <= 0; f_go_seen <= 0;
-      vid_frame <= 0; vs_sync <= 0;
+      vid_frame <= 0; vs_sync <= 0; vb_sync <= 0;
     end else begin
       vid_frame <= 0;
       rp_g_s1 <= rp_g; rp_g_s2 <= rp_g_s1;
       f_req_s1 <= f_req; f_req_s2 <= f_req_s1;
       f_go_s1 <= f_go;   f_go_s2 <= f_go_s1;
       vs_sync <= {vs_sync[1:0], vsync_v};
+      vb_sync <= {vb_sync[1:0], vblk_v};
       if (vid_ld && busy) begin
         fifo[wp[3:0]] <= vid_data; wp <= wp + 1'b1; wp_g <= (wp + 1'b1) ^ ((wp + 1'b1) >> 1);
         got <= got + 1'b1;
@@ -339,8 +349,8 @@ module iici_rbv #(
       else hc <= hc + 1'b1;
     end
   always @(posedge clk_vid or negedge reset_n)
-    if (!reset_n) vsync_v <= 0;
-    else vsync_v <= (vc >= VS0) && (vc < VS0 + 10'd3);
+    if (!reset_n) begin vsync_v <= 0; vblk_v <= 0; end
+    else begin vsync_v <= (vc >= VS0) && (vc < VS0 + 10'd3); vblk_v <= !v_act; end
 
   // the FIFO's read side and the frame handshake
   reg  [4:0] rp;

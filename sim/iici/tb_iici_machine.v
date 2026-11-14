@@ -205,7 +205,7 @@ module tb_iici_machine;
     .scc_port_in(6'b110_110), .scc_port_out(), .audio_l(), .audio_r(),
     .dbg_addr(cpu_addr), .dbg_fc(cpu_fc), .dbg_as_n(cpu_as_n), .dbg_rw_n(cpu_rw_n), .dbg_dsack_n(dsack_n),
     .dbg_berr(berr), .dbg_halted(halted), .reset_out_n(reset_out_n), .dbg_regs(regs),
-    .dbg_overlay(overlay), .dbg_late(late));
+    .dbg_overlay(overlay), .dbg_late(late), .dbg_cfg(4'd0));
 
   wire [31:0] exp_pc = rom[1];
 
@@ -371,7 +371,7 @@ module tb_iici_machine;
     check(burst_bad == 0, "every burst was 5-2-2-2 with four longs");
     check(!halted && since_new >= LOOP_CYCLES, "the run ends in a long loop (the RAM tests' fill), not a halt or the cycle limit");
     check(ram_wr > 1000, "the ROM wrote RAM: the RAM tests began");
-    check(be_n == 5, "the only bus errors are the ROM's identification probes ($50F21C00 twice a pass, $58000000)");
+    check(be_n == 1, "the only bus error is the ROM's probe of $58000000 ($50F21C00 is acknowledged: the MDU's Figure 8)");
     check(regs[63:32] === 32'h0, "D6 = 0: no start-up test has failed");
 
     if (fails == 0) $display("==== PASS: %0d checks", pass);

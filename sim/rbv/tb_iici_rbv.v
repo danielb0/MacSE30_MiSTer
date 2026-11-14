@@ -1,14 +1,16 @@
-// tb_iici_rbv.v - the IIci's RBV held to SE30_PLAN.md "THE RBV".
+// tb_iici_rbv.v - the IIci's RBV held to Apple's specification 343S1019-A (S)
+// and SE30_PLAN.md "THE RBV".
 //
 // WHAT THIS PROVES
-//   1. data B: the outputs as written, SNDEXT low, the NuChip's TM bits in
-//   2. $12 / $13: VIA IER semantics; $02 the slot lines active low with
-//      the unused bits high; $03 the flags follow their lines, bit 7 the
-//      enabled OR, irq_n with it                          G Tables 4-9, 4-27
-//   3. $10: the sense 110 read only, depth and bit 6 as written  Table 12-8
-//   4. the video interrupt: the latch at vertical sync's start only while
-//      $12 bit 6 is set, cleared by writing $40 to $12; $02 bit 6 low
-//      during vertical sync even with it off (the driver's VBL wait)
+//   1. data B: the outputs as written, SND.EXT* low, the NuChip's TM bits in
+//   2. $12 / $13: set / clear on bit 7, read back with bit 7 0 / 1; $02 the
+//      slot lines' levels, bit 7 0; $03 the flags set by their lines'
+//      edges, cleared by a 1 written with bit 7 set, bit 7 the enabled OR,
+//      irq_n with it; $01 reads 0          S 6.2.2-6.2.4, 6.2.7-6.2.11
+//   3. $10: the sense read only, bit 2 always 0, VID.3ST    S 6.2.5, 6.2.12
+//   4. the video interrupt: $02 bit 6 follows the level of vertical
+//      blanking; enabled in $12 its start sets ANY.SLOT; the ROM driver's
+//      wait-for-VBL twice in a row                              S 6.2.10
 //   5. timing: 864 x 525 dots a frame, HS 64 dots, VS 3 lines, 640 x 480
 //      shown, 66.67 Hz; with PORTRAIT=1 832 x 918, HS 80, VS 3, 640 x
 //      870, 75.0 Hz - each from clk_vid = 57.28 MHz       Tables 12-5/6
@@ -61,7 +63,7 @@ module tb_iici_rbv;
 
   // ---------------------------------------------- the frame buffer (MDU's part)
   reg [31:0] fb [0:76799];             // 640 x 480 x 8 bpp
-  integer vaddr = 0, fetched = 0, LAT = 12;
+  integer vaddr = 0, fetched = 0, LAT = 12, wait_n = 0;
   reg req_q = 0;
   initial begin : mdu
     integer k;
@@ -158,27 +160,39 @@ module tb_iici_rbv;
     nb_tm = 2'b00; wr8(0, 5'h00, 8'h86); check(!cenable_n && cflush_n == 0 && poweroff_n, "data B: /CEnable 0 and /CFLUSH 0 drive their pins");
     wr8(0, 5'h00, 8'h8F);
 
-    // 2: enables, slots, flags
+    // 2: enables, slots, flags (S 6.2.3, 6.2.4, 6.2.7, 6.2.8, 6.2.10, 6.2.11)
     wr8(0, 5'h13, 8'h7F); wr8(0, 5'h12, 8'hFF);
-    rd8(0, 5'h12); check(q == 8'hFF, "$12 <- $FF sets every slot enable");
-    rd8(0, 5'h13); check(q == 8'h80, "$13 <- $7F clears every enable");
-    rd8(0, 5'h02); check(q == 8'hFF, "$02: no slot line low reads $FF");
-    slot_irq_n = 3'b101; rd8(0, 5'h02); check(q == 8'hEF, "$02: slot $D's line low in bit 4");
-    rd8(0, 5'h03); check(q == 8'h02, "$03: the slot flag follows the line, bit 7 off with it disabled");
+    rd8(0, 5'h12); check(q == 8'h7F, "$12 <- $FF sets every slot enable; bit 7 reads 0");
+    rd8(0, 5'h13); check(q == 8'h80, "$13 <- $7F clears every enable; bit 7 reads 1");
+    wr8(0, 5'h01, 8'hFF); rd8(0, 5'h01); check(q == 8'h00, "$01 always reads 0");
+    wr8(0, 5'h12, 8'h40); wr8(0, 5'h03, 8'hFF);          // the video's enable off for the slot tests; the flags cleared
+    rd8(0, 5'h02); check((q | 8'h40) == 8'h7F, "$02: no slot line low - bits 5-0 high, bit 7 reads 0");
+    rd8(0, 5'h03); check(q == 8'h00, "$03: no flag");
+    slot_irq_n = 3'b101; rd8(0, 5'h02); check((q | 8'h40) == 8'h6F, "$02: slot $D's line low in bit 4");
+    rd8(0, 5'h03); check(q == 8'h02, "$03: the line's fall set ANY.SLOT, bit 7 off with it disabled");
     check(irq_n, "no interrupt while $13 has bit 1 off");
     wr8(0, 5'h13, 8'h82); rd8(0, 5'h03); check(q == 8'h82 && !irq_n, "$13 <- $82: the slot flag interrupts, $03 bit 7 set");
-    wr8(0, 5'h03, 8'h82); rd8(0, 5'h03); check(q == 8'h82, "a write to $03 clears nothing a line still holds");
-    wr8(0, 5'h12, 8'h10); check(irq_n, "$12 <- $10 disables slot $D: its flag drops");
+    wr8(0, 5'h03, 8'h02); rd8(0, 5'h03); check(q == 8'h82, "a write to $03 with bit 7 clear has no effect");
+    wr8(0, 5'h03, 8'h82); rd8(0, 5'h03); check(q == 8'h00 && irq_n, "$03 <- $82 clears the flag though the line is still low: set by the edge");
+    slot_irq_n = 3'b111; rd8(0, 5'h03); slot_irq_n = 3'b101; rd8(0, 5'h03);
+    check(q == 8'h82 && !irq_n, "the line's next fall sets it again");
+    wr8(0, 5'h12, 8'h10); wr8(0, 5'h03, 8'h82); rd8(0, 5'h03); check(q == 8'h00 && irq_n, "$12 <- $10 disables slot $D: cleared, its low line sets nothing");
     slot_irq_n = 3'b111; wr8(0, 5'h12, 8'h90);
     scsi_irq = 1; asc_irq_n = 0; scsi_drq = 1; exp_irq_n = 0;
-    rd8(0, 5'h03); check(q == 8'h1D, "$03: ASC 4, SCSI IRQ 3, /EXP.IRQ 2, DRQ 0 (Table 4-27)");
-    wr8(0, 5'h13, 8'h91); check(!irq_n, "an enabled ASC flag interrupts");
-    scsi_irq = 0; asc_irq_n = 1; scsi_drq = 0; exp_irq_n = 1; wr8(0, 5'h13, 8'h7F);
+    rd8(0, 5'h03); check(q == 8'h1D, "$03: SND 4, SCSI IRQ 3, EXP.IRQ 2, DRQ 0, set though disabled");
+    wr8(0, 5'h13, 8'h91); check(!irq_n, "an enabled sound flag interrupts");
+    scsi_irq = 0; asc_irq_n = 1; scsi_drq = 0; exp_irq_n = 1;
+    rd8(0, 5'h03); check(q == 8'h9D, "the flags stay when their lines go back");
+    wr8(0, 5'h03, 8'h9F); rd8(0, 5'h03); check(q == 8'h00 && irq_n, "$03 <- $9F clears them");
+    wr8(0, 5'h13, 8'hFF); rd8(0, 5'h13); check(q == 8'h9F, "$13: bits 5 and 6 always read 0");
+    wr8(0, 5'h13, 8'h7F);
 
     // 3: $10
     wr8(0, 5'h10, 8'h40); rd8(0, 5'h10);
     check(q == (PORTRAIT ? 8'h48 : 8'h70), "$10: the sense read only (110 the 640 x 480 monitor, 001 the portrait), bit 6 as written");
-    wr8(0, 5'h10, 8'hFF); rd8(0, 5'h10); check(q == (PORTRAIT ? 8'hCF : 8'hF7), "$10: the sense bits ignore writes");
+    wr8(0, 5'h10, 8'hFF); rd8(0, 5'h10); check(q == (PORTRAIT ? 8'hCB : 8'hF3), "$10: the sense bits ignore writes, bit 2 always reads 0");
+    rd8(0, 5'h02); check(q[6] == 1'b1, "VID.3ST: $02 bit 6 follows the SLOT0.IRQ* pin (not connected: high)");
+    wr8(0, 5'h10, 8'h00);
 
     // 6: the Bt478
     wr8(1, 5'h00, 8'h10); wr8(1, 5'h04, 8'h12); wr8(1, 5'h04, 8'h34); wr8(1, 5'h04, 8'h56);
@@ -194,16 +208,31 @@ module tb_iici_rbv;
       wr8(1, 5'h04, exp_clut[i][23:16]); wr8(1, 5'h04, exp_clut[i][15:8]); wr8(1, 5'h04, exp_clut[i][7:0]);
     end
 
-    // 4: the video interrupt
-    wr8(0, 5'h12, 8'h40);                      // off
-    while (vs_n) @(posedge clk);
-    rd8(0, 5'h02); check(q[6] == 1'b0, "$02 bit 6 low during vertical sync with the interrupt off");
-    while (!vs_n) @(posedge clk);
-    rd8(0, 5'h02); check(q[6] == 1'b1, "... and high after it: no latch while $12 bit 6 is off");
+    // 4: the video interrupt (S 6.2.10: bit 6 follows the level of vertical blanking)
+    wr8(0, 5'h12, 8'h40); wr8(0, 5'h03, 8'hFF);          // off
+    while (vblank) @(posedge clk); while (!vblank) @(posedge clk); repeat (8) @(posedge clk);
+    rd8(0, 5'h02); check(q[6] == 1'b0, "$02 bit 6 low in vertical blanking with the interrupt off");
+    rd8(0, 5'h03); check(q == 8'h00, "disabled, it sets no flag");
+    while (vblank) @(posedge clk); repeat (8) @(posedge clk);
+    rd8(0, 5'h02); check(q[6] == 1'b1, "... and high after blanking: the level, no latch");
     wr8(0, 5'h12, 8'hC0); wr8(0, 5'h13, 8'h82);
-    while (vs_n) @(posedge clk); while (!vs_n) @(posedge clk);
-    rd8(0, 5'h02); check(q[6] == 1'b0 && !irq_n, "with $12 bit 6 on, the latch holds bit 6 low after sync, interrupting");
-    wr8(0, 5'h12, 8'h40); rd8(0, 5'h02); check(q[6] == 1'b1 && irq_n, "$12 <- $40 clears the latch (the driver's handler)");
+    while (!vblank) @(posedge clk); repeat (8) @(posedge clk);
+    rd8(0, 5'h03); check(q == 8'h82 && !irq_n, "enabled, the blanking's start sets ANY.SLOT and interrupts");
+    wr8(0, 5'h03, 8'h82); rd8(0, 5'h03); n = q; rd8(0, 5'h02);
+    check(n == 8'h00 && irq_n && q[6] == 1'b0, "the dispatcher's $03 <- $82 clears it while blanking lasts: no new edge");
+    wr8(0, 5'h12, 8'h40); wr8(0, 5'h12, 8'hC0); rd8(0, 5'h03);
+    check(q == 8'h82 && vblank, "disabled and enabled again inside the blanking: a new edge, the flag again");
+    wr8(0, 5'h12, 8'h40); wr8(0, 5'h03, 8'h82); wr8(0, 5'h13, 8'h7F);
+    // the driver's wait-for-VBL twice in a row with $12 bit 6 on and no handler (its open, before $13 enables the slot)
+    wr8(0, 5'h12, 8'hC0);
+    for (i = 0; i < 2; i = i + 1) begin
+      wait_n = 0;
+      rd8(0, 5'h02); while (q[6] == 1'b0 && wait_n < 2000000) begin rd8(0, 5'h02); wait_n = wait_n + 1; end
+      rd8(0, 5'h02); while (q[6] == 1'b1 && wait_n < 2000000) begin rd8(0, 5'h02); wait_n = wait_n + 1; end
+      repeat (16) @(posedge clk);           // the picture's own blanking output is a few dots behind the counter's
+      check(wait_n < 2000000 && vblank, "the driver waits for VBL twice in a row: each wait ends at a blanking's start");
+    end
+    wr8(0, 5'h12, 8'h40); wr8(0, 5'h03, 8'hFF);
     wr8(0, 5'h13, 8'h7F);
 
     // 5 and 7: timing and pictures, 1 bpp then 8 bpp

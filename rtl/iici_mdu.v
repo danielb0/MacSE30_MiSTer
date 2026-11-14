@@ -4,13 +4,13 @@
 // interrupt encoder, to SE30_PLAN.md "THE MDU" (2026-11-13).
 //
 // WHAT IT IS
-//   No MDU data sheet exists among our documents.  This is its contract
-//   from the Guide (G, 2e: Figure 3-8, pp.115-116, Tables 3-5 and 5-9) and
-//   Designing Cards and Drivers 3e Figures 15-3..15-6 (the MDU's RAM
-//   timing), written as a cycle machine; where they leave a point open the
-//   choice is marked READING with its basis.  GLUE (se30_glue.v) is the
-//   relative the 8-bit device cycles are taken from: the same chips on the
-//   same 15.6672 MHz clock.
+//   Apple's specification of the chip, drawing 343S1018-A (S below: its
+//   Figure 7 the physical memory map, Figure 8 the I/O map, 6.1.2 the bus
+//   timeouts, 6.2 RAM and ROM, Figures 13-23 the waveforms), with the
+//   Guide (G, 2e: Figure 3-8, pp.115-116, Tables 3-5 and 5-9) and
+//   Designing Cards and Drivers 3e Figures 15-3..15-6, written as a cycle
+//   machine; READING marks a choice no source settles.  GLUE
+//   (se30_glue.v) is the relative the 8-bit device cycles are taken from.
 //
 // CLOCKS
 //   clk is clk_sys (50 MHz).  cpu_en marks one clk per CPU clock (25 MHz;
@@ -30,32 +30,33 @@
 //   ROM 5 (G Table 5-9: 20.0 MB/s at 25 MHz).  The memory port answers
 //   each long with m_ack; the termination is at the documented clock, or
 //   later if the data is late (counted in dbg_late), never earlier.
-//   Bank A at $00000000, bank B at $04000000 (A26), A27-A29 ignored
-//   (READING); a bank aliases modulo its SIMMs' size and an empty bank
-//   reads all ones (se30_simms's rule).  In the SDRAM: bank A at long 0,
+//   Bank A $00000000-$03FFFFFF, bank B $04000000-$07FFFFFF; $08000000-
+//   $3FFFFFFF is not the MDU's: a bus error after 16 us (S p.20).  A bank
+//   aliases modulo its SIMMs' size (S p.20, Table 8) and an empty bank
+//   reads all ones (se30_simms's rule).  The ROM $40000000-$41FFFFFF.  In the SDRAM: bank A at long 0,
 //   bank B at 32 MB, the ROM at 24 MB (the SE/30's layout).
 //   Refresh: every 15.6 us (244 C16M clocks) one RAM cycle's time (REF
 //   CPU clocks) in which a RAM cycle waits; a cycle in progress first ends.
 //
-// I/O (G Figure 3-8): $50000000-$50007FFF, $50010000-$50017FFF and
-//   $50024000-$50027FFF acknowledged as 8-bit ports (DSACK0*), the rest of
-//   each $40000 not, and the whole repeating every $40000 to $50FFFFFF -
+// I/O (S Figure 8): $50000000-$50007FFF, $50010000-$50017FFF,
+//   $50020000-$50021FFF and $50024000-$50027FFF acknowledged as 8-bit
+//   ports (DSACK0*), the rest of each $40000 not (a chip select only), and the whole repeating every $40000 to $50FFFFFF -
 //   A17 decoded (the ROM's identification checks it, $40803064/$40803082).
 //   $2000 windows on A17-A13: VIA1 0, SCC 2, SCSI handshake 3, SCSI 8,
-//   pseudo-DMA 9, sound A, SWIM B, VDAC 12, RBV 13; window 1 (VIA2's place
-//   on the II family) acknowledged with nothing there, reads $FF
-//   (READING).  $51000000-$5FFFFFFF: no acknowledge from the MDU (the
+//   pseudo-DMA 9, sound A, SWIM B, VDAC 12, RBV 13; windows 1 (VIA2's) and $10
+//   (the new RTC's) acknowledged with nothing there, reading $FF.  $51000000-$5FFFFFFF: no acknowledge from the MDU (the
 //   RBV's chip select, the cache card, expansion and test: their own).
 //   Device timings are GLUE's, in C16M clocks: VIA1 E-synchronous; SCC
 //   with its 2.2 us hold-off; SWIM, SCSI, pseudo-DMA, VDAC, RBV one wait
 //   state; sound 5 read / 4 write; the handshake port waits for DRQ.
 //
-// OVERLAY (READING, plan "THE MDU"): set at power-on reset (ROM at $0 as
-//   at $40000000), cleared by the first access to $4xxxxxxx, as the
+// OVERLAY (S Figure 7): set at power-on reset (ROM images through
+//   $00000000-$3FFFFFFF), cleared by the first access to $4xxxxxxx, as the
 //   documented automatic overlays (the SE's BBU, the Portable's CPUGLU).
 //
-// BUS ERROR: no acknowledge within UI6's rule on a 22.25 kHz tick (as the
-//   IIcx GLUE; the MDU's length is not documented).  FC = 7 never.
+// BUS ERROR (S 6.1.2): 16 us of AS* with no acknowledge for $00000000-
+//   $5FFFFFFF and $F0000000-$F0FFFFFF, 654 us for the rest (the NuChip's
+//   own timeout is shorter).  FC = 7 never.
 //
 // INTERRUPTS (G Table 3-5): NMI 7, SCC 4, RBV 2, VIA1 1, autovectored.
 
@@ -169,12 +170,14 @@ module iici_mdu #(
   wire       fc7    = (cpu_fc == 3'd7);
   wire       d_fpu  = fc7 && (cpu_addr[19:13] == 7'b0010_001);
   wire       low_sp = (cpu_addr[31:30] == 2'b00);
-  wire       d_ram  = !fc7 && low_sp && !ovl;
-  wire       d_rom  = !fc7 && ((cpu_addr[31:28] == 4'h4) || (low_sp && ovl));
+  // S Figure 7: bank A $00000000-$03FFFFFF, bank B $04000000-$07FFFFFF; $08000000-$3FFFFFFF "is not used
+  // by the MDU" (a bus error, S p.20); the ROM $40000000-$41FFFFFF, $42000000-$4FFFFFFF expansion ROM space
+  wire       d_ram  = !fc7 && (cpu_addr[31:27] == 5'b00000) && !ovl;
+  wire       d_rom  = !fc7 && ((cpu_addr[31:25] == 7'b0100_000) || (low_sp && ovl));
   wire       d_io   = !fc7 && (cpu_addr[31:24] == 8'h50);
   wire [4:0] win    = cpu_addr[17:13];
   wire       d_via1 = d_io && (win == 5'h00);
-  wire       d_nil  = d_io && (win == 5'h01);              // acknowledged, nothing there
+  wire       d_nil  = d_io && (win == 5'h01 || win == 5'h10);   // VIA2's and the new RTC's windows: DSACK0*, nothing there (S Figure 8)
   wire       d_scc  = d_io && (win == 5'h02);
   wire       d_hs   = d_io && (win == 5'h03);
   wire       d_scsi = d_io && (win == 5'h08);
@@ -183,7 +186,8 @@ module iici_mdu #(
   wire       d_swim = d_io && (win == 5'h0B);
   wire       d_vdac = d_io && (win == 5'h12);
   wire       d_rbv  = d_io && (win == 5'h13);
-  wire       d_slot = !fc7 && (cpu_addr[31:29] >= 3'b011);
+  wire       d_s0   = !fc7 && (cpu_addr[31:24] == 8'hF0);  // slot 0's space: "no device assigned", the MDU's own timeout
+  wire       d_slot = !fc7 && (cpu_addr[31:29] >= 3'b011) && !d_s0;
   wire       d_mem  = d_ram || d_rom;
   wire       fixed_port = d_nil || d_hs || d_scsi || d_dma || d_asc || d_swim || d_vdac || d_rbv;
   wire       d_dev  = d_via1 || d_scc || fixed_port;
@@ -438,9 +442,16 @@ module iici_mdu #(
     else if (c16_en) scc_sel_q <= scc_sel;
 
   // ------------------------------------------------------------ the bus
-  wire dev_ack = !cpu_as_n && active && done && d_dev;
+  // A device cycle's state belongs to the cycle that made it.  The devices' enable (C16M) is slower than the
+  // gap between two bus cycles at 25 MHz, so AS* can rise and fall again before the machine above has seen it
+  // high: until the next enable takes the old cycle down (as_hi_d), `active` and `done` are the LAST cycle's.
+  // Acknowledged from them, the second byte cycle of a long read from the handshake port ended at once with
+  // the first's byte and no strobe - the ROM's blind SCSI read (MOVE.L from $50F06060) got a byte twice and the
+  // rest a byte late ("This disk is unreadable", the first board boot, 2026-11-14; sim/iici_hs).
+  wire act     = active && !as_hi_d;
+  wire dev_ack = !cpu_as_n && act && done && d_dev;
   assign cpu_din  = d_fpu ? fpu_rdata : d_slot ? nb_rdata :
-                    d_dev ? {(active && done) ? dev_q : rbyte, 24'h000000} : m_live ? m_rdata : m_din;
+                    d_dev ? {(act && done) ? dev_q : rbyte, 24'h000000} : m_live ? m_rdata : m_din;
   assign dsack_n  = d_fpu ? fpu_dsack_n : d_slot ? nb_dsack_n :
                     berr_r ? 2'b11 :
                     (!cpu_as_n && d_mem && mem_ack) ? 2'b00 :
@@ -448,13 +459,13 @@ module iici_mdu #(
   assign fpu_sel  = !cpu_as_n && d_fpu;
 
   assign via1_sel  = !cpu_as_n && d_via1;
-  assign scc_sel   = active && d_scc && (dcnt != 0);
-  assign scsi_sel  = active && d_scsi;
-  assign scsi_dack = active && (d_dma || (d_hs && dcnt != 0));
-  assign asc_sel   = active && d_asc;
-  assign swim_sel  = active && d_swim;
-  assign vdac_sel  = active && d_vdac;
-  assign rbv_sel   = active && d_rbv;
+  assign scc_sel   = act && d_scc && (dcnt != 0);
+  assign scsi_sel  = act && d_scsi;
+  assign scsi_dack = act && (d_dma || (d_hs && dcnt != 0));
+  assign asc_sel   = act && d_asc;
+  assign swim_sel  = act && d_swim;
+  assign vdac_sel  = act && d_vdac;
+  assign rbv_sel   = act && d_rbv;
   assign slot_sel  = !cpu_as_n && d_slot;
   assign slot_be   = be;
   assign dev_addr  = cpu_addr[12:0];
@@ -482,30 +493,25 @@ module iici_mdu #(
     end
 
   // -------------------------------------------------------- bus error
-  // UI6's rule (se30_glue.v) on GLUE's 22.25 kHz tick: BERR after the
-  // tick has been seen high, low and high again with AS* held and no
-  // acknowledge.  The NuChip times out its own slot cycles.
-  reg  [9:0] lt;
-  reg        lt_hs_n;
-  always @(posedge clk or negedge reset_n)
-    if (!reset_n) begin lt <= 0; lt_hs_n <= 1; end
-    else if (c16_en) begin
-      lt <= (lt == 10'd703) ? 10'd0 : lt + 1'b1;
-      lt_hs_n <= (lt < 10'd416);
-    end
+  // S 6.1.2: two timers on AS*, both on C16M.  The first ends an access
+  // to unimplemented RAM, ROM, I/O or slot 0 addresses ($00000000-
+  // $5FFFFFFF and $F0000000-$F0FFFFFF) after 16 us of AS*; the second
+  // counts 654 us of AS* whatever the address (NuBus space: the NuChip's
+  // own timeout comes first).  BERR* goes with AS*.
+  localparam [13:0] T_BERR1 = 14'd251;   // 16.0 us of C16M
+  localparam [13:0] T_BERR2 = 14'd10246; // 654 us
+  reg [13:0] as_cnt;
   wire sys_as = !cpu_as_n && !fc7 && !d_slot;
-  wire acked  = (d_mem && m_done) || (d_dev && done);
+  wire acked  = (d_mem && m_done) || (d_dev && active && !as_hi_d && done);
   always @(posedge clk or negedge reset_n)
-    if (!reset_n) begin ff1 <= 0; ff2 <= 0; berr_r <= 0; end
+    if (!reset_n) begin as_cnt <= 0; berr_r <= 0; ff1 <= 0; ff2 <= 0; end
+    else if (cpu_as_n) begin as_cnt <= 0; berr_r <= 0; end
     else if (c16_en) begin
-      if (!sys_as) begin ff1 <= 0; ff2 <= 0; berr_r <= 0; end
-      else begin
-        if (lt_hs_n) ff1 <= 1;
-        if (ff1 && !lt_hs_n) ff2 <= 1;
-        if (ff1 && ff2 && lt_hs_n) berr_r <= 1;
-      end
+      if (as_cnt != T_BERR2) as_cnt <= as_cnt + 1'b1;
+      if (as_cnt >= T_BERR1 - 1'b1) berr_r <= 1;
     end
-  assign berr = (berr_r && sys_as && !acked) || (d_slot && nb_berr);
+  wire berr2 = (as_cnt == T_BERR2);
+  assign berr = (berr_r && sys_as && !acked) || (d_slot && (nb_berr || berr2));
 
   // ------------------------------------------------------- interrupts
   assign ipl_n = !nmi_n      ? 3'b000 :
