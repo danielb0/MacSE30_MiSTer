@@ -47,6 +47,9 @@ module tb_iici_sdram;
   reg  [23:0] dl_addr = 0;
   reg  [15:0] dl_data = 0;
   wire        dl_ack, dk_ack;
+  reg         dk_req = 0, dk_we = 0;
+  reg  [23:0] dk_addr = 0;
+  reg  [15:0] dk_wdata = 0, dk_got = 0;
   wire [15:0] dk_rdata;
   wire        sd_clk, sd_cke, sd_cs_n, sd_ras_n, sd_cas_n, sd_we_n;
   wire [12:0] sd_addr;
@@ -60,7 +63,7 @@ module tb_iici_sdram;
     .m_req(m_req), .m_we(m_we), .m_burst(m_burst), .m_addr(m_addr), .m_be(m_be), .m_wdata(m_wdata),
     .m_rdata(m_rdata), .m_ack(m_ack), .m_soon(m_soon), .m_refresh(m_refresh), .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
     .dl_req(dl_req), .dl_addr(dl_addr), .dl_data(dl_data), .dl_ack(dl_ack),
-    .dk_req(1'b0), .dk_we(1'b0), .dk_addr(24'd0), .dk_wdata(16'd0), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
+    .dk_req(dk_req), .dk_we(dk_we), .dk_addr(dk_addr), .dk_wdata(dk_wdata), .dk_rdata(dk_rdata), .dk_ack(dk_ack),
     .sd_clk(sd_clk), .sd_cke(sd_cke), .sd_addr(sd_addr), .sd_ba(sd_ba), .sd_dq(sd_dq), .sd_dqm(sd_dqm),
     .sd_cs_n(sd_cs_n), .sd_ras_n(sd_ras_n), .sd_cas_n(sd_cas_n), .sd_we_n(sd_we_n));
 
@@ -124,6 +127,19 @@ module tb_iici_sdram;
     end
   endtask
 
+  // the floppy image's port as se30_flp_loader / se30_flp_encoder drive it (through se30_flp_dkmux): registered
+  // on clk_sys, the request raised only with the acknowledge low, dropped the clock after the acknowledge is seen,
+  // the data taken on that clock
+  task dk(input we, input [23:0] a, input [15:0] d);
+    begin
+      while (dk_ack) @(posedge clk_sys);
+      @(posedge clk_sys); #1 dk_we = we; dk_addr = a; dk_wdata = d; dk_req = 1;
+      @(posedge clk_sys);
+      while (!dk_ack) @(posedge clk_sys);
+      dk_got = dk_rdata; #1 dk_req = 0;
+    end
+  endtask
+
   integer i, bad;
   initial begin
     repeat (5) @(posedge clk); #1 reset_n = 1;
@@ -174,10 +190,28 @@ module tb_iici_sdram;
     repeat (20) @(posedge clk_sys);
     check(refs - i >= 2, "the refresh window: two AUTO REFRESH");
 
+    // the floppy image's port: 64 words written in turn and read back in turn, as the loader and the encoder do
+    for (i = 0; i < 64; i = i + 1) dk(1, 24'h200000 + i, 16'hA000 + i * 16'h0101);
+    bad = 0;
+    for (i = 0; i < 64; i = i + 1) begin
+      dk(0, 24'h200000 + i, 16'h0);
+      if (dk_got !== 16'hA000 + i * 16'h0101) begin bad = bad + 1; if (bad <= 6) $display("      dk word %0d: read %04x, wrote %04x", i, dk_got, 16'hA000 + i * 16'h0101); end
+    end
+    check(bad == 0, "the disk port: 64 words written and read back in turn");
+    // ... and with the machine's reads and a video burst between them
+    bad = 0;
+    for (i = 0; i < 32; i = i + 1) begin
+      if (i[2:0] == 3'd3) begin @(posedge clk_sys); #1 v_addr = 25'h000400; v_req = 1; vacks = 0; @(posedge clk_sys); #1 v_req = 0; end
+      if (i[1:0] == 2'd1) req(0, 0, 25'h000100, 4'hF, 0);
+      dk(0, 24'h200000 + i, 16'h0);
+      if (dk_got !== 16'hA000 + i * 16'h0101) begin bad = bad + 1; if (bad <= 6) $display("      dk word %0d behind other traffic: read %04x, wrote %04x", i, dk_got, 16'hA000 + i * 16'h0101); end
+    end
+    check(bad == 0, "the disk port: words read back right among the machine's reads and video bursts");
+
     check(chip.errors == 0, "the model saw no datasheet violation");
     if (fails == 0) $display("==== PASS: %0d checks - the IIci's SDRAM at 100 MHz", pass);
     else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
     $finish;
   end
-  initial begin #3000000; $display("==== FAIL: timeout"); $finish; end
+  initial begin #9000000; $display("==== FAIL: timeout"); $finish; end
 endmodule

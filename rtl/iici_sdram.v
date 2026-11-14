@@ -520,7 +520,13 @@ module iici_sdram #(
             if (k_we_r) dk_ack <= 1;
           end
           if (k_we_r && f_sR1) state <= S_IDLE;
-          if (!k_we_r && f_rdq) begin dk_rdata <= dq_r; dk_ack <= 1; state <= S_IDLE; end
+          // the read stays one clock past its acknowledge: the other requests are chosen a clock ahead (o_kind),
+          // and back in S_IDLE on the acknowledge's own edge with the chip already free (ACT_BUSY is the read's
+          // length at 100 MHz) the same request was issued again - its late second acknowledge then answered the
+          // requester's NEXT word with this one (the floppy image read back a word behind: the first board boot's
+          // Sad Mac, 2026-11-14)
+          if (!k_we_r && f_rdq) begin dk_rdata <= dq_r; dk_ack <= 1; end
+          if (!k_we_r && f_rdq1) state <= S_IDLE;
         end
 
         default: state <= S_IDLE;
