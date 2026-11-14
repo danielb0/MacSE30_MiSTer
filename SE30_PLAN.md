@@ -28846,6 +28846,19 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   location assignment for dq_w[11] and dq_w[8] beside their pins (X81,
   Y1-4: compile 4 had registers there) - Lite allows single-node locations.
 
+**END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
+The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
+documentation with its plan block above: BURST FILLS; THE MDU; THE IIci MACHINE; THE RBV; THE PORTRAIT
+DISPLAY (Daniel: in the first release); THE MacIIci TOP AND ITS SDRAM (Daniel: 150 MHz, exact timing);
+THE COMPILES. State: compile 5 fits (38,687 ALMs) and routes, -1.555 ns: the SDRAM's sd_addr mux (the
+CPU decision, -1.56) and dq_w[11] (far-corner pin, -0.35); everything else met. STOPPED on Daniel's rule
+("If this compile fails, then do not proceed with another one"). NEXT, on his go: (a) a pipeline register
+before every SDRAM pin, (b) a location for dq_w[11]/[8]; benches; compile 6; then
+scripts/sta_corners_iici.tcl for the capture phases (PROVISIONAL), then the board. Open, recorded: the
+video sharing the SDRAM (0.75 % late; bank interleave before 8 bpp / portrait 4 bpp), Table 12-4's 8 bpp
+gap, the video interrupt and the RBV driver under the real ROM (board), the cache card (next feature).
+Untracked and left alone: sim/machine/run_rom512.log, sim/regression.log.2_cacr0.
+
 **END OF SESSION 2026-11-12 (night, ~23:30, Daniel closed it: "We will continue tomorrow") - READ THIS TO RESUME.**
 - Branch `iici`, all committed, NOT pushed (the last: a27d37c the FPU,
   bcee411 its plan block). One untracked file, sim/regression.log.2_cacr0
