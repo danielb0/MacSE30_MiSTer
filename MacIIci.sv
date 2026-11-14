@@ -179,7 +179,7 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
-// One PLL (rtl/pll_iici): clk_sys 50 MHz; clk_mem 150 MHz and its three
+// One PLL (rtl/pll_iici): clk_sys 50 MHz; clk_mem 100 MHz and its three
 // shifted copies for the SDRAM (rtl/iici_sdram.v); clk_k 25 MHz, the CPU
 // clock (tg68k.v KCLK); clk_vid 57.14 MHz, the RBV's video.  phi2 is the
 // clk_sys clock after a clk_k rising edge, phi1 the one ending at the next.
@@ -399,7 +399,7 @@ se30_flp_dkmux flp_dkmux
 );
 
 ///////////////////////   SDRAM   ////////////////////////////////
-// rtl/iici_sdram.v at 150 MHz.  Its reset is the PLL's lock alone: the ROM
+// rtl/iici_sdram.v at 100 MHz.  Its reset is the PLL's lock alone: the ROM
 // and the training's choice stay across the machine's resets.
 
 wire        cap_sel;

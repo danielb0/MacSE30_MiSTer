@@ -3,10 +3,10 @@
 // Altera PLL wizard emits (rtl/pll/pll_0002.v's), Quartus computing the
 // counters from the frequencies.
 //   outclk_0   50 MHz           clk_sys
-//   outclk_1  150 MHz           clk_mem, the SDRAM controller
-//   outclk_2  150 MHz +1042 ps  clk_sdc, the chip's clock (inverted at the pin)
-//   outclk_3  150 MHz +5521 ps  clk_capa = clk_mem - 1.15 ns, read capture A (PROVISIONAL, iici_sdram.v)
-//   outclk_4  150 MHz +4062 ps  clk_capb = clk_mem - 2.60 ns, read capture B (PROVISIONAL)
+//   outclk_1  100 MHz           clk_mem, the SDRAM controller (150 MHz until compile 6: iici_sdram.v WHY 100 MHz)
+//   outclk_2  100 MHz +2500 ps  clk_sdc, the chip's clock (inverted at the pin)
+//   outclk_3  100 MHz +1667 ps  clk_capa, read capture A, for slow silicon (PROVISIONAL, iici_sdram.v)
+//   outclk_4  100 MHz  +313 ps  clk_capb, read capture B, for fast silicon (PROVISIONAL)
 //   outclk_5   25 MHz           clk_k, the CPU clock (tg68k.v KCLK)
 //   outclk_6   57.142857 MHz    clk_vid, the RBV's video: 1200 / 21, Table 12-5's 57.28 less 0.24 %
 // Phase steps are the VCO's eighth, 104.2 ps.
@@ -32,17 +32,17 @@ module  pll_iici_0002(
 		.output_clock_frequency0("50.000000 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
-		.output_clock_frequency1("150.000000 MHz"),
+		.output_clock_frequency1("100.000000 MHz"),
 		.phase_shift1("0 ps"),
 		.duty_cycle1(50),
-		.output_clock_frequency2("150.000000 MHz"),
-		.phase_shift2("1042 ps"),
+		.output_clock_frequency2("100.000000 MHz"),
+		.phase_shift2("2500 ps"),
 		.duty_cycle2(50),
-		.output_clock_frequency3("150.000000 MHz"),
-		.phase_shift3("5521 ps"),
+		.output_clock_frequency3("100.000000 MHz"),
+		.phase_shift3("1667 ps"),
 		.duty_cycle3(50),
-		.output_clock_frequency4("150.000000 MHz"),
-		.phase_shift4("4062 ps"),
+		.output_clock_frequency4("100.000000 MHz"),
+		.phase_shift4("313 ps"),
 		.duty_cycle4(50),
 		.output_clock_frequency5("25.000000 MHz"),
 		.phase_shift5("0 ps"),

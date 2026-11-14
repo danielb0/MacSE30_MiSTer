@@ -29,13 +29,12 @@
 module tb_iici_machine;
   parameter PORTRAIT = 0;              // run.sh's PORTRAIT=1: the Portrait Display
   parameter SDRAM = 0;                 // run.sh's SDRAM=1: the memory through rtl/iici_sdram.v and the chip model
-  // clk_mem 150 MHz, clk_sys its third, clk_k clk_sys's half: one process
+  // clk_mem 100 MHz, clk_sys its half, clk_k clk_sys's half: one process
   reg clk_mem = 0, clk_sys = 0, clk_k = 0;
   integer cdiv = 0;
   always begin
-    #3.33333 clk_mem = ~clk_mem;
-    cdiv = cdiv + 1;
-    if (cdiv == 3) begin cdiv = 0; clk_sys = ~clk_sys; if (clk_sys) clk_k = ~clk_k; end
+    #5.0 clk_mem = ~clk_mem;
+    if (clk_mem) begin clk_sys = ~clk_sys; if (clk_sys) clk_k = ~clk_k; end
   end
   reg clk_vid = 0;
   always #8.729 clk_vid = ~clk_vid;     // 57.28 MHz
@@ -129,16 +128,16 @@ module tb_iici_machine;
   end
 
   // ---------------------------------------------- SDRAM=1: the real path
-  // rtl/iici_sdram.v and sim/sdram's chip model (32 MB, CL3, tAC 5.4) with
+  // rtl/iici_sdram.v and sim/sdram's chip model (32 MB, CL2, tAC 6.0) with
   // the ROM preloaded at word $C00000 and never-written words random; the
   // board delays and capture phases of sim/sdram_iici
   wire        s_ready, s_mack, s_vack, s_capsel, s_msoon;
   wire [31:0] s_mrdata, s_vrdata;
   reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
   always @(clk_mem) begin
-    clk_sdc  <= #(1.0) clk_mem;
-    clk_capa <= #(6.66667 - 1.2) clk_mem;
-    clk_capb <= #(6.66667 - 2.6) clk_mem;
+    clk_sdc  <= #(2.5) clk_mem;
+    clk_capa <= #(1.667) clk_mem;
+    clk_capb <= #(0.3125) clk_mem;
   end
   reg sd_rst_n = 0;
   initial #100 sd_rst_n = 1;
@@ -169,7 +168,7 @@ module tb_iici_machine;
     assign dq_chip = oe_c ? do_c : 16'hzzzz;
     always @(dq_chip or sdram.dq_oe) dq_back <= #(2.0) (sdram.dq_oe ? 16'hzzzz : dq_chip);
     assign sd_dq = dq_back;
-    sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1), .COL_BITS(9), .tCK(6.66667), .tAC(5.4)) chip (
+    sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1), .COL_BITS(9), .tCK(10.0), .tAC(6.0)) chip (
       .clk(clk_c), .cke(cke_c), .cs_n(cs_c), .ras_n(ras_c), .cas_n(cas_c), .we_n(we_c),
       .ba(ba_c), .addr(a_c), .dqm(a_c[12:11]), .dq(dq_chip));
   end else begin : g_nosd

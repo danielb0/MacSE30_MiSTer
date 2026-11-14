@@ -290,8 +290,18 @@ module iici_rbv #(
   // =================================================================
   reg  [2:0] port_s, voff_s;
   reg  [1:0] dep_s1, dep_s2;
+  // The monitor's choice sets where this side starts (port_s, vc below).  A
+  // register cannot be reset to a signal's value: Quartus built port_s[2]
+  // and vc[7] as latch loops, which the timing analyzer cannot time (the
+  // IIci's compiles 1 to 9: "analyzing 2 combinational loops as latches").
+  // So the reset is to constants and the first clock after it loads them
+  // (v_init): the same start, one clk_vid clock later.
+  reg        v_init;
   always @(posedge clk_vid or negedge reset_n)
-    if (!reset_n) begin port_s <= {3{portrait}}; voff_s <= 0; dep_s1 <= 0; dep_s2 <= 0; end
+    if (!reset_n) v_init <= 1; else v_init <= 0;
+  always @(posedge clk_vid or negedge reset_n)
+    if (!reset_n) begin port_s <= 0; voff_s <= 0; dep_s1 <= 0; dep_s2 <= 0; end
+    else if (v_init) port_s <= {3{portrait}};
     else begin
       port_s <= {port_s[1:0], portrait};
       voff_s <= {voff_s[1:0], monp[6]};
@@ -312,6 +322,7 @@ module iici_rbv #(
   reg [9:0] pacc;
   always @(posedge clk_vid or negedge reset_n)
     if (!reset_n) begin pacc <= 0; ce_pix <= 0; end
+    else if (v_init) ;
     else if (port_v) ce_pix <= 1;
     else if (pacc + PIX_NUM >= PIX_DEN) begin pacc <= pacc + PIX_NUM - PIX_DEN; ce_pix <= 1; end
     else begin pacc <= pacc + PIX_NUM; ce_pix <= 0; end
@@ -321,7 +332,8 @@ module iici_rbv #(
   wire       v_act = (vc < VV);
   // from reset at vertical blanking: the FIFO fills before line 0
   always @(posedge clk_vid or negedge reset_n)
-    if (!reset_n) begin hc <= 0; vc <= portrait ? 10'd870 : 10'd480; end
+    if (!reset_n) begin hc <= 0; vc <= 10'd870; end
+    else if (v_init) vc <= portrait ? 10'd870 : 10'd480;
     else if (ce_pix) begin
       if (hc >= HT - 1'b1) begin hc <= 0; vc <= (vc >= VT - 1'b1) ? 10'd0 : vc + 1'b1; end
       else hc <= hc + 1'b1;

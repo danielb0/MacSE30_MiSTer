@@ -1,9 +1,9 @@
-// tb_iici_sdram.v - rtl/iici_sdram.v against sim/sdram/sdram_model.v at 150 MHz
+// tb_iici_sdram.v - rtl/iici_sdram.v against sim/sdram/sdram_model.v at 100 MHz
 // (SE30_PLAN.md "THE MacIIci TOP AND ITS SDRAM").
 //
 // WHAT THIS PROVES
-//   1. the power-up ladder and the training at CL3 (the model checks every
-//      datasheet interval at tCK 6.667 ns), both captures inside the eye
+//   1. the power-up ladder and the training at CL2 (the model checks every
+//      datasheet interval at tCK 10 ns), both captures inside the eye
 //   2. a CPU read's m_soon is seen at the fifth clk_sys edge after the one
 //      its request follows - the MDU's termination for a 5-clock read (P0 +
 //      100 ns) - and its long by the sixth, where the KCLK wrapper takes it
@@ -14,21 +14,21 @@
 //   7. the MDU's refresh window brings two AUTO REFRESH
 //   8. a CPU read behind a video burst: how late (reported)
 // THE PIN DELAYS: as sim/sdram's bench (CLK_TO_PIN 4, OUT_TO_PIN 4,
-// DQ_TO_REG 2); the chip's clock clk + SDC inverted; captures A = clk -
-// CAPA, B = clk - CAPB (PROVISIONAL: the controller's header).
+// DQ_TO_REG 2); the chip's clock clk + SDC inverted; captures A = clk +
+// CAPA, B = clk + CAPB (PROVISIONAL: the controller's header).
 
 `timescale 1ns/1ps
 
 module tb_iici_sdram;
   reg clk = 0, clk_sys = 0;
-  always #3.33333 clk = ~clk;
-  always #10.0 clk_sys = ~clk_sys;
-  parameter real SDC = 1.0, CAPA = 1.2, CAPB = 2.6;
+  // one process: clk_sys's edges are clk's even ones
+  always begin #5.0 clk = ~clk; if (clk) clk_sys = ~clk_sys; end
+  parameter real SDC = 2.5, CAPA = 1.667, CAPB = 0.3125;
   reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
   always @(clk) begin
     clk_sdc  <= #(SDC) clk;
-    clk_capa <= #(6.66667 - CAPA) clk;
-    clk_capb <= #(6.66667 - CAPB) clk;
+    clk_capa <= #(CAPA) clk;
+    clk_capb <= #(CAPB) clk;
   end
   reg phi = 0;
   always @(posedge clk_sys) phi <= ~phi;
@@ -81,13 +81,13 @@ module tb_iici_sdram;
   reg  [15:0] dq_back = 16'hzzzz;
   always @(dq_chip or dut.dq_oe) dq_back <= #(DQ_TO_REG) (dut.dq_oe ? 16'hzzzz : dq_chip);
   assign sd_dq = dq_back;
-  sdram_model #(.COL_BITS(9), .tCK(6.66667), .tAC(5.4)) chip (
+  sdram_model #(.COL_BITS(9), .tCK(10.0), .tAC(6.0)) chip (
     .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
     .ba(ba_c), .addr(addr_c), .dqm(addr_c[12:11]), .dq(dq_chip));
 
   integer trn = 0;
   always @(posedge clk) if ($test$plusargs("VTRACE") && dut.state == 4'd4)
-    $display("VT t=%0.2f seq %0d cmd %b a_n %0d rd_cnt %0d vb_in %0d vb_out %0d v_hold %0d v_ack %b dq_m %h", $realtime, dut.seq, dut.cmd, dut.a_n, dut.rd_cnt, dut.vb_in, dut.vb_out, dut.v_hold, dut.v_ack, dut.dq_m);
+    $display("VT t=%0.2f seq %0d cmd %b a_n %0d rd_cnt %0d vb_in %0d vb_out %0d v_hold %0d v_ack %b dq_r %h", $realtime, dut.seq, dut.cmd, dut.a_n, dut.rd_cnt, dut.vb_in, dut.vb_out, dut.v_hold, dut.v_ack, dut.dq_r);
   integer pass = 0, fails = 0;
   task check(input ok, input [8*96-1:0] what);
     begin if (ok) pass = pass + 1; else begin fails = fails + 1; $display("FAIL: %0s", what); end end
@@ -175,7 +175,7 @@ module tb_iici_sdram;
     check(refs - i >= 2, "the refresh window: two AUTO REFRESH");
 
     check(chip.errors == 0, "the model saw no datasheet violation");
-    if (fails == 0) $display("==== PASS: %0d checks - the IIci's SDRAM at 150 MHz", pass);
+    if (fails == 0) $display("==== PASS: %0d checks - the IIci's SDRAM at 100 MHz", pass);
     else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
     $finish;
   end
