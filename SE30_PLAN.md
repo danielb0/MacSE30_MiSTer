@@ -28845,6 +28845,184 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
   one clock everywhere, covered by m_soon's slack (data at 17 of 18); (b) a
   location assignment for dq_w[11] and dq_w[8] beside their pins (X81,
   Y1-4: compile 4 had registers there) - Lite allows single-node locations.
+  COMPILE 5 REVIEWED PATH BY PATH, AND THE FIX (2026-11-14; Daniel: "review
+  the work done by the previous session, and find a solution to the failed
+  timing"; quartus_sta over compile 5's netlist, both slow corners, every
+  failing endpoint):
+  - WHAT REALLY FAILED (item 5's LEFT named two of six groups; 90 endpoints
+    on clk_mem at slow 100C):
+      sd_addr -1.555, cmd -1.268, sd_ba -0.893: the pins' registers.  The
+        logic is three LUTs (3 ns); the rest is 4.7-4.9 ns of ROUTE - the
+        controller is at the core's centre (X40-46, Y22-27), the pins at
+        X68-89, Y0-6.  Any logic in front of an I/O-cell register fails.
+      dq_m -> dk_rdata -0.752, -> tr_good (the training's compare) -0.344,
+        -> vb / mb -0.21: dq_m is on clk_mem's FALLING edge, so its
+        consumers have 3.33 ns; dk_rdata sits at Y65 (3.0 ns of route).
+      state.S_DK -> state.S_IDLE -0.653: the disk read's seq comparison,
+        dragged to Y66 with dk_rdata.
+      dq_q[11] -> dq_w[11] -0.346: dq_w at X48 for the short hop behind it
+        (the I/O cell's clock is 1.5 ns later than the fabric's: 5.1 ns).
+      clk_sys -> clk_k, slow -40C ONLY, -0.107 (22 paths, one endpoint):
+        p_rcred -> kk_pgo_pt, the pace's budget, 19.2 of 20 ns.  "Everything
+        else met" was the slow 100C summary.
+  - THE PROPOSAL ABOVE, JUDGED: (a) is right for the pins but not enough -
+    compile 6 would have failed by about -0.75 on dq_m's consumers, with the
+    read's spare clock already spent; (b) is not needed.
+  - THE FIX (uncommitted on iici; no location assignment, no seed):
+    1. rtl/iici_sdram.v: the sequencer decides cmd_p / addr_p / ba_p; cmd,
+       sd_addr and sd_ba are loaded from them and nothing else; the data pins
+       through dq_mid to stay beside their command.  The pins one clock
+       later.
+    2. The capture chain is dq_q, dq_w, dq_m (falling), dq_p (rising): every
+       consumer reads dq_p with a whole period; dq_m -> dq_p is a bare hop.
+       dq_x is gone - so the read is ONE clock later, not two: RD_LAT 9, the
+       long on m_rdata at clock 17 of 18, m_soon at 14 (the clk_sys edge at
+       15 sees it).  STA already timed m_rdata -> the wrapper in one clk_mem
+       period, so nothing is given up; no spare clock is left.
+    3. seq's remaining comparisons registered (f_sW, f_rd, f_rdq, f_rdq1,
+       f_soon); the training's read step one clock longer (takes at 13, 14).
+    4. rtl/tg68k/tg68k.v (KCLK only): pq_tail's two saturations in series
+       made one sum beside p_tail_s - min(63, min(63, a) + b) = min(63, a +
+       b); old against new identical over 20,000,000 vectors (iverilog).
+    5. scripts/sta_corners_iici.tcl: dq_m -> dq_p and dq_p -> consumers.
+  - BENCHES: sim/sdram_iici PASS 11 (m_soon at the fifth clk_sys edge, the
+    long at the sixth, the burst 5-2-2-2, the model's datasheet checks
+    clean); sim/mdu PASS 78; sim/iici SDRAM=1 PASS 12 (11,176 memory cycles
+    as before, 99 late against 98), behavioural PASS 12.  Analysis &
+    Synthesis: 0 errors (10 min 47).
+  6. COMPILE 6 (Daniel: "Yes, compile 6"; 26 min, 38,788 ALMs): NOT MET,
+     -2.048.  clk_mem itself 90 failing endpoints -> 1 (-0.035: oe_mid, ONE
+     register for sixteen dq_oe cells from X36 to X82).  But the fitter
+     moved the whole controller to the CPU's side (X18-27, Y27-49) and
+     dq_w with it: dq_q -> dq_w 6.3 ns of route, -2.03 (four bits), while
+     dq_w -> dq_m had +0.5 and dq_p -> consumers +1.5 to give.  Small ones:
+     p_rcred -> kk_pgo_pn -0.067 (slow -40C; item 4 above gained 0.04),
+     kernel opcode_pc -> p_pc HOLD -0.114 at every corner (clk_k -> clk_sys,
+     skew 0.87), ascal -0.220 (-40C, KNOWN ISSUES 6).
+  7. THE CAPTURE, FIRST REAL READING - THE WALL (scripts/sta_corners_iici;
+     MacIIci.sdc's capture branch had never run: set_multicycle_path has no
+     -to_clock - now by destination clock).  Setup + hold of the capture, which
+     no phase can change:
+        slow 100C -0.11   slow -40C +0.06   fast 100C +0.96   fast -40C +0.93
+     The chip's word is certain at our pin for 6.67 - (5.9 - 2.5) = 3.27 ns
+     and the I/O cell's capture (clock out, data in, their in-corner spread)
+     needs 3.2-3.4 of it.  The edge each corner wants (before A): slow 100C
+     2.14-2.25, slow -40C 2.51-2.57, fast 3.6-4.9: no phase serves the two
+     slow corners, let alone two phases all four.  At 150 MHz the capture
+     cannot be met on paper with the datasheets' tAC 5.4 / tOH 2.5 - it
+     would rest on the training and on chips better than their sheet.  The
+     fabric paths above are the fitter's; this is not.
+  8. THE WAY OUT, FOR DANIEL (not built): 100 MHz, CL2, WITH m_soon.  The
+     note above ruled 100 MHz out ("about 110 ns after P0 - not before the
+     wrapper's edge: 6 clocks") BEFORE compile 5's m_soon moved the take to
+     P0 + 120.  At 10 ns clocks: the request taken at edge 1 (the path
+     failed 6.67 ns by at most 1.6, so about 8.3), ACTIVE 2, READ 5 (tRCD
+     21 ns = 3), the long on m_rdata at 10 or 11 (100-110 ns) for the take
+     at 120: STILL THE DOCUMENTED 5-CLOCK READ.  The capture eye 10 - (6.5 -
+     2.5) = 6.0 ns (the SE/30's is 6.6, met by 1.4-1.9); every fabric path
+     gets 10 ns, the pins' route included; CL2 at 10 ns is legal for both
+     chips (plan 3.2's table: tCK min at CL2 7.5 / 10).  Cost: bursts and
+     the video's eight longs take half as long again in the chip (the late
+     cycles, 0.89 %, would rise).  To be proved on sim/sdram_iici before
+     any compile.
+  STOPPED here for Daniel: 150 MHz was his choice.
+  THE 100 MHz CONTROLLER AND COMPILES 7 TO 9 (2026-11-14, night; Daniel:
+  "Yes, 100 MHz", then "I am stopping now. Please proceed with the bench,
+  and compile when ready"):
+  - rtl/iici_sdram.v AT 100 MHz, CL2 (MODE $0221; tRCD 3, tRC 7, tRFC 7; its
+    header has the timeline): every input from clk_sys taken at the clk_mem
+    edge that IS the next clk_sys edge (20 ns); a fresh request acts on that
+    same edge (m_fresh: ACTIVE in the pins' registers at 2, no pipeline
+    stage - at 10 ns the logic and the route to the pins fit); READ at 5;
+    BOTH captures after our edge, so dq_q goes straight to dq_r on our next
+    rising edge (no falling-edge transfer, no dq_w / dq_m / dq_p); m_soon at
+    9, the long on m_rdata at 11, taken at 12: THE 5-CLOCK READ.  A long is
+    up exactly two clocks and the next may follow at once: a burst's longs
+    at clk_sys edges 6 7 8 9 (150 MHz: 6 7 9 10).
+  - THE PHASES, from compile 6's measured pin paths (the same pins and
+    cells; the windows of item 7 recomputed for 10 ns, tAC 6.0): the chip's
+    clock clk + 2.50 ns; A = clk + 1.667 (slow silicon), B = clk + 0.3125
+    (fast).  Predicted margins 1.23 / 1.13 / 1.40 / 0.99 ns at the four
+    corners; compile 7's STA read 1.230 / 1.133 / 1.404 / 0.985.
+  - rtl/pll_iici (100 MHz and the three phases), MacIIci.sdc (the 20 ns
+    multicycle on the controller's inputs, phi_q excepted; tAC 6.0; both
+    captures on their second edge; the capture branch now valid), the
+    benches at 100 MHz.  sim/sdram_iici PASS 11, sim/mdu PASS 78, sim/iici
+    PASS 12 with the SDRAM and without: 82 late of 11,176 (0.73 %; 150 MHz
+    had 99).
+  - COMPILE 7 (31 min): the capture MET at every corner, the SDRAM's pins
+    +2.4 / +1.3, every hold positive.  NOT MET, -2.402 - not the SDRAM: the
+    11-12 block's "THIN" kernel -> wrapper takes (clk_k -> clk_sys, 20 ns),
+    never hardened and 2.5 ns worse with the kernel placed elsewhere:
+    berr_hold's release -2.40, k_dout -> pb_dout / pb_lanes -1.17; and
+    dq_q -> dq_r -0.34 on two bits (dq_r placed at the core while its
+    consumers had 2.4 ns to spare).
+  - THE TAKES HARDENED (rtl/tg68k/tg68k.v, KCLK only):
+    1. berr_hold's release through a clk_k register (kk_bclr), applied at
+       the phi2 edge; kk_bh, the kernel's copy, releases at the kernel's
+       edge as before; a bus error set at that phi2 edge wins.
+    2. a posted write's data through a clk_k register (kk_dout) into
+       pb_dout / pb_lanes at the phi2 edge after the take (pb_ld), kb_dout
+       taking k_dout itself at the kernel's edge, as it does for every other
+       write.  (Compiles 8-9 took it at the kernel's own phi1 edge instead;
+       the analyzer still times that clk_k -> clk_sys path at 20 ns, and
+       compile 10 missed on it - see below.)
+    3. (after compile 8) p_tail_q: the tail a release leaves, registered at
+       the phi2 edge before it from the credits' next values - the head of
+       p_rcred -> kk_pgo_pt / pn, 19.2 of 20 ns in every compile (-0.107,
+       -0.067, -0.161 at slow -40C).  The first try (item 4 above: the two
+       saturations side by side) is withdrawn: the sums still chained.
+    PROOF: sim/system KCLK=1 BURST=1, six runs (plain, cachewa, burston,
+    berrtest, timetest, tracetest), the kernel's inputs traced on HEAD's
+    wrapper and on this one: IDENTICAL, 0 hunks in each (timetest 431,557
+    lines), all six PASS - done twice, after 1-2 and after 3.
+  - MacIIci.sdc: for the FITTER only, dq_q -> dq_r asked 1 ns tighter
+    (set_max_delay 7.3 under quartus_fit), so dq_r is placed by the pins'
+    side; the analysis keeps the true relationship.
+  - COMPILE 8 (31 min): one path left, p_rcred -> kk_pgo_pn -0.161 at slow
+    -40C (+0.52 at slow 100C) -> item 3.
+  - COMPILE 9 (34 min, 39,211 ALMs): TIMING MET AT EVERY CORNER.  Worst
+    setup +0.223 (ascal, the framework's), worst hold +0.116.  Ours: clk_sys
+    +1.658, clk_mem +0.601 (dq_q -> dq_r), clk_k +1.527, the SDRAM's pins
+    setup +2.447 hold +1.282, dq_r -> consumers +2.4.  The capture (setup /
+    hold, the met one at each corner): slow 100C A 1.230 / 1.394, slow -40C
+    A 1.662 / 1.133, fast 100C B 2.286 / 1.404, fast -40C B 2.681 / 0.985.
+    output_files/MacIIci_compile9_100mhz.rbf (md5 38bc314d...), from an
+    UNCOMMITTED tree, not stamped.
+  - FOUND IN COMPILE 9's REPORT (there since compile 1): "analyzing 2
+    combinational loops as latches" - iici_rbv's port_s[2] and vc[7], reset
+    to a SIGNAL's value (portrait), which Quartus builds as latch loops the
+    analyzer cannot time.  Fixed: reset to constants, the first clk_vid
+    clock loads them (v_init) - the same start one clock later.  sim/rbv
+    PASS 35 x 2.
+  - COMPILE 10 (the RBV fix; latch loops 0): the fitter died first with
+    "Fatal Error: Access Violation" at placement (db + incremental_db
+    removed, rerun).  The rerun: -0.476 on k_dout -> pb_dout / pb_lanes
+    (item 2's phi1-edge take is a 20 ns path to the analyzer, and this
+    placement did not carry it) and ascal -0.015 (the framework's).
+    -> item 2 as it now reads: no path from the kernel reaches a clk_sys
+    register except through a clk_k register.  PROOF repeated on the six
+    runs: kernel-input traces IDENTICAL to HEAD's wrapper, 0 hunks each, six
+    PASS; sim/iici SDRAM=1 PASS 12 (88 late of 11,176).
+  - COMPILE 11 (33 min, 38,934 ALMs): TIMING MET AT EVERY CORNER, no latch
+    loops.  Worst setup +0.150 (ascal's o_line0 -> o_vpix, the framework's,
+    slow 100C; +0.177 at slow -40C), worst hold +0.079 (pll_hdmi_adj, the
+    framework's).  Ours: clk_mem +0.469 (dq_q -> dq_r on A), the SDRAM's
+    pins setup +2.447 hold +1.282, dq_r -> consumers +2.46 / +0.32.  The
+    capture (setup / hold; scripts/sta_corners_iici.tcl): slow 100C A
+    1.230 / 1.394 (B -0.124), slow -40C A 1.662 / 1.133, fast 100C B
+    2.289 / 1.404 (A 3.642 / 0.051), fast -40C B 2.681 / 0.985 (A hold
+    -0.369) - one of A and B met at each corner with >= 0.985 ns, as
+    designed; the training picks.
+    output_files/MacIIci_compile11_100mhz.rbf (md5 5a1fc772...), from an
+    UNCOMMITTED tree, not stamped, NOT on the board.
+  - STATE: nothing committed (iici at 1f7f189, not pushed).  NEXT, on
+    Daniel's go: commit; the board (first IIci boot: the capture training's
+    choice, the RBV's picture, the portrait display).  Before any merge to
+    dev: tg68k.v is shared - the SE/30 and IIcx builds must come out
+    identical (the edits are KCLK-only).  Watch: the framework's ascal path
+    sits at 0 +- 0.2 ns from compile to compile (KNOWN ISSUES 6's class);
+    a miss there alone is the placement's, not this work's.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
