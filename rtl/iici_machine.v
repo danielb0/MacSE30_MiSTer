@@ -144,7 +144,13 @@ module iici_machine #(
   output        reset_out_n,
   output [63:0] dbg_regs,
   output        dbg_overlay,
-  output [15:0] dbg_late
+  output [15:0] dbg_late,
+  output [31:0] dbg_din,               // the bus's data, for the probes' trace
+  output [31:0] dbg_dout,
+  output  [1:0] dbg_siz,
+  output [160:0] dbg_jtp,              // tg68k.v's trace tap: {a beat now, its record}, for the probes' trace
+  input   [3:0] dbg_cfg,               // the probes' experiment switches: {posted writes off, CDIS*, instruction cache off, data cache off}
+  output [63:0] dbg_int                // {the RBV's dbg_reg, 12'b0, IPL*, VIA1 / RBV / SCC IRQ*, VIA1 IFR, IER}: the probes'
 );
 
   // ---------------------------------------------------------- the bus
@@ -157,15 +163,16 @@ module iici_machine #(
     .clk(clk), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
-    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(1'b0), .coff(2'b00), .pace_en(pace_en), .post_en(1'b1),
+    .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(dbg_cfg[2]), .coff(dbg_cfg[1:0]), .pace_en(pace_en), .post_en(!dbg_cfg[3]),
     .reset_out_n(reset_out_n), .halted(halted),
     .cbreq(cbreq), .cback(cback),
     .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_trg(), .dbg_exc(), .dbg_cache(), .dbg_pace(), .dbg_mmuf(),
-    .dbg_rpr(), .dbg_rpk(), .dbg_jtp(), .dbg_jte());
+    .dbg_rpr(), .dbg_rpk(), .dbg_jtp(dbg_jtp), .dbg_jte());
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;
   assign dbg_rw_n = cpu_rw_n;  assign dbg_dsack_n = dsack_n;  assign dbg_berr = berr;
   assign dbg_halted = halted;
+  assign dbg_din = cpu_din;  assign dbg_dout = cpu_dout;  assign dbg_siz = cpu_siz;
 
   // ------------------------------------------------------------ the MDU
   wire        c16_en, e_clk, c3m_en, dev_strobe, dev_rw, scsi_drq, scsi_irq;
@@ -233,7 +240,7 @@ module iici_machine #(
     .cflush_n(), .cenable_n(), .poweroff_n(poweroff_n), .buslk_n(),
     .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(vid_ld), .vid_data(vid_data),
     .ce_pix(ce_pix), .r(vid_r), .g(vid_g), .b(vid_b), .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank),
-    .dbg_underflow());
+    .dbg_underflow(), .dbg_reg(dbg_int[63:32]));
   assign poweroff_req = !poweroff_n;
 
   // ------------------------------------------------------------- VIA1
@@ -261,7 +268,8 @@ module iici_machine #(
     .ca2_in(rtc_1hz), .ca2_out(), .ca2_oe(),
     .cb1_in(adb_sclk), .cb1_out(), .cb1_oe(),
     .cb2_in(adb_dio), .cb2_out(via1_cb2_out), .cb2_oe(via1_cb2_oe),
-    .dbg_ifr(), .dbg_ier());
+    .dbg_ifr(dbg_int[13:7]), .dbg_ier(dbg_int[6:0]));
+  assign dbg_int[31:14] = {12'b0, ipl_n, via1_irq_n, rbv_irq_n, scc_irq_n};
 
   // ------------------------------------------------------------- ADB
   wire xcvr_pull, kbd_pull, mouse_pull;
@@ -272,14 +280,15 @@ module iici_machine #(
     .st0(via1_pb_pin[4]), .st1(via1_pb_pin[5]), .int_n(adb_int_n), .sclk(adb_sclk),
     .via_cb2_out(via1_cb2_out), .via_cb2_oe(via1_cb2_oe), .dio(adb_dio),
     .line(adb_line), .pull(xcvr_pull), .dbg());
-  se30_adb_kbd kbd (
+  // the devices and the clock chip count clk itself: 50 MHz here (the SE/30's is 31.3344)
+  se30_adb_kbd #(.CLK_KHZ(16'd50000)) kbd (
     .clk(clk), .reset(1'b0), .ps2_key(ps2_key), .line(adb_line), .pull(kbd_pull), .dbg());
-  se30_adb_mouse mouse (
+  se30_adb_mouse #(.CLK_KHZ(16'd50000)) mouse (
     .clk(clk), .reset(1'b0), .ps2_mouse(ps2_mouse), .line(adb_line), .pull(mouse_pull), .dbg());
 
   // ------------------------------------------------------------- RTC
   assign rtc_d = rtc_d_oe ? rtc_d_out : 1'b1;
-  se30_rtc rtc (
+  se30_rtc #(.CLK_HZ(50_000_000)) rtc (
     .clk(clk), .timestamp(timestamp),
     .cs_n(via1_pb_pin[2]), .sck(via1_pb_pin[1]), .d_in(via1_pb_pin[0]),
     .d_out(rtc_d_out), .d_oe(rtc_d_oe), .one_hz(rtc_1hz),

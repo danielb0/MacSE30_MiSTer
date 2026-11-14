@@ -456,9 +456,162 @@ iici_machine machine
 	.scsi_sd_buff_wr(sd_buff_wr),
 	.scc_port_in(6'b110_110), .scc_port_out(),
 	.audio_l(asc_audio_l), .audio_r(asc_audio_r),
-	.dbg_addr(), .dbg_fc(), .dbg_as_n(), .dbg_rw_n(), .dbg_dsack_n(), .dbg_berr(), .dbg_halted(), .reset_out_n(),
-	.dbg_regs(), .dbg_overlay(), .dbg_late()
+	.dbg_addr(d_addr), .dbg_fc(d_fc), .dbg_as_n(d_as_n), .dbg_rw_n(d_rw_n), .dbg_dsack_n(d_dsack_n), .dbg_berr(d_berr),
+	.dbg_halted(d_halted), .reset_out_n(),
+	.dbg_regs(d_regs), .dbg_overlay(d_overlay), .dbg_late(d_late), .dbg_int(d_int), .dbg_cfg(d_cfg),
+	.dbg_din(d_din), .dbg_dout(d_dout), .dbg_siz(d_siz), .dbg_jtp()
 );
+
+///////////////////////   PROBES   ///////////////////////////////
+// The bring-up probes over JTAG (USE_DBG_PROBES in MacIIci.qsf; read with
+// quartus_stp -t scripts/read_probes_iici.tcl): where the CPU is and what
+// the interrupt registers hold, live, with nothing to trigger.
+//   PBLD  the build tag (rtl/build_tag.v)
+//   PIFA  the last instruction-fetch address   PLAS  the last bus address
+//   PACT  the bus-cycle count
+//   PSTA  {FC, R/W*, DSACK*, bus error seen, halted, SDRAM ready, ROM
+//          loaded, reset released, cap_sel, cap_ok, overlay, portrait,
+//          bus-error count[15:0]}
+//   PIRQ  the interrupt acknowledges: {level 2 [15:0], level 1 [15:0]}
+//   PREG  {D6, D7}: the start-up tests' failure code and flags
+//   PINT  the machine's dbg_int: {RBV slots, 0, slot IER, 0, IFR, 0, IER,
+//          12'b0, IPL*, VIA1 / RBV / SCC IRQ*, VIA1 IFR, VIA1 IER}
+//   PLAT  the memory port's late count
+//   PTRC / PTRS / PTRD  the bus trace (scripts/read_trace_iici.tcl): a ring
+//          of 8192 bus cycles {bus error, FC, R/W*, SIZ, 0, address, data}
+//          written as each cycle ends; the data is the bus's last value
+//          with AS* low (the acknowledge runs a clock ahead of the data).
+//          PTRC, source {kind[1:0], post[13:0], watch[31:0]}: kind 1 a
+//          program fetch of watch's long, 2 any cycle at watch's long, 3 a
+//          bus error, 0 none; post cycles after the trigger the ring
+//          freezes.  Writing PTRC clears and re-arms; a reset of the Mac
+//          does not.  The bus carries only what the caches miss: PCFG 4
+//          for every access.  (A trace of the kernel's own beats, 144 bits
+//          wide on clk_k, was tried: its router did not finish in 30
+//          minutes - the IIcx's JTRACE congestion again.)
+//   PCFG  source: the experiment switches {posted writes off, CDIS*,
+//          instruction cache off, data cache off} (set, then reset the Mac)
+//   PBE0-2  the last three bus errors, newest in PBE0: {FC, R/W*, the
+//          cycle's address, the last instruction-fetch address}
+
+wire [31:0] d_addr;
+wire  [2:0] d_fc;
+wire  [1:0] d_dsack_n;
+wire        d_as_n, d_rw_n, d_berr, d_halted, d_overlay;
+wire [63:0] d_regs, d_int;
+wire [15:0] d_late;
+wire  [3:0] d_cfg;
+wire [31:0] d_din, d_dout;
+wire  [1:0] d_siz;
+`ifndef USE_DBG_PROBES
+assign d_cfg = 4'd0;
+`endif
+`ifdef USE_DBG_PROBES
+wire [31:0] build_tag_w;
+build_tag build_tag_inst (.tag(build_tag_w));
+reg         p_as_q = 1, p_berr_q = 0, p_berr_seen = 0;
+reg  [31:0] pifa = 0, plas = 0, pact = 0, psta = 0, pirq = 0;
+reg  [15:0] p_berrs = 0, plat = 0;
+reg  [63:0] preg = 0, pint = 0;
+reg  [67:0] pbe0 = 0, pbe1 = 0, pbe2 = 0;
+always @(posedge clk_sys) begin
+	p_as_q <= d_as_n;
+	p_berr_q <= d_berr;
+	if (!machine_reset_n) begin pact <= 0; p_berrs <= 0; p_berr_seen <= 0; pirq <= 0; pbe0 <= 0; pbe1 <= 0; pbe2 <= 0; end
+	else begin
+		if (p_as_q && !d_as_n) begin
+			plas <= d_addr;
+			pact <= pact + 1'd1;
+			if (d_fc[1:0] == 2'd2) pifa <= d_addr;
+			if (d_fc == 3'd7 && d_addr[19:16] == 4'hF && d_addr[3:1] == 3'd1) pirq[15:0]  <= pirq[15:0]  + 1'd1;
+			if (d_fc == 3'd7 && d_addr[19:16] == 4'hF && d_addr[3:1] == 3'd2) pirq[31:16] <= pirq[31:16] + 1'd1;
+		end
+		if (d_berr && !p_berr_q) begin
+			p_berrs <= p_berrs + 1'd1; p_berr_seen <= 1;
+			pbe0 <= {d_fc, d_rw_n, d_addr, pifa}; pbe1 <= pbe0; pbe2 <= pbe1;
+		end
+	end
+	psta <= {d_fc, d_rw_n, d_dsack_n, p_berr_seen, d_halted, sdram_ready, rom_loaded, machine_reset_n, cap_sel, cap_ok,
+	         d_overlay, portrait, p_berrs};
+	preg <= d_regs;
+	pint <= d_int;
+	plat <= d_late;
+end
+altsource_probe #(.instance_id("PBLD"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pbld (.probe(build_tag_w), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PIFA"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pifa (.probe(pifa), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PLAS"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_plas (.probe(plas), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PACT"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pact (.probe(pact), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PSTA"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_psta (.probe(psta), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PIRQ"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pirq (.probe(pirq), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PREG"), .probe_width(64), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_preg (.probe(preg), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PINT"), .probe_width(64), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pint (.probe(pint), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PLAT"), .probe_width(16), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_plat (.probe(plat), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PCFG"), .probe_width(4), .source_width(4), .sld_auto_instance_index("YES"),
+	.source_initial_value("0"))
+	cp_pcfg (.probe(d_cfg), .source(d_cfg), .source_clk(clk_sys), .source_ena(1'b1));
+// the bus trace: only with IICI_BUS_TRACE (MacIIci.qsf) - at 95 % full the router could not pad every
+// clk_sys <-> clk_k hold path with it in (build probes6: din_r <-> kk_din 0.2 to 0.4 ns short)
+`ifdef IICI_BUS_TRACE
+// the bus trace
+wire [47:0] tr_src;
+wire [12:0] tr_raddr;
+reg  [47:0] tr_src_q = 0;
+(* ramstyle = "M10K" *) reg [71:0] tr_mem [0:8191];
+reg  [71:0] tr_rd = 0;
+reg  [31:0] tr_data = 0, tr_n = 0;
+reg  [12:0] tr_wp = 0, tr_tp = 0;
+reg  [13:0] tr_left = 0;
+reg         tr_full = 0, tr_trig = 0, tr_frozen = 0, tr_berr = 0;
+reg   [2:0] tr_fc = 0;
+reg   [1:0] tr_siz = 0;
+reg         tr_rw = 0;
+wire        tr_end   = !p_as_q && d_as_n;
+wire        tr_same  = (plas[31:2] == tr_src[31:2]);
+wire        tr_match = (tr_src[47:46] == 2'd1) ? (tr_same && tr_fc[1:0] == 2'd2) :
+                       (tr_src[47:46] == 2'd2) ? tr_same :
+                       (tr_src[47:46] == 2'd3) ? tr_berr : 1'b0;
+always @(posedge clk_sys) begin
+	tr_src_q <= tr_src;
+	tr_rd <= tr_mem[tr_raddr];
+	if (p_as_q && !d_as_n) begin tr_fc <= d_fc; tr_rw <= d_rw_n; tr_siz <= d_siz; tr_berr <= 0; end
+	if (!d_as_n && d_berr) tr_berr <= 1;
+	if (!d_as_n) tr_data <= d_rw_n ? d_din : d_dout;      // every clock of the cycle: the last is the data taken
+	if (tr_src != tr_src_q) begin
+		tr_wp <= 0; tr_tp <= 0; tr_full <= 0; tr_trig <= 0; tr_frozen <= 0; tr_n <= 0; tr_left <= 0;
+	end else if (tr_end && !tr_frozen) begin
+		tr_mem[tr_wp] <= {tr_berr, tr_fc, tr_rw, tr_siz, 1'b0, plas, tr_data};
+		tr_wp <= tr_wp + 1'd1;
+		tr_n <= tr_n + 1'd1;
+		if (&tr_wp) tr_full <= 1;
+		if (!tr_trig && tr_match) begin tr_trig <= 1; tr_tp <= tr_wp; tr_left <= tr_src[45:32]; if (tr_src[45:32] == 0) tr_frozen <= 1; end
+		else if (tr_trig) begin if (tr_left <= 14'd1) tr_frozen <= 1; else tr_left <= tr_left - 1'd1; end
+	end
+end
+altsource_probe #(.instance_id("PTRC"), .probe_width(48), .source_width(48), .sld_auto_instance_index("YES"),
+	.source_initial_value("0"))
+	cp_ptrc (.probe(tr_src), .source(tr_src), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PTRS"), .probe_width(61), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_ptrs (.probe({tr_frozen, tr_trig, tr_full, tr_wp, tr_tp, tr_n}), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PTRD"), .probe_width(72), .source_width(13), .sld_auto_instance_index("YES"),
+	.source_initial_value("0"))
+	cp_ptrd (.probe(tr_rd), .source(tr_raddr), .source_clk(clk_sys), .source_ena(1'b1));
+`endif
+altsource_probe #(.instance_id("PBE0"), .probe_width(68), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pbe0 (.probe(pbe0), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PBE1"), .probe_width(68), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pbe1 (.probe(pbe1), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PBE2"), .probe_width(68), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pbe2 (.probe(pbe2), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+`endif
 
 ///////////////////////   VIDEO   ////////////////////////////////
 // The RBV's picture on clk_vid.  Aspect: the 640 x 480 monitor 4:3; the

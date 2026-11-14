@@ -67,6 +67,16 @@ set_clock_groups -exclusive \
 # places dq_r by the pins' side; the analysis keeps the true relationship.
 if {[info exists ::TimeQuestInfo(nameofexecutable)] && $::TimeQuestInfo(nameofexecutable) eq "quartus_fit"} {
   set_max_delay -from [get_keepers {*|iici_sdram:sdram|dq_q[*]}] -to [get_keepers {*|iici_sdram:sdram|dq_r[*]}] 7.3
+  # clk_sys <-> clk_k: the wrapper's kk_* registers take clk_sys registers, and are taken by them, on a
+  # common edge, some with no logic between (din_r <-> kk_din, cyc_fc -> kk_ffc): their hold is the two clock
+  # trees' skew, and a full device left some short (probes5: 4-36 ps; probes6: 0.2-0.4 ns).  For the FITTER
+  # only, 0.3 ns of minimum delay on the crossings into and out of kk_* - not between the clocks as a whole.
+  set CK_SYS [get_clocks {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
+  set_min_delay -from $CK_SYS -to [get_registers {*|tg68k:cpu|kk_*}] 0.3
+  set_min_delay -from [get_registers {*|tg68k:cpu|kk_*}] -to $CK_SYS 0.3
+  # ... and the same for the SDRAM controller's request samplers (x*_ registers, clk_mem, taking clk_sys
+  # registers on a shared edge): build probes7 left mdu v_base[14] -> xv_addr[14] 0.18-0.35 ns short
+  set_min_delay -from $CK_SYS -to [get_registers {*|iici_sdram:sdram|x*}] 0.3
 }
 
 set SDRAM_OUT [get_ports {SDRAM_A[*] SDRAM_BA[*] SDRAM_DQ[*] SDRAM_DQMH SDRAM_DQML SDRAM_nCAS SDRAM_nRAS SDRAM_nWE SDRAM_nCS SDRAM_CKE}]
