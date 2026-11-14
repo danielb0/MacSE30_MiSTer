@@ -22965,6 +22965,27 @@ Daniel - add to it, move items out when fixed).**
     uxterm's `ps -xa` shows X at 4:02 of CPU time; xterm's own time grew
     0:59.46 -> 1:00.10 across the one ps.
 
+65. **OPEN (IIci only; Daniel 2026-11-14: "put it on the list") - THE KCLK
+WRAPPER'S clk_sys <-> clk_k CROSSINGS ARE HELD SAFE BY THE FITTER, NOT BY THE
+DESIGN.** In rtl/tg68k/tg68k.v's KCLK mode the kk_* registers (clk_k, 25 MHz)
+take clk_sys registers, and are taken by them, on an edge the two clocks
+share, several with no logic between (din_r <-> kk_din, cyc_fc -> kk_ffc).
+Such a hop's hold margin is the skew between two clock trees, so the router
+has to pad it with wire. With the device 95 % full it could not: build
+probes5 left cyc_fc[0] -> kk_ffc[0] 4-36 ps short, build probes6 left
+din_r <-> kk_din 0.2-0.425 ns short at every corner (and routed for 24
+minutes where a clean build takes 13). TODAY's MEASURE: MacIIci.sdc asks the
+fitter alone for 0.3 ns of minimum delay into and out of kk_*; the analysis
+keeps the true figures, so a miss still shows. THE REAL FIX, BEFORE A
+RELEASE: no register-to-register hop on a shared edge - take each crossing
+on the edge half a clk_k away (the wrapper already has phi1 / phi2), or run
+the kernel on clk_sys with a clock enable and multicycle constraints in
+place of a second clock tree. Either is a wrapper change: the kernel-input
+trace equality (sim/system KCLK=1, ktrace_cmp.py) is its proof, and the
+SE/30 and IIcx builds must come out identical. Until then: every IIci build
+is read for hold at every corner (scripts/sta_corners_iici.tcl), and a
+build that routes long is suspect before its report is read.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -29023,6 +29044,325 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     identical (the edits are KCLK-only).  Watch: the framework's ascal path
     sits at 0 +- 0.2 ns from compile to compile (KNOWN ISSUES 6's class);
     a miss there alone is the placement's, not this work's.
+  - THE IIci's RELEASE: ITS OWN MiSTer-devel REPO (Daniel 2026-11-14).
+    Its ROM is boot0.rom (512 KB) in games/MACIICI, with the shared
+    boot2.rom.  This repo's releases/ cannot carry it: the distribution
+    copies every undated releases/ file to every home folder of the repo,
+    so the SE/30's 256 KB boot0.rom would land in games/MACIICI and load as
+    the IIci's ROM; Main sends only boot0-3.rom (boot.rom only when no
+    boot0.rom loaded) and all four names are taken here.  So: development
+    stays in this repo (branch iici); the public release tree is a separate
+    repo whose releases/ holds MacIIci_<date>.rbf, boot0.rom (the IIci's),
+    boot2.rom, and its own row in the wiki's Cores list (home MACIICI).
+    The core needs no change.  Not created yet.
+
+  THE FIRST BOARD BOOT (2026-11-14, Daniel at the board; compile 11's rbf):
+  - SEEN: yellow for a second, black for a while, the chime, two clicks
+    from the speaker, then a plain grey screen (no rounded corners), no
+    pointer, nothing more.  Files: games/MACIICI/boot0.rom (the 512 KB
+    IIci ROM) and boot2.rom (the ADB firmware, the SE/30's file); no third
+    ROM, no PRAM image needed.
+  - THE BENCH COULD NOT REACH IT: sim/iici stops in the RAM tests' fill,
+    ~55 bus cycles a second; the stop is millions of cycles on.
+  - THE ROM's ORDER (MAME maciici, headless, the software's sequence only:
+    C:\temp\Mac\mame, roms/maciici split from the 368CADFE image; scripts
+    in the session scratchpad): the chime at 0.16 s, BEFORE the RAM tests
+    (1.0-4.2 s); then SCC, VIA timers, SCSI, SWIM, RBV tests; 5.30 s the
+    start-up proper; 5.37 s the video driver (in RAM, from the ROM's
+    sRsrc) writes $12 <- $40; 5.90 s $12 <- $C0; then its wait-for-VBL
+    twice (5.906, 5.914 s); the ROM enables the slot interrupt in $13
+    ($82) only at 7.70 s.
+  - PROBES IN THE IIci TOP (MacIIci.sv "PROBES", USE_DBG_PROBES in
+    MacIIci.qsf, scripts/read_probes_iici.tcl; iici_machine dbg_int,
+    iici_rbv dbg_reg): PBLD PIFA PLAS PACT PSTA PIRQ PREG PINT PLAT.
+    Build probes1 (36 min, 39,213 ALMs): ours met; ascal -0.231 at slow
+    -40C, -0.052 at slow 100C (the framework's, KNOWN ISSUES 6's class).
+  - THE BOARD's ANSWER: the CPU alive, ~1.25 M bus cycles a second, all
+    reads of $50026002 (the RBV's $02) from code in RAM at $55570, no
+    fetches (the loop runs from the cache); $02 = $BF (bit 6 low: the
+    video's bit held), slot IER $7F, IER $08, IFR $02, level-2
+    acknowledges 0, level-1 237, IPL* 6 with the CPU masked; D6 0,
+    D7 $00030005; 23 bus errors; the capture training chose A (A and B
+    both clean); 571 late memory cycles.
+  - THE CAUSE: the driver's wait-for-VBL (ROM driver, in RAM at $56C6 in
+    MAME's layout): ORI #$700,SR; loop while $02 bit 6 is 0; loop while it
+    is 1; restore SR.  It runs twice in a row at the driver's open, before
+    the ROM has enabled the slot interrupt in $13 - so no handler can have
+    written $12 between them.  Our RBV held bit 6 low from the first
+    vertical sync until $12 bit 6 was written 0 (the SE/30's UI6 latch,
+    "by the documented analogy" in THE RBV): the second wait's first loop
+    never ends.  The Guide is silent on how the bit is held (ch. 4's VIA2
+    tables give only the slot interrupt's OR).
+  - THE FIX (rtl/iici_rbv.v): the latch is also released at the end of
+    vertical blanking (vblk_v through two flip-flops, as vertical sync
+    comes).  $12 <- $40 still clears it (the handler's write before the
+    VBL tasks), so the handler's $12 <- $C0 cannot re-interrupt in the same
+    blanking.  READING: when the real bit returns high (the end of sync or
+    of blanking) is documented nowhere we have; the ROM needs only that it
+    does.  sim/rbv: three new checks (the driver's two waits in a row; bit
+    6 high after blanking with $12 on) - 38 x 2 PASS; on HEAD's RBV the
+    same bench FAILS 2 (planted).  sim/iici PASS 12.
+  - BUILD probes2 (the fix + the probes; 36 min, 39,413 ALMs): TIMING MET
+    AT EVERY CORNER, worst setup +0.212, worst hold +0.073, the capture
+    >= 0.985, no latch loops.  output_files/MacIIci_probes2.rbf (md5
+    4628f232...), from an UNCOMMITTED tree, not stamped.
+  - ON THE BOARD (probes2): THE DISK WITH THE QUESTION MARK - the whole
+    start-up runs.  Probes there: level-2 acknowledges 67 a second (the
+    video's interrupt), level-1 ~142 a second, IER $02, no pending flags,
+    the idle loop at $4080786C.  The pointer is drawn but does not move.
+  - THE POINTER: the ADB keyboard and mouse (se30_adb_dev.v) and the clock
+    chip (se30_rtc.v) count clk itself, with the SE/30's 31.3344 MHz as
+    their parameters' default (CLK_KHZ 31334, CLK_HZ 31,334,400), and
+    iici_machine.v instantiated them without it at 50 MHz: every ADB time
+    1.6 times short (the devices' cells, their response time, their read
+    of the transceiver's bits), the clock's second 0.63 s.  Fixed:
+    CLK_KHZ 50000 on both devices, CLK_HZ 50,000,000 on the clock.
+    Everything else in the machine runs on c16_en or its own parameter
+    (the MDU's C16_NUM / C16_DEN, the NuChip's 1/5); rtl/scsi.v's CD audio
+    engine, the one other raw-clock count, is not in this repository.
+    sim/iici PASS 12 (it does not reach the ADB: the board is the test).
+  - DISKS ON probes2 (Daniel): the work disk on Mount SCSI-0 (the one the
+    SE/30 and the IIcx boot) - nothing, the question mark stays; a floppy
+    (System 6.0.8 / the 800K Disk Tools, which is 6.0.7 - both within the
+    IIci's 6.0.4+) starts and ends in a Sad Mac 0000000F 00000001 (a bus
+    error).  At the question mark the ROM sits in its selection's wait for
+    BSY ($4080786A: the IDs with no disk time out), so the probes cannot
+    say whether ID 0 answered; bus errors there 23 with no disk, 21 with
+    the SCSI disk mounted.
+  - BUILD probes3 (the ADB / clock fix + PBE0-2, the last three bus
+    errors {FC, R/W*, address, last fetch}; 36 min, 39,416 ALMs): ours
+    met, ascal -0.137 at slow -40C.  ON THE BOARD: the pointer moves (the
+    ADB fix works for the mouse); the keyboard not yet tried.
+  - THE SAD MAC (probes3): the fatal bus error is a WRITE to $500FFFFE,
+    last fetch $4080F030 (the two after it are the Sad Mac's own
+    $50021C00 probes).  $4080F02A-2E, the File Manager's queue start:
+    MOVEA.L PMSPPtr($386),A6 / CLR.W -2(A6) - so PMSPPtr = 0, the write at
+    logical $FFFFFE, which the 24-bit map sends to $500FFFFE.  PMSPPtr is
+    set by the ROM's InitFS ($4080F368): it clears $340-$3E1, then makes
+    five _NewPtrSysClear calls, leaving at the first failure ($4080F452)
+    with PMSPPtr still 0.  MAME, the same floppy (software's sequence
+    only): InitFS at 26.8 s sets PMSPPtr $7C22, SysZone $2000, MemTop
+    $800000; no write to $500FFxxx ever; logical 0 is physical $50000
+    (the screen buffer first in bank A).  So on the board a system-heap
+    allocation FAILED in InitFS: wrong memory contents or a wrong
+    computation, not a missing device.  The SCSI boot may die the same
+    way more quietly (not shown).
+  - THE EXPERIMENT (build probes4, compiling): PCFG, a JTAG source into
+    iici_machine's dbg_cfg: {posted writes off, CDIS*, instruction cache
+    off, data cache off} (scripts/read_probes_iici.tcl cfg <hex>, then
+    the OSD's reset).  The floppy boot with each: which switch removes the
+    Sad Mac names the side - the write pending buffer (this session's
+    kk_dout / pb_ld take), the caches and their bursts (the IIci's new
+    path), or neither (memory, the MDU).
+  - probes4 (39,549 ALMs; ours met, ascal -0.188 at slow -40C) ON THE
+    BOARD: the Sad Mac is the SAME with no switch, with posted writes off
+    (PCFG 8) and with the caches off (PCFG 4): the same write to
+    $500FFFFE from $4080F030, 24 bus errors each time.  So NOT the write
+    pending buffer, NOT the caches or their bursts; deterministic.  MAME
+    boots the same floppy with 16 MB and with 4 MB from an empty PRAM
+    (PMSPPtr $7C22 both), so not the RAM size or the PRAM either.
+  - THE BUS TRACE (build probes5, compiling): PTRC / PTRS / PTRD in
+    MacIIci.sv - a ring of 8192 bus cycles {bus error, FC, R/W*, SIZ,
+    address, data} on clk_sys, frozen `post` cycles after a JTAG-set
+    trigger (a fetch of a long, any cycle at a long, a bus error);
+    scripts/read_trace_iici.tcl arm / status / dump.  With PCFG 4 every
+    fetch and data access is on the bus.  First use: arm fetch 4080F368
+    (InitFS), the floppy boot, and read which _NewPtrSysClear fails and
+    on what.
+
+  APPLE'S SPECIFICATIONS OF THE RBV AND THE MDU (Daniel, 2026-11-14;
+  C:\temp\Mac\Docs\IIci: CI_RBV.pdf = drawing 343S1019-A "IC, RAM-BASED
+  VIDEO (RBV), 128-PIN QFP", 31 sheets of 49; CI_MDU.pdf = 343S1018-A, 57
+  of 58; Apple_Blue_Book_vol2_1989.pdf, 706 pages, NOT YET READ).  Scans:
+  rendered with PyMuPDF and read as images.  They are the documentation
+  the RBV and the MDU were built without; every READING in both is now
+  either confirmed or replaced.
+  - THE RBV (S 6.2), AGAINST OURS:
+    $02 bit 6 "normally follows the level of the internal video's vertical
+    blanking signal" - a level, no latch (the first board bug; this
+    morning's release-at-blanking's-end was still a guess).  Bit 7 reads 0
+    (ours 1).  With VID.3ST it follows the SLOT0.IRQ* pin.
+    $03: the five flags are EDGE-SET latches (ANY.SLOT*, EXP.IRQ*,
+    SND.IRQ* falling; SCSI.DRQ, SCSI.IRQ rising), set whether enabled or
+    not, cleared by writing a 1 with bit 7 a 1 (bit 7 a 0: no effect) -
+    ours followed the lines and ignored writes.  ANY.SLOT* is the OR of the
+    slot lines enabled in $12.  The ROM's dispatcher ($40806EAA) does
+    write $82 there first.
+    $01 always reads 0; $10 bit 2 always 0, bit 7 VID.3ST; $12 reads bit 7
+    as 0, $13 as 1 with bits 5-6 0; reset sets the five data-B outputs to
+    1 and clears flags and enables.  A4, A1, A0 decode the eight
+    registers (as built).  The interrupt levels, the clocks and the
+    monitor types as built.  The driver's handler disables bit 6 in $12
+    and a separate routine re-enables it ~2 ms later - past the blanking,
+    as a level needs.
+    REBUILT to S: rtl/iici_rbv.v's registers and flags; sim/rbv 47 x 2
+    PASS (the flags' edges and clears, the level, the driver's two waits).
+    Its video timing sheets (20-31) are not yet compared.
+  - THE MDU, AGAINST OURS:
+    S Figure 8: $50020000-$50021FFF (the new RTC's window) gets DSACK0*
+    from the MDU - ours bus-errored there, the ROM's $50F21C00 probe.  The
+    ROM's decoder test ($40803082) passes either way (read from its code),
+    so not the Sad Mac.
+    S 6.1.2: two timers on AS*, on C16M: 16 us for $00000000-$5FFFFFFF and
+    $F0000000-$F0FFFFFF, 654 us for the rest - ours was the IIcx GLUE's
+    rule.
+    S Figure 7 / p.20: bank A $00000000-$03FFFFFF, bank B $04000000-
+    $07FFFFFF, $08000000-$3FFFFFFF "not used by the MDU", a bus error -
+    ours ignored A27-A29 and aliased the banks there.  The ROM $40000000-
+    $41FFFFFF; the overlay as built.  Table 8's address multiplexing gives
+    the aliasing by SIMM size as built; the cycle lengths (5, 2-2-2, 4) as
+    built; the screen buffer at the bottom of bank A.
+    REBUILT to S: rtl/iici_mdu.v's decode and timers; sim/mdu PASS 83;
+    sim/iici: ONE bus error now ($58000000), the rest as before.
+  - NONE of these explains InitFS's failed allocation by itself; the
+    trace stays the next step.  The spec changes are NOT in build probes5.
+
+  THE SAD MAC FOUND: THE SDRAM's DISK PORT READ EACH WORD TWICE (2026-11-14).
+  - BUILD probes5 (the bus-cycle ring; 39,916 ALMs): ours met on setup;
+    ascal -0.220 at slow -40C; ONE hold miss of ours, cyc_fc[0] ->
+    kk_ffc[0] (clk_sys -> clk_k), -0.004 / -0.009 / -0.036 at three
+    corners - MacIIci.sdc now asks the FITTER for 0.15 ns more hold between
+    the two clocks (set_clock_uncertainty -hold -add under quartus_fit).
+    The Sad Mac on it is the same (same write, same fetch), so the trace
+    was trusted.  Its read-data column is a cycle stale (the bus sampled
+    while DSACK is asserted: the acknowledge runs a clock ahead of the
+    data); addresses and write data are right.
+  - THE TRACES (Disk Tools.img, a raw 800K image whose boot blocks are
+    right: bbCntFCBs $000A; it boots the IIcx core), caches off:
+    1. trigger at InitFS's exit: the SECOND _NewPtrSysClear fails
+       ($4080F3B4 -> BNE -> $4080F452) after a heap walk of > 8,000 cycles.
+    2. at the first's return: the block's size word written is $8702
+       (MAME: $0EB2, D0 = $000A at InitFS's entry, called from $40801D46
+       with MOVE.W $7A(A6),D0 - the boot blocks' bbCntFCBs).
+    3. / 4. at $40801D3C-44: SysZone's bkLim $EFDC just before (sane); the
+       ROM reads the boot blocks at A6 = physical $450E6C; the long at
+       A6+$78 came back "ile " - the name's tail - so the count read was
+       $6520.
+    5. armed at the question mark on the first access to $450E70, then the
+       floppy mounted: the Sony driver's GCR loop ($4086E31E-78) writes the
+       buffer byte by byte at the right addresses, but the bytes are 4C 4B
+       4C 4B 00 86 00 86 00 00 00 00 06 53 79 73 74 65 20 20 ... for the
+       disk's 4C 4B 60 00 00 86 00 17 00 00 06 53 79 73 74 65 6D 20: a
+       word is the one before it, in places.  The nibbles the SWIM gave
+       (B4 AE A6 A6 FB ...) against the sector's own (B4 AE A6 E7 F6 ...,
+       computed from the image): the DISK STREAM already encodes the wrong
+       words.  So not the CPU, the SWIM, the driver or the ROM: the image
+       as the encoder reads it from the SDRAM.
+  - THE BUG (rtl/iici_sdram.v, S_DK): the disk port's read went back to
+    S_IDLE on its acknowledge's own edge.  The other requests are chosen a
+    clock ahead (o_kind), so in that first S_IDLE clock o_kind still said
+    O_DK - and at 100 MHz the chip is already free then (ACT_BUSY 8 is the
+    read's whole length; at 150 MHz the busy count outlasted it).  The
+    same read was issued AGAIN; its late second acknowledge answered the
+    requester's NEXT word with this one.  The port was tied off in
+    sim/sdram_iici: never benched.
+  - THE FIX: the read stays in S_DK one clock past its acknowledge
+    (f_rdq1), so o_kind is chosen again with the acknowledge set.  The
+    write (acknowledge at f_sR, idle at f_sR1), the download and the video
+    already had that clock; refresh leaves the chip busy.
+    sim/sdram_iici: the disk port driven as se30_flp_loader / encoder
+    drive it - 64 words written and read back in turn, then read among the
+    machine's reads and video bursts.  Before the fix: word n reads word
+    n-1 (FAIL 2).  After: PASS 13.
+  - MISLEADS ON THE WAY (kept so they are not walked again): posted writes
+    and the caches (PCFG 8, 4: the same Sad Mac); the RAM size and the PRAM
+    (MAME boots it at 4 and 16 MB from an empty PRAM); a wrong FCB count of
+    1,312 worked back from two block sizes (the count is $6520).
+  - THE SCSI DISK that does not boot is NOT this port (the SCSI targets
+    take their sectors from the framework's buffer): still open.
+  - BUILD probes6, THREE STARTS (2 h lost):
+    1. with the trace as the KERNEL's beats (tg68k.v's dbg_jtp on clk_k,
+       8192 x 144) and a fitter-only hold margin between clk_sys and clk_k
+       as CLOCKS: the router was still running after 30 min (probes5's
+       took 13) - stopped.
+    2. the margin narrowed to the one hop (set_min_delay cyc_fc -> kk_ffc
+       0.15 under quartus_fit): the router again past 20 min - stopped.
+       The "large amount of routing delay for hold" message (188005, 5-6
+       thousand ns) is in EVERY IIci build, the finished ones too: it was
+       never the sign of the stall.
+    3. the kernel trace taken out, the bus-cycle ring back with its data
+       sampled on every clock AS* is low (the last is the one taken):
+       compiling.  The kernel tap is ~160 signals out of the CPU - the
+       IIcx's JTRACE congestion (SE30_JTRACE_NARROW) again, at 95 % full.
+       dbg_jtp stays a port of iici_machine, unconnected.
+    In it: the disk-port fix, the RBV and the MDU to Apple's
+    specifications, the one-hop minimum delay.
+    RESULT of start 3 (probes6): routed 24 min, ours met on setup
+    (+0.121), HOLD -0.2 to -0.425 at every corner on three hops, din_r <->
+    kk_din (clk_sys <-> clk_k) - not for the board (kept as
+    MacIIci_probes6_HOLDFAIL_do_not_use.rbf).  The MDU's wider decode was
+    not it.  Daniel: long compiles seldom pass timing; take probes out.
+  - BUILD probes7: the bus trace out (IICI_BUS_TRACE, off), the fitter's
+    0.3 ns minimum delay on the crossings into and out of tg68k's kk_*
+    (KNOWN ISSUES 65).  Routed in 6 MIN.  kk_* met; one hold miss left,
+    mdu v_base[14] -> sdram xv_addr[14] (clk_sys -> clk_mem), -0.18 to
+    -0.35; ascal -0.184 at slow -40C.  39,768 ALMs.  Given to Daniel as a
+    test build (md5 06db11ae...).
+  - BUILD probes8: the same margin on clk_sys -> the SDRAM's x* request
+    samplers.  Routed in 6 min.  TIMING MET AT EVERY CORNER: worst setup
+    +0.013 (slow 100C), worst hold +0.078; the capture >= 0.985; no latch
+    loops; 39,768 ALMs.  output_files/MacIIci_probes8.rbf (md5 below),
+    UNCOMMITTED tree, not stamped.  THE ONE FOR THE BOARD: the disk-port
+    fix, the RBV and the MDU to S, the small probes, no trace.
+  - ON THE BOARD (probes8, Daniel 2026-11-14 evening): THE IIci BOOTS
+    Disk Tools.img (System 6.0.7) FROM THE FLOPPY TO THE DESKTOP.  The
+    disk-port fix is confirmed; the RBV and the MDU as Apple specifies
+    them carry a full boot.  NEXT (Daniel's order): the keyboard; a reboot
+    with the work disk on SCSI-0; if that fails, the floppy boot with the
+    SCSI disk mounted - does it appear on the desktop.
+
+  THE SCSI DISK: "THIS DISK IS UNREADABLE" - THE MDU ACKNOWLEDGED A CYCLE
+  FROM THE LAST ONE'S STATE (2026-11-14, evening).
+  - SEEN (probes8, the floppy's System 6.0.7, the work disk on SCSI-0):
+    "This disk is unreadable"; Disk First Aid: "--Disk With Bad Name--
+    (SCSI ID 0 (v7.3.5))" - the driver's version, so the ROM read the
+    driver off the disk; TattleTech: Mac IIci, 25 MHz, both caches, 68882,
+    16 MB, an Extended ADB keyboard (Cmd-A works), SCSI device 0
+    connected, capacity and INQUIRY strings right.  No bus error since
+    start-up (15, the last three the slot probes).  So selection, commands
+    and the ROM's own reads work; data through the disk's driver does not.
+  - WHAT THE SOFTWARE DOES (MAME maciici with the work disk as a CHD, the
+    software's sequence only): the ROM loads the driver with BYTE reads of
+    $50F12060 (the pseudo-DMA window), polling BSR bit 6 for each
+    ($40808D4A-60).  The driver then calls the ROM's BLIND read
+    ($408092A4-B2): eight MOVE.L from $50F06060, the handshake port, in a
+    row - each a long from an 8-bit port, four byte cycles back to back -
+    with byte reads for the ends ($40809288, $408092BE) and MOVE.L writes
+    at $50F06000 ($40808FE4).  The RBV's flags are not in it.
+  - THE BENCH (sim/iici_hs, new): tb_iici_machine with a program in the
+    ROM's place (eight MOVE.L from $50F06060, two MOVE.B, two MOVE.L to
+    it) and hs_forcer.v as the SCSI chip's CPU side: a byte a DACK strobe,
+    DRQ back DRQ_LAT clk after DACK.  BEFORE THE FIX: 34 byte cycles, 33
+    strobes, the eighth long 2C 2C 2D 2E - a byte twice, the rest a byte
+    late.
+  - THE BUG (rtl/iici_mdu.v): the device machine runs on C16M's enable,
+    slower than the gap between two bus cycles at 25 MHz.  AS* can rise
+    and fall again before an enable has taken the old cycle down
+    (as_hi_d marks it), and until then `active` and `done` are the LAST
+    cycle's - but the acknowledge, the read byte and the selects were made
+    from them.  A second byte cycle straight behind a first was
+    acknowledged at once with the first's byte and never strobed.  The
+    SE/30's GLUE cannot do this (its CPU clock IS C16M).  The review's
+    back-to-back check (sim/mdu, three register cycles at 48 phases)
+    PASSED on the bench's own CPU timing and cleared the suspicion
+    wrongly: a seam's bench must be driven by the real wrapper.
+  - THE FIX: act = active && !as_hi_d; the acknowledge, the byte and every
+    select from act.  sim/iici_hs PASS at DRQ_LAT 2, 3, 5, 9, 12, 20, 30,
+    40 (reads and writes: 34 + 8 strobes, every byte once and in order);
+    sim/mdu PASS 84.
+  - Build probes9: compiling (the fix; the trace still out).
+  - SCSI REVIEW WHILE IT BUILT (Daniel: the fault is in new code around
+    it): se30_scsi and its parameters, the MDU's SCSI select / DACK /
+    strobes (GLUE's, line for line) and the top's image wiring are the
+    SE/30's.  Back-to-back device cycles at 25 MHz against the 15.67 MHz
+    enable: benched (sim/mdu, three SCSI register cycles at 48 phases, one
+    strobe each: PASS 84).  The IIci ROM is the universal 512 KB ROM (its
+    decoder test picks GLUE or MDU: $40803064 / $40803082), so its SCSI
+    Manager also drives GLUE machines; what an MDU machine changes is
+    where it reads DRQ and the SCSI interrupt - the RBV's flags, which
+    followed the lines in the failing build and are edge-set latches in
+    S.  In reserve: an IIcx build with ROM_AW = 17 and the IIci ROM, to
+    run that SCSI Manager on GLUE and VIA2.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
