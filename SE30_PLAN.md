@@ -29461,10 +29461,23 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     the completion criterion needs it; (6) the RBV FIFO's earlier request
     at the two fast modes (S 6.3.2), the RBV's video sheets and the MDU's
     waveform sheets against ours, the Blue Book unread.
-  - UNCOMMITTED at the session's end: the PMDU / PSDR / PFIF / PKRN /
-    PEXC / PWRP probes (MacIIci.sv, iici_machine.v, iici_mdu.v,
-    iici_rbv.v, iici_sdram.v, tg68k.v, read_probes_iici.tcl),
-    sim/iici_vid, these plan entries.
+  - COMMITTED after this block was written: the probes and sim/iici_vid
+    fee548b, the plan 052a6d4 (iici, not pushed).
+  - BUILD probes12 (PWRP; finished 00:43, routed in 6 min, 39,811 ALMs):
+    hold met at every corner (+0.046 worst); the capture >= 0.985; the
+    framework's ascal misses setup by 0.535 at slow -40C and 0.278 at slow
+    100C (its worst of the session).  OURS: dq_q[11] -> dq_r[11] (the
+    SDRAM's capture register to its second stage) misses setup at slow
+    100C by 0.059 (the clock pair is in the session's report).
+    output_files/MacIIci_probes12.rbf (md5 690c834a...).  A diagnostic
+    build for the 256-colour hang, nothing more.
+  - BUILD probes12b (01:31): the same sources with the fitter's guide on
+    dq_q -> dq_r tightened from 7.3 to 7.0 ns (MacIIci.sdc), to clear that
+    0.059.  OURS MET AT EVERY CORNER: dq_q -> dq_r +0.550 on A at slow
+    100C, worst setup +0.019, hold +0.103; the capture >= 0.985; only the
+    framework's ascal misses (-0.272 at slow -40C).  Routed in 12 min,
+    39,815 ALMs.  output_files/MacIIci_probes12b.rbf (md5 in the
+    session's report): THE ONE TO USE for the 256-colour hang.
   - NORTON (probes9, System 7.5.5 from the work disk, 1 bit a pixel,
     Daniel 2026-11-14 21:56): CPU 10.2 against Norton's Mac IIci 9.95
     (+2.5 %), FPU 2.62 against 2.70 (-3.0 %).  The criterion is ~2 %.
