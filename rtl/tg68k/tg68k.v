@@ -155,6 +155,7 @@ module tg68k #(
                                        //   the probe deck's PEXC and PTRP (plan 5.12.12 item 8)
   output [35:0] dbg_pace,              // one instruction released by the pace: {release (one clk), its decoder row[7:0],
                                        //   clocks it took[8:0], its budget[9:0], its fetches' wait states[7:0]} (PPRF, plan 10.4 item 4)
+  output [47:0] dbg_wrap,              // the wrapper's own state, live (the IIci's PWRP: a CPU that stops starting cycles)
   output [63:0] dbg_cache,             // {CDIS*, 1'b0, CACR[13:0], instruction hits[23:0], data hits[23:0]}:
                                        //   the probe deck's PCCH (plan 1.16.3); the counts wrap
   output [55:0] dbg_mmuf,              // the PMMU's last fault, for PBER (KNOWN ISSUES 8): {1'b0, the bus BERR
@@ -963,5 +964,9 @@ module tg68k #(
       if (hit_d) n_dhit <= n_dhit + 1'd1; else n_ihit <= n_ihit + 1'd1;
     end
   assign dbg_cache = {cdis, 1'b0, k_cacr[13:0], n_ihit, n_dhit};
+  assign dbg_wrap = {6'd0, s, post, park, walk, w_req, w_ack_s, ack_pending, b_done, b_adv, cyc_burst, b_n,
+                     kk_s0, kk_post, kk_brst, kk_walk, kk_wack, kk_cyc, kk_bh, kk_fs, kk_pgo_q, kk_pgo_p,
+                     k_decode, k_busstate, k_state, k_pmmu_busy, k_pmmu_fault,
+                     kc_take, kc_anyhit, kc_bblk, kc_stallq, kc_wsel, kc_int, kc_force, berr_hold, pb_n};
 
 endmodule

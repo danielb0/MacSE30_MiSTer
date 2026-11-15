@@ -154,7 +154,8 @@ module iici_mdu #(
   input         nmi_n,
 
   output        overlay,
-  output [15:0] dbg_late               // RAM/ROM terminations the memory port made late
+  output [15:0] dbg_late,              // RAM/ROM terminations the memory port made late
+  output [31:0] dbg_mem                // the memory machine's state, for the probes (PMDU)
 );
 
   // ------------------------------------------------------------ C16M
@@ -518,5 +519,9 @@ module iici_mdu #(
                  !scc_irq_n  ? 3'b011 :
                  !rbv_irq_n  ? 3'b101 :
                  !via1_irq_n ? 3'b110 : 3'b111;
+
+  // the probes' view of the memory machine (PMDU)
+  assign dbg_mem = {cpu_as_n, m_act, m_done, m_wpend, m_hold, held, blocked, soon_l, v_pend, v_hold, ref_pend, ref_run,
+                    m_got, m_cnt, m_due, active, done, as_hi_c};
 
 endmodule

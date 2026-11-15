@@ -68,6 +68,21 @@ for {set i 0} {$i < $n} {incr i} {
 	puts [format "  PINT RBV slots %02x  slot IER %02x  IFR %02x  IER %02x | IPL* %d  VIA1 IRQ* %d  RBV IRQ* %d  SCC IRQ* %d | VIA1 IFR %02x IER %02x" \
 		[f $pint 63 56] [f $pint 54 48] [f $pint 46 40] [f $pint 38 32] [f $pint 19 17] [f $pint 16 16] [f $pint 15 15] [f $pint 14 14] \
 		[f $pint 13 7] [f $pint 6 0]]
+	if {[info exists idx(PKRN)]} {
+		set k [rd PKRN]; set e [rd PEXC]
+		puts [format "  PKRN the kernel is in opcode %04x at PC %08x | PEXC %u exceptions, the last: vector %d (offset $%03x), opcode %04x at PC %08x" 			[f $k 47 32] [f $k 31 0] [f $e 71 56] [f $e 55 48] [expr {[f $e 55 48] * 4}] [f $e 47 32] [f $e 31 0]]
+	}
+	if {[info exists idx(PWRP)]} {
+		set w [rd PWRP]
+		puts [format "  PWRP s %d post %d park %d walk %d w_req %d w_ack_s %d ack_pending %d | burst: b_done %d b_adv %d cyc_burst %d b_n %d | kk: s0 %d post %d brst %d walk %d wack %d cyc %d bh %d fs %d pgo_q %d pgo_p %d" 			[f $w 41 39] [f $w 38 38] [f $w 37 37] [f $w 36 36] [f $w 35 35] [f $w 34 34] [f $w 33 33] [f $w 32 32] [f $w 31 31] [f $w 30 30] [f $w 29 28] 			[f $w 27 27] [f $w 26 26] [f $w 25 25] [f $w 24 24] [f $w 23 23] [f $w 22 22] [f $w 21 21] [f $w 20 20] [f $w 19 19] [f $w 18 18]]
+		puts [format "       kernel: decode %d busstate %d state %d pmmu_busy %d pmmu_fault %d | kc: take %d anyhit %d bblk %d stallq %d wsel %d int %d force %d | berr_hold %d pb_n %d" 			[f $w 17 17] [f $w 16 15] [f $w 14 13] [f $w 12 12] [f $w 11 11] [f $w 10 10] [f $w 9 9] [f $w 8 8] [f $w 7 7] [f $w 6 6] [f $w 5 5] [f $w 4 4] [f $w 3 3] [f $w 2 0]]
+	}
+	if {[info exists idx(PMDU)]} {
+		set m [rd PMDU]; set s [rd PSDR]; set q [rd PFIF]
+		puts [format "  PMDU AS* %d  m_act %d m_done %d  m_wpend %d m_hold %d  held %d blocked %d soon %d | v_pend %d v_hold %d  ref_pend %d ref_run %d | m_got %d m_cnt %d m_due %d | dev active %d done %d  as_hi_c %d" 			[f $m 31 31] [f $m 30 30] [f $m 29 29] [f $m 28 28] [f $m 27 27] [f $m 26 26] [f $m 25 25] [f $m 24 24] [f $m 23 23] [f $m 22 18] [f $m 17 17] [f $m 16 14] 			[f $m 13 11] [f $m 10 7] [f $m 6 3] [f $m 2 2] [f $m 1 1] [f $m 0 0]]
+		puts [format "  PSDR state %d (1 idle 2 rd 3 wr 4 vid 5 dl 7 dk)  busy %d busy_z %d  m_pend %d v_pend %d  mq %d vq %d  m_wack %d m_ack %d m_hold %d  mb_in %d mb_out %d  a_n %d rd_cnt %d  ready %d" 			[f $s 31 28] [f $s 27 23] [f $s 22 22] [f $s 21 21] [f $s 20 20] [f $s 19 19] [f $s 18 18] [f $s 17 17] [f $s 16 16] [f $s 15 14] [f $s 13 11] [f $s 10 8] [f $s 7 5] [f $s 4 1] [f $s 0 0]]
+		puts [format "  PFIF busy %d hold %d vid_req %d  got %d  held %d longs | VID.3ST %d VID.OFF %d depth %d" 			[f $q 15 15] [f $q 14 14] [f $q 13 13] [f $q 12 9] [f $q 8 4] [f $q 3 3] [f $q 2 2] [f $q 1 0]]
+	}
 	foreach nm {PBE0 PBE1 PBE2} {
 		if {[info exists idx($nm)]} {
 			set v [rd $nm]

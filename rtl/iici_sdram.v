@@ -88,6 +88,7 @@ module iici_sdram #(
   output reg [13:0] cap_fail_b,
   output reg        c1_ok,
   output reg [13:0] c1_fail,
+  output     [31:0] dbg_state,         // the sequencer's state, for the probes (PSDR)
 
   // the MDU's port (clk_sys domain)
   input             m_req,             // one clk_sys clock
@@ -563,5 +564,8 @@ module iici_sdram #(
       else if (xs_dk_req && !dk_ack) begin o_kind <= O_DK; o_chip <= 1'b0; o_ba <= xs_dk_addr[23:22]; o_row <= xs_dk_addr[21:9]; end
       else o_kind <= O_NONE;
     end
+
+  // the probes' view of the sequencer (PSDR)
+  assign dbg_state = {state, busy, busy_z, m_pend, v_pend, mq, vq, m_wack, m_ack, m_hold, mb_in, mb_out, a_n, rd_cnt, ready};
 
 endmodule

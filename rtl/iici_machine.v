@@ -148,6 +148,10 @@ module iici_machine #(
   output [31:0] dbg_din,               // the bus's data, for the probes' trace
   output [31:0] dbg_dout,
   output  [1:0] dbg_siz,
+  output [56:0] dbg_exc,               // tg68k.v's {exception taken (one clk_k), vector, the opcode, its PC} (PKRN, PEXC)
+  output [47:0] dbg_wrap,              // tg68k.v's wrapper state (PWRP)
+  output [31:0] dbg_mem,               // the MDU's memory machine (PMDU)
+  output [15:0] dbg_fifo,              // the RBV's FIFO (PFIF)
   output [160:0] dbg_jtp,              // tg68k.v's trace tap: {a beat now, its record}, for the probes' trace
   input   [3:0] dbg_cfg,               // the probes' experiment switches: {posted writes off, CDIS*, instruction cache off, data cache off}
   output [63:0] dbg_int                // {the RBV's dbg_reg, 12'b0, IPL*, VIA1 / RBV / SCC IRQ*, VIA1 IFR, IER}: the probes'
@@ -166,7 +170,7 @@ module iici_machine #(
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(dbg_cfg[2]), .coff(dbg_cfg[1:0]), .pace_en(pace_en), .post_en(!dbg_cfg[3]),
     .reset_out_n(reset_out_n), .halted(halted),
     .cbreq(cbreq), .cback(cback),
-    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_trg(), .dbg_exc(), .dbg_cache(), .dbg_pace(), .dbg_mmuf(),
+    .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_trg(), .dbg_exc(dbg_exc), .dbg_wrap(dbg_wrap), .dbg_cache(), .dbg_pace(), .dbg_mmuf(),
     .dbg_rpr(), .dbg_rpk(), .dbg_jtp(dbg_jtp), .dbg_jte());
 
   assign dbg_addr = cpu_addr;  assign dbg_fc = cpu_fc;  assign dbg_as_n = cpu_as_n;
@@ -205,7 +209,7 @@ module iici_machine #(
     .fpu_sel(fpu_sel), .fpu_dsack_n(fpu_dsack_n), .fpu_rdata(fpu_rdata),
     .slot_sel(slot_sel), .nb_dsack_n(nb_dsack_n), .nb_rdata(nb_rdata), .nb_berr(nb_berr), .slot_be(slot_be),
     .via1_irq_n(via1_irq_n), .rbv_irq_n(rbv_irq_n), .scc_irq_n(scc_irq_n), .nmi_n(nmi_n),
-    .overlay(dbg_overlay), .dbg_late(dbg_late));
+    .overlay(dbg_overlay), .dbg_late(dbg_late), .dbg_mem(dbg_mem));
 
   // ------------------------------------------------------------ the FPU
   se30_fpu #(
@@ -240,7 +244,7 @@ module iici_machine #(
     .cflush_n(), .cenable_n(), .poweroff_n(poweroff_n), .buslk_n(),
     .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(vid_ld), .vid_data(vid_data),
     .ce_pix(ce_pix), .r(vid_r), .g(vid_g), .b(vid_b), .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank),
-    .dbg_underflow(), .dbg_reg(dbg_int[63:32]));
+    .dbg_underflow(), .dbg_reg(dbg_int[63:32]), .dbg_fifo(dbg_fifo));
   assign poweroff_req = !poweroff_n;
 
   // ------------------------------------------------------------- VIA1

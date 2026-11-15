@@ -119,7 +119,8 @@ module iici_rbv #(
   output reg        hblank,
   output reg        vblank,
   output     [15:0] dbg_underflow,     // dots the FIFO could not give (clk_vid)
-  output     [31:0] dbg_reg            // {slots, 0, sier, 0, ifr, 0, ier}: the probes'
+  output     [31:0] dbg_reg,           // {slots, 0, sier, 0, ifr, 0, ier}: the probes'
+  output     [15:0] dbg_fifo           // the FIFO's fill side, for the probes (PFIF)
 );
 
   // =================================================================
@@ -269,6 +270,7 @@ module iici_rbv #(
   reg        vsync_v;                              // (clk_vid's: vertical sync)
   reg        vblk_v;                               // (clk_vid's: vertical blanking)
   assign vid_req = busy && (got != 4'd8);
+  assign dbg_fifo = {busy, hold, vid_req, got, cnt_c, monp[7:6], monp[1:0]};
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       wp <= 0; wp_g <= 0; rp_g_s1 <= 0; rp_g_s2 <= 0; got <= 0; busy <= 0; hold <= 1;

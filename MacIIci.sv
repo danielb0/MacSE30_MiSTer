@@ -414,7 +414,7 @@ iici_sdram sdram
 (
 	.clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(pll_locked),
 	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
-	.c1_ok(), .c1_fail(),
+	.c1_ok(), .c1_fail(), .dbg_state(d_sdr),
 	.m_req(mem_req), .m_we(mem_we), .m_burst(mem_burst), .m_addr(mem_addr), .m_be(mem_be), .m_wdata(mem_wdata),
 	.m_rdata(mem_rdata), .m_ack(mem_ack), .m_soon(mem_soon), .m_refresh(mem_refresh),
 	.v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
@@ -459,7 +459,7 @@ iici_machine machine
 	.dbg_addr(d_addr), .dbg_fc(d_fc), .dbg_as_n(d_as_n), .dbg_rw_n(d_rw_n), .dbg_dsack_n(d_dsack_n), .dbg_berr(d_berr),
 	.dbg_halted(d_halted), .reset_out_n(),
 	.dbg_regs(d_regs), .dbg_overlay(d_overlay), .dbg_late(d_late), .dbg_int(d_int), .dbg_cfg(d_cfg),
-	.dbg_din(d_din), .dbg_dout(d_dout), .dbg_siz(d_siz), .dbg_jtp()
+	.dbg_din(d_din), .dbg_dout(d_dout), .dbg_siz(d_siz), .dbg_jtp(), .dbg_mem(d_mem), .dbg_fifo(d_fifo), .dbg_exc(d_exc), .dbg_wrap(d_wrap)
 );
 
 ///////////////////////   PROBES   ///////////////////////////////
@@ -489,6 +489,16 @@ iici_machine machine
 //          for every access.  (A trace of the kernel's own beats, 144 bits
 //          wide on clk_k, was tried: its router did not finish in 30
 //          minutes - the IIcx's JTRACE congestion again.)
+//   PMDU / PSDR / PFIF  the memory path's state, live: the MDU's memory machine
+//          (iici_mdu.v dbg_mem), the SDRAM's sequencer (iici_sdram.v
+//          dbg_state), the RBV's FIFO (iici_rbv.v dbg_fifo) - for a RAM cycle
+//          that never ends
+//   PKRN / PEXC  the kernel itself, on clk_k: PKRN {the opcode it is in, its PC},
+//          live - where a CPU that has stopped running cycles is sitting; PEXC
+//          {exceptions taken[15:0], the last one's vector, opcode, PC}
+//   PWRP  the CPU wrapper's state, live (tg68k.v dbg_wrap): the bus state, the
+//          posted write, the walker, the burst, the kernel-side flags and the
+//          decisions that start a cycle
 //   PCFG  source: the experiment switches {posted writes off, CDIS*,
 //          instruction cache off, data cache off} (set, then reset the Mac)
 //   PBE0-2  the last three bus errors, newest in PBE0: {FC, R/W*, the
@@ -503,6 +513,10 @@ wire [15:0] d_late;
 wire  [3:0] d_cfg;
 wire [31:0] d_din, d_dout;
 wire  [1:0] d_siz;
+wire [31:0] d_mem, d_sdr;
+wire [15:0] d_fifo;
+wire [56:0] d_exc;
+wire [47:0] d_wrap;
 `ifndef USE_DBG_PROBES
 assign d_cfg = 4'd0;
 `endif
@@ -605,6 +619,24 @@ altsource_probe #(.instance_id("PTRD"), .probe_width(72), .source_width(13), .sl
 	.source_initial_value("0"))
 	cp_ptrd (.probe(tr_rd), .source(tr_raddr), .source_clk(clk_sys), .source_ena(1'b1));
 `endif
+reg [47:0] pkrn = 0;
+reg [71:0] pexc = 0;
+always @(posedge clk_k) begin
+	pkrn <= d_exc[47:0];
+	if (d_exc[56]) pexc <= {pexc[71:56] + 16'd1, d_exc[55:0]};
+end
+altsource_probe #(.instance_id("PWRP"), .probe_width(48), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pwrp (.probe(d_wrap), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PKRN"), .probe_width(48), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pkrn (.probe(pkrn), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PEXC"), .probe_width(72), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pexc (.probe(pexc), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PMDU"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pmdu (.probe(d_mem), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PSDR"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_psdr (.probe(d_sdr), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PFIF"), .probe_width(16), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pfif (.probe(d_fifo), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 altsource_probe #(.instance_id("PBE0"), .probe_width(68), .source_width(1), .sld_auto_instance_index("YES"))
 	cp_pbe0 (.probe(pbe0), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 altsource_probe #(.instance_id("PBE1"), .probe_width(68), .source_width(1), .sld_auto_instance_index("YES"))
