@@ -826,7 +826,11 @@ module tg68k #(
   // the tail this instruction leaves: the op's, its writes' wait states in, and its reads' if it had no EA part
   wire  [9:0] p_tail_n = {8'd0, r_op_t} + {2'd0, p_wcred} + (r_ea_on ? 10'd0 : {2'd0, p_rcred});
   wire  [5:0] p_tail_s = (p_tail_n > 10'd63) ? 6'd63 : p_tail_n[5:0];
-  wire        p_due    = ({1'b0, p_cnt} >= p_budget);
+  // (the count's ceiling is due: the credits can carry a budget past 511 - held
+  // cycles and exceptions with no release between them, the IIci at 256
+  // colours - and a count that stops at 511 would never reach it: the decode
+  // beat withheld for ever, the stop of SE30_PLAN.md "256 COLOURS")
+  wire        p_due    = ({1'b0, p_cnt} >= p_budget) || (p_cnt == 9'h1FF);
   wire        p_go     = p_rel || p_due || !pace_en;
   assign      pace_stall = k_decode && !p_go;
   // KCLK (STAGE 1 DESIGN item 5): p_go as today's logic will have it after
@@ -853,6 +857,7 @@ module tg68k #(
   wire  [2:0] pk_ilen  = (d_br == 2'd2) ? 3'd4 : (p_op_n[7:0] == 8'h00) ? 3'd4 : (p_op_n[7:0] == 8'hFF) ? 3'd6 : 3'd2;
   wire        pk_rel_n = pk_rel ? !k_go : (k_go && k_decode) ? 1'b0 : kk_rel;
   wire  [8:0] pk_cnt_n = pk_rel ? 9'd1 : (p_cnt != 9'h1FF) ? p_cnt + 9'd1 : p_cnt;
+  wire        pk_sat   = !pk_rel && (p_cnt >= 9'h1FE);                    // pk_cnt_n at its ceiling: due (p_due, above)
   // the tail and credits after P
   // (p_tail_q: p_tail_s as it stands at this P, registered at the phi2 edge
   // before it from the credits' next values - the decoder's answer has not
@@ -892,9 +897,9 @@ module tg68k #(
       kk_pgo_q <= 1'b1; kk_pgo_pt <= 1'b1; kk_pgo_pn <= 1'b1;            // p_cnt resets to 1FF: due
       kk_op <= 16'h0; kk_pcl <= 32'd2; kk_br <= 1'b0; kk_rel <= 1'b0;
     end else begin
-      kk_pgo_q  <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bq)  || !pace_en;
-      kk_pgo_pt <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bpt) || !pace_en;
-      kk_pgo_pn <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bpn) || !pace_en;
+      kk_pgo_q  <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bq)  || pk_sat || !pace_en;
+      kk_pgo_pt <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bpt) || pk_sat || !pace_en;
+      kk_pgo_pn <= pk_rel_n || ({1'b0, pk_cnt_n} >= pk_bpn) || pk_sat || !pace_en;
       kk_op <= p_op_n; kk_pcl <= pk_pc_n + {29'd0, pk_ilen}; kk_br <= (d_br != 2'd0); kk_rel <= pk_rel_n;
     end
   // the profile (dbg_pace): the instruction running ends at its release

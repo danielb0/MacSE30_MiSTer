@@ -29478,6 +29478,57 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     framework's ascal misses (-0.272 at slow -40C).  Routed in 12 min,
     39,815 ALMs.  output_files/MacIIci_probes12b.rbf (md5 in the
     session's report): THE ONE TO USE for the 256-colour hang.
+
+  THE 256-COLOUR STOP FOUND: THE PACE (2026-11-15 morning, probes12b
+  hung at 256 colours on the 13-inch monitor; committed work above is
+  all on iici, the "uncommitted" notes in this block are out of date).
+  - THE READING (four samples, all the same): AS* high, the MDU and the
+    SDRAM idle, the video fetching; PWRP: s 0, kk_s0 1, k_decode 1,
+    kc_stallq 1, kk_pgo_q 0, kk_pgo_p 0, no park, no walk, no burst, no
+    PMMU work; PKRN: opcode $2F08 at $0017442E waiting in decode.  The
+    kernel and the wrapper's bus side are sound: the PACE (tg68k.v, plan
+    1.17) withholds the decode beat, and for ever.
+  - THE CAUSE: p_cnt (the clocks since the release) is 9 bits and stops
+    at 511; the budget is 10 bits, the tables' clocks plus four credits
+    of up to 255 each.  A budget over 511 is never "due".  At 256 colours
+    the video takes bank A for most of each line, a CPU cycle there
+    waits about 16 clocks, and every cycle's wait is credit: sim/iici_vid
+    shows one MOVEM.L of 15 registers at a budget of 324 (w 255, f 63),
+    385 with table walks, 387 with a trace exception behind each
+    instruction (the credits run on through an exception).  The bench did
+    not pass 511 by itself; the board, with interrupts and the System's
+    code, does.  Not an IIci-only fault in principle (the SE/30's cycles
+    wait too little to reach it).
+  - THE FIX (rtl/tg68k/tg68k.v, shared): the count's ceiling is due -
+    p_due || (p_cnt == 511), and in the KCLK registers pk_sat (pk_cnt_n at
+    511) in kk_pgo_q / pt / pn.  Nothing changes below a budget of 511.
+    It joins the tg68k.v changes that need the SE/30 and IIcx builds
+    before any merge to dev.
+  - THE BENCH: sim/iici_vid OVER=1 sets the three credits to 255 at 2 ms
+    (a budget of 769).  Before the fix: no CPU cycle from then on, the
+    video fetching - the board's picture.  After: PASS.  vid_watch.v now
+    reports the largest budget and its instruction in every run, and
+    CACHE=5 is the traced case.  sim/iici PASS 12, sim/iici_hs PASS,
+    CACHE=5 PASS.
+  - THE PORTRAIT DISPLAY'S BLUE PICTURE: MacIIci.sv shows the blue
+    channel on red and green too when that monitor is chosen (a
+    monochrome monitor, one video line).  The Monitors control panel
+    offering "Colours" on it is authentic (Daniel: a video of a real
+    Portrait Display on a Quadra 700 shows the button selectable); 16
+    greys is the IIci's limit there.
+  - BUILD probes13 (10:55, 44 min, 39,683 ALMs): the fix, the Portrait
+    grey, the probes as probes12b.  The flow's summary said -0.330: ONE
+    path of ours, mdu v_base[10] -> sdram xv_addr[10], short on HOLD at
+    every corner (0.16-0.33; probes7's path again, the fitter's 0.3 ns
+    guide not enough).  It is not a real relationship: v_base moves only
+    on the edge that raises v_req, xv_addr loads only on an edge that
+    samples v_req high, so its enable is off on the shared edge -
+    MacIIci.sdc now says so (set_false_path -hold, that pair only; the
+    bitstream is unchanged).  With it OURS ARE MET AT EVERY CORNER: hold
+    >= +0.053, the capture >= 0.985; the setup misses are the framework's
+    ascal alone (-0.091 at slow -40C, -0.077 at slow 100C).
+    output_files/MacIIci_probes13.rbf (md5 7204c7e3...).  ON THE BOARD
+    (Daniel, 2026-11-15 ~11:15): 256 COLOURS WORKS.
   - NORTON (probes9, System 7.5.5 from the work disk, 1 bit a pixel,
     Daniel 2026-11-14 21:56): CPU 10.2 against Norton's Mac IIci 9.95
     (+2.5 %), FPU 2.62 against 2.70 (-3.0 %).  The criterion is ~2 %.

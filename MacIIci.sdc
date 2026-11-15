@@ -79,6 +79,13 @@ if {[info exists ::TimeQuestInfo(nameofexecutable)] && $::TimeQuestInfo(nameofex
   set_min_delay -from $CK_SYS -to [get_registers {*|iici_sdram:sdram|x*}] 0.3
 }
 
+# mdu v_base -> sdram xv_addr: no hold relationship.  v_base moves only on the clk_sys edge that raises
+# v_req (iici_mdu.v, v_start), and xv_addr loads only on a clk_mem edge that samples v_req high (iici_sdram.v:
+# v_req && !vq).  On the edge they share, the sampler still sees v_req low (v_req's own crossing is analysed
+# and met), so xv_addr's enable is off while v_base moves; it loads a clk_mem clock later, v_base long still.
+# The fitter's 0.3 ns guide (above) left bit 10 0.16-0.33 ns short in the build of 2026-11-15 (probes13).
+set_false_path -hold -from [get_registers {*|iici_mdu:mdu|v_base[*]}] -to [get_registers {*|iici_sdram:sdram|xv_addr[*]}]
+
 set SDRAM_OUT [get_ports {SDRAM_A[*] SDRAM_BA[*] SDRAM_DQ[*] SDRAM_DQMH SDRAM_DQML SDRAM_nCAS SDRAM_nRAS SDRAM_nWE SDRAM_nCS SDRAM_CKE}]
 set_output_delay -clock sdram_clk -max  2.0 $SDRAM_OUT
 set_output_delay -clock sdram_clk -min -0.8 $SDRAM_OUT

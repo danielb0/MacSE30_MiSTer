@@ -2,7 +2,8 @@
 # The CPU beside the RBV's video bursts at a given depth: tb_iici_machine
 # with a program in the ROM's place and vid_watch.v counting its cycles.
 #   DEPTH  0-3 = 1, 2, 4, 8 bits a pixel (default 3)    SDRAM  1: through iici_sdram and the chip model
-#   CACHE  1: the caches on and burst reads over 64 KB of bank A
+#   CACHE  1: the caches on and burst reads over 64 KB of bank A (2-5: see below)
+#   OVER   1: the pace's credits set past its 511-clock count at 2 ms; the CPU must carry on
 set -u
 cd "$(dirname "$0")"
 MODELSIM=${MODELSIM:-/c/intelFPGA_lite/17.0/modelsim_ase/win32aloem}
@@ -10,7 +11,31 @@ RTL=../../rtl
 DEPTH=${DEPTH:-3} CACHE=${CACHE:-0} python - <<'PY' || exit 1
 import os
 depth = int(os.environ['DEPTH'])
-if os.environ.get('CACHE', '0') == '4':
+if os.environ.get('CACHE', '0') == '5':
+    # CACHE=3's blocks with the trace bit set: every instruction ends in a trace exception, so the pace sees
+    # MOVEM.L (A7)+'s fifteen reads, the frame's writes, the vector's read and the handler's line fill (an RTE
+    # at $20000, on the blocks' second cache line) as ONE instruction's credits - a budget past the pace's
+    # 511-clock count
+    head = bytes.fromhex(
+      '00001000' '40800008'
+      '203c00003919' '4e7b0002'        # MOVE.L #$3919,D0 ; MOVEC D0,CACR
+      '41f950f26010' '10bc00%02x'      # LEA $50F26010,A0 ; MOVE.B #depth,(A0)
+      '23fc0002000000000024'           # MOVE.L #$00020000,$24      the trace vector
+      '33fc4e7300020000'               # MOVE.W #$4E73,$00020000    RTE
+      '43f9000100f0'                   # LEA $000100F0,A1
+      '721f' % depth)                  # MOVEQ #31,D1
+    loop = bytes.fromhex(
+      '2449'
+      '24fc4e714e71' '24fc4e714e71' '24fc4e714e71'
+      '24fc48e7fffe'                   # MOVEM.L D0-D7/A0-A6,-(A7)
+      '24fc4cdf7fff'                   # MOVEM.L (A7)+,D0-D7/A0-A6
+      '34fc4ef9'
+      '47e90100' '24cb'
+      'd2fc0100')
+    disp = (-(len(loop) + 2)) & 0xFFFF
+    tail = bytes.fromhex('51c9%04x' % disp + '23fc000100f000012006' + '46fca700' + '4ef9000100f0')   # MOVE #$A700,SR
+    prog = head + loop + tail
+elif os.environ.get('CACHE', '0') == '4':
     # CACHE=3's blocks with the PMMU on, as on the board (the stop's PC was logical): an identity map of 256
     # early-termination descriptors at $8000 (TC $80F08900: 32 KB pages, TIA 8, TIB 9), and a PFLUSHA at each
     # block's entry, so the MOVEM's stack write and the next line's fetch each need a table walk first
@@ -112,6 +137,6 @@ done
   "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/iicx_nuchip.v" "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" \
   "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" \
   "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v "$RTL/iici_sdram.v" ../sdram/sdram_model.v ../iici/tb_iici_machine.v vid_watch.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }
-"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
+"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
 grep -E '^# (      [0-9]+\.[0-9] ms|      long|      [0-9]+: a held|---- |==== VID)' run.log | sed 's/^# //'
 grep -q '^# ==== VID PASS' run.log

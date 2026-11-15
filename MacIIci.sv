@@ -667,8 +667,10 @@ video_freak video_freak
 
 assign VGA_HS = hsync_n;
 assign VGA_VS = vsync_n;
-assign VGA_R  = pwr_off ? 8'd0 : vid_r;
-assign VGA_G  = pwr_off ? 8'd0 : vid_g;
+// the Portrait Display is monochrome: its one video line is the blue channel
+// (the driver loads its greys there alone)
+assign VGA_R  = pwr_off ? 8'd0 : portrait ? vid_b : vid_r;
+assign VGA_G  = pwr_off ? 8'd0 : portrait ? vid_b : vid_g;
 assign VGA_B  = pwr_off ? 8'd0 : vid_b;
 
 endmodule
