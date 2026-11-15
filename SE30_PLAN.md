@@ -29669,6 +29669,96 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     blocks' address registers in the half clock before Q0 - the
     wrapper's tightest paths.  FALLBACK if it does not close: a 3-clock
     hit on the real bus, said plainly, because it moves the benchmark.
+
+  THE CACHE CARD BUILT, AND THE PACE'S SECOND COUNTER (2026-11-15 evening).
+  END OF SESSION ~22:20 (Daniel: "Very successful day. We will continue
+  tomorrow") - READ THIS TO RESUME THE IIci.
+  - THE CARD (tg68k.v "THE CACHE CARD", XCACHE; iici_machine.v wires the
+    RBV's /CENABLE and /CFLUSH; OSD "Cache card" None / 32 KB / 128 KB,
+    applied at reset; 184 M10K): as designed above.  A hit is two clocks
+    and never on the bus; a miss puts AS* out four CPU clocks late; a
+    write updates a long the card holds.  THE TWO-CLOCK LOOKUP MEETS
+    TIMING.  sim/iici_vid CACHE=7 (XCARD=1 / 2) is its program: long, byte
+    and word writes, a flush, zero differences; XON=1 enables it for the
+    other programs; sim/iici XCARD=2 is the real ROM's start with it.
+  - WHAT THE ROM TAUGHT US: it enables the card BEFORE it sizes the RAM.
+    A variant that took in a whole long on a write (to make push / pop
+    hit) answered the sizing's read-back with a copy the write through an
+    aliased address never reached: a RAM failure, the sad Mac chimes and
+    no picture (build cache2).  Only what the bus has READ goes into the
+    card.  A real card that allocated on writes would fail the same test.
+  - THE PACE'S SECOND COUNTER - the day's main fault, in the shared
+    wrapper.  p_cyc (a cycle's clk edges) was 5 bits and stopped at 31;
+    p_edges = p_cyc + 1 in 5 bits wrapped to 0, p_len to 1, and p_addw =
+    p_len - 2 to 63: EVERY CYCLE OF 16 CLOCKS OR MORE WAS CREDITED 63.
+    On the IIci at 8 bits a pixel a cycle that waits out a video burst is
+    23 clocks: credited 63, and the CPU then stood idle 40 clocks (the
+    trace: sim/iici_vid CACHE=8, a loop all in bank A, TRACE=1 prints the
+    bus, the video and each release - "op 60fa ran 128 clocks, credits f
+    63 x 63").  It is why the machine was uniformly 12-13 % short at 256
+    colours with the card and 20-23 % without, and right at 1 bit.  FIXED:
+    p_cyc 7 bits, the sums 8 and 7 bits, the credit saturating at 63 (the
+    KCLK prediction px_* the same).  CACHE=8 at 8 bits: 198 cycles in 100
+    us where it had 160; CACHE=3: 176 where it had 134.  Sibling of the
+    morning's p_cnt.  TO DO: read the pace's other sums for a width that
+    can overflow.  The SE/30 and IIcx have it too wherever a cycle lasts
+    16 C16M clocks (a SCSI wait): with the tg68k.v changes awaiting their
+    builds.
+  - THE YARDSTICKS, on the board (System 7.1, 8 MB, 256 colours).
+    NORTON (reference: IIci, 7.1, 8 MB, 256 colours, 128K card: CPU 9.95,
+    video 25.4, FPU 2.70; its IIcx CPU 7.14):
+      no card, before the fix          6.45   17.4   2.31
+      128K card, before the fix        8.66   22.3   2.38   (87 / 88 / 88 %)
+      128K card, 1 bit, before         11.8   61.8   2.66
+      128K CARD, THE FIX (cache3)      10.3   30.2   2.54   (104 / 119 / 94 %)
+    APPLE PERSONAL DIAGNOSTICS 1.1.3 against its "Macintosh IIci", as
+    speed (1 / "times slower"); the REAL IIci is a forum post's (7.1.1,
+    32-bit, 256 colours built-in, no card and Apple's 32K card):
+                       real none  ours none | real 32K  ours 32K  ours 128K
+      Integer            0.63       0.59    |  0.81      0.83      0.85
+      Complex functions  0.81       0.90    |  0.93      1.11      1.12
+      FP without FPU     0.83       0.97    |  0.96      1.17      1.19
+      FP with FPU        0.88       0.76    |  0.94      0.81      0.81
+      Memory             0.52       0.53    |  1.13      1.41      1.43
+      Processor          1.04       1.00    |  1.04      1.04      1.04
+      Video              1.02       1.04    |  1.17      1.24      1.31
+    (Before the fix ours read: none 0.56 / 0.70 / 0.76 / 0.72 / 0.40 /
+    0.99 / 0.82; 128K 0.63 / 0.88 / 0.93 / 0.81 / 1.04 / 1.00 / 0.98.)
+    C:/temp/Mac/IIci/APD113.dsk is the program on a floppy (machfs, from
+    unar's AppleDouble; C:/temp/Mac/unar.exe).
+  - READ: (1) bank A under the video is RIGHT (Memory and Video without
+    the card within 3 %); (2) the processor's raw speed is right; (3) THE
+    CARD IS A LITTLE TOO GENEROUS - its gain 5-10 % over the real one's,
+    20 % on Memory, Norton's video 19 % over; its size hardly matters.
+    Our three undocumented choices, each to its advantage: the miss at
+    four clocks, ROM reads answered, a write updating (not invalidating).
+    (4) INSTRUCTION TIMINGS, both ways, card or none: Integer 6 % slow,
+    Complex functions 12 % and software floating point 17 % FAST, the
+    68882 14 % SLOW (Norton FPU 6 % under; Daniel: the SE/30's FPU is a
+    little slow too - one investigation for both).
+  - NEXT (tomorrow): tune the card against the two targets (the miss
+    penalty and writes first - Memory is the outlier - then ROM reads);
+    then the instruction timings and the FPU; the pace's other sums.
+  - BUILDS.  The card and the probes do not fit together (the fitter:
+    "Can't fit", 77 % peak congestion): USE_DBG_PROBES is OFF in
+    MacIIci.qsf.  For a look inside: CDROM_EN = 0 (iici_machine.v, 16
+    M10K and the target's logic) and a few probes - Daniel: the full
+    build first.  PXCH (the card's hits and misses) is in the probe set.
+    cache1_preview (the card; hold short on kernel crossings; worked),
+    cache2 (write-allocate: sad Mac), two builds killed with the router
+    stalled 50 and 75 minutes - a fitter hold guide written wider than
+    the failing pair (kb_* to the whole clock; the SDRAM's read data to
+    the whole clock) - and one "Can't fit" with the probes in.
+    BUILD cache3 (21:47, 38,893 ALMs, 410 M10K, md5 e882e095...): the card,
+    the pace fix, every feature, no probes - MET AT EVERY CORNER, the
+    framework with it (setup +0.020, hold +0.118).  THE ONE ON THE BOARD.
+  - TIMING, as left (MacIIci.sdc): kk_din keeps its own value between
+    cycles (din_r -> kk_din gone); set_false_path -hold kk_din -> din_r
+    and kb_* -> the MDU's q_* (the taker's enable is off on the shared
+    edge: phi1 against phi2); fitter guides 0.3 ns on kk_* to clk_sys,
+    the kernel's opcode_pc to clk_sys, v_rdata -> vid_data.  kc_end0 (the
+    bus's own end) feeds the posted beat's terms: the card's compare into
+    kk_pgo_pn was 21.3 ns in 20.
   - NORTON (probes9, System 7.5.5 from the work disk, 1 bit a pixel,
     Daniel 2026-11-14 21:56): CPU 10.2 against Norton's Mac IIci 9.95
     (+2.5 %), FPU 2.62 against 2.70 (-3.0 %).  The criterion is ~2 %.

@@ -81,10 +81,11 @@ localparam CONF_STR = {
 	"O[9:8],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"h0O[11:10],Memory,16 MB,4 MB;",
 	"h1O[11:10],Memory,16 MB,4 MB,8 MB,32 MB;",
+	"O[14:13],Cache card,None,32 KB,128 KB;",
 	"O[7:6],Mouse speed,Normal,/2,/4,/8;",
 	"O[5],Power switch,Normal,Locked on;",
 	"-;",
-	"R[0],Reset & Apply Memory and Monitor;",
+	"R[0],Reset & Apply Memory, Monitor, Cache;",
 	"R[3],Wipe PRAM (erases settings!);",
 	"v,0;",
 	"V,v",`BUILD_DATE
@@ -246,8 +247,10 @@ wire        big = sdram_sz[15] && (sdram_sz[1:0] >= 2'd2);   // a 64 or 128 MB m
 assign      menumask = {14'd0, big, !big};
 reg   [1:0] bank_a = 2'd3, bank_b = 2'd0;
 reg         portrait = 0;
+reg   [1:0] cache_card = 0;                 // the RAM cache card: 0 none, 1 = 32 KB, 2 = 128 KB (fitted with the power off)
 always @(posedge clk_sys) if (!machine_reset_n) begin
 	portrait <= status[12];
+	cache_card <= (status[14:13] == 2'd3) ? 2'd0 : status[14:13];
 	case ((!big && status[11]) ? 2'd0 : status[11:10])
 		2'd0: begin bank_a <= 2'd3; bank_b <= 2'd0; end
 		2'd1: begin bank_a <= 2'd2; bank_b <= 2'd0; end
@@ -435,7 +438,7 @@ se30_mouse_speed mouse_speed (.clk(clk_sys), .speed(status[7:6]), .ps2_in(ps2_mo
 iici_machine machine
 (
 	.clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(portrait), .phi1(phi1), .phi2(phi2),
-	.reset_n(machine_reset_n), .bank_a(bank_a), .bank_b(bank_b),
+	.reset_n(machine_reset_n), .bank_a(bank_a), .bank_b(bank_b), .cache_card(cache_card),
 	.mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
 	.mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(mem_soon), .mem_refresh(mem_refresh),
 	.v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
@@ -459,7 +462,7 @@ iici_machine machine
 	.dbg_addr(d_addr), .dbg_fc(d_fc), .dbg_as_n(d_as_n), .dbg_rw_n(d_rw_n), .dbg_dsack_n(d_dsack_n), .dbg_berr(d_berr),
 	.dbg_halted(d_halted), .reset_out_n(),
 	.dbg_regs(d_regs), .dbg_overlay(d_overlay), .dbg_late(d_late), .dbg_int(d_int), .dbg_cfg(d_cfg),
-	.dbg_din(d_din), .dbg_dout(d_dout), .dbg_siz(d_siz), .dbg_jtp(), .dbg_mem(d_mem), .dbg_fifo(d_fifo), .dbg_exc(d_exc), .dbg_wrap(d_wrap)
+	.dbg_din(d_din), .dbg_dout(d_dout), .dbg_siz(d_siz), .dbg_jtp(), .dbg_mem(d_mem), .dbg_fifo(d_fifo), .dbg_xc(d_xc), .dbg_exc(d_exc), .dbg_wrap(d_wrap)
 );
 
 ///////////////////////   PROBES   ///////////////////////////////
@@ -515,6 +518,7 @@ wire [31:0] d_din, d_dout;
 wire  [1:0] d_siz;
 wire [31:0] d_mem, d_sdr;
 wire [31:0] d_fifo;
+wire [47:0] d_xc;
 wire [56:0] d_exc;
 wire [47:0] d_wrap;
 `ifndef USE_DBG_PROBES
@@ -639,6 +643,8 @@ altsource_probe #(.instance_id("PMDU"), .probe_width(32), .source_width(1), .sld
 	cp_pmdu (.probe(d_mem), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 altsource_probe #(.instance_id("PSDR"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
 	cp_psdr (.probe(d_sdr), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+altsource_probe #(.instance_id("PXCH"), .probe_width(48), .source_width(1), .sld_auto_instance_index("YES"))
+	cp_pxch (.probe(d_xc), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 altsource_probe #(.instance_id("PFIF"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
 	cp_pfif (.probe(d_fifo), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 altsource_probe #(.instance_id("PBE0"), .probe_width(68), .source_width(1), .sld_auto_instance_index("YES"))

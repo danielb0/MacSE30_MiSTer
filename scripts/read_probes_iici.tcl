@@ -77,6 +77,10 @@ for {set i 0} {$i < $n} {incr i} {
 		puts [format "  PWRP s %d post %d park %d walk %d w_req %d w_ack_s %d ack_pending %d | burst: b_done %d b_adv %d cyc_burst %d b_n %d | kk: s0 %d post %d brst %d walk %d wack %d cyc %d bh %d fs %d pgo_q %d pgo_p %d" 			[f $w 41 39] [f $w 38 38] [f $w 37 37] [f $w 36 36] [f $w 35 35] [f $w 34 34] [f $w 33 33] [f $w 32 32] [f $w 31 31] [f $w 30 30] [f $w 29 28] 			[f $w 27 27] [f $w 26 26] [f $w 25 25] [f $w 24 24] [f $w 23 23] [f $w 22 22] [f $w 21 21] [f $w 20 20] [f $w 19 19] [f $w 18 18]]
 		puts [format "       kernel: decode %d busstate %d state %d pmmu_busy %d pmmu_fault %d | kc: take %d anyhit %d bblk %d stallq %d wsel %d int %d force %d | berr_hold %d pb_n %d" 			[f $w 17 17] [f $w 16 15] [f $w 14 13] [f $w 12 12] [f $w 11 11] [f $w 10 10] [f $w 9 9] [f $w 8 8] [f $w 7 7] [f $w 6 6] [f $w 5 5] [f $w 4 4] [f $w 3 3] [f $w 2 0]]
 	}
+	if {[info exists idx(PXCH)]} {
+		set x [rd PXCH]
+		puts [format "  PXCH the cache card: %u hits, %u misses (24-bit counts)" [f $x 47 24] [f $x 23 0]]
+	}
 	if {[info exists idx(PMDU)]} {
 		set m [rd PMDU]; set s [rd PSDR]; set q [rd PFIF]
 		puts [format "  PMDU AS* %d  m_act %d m_done %d  m_wpend %d m_hold %d  held %d blocked %d soon %d | v_pend %d v_hold %d  ref_pend %d ref_run %d | m_got %d m_cnt %d m_due %d | dev active %d done %d  as_hi_c %d" 			[f $m 31 31] [f $m 30 30] [f $m 29 29] [f $m 28 28] [f $m 27 27] [f $m 26 26] [f $m 25 25] [f $m 24 24] [f $m 23 23] [f $m 22 18] [f $m 17 17] [f $m 16 14] 			[f $m 13 11] [f $m 10 7] [f $m 6 3] [f $m 2 2] [f $m 1 1] [f $m 0 0]]

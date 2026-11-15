@@ -118,7 +118,8 @@
 
 module tg68k #(
   parameter KCLK = 0,                  // 1: the kernel on clk_k (CLOCKING above)
-  parameter BURST = 0                  // 1 (with KCLK): burst fills on CBACK* (BURST FILLS above)
+  parameter BURST = 0,                 // 1 (with KCLK): burst fills on CBACK* (BURST FILLS above)
+  parameter XCACHE = 0                 // 1 (with KCLK): the Macintosh IIci's RAM cache card (THE CACHE CARD, below)
 ) (
   input         clk,                   // 2 x C16M
   input         clk_k,                 // KCLK: the CPU clock, clk / 2, rising at the end of each phi1 clk
@@ -145,6 +146,10 @@ module tg68k #(
   input   [1:0] coff,                  // {instruction cache off, data cache off}: the JTAG experiment (KNOWN ISSUES 20)
   input         pace_en,               // hold each instruction to the 68030's time (plan 1.17.5); low: unpaced
   input         post_en,               // the write pending buffer (plan 1.17.7); low: every write waited for
+  input         xc_en,                 // XCACHE: the card enabled (/CENABLE asserted, a card fitted)
+  input         xc_flush,              // XCACHE: /CFLUSH asserted
+  input         xc_big,                // XCACHE: 128 KB of data (32 KB when low)
+  output [47:0] dbg_xc,                // XCACHE: {hits[23:0], misses[23:0]}, the counts wrap
 
   output        reset_out_n,           // the RESET instruction
   output        halted,                // double bus fault
@@ -291,6 +296,7 @@ module tg68k #(
   wire        cp_fpu    = cpu_space && (eff_addr[19:13] == 7'b0010_001);
   wire        cp_local  = cpu_space && !cp_fpu;                  // answered here
   reg   [2:0] s;                       // 0 idle (S0), 2 after S1, 3 S3/wait, 4 after S4, 5 after S5
+  wire        xc_hit, xc_hold, xc_rel; // THE CACHE CARD (below): it answers this cycle; it holds AS* back; the retry starts
   reg         as_n_r, ds_n_r;
   reg  [31:0] din_r;
   reg   [1:0] dsack_r;
@@ -304,7 +310,11 @@ module tg68k #(
   // with the data, which every port registers on the clock it asserts
   // DSACK*.  kc_end: at this phi1 edge the cycle ends (S5 follows at phi2);
   // s == 4 is an interrupt acknowledge's, terminated here.
-  wire        kc_end   = ((s == 3'd3) && (berr || dsack_n != 2'b11)) || (s == 3'd4);
+  // (kc_end0: the bus's own end.  A posted beat is a write and the card never ends one, so the buffer's
+  // terms - and the pace's long sums behind them - take kc_end0: the card's tag compare into kk_pgo_pn
+  // was 21.3 ns in 20, the build of 2026-11-15)
+  wire        kc_end0  = ((s == 3'd3) && (berr || dsack_n != 2'b11)) || (s == 3'd4);
+  wire        kc_end   = kc_end0 || xc_hit;                                            // (xc_hit: THE CACHE CARD, s == 2)
   reg         e_berr;                  // BERR and DSACK* as that edge took them, for S5
   reg   [1:0] e_dsack;
   wire        berr5    = KCLK ? e_berr : berr;
@@ -357,7 +367,7 @@ module tg68k #(
   reg   [2:0] cyc_fc;
   // KCLK: the cache's clock is clk_k, and the fill is at the phi1 edge
   // before S5 - the same data, DSACK and BERR (sim/machine EARLYMON)
-  wire        fill_ok  = ((KCLK ? kc_end : (phi2 && (s == 3'd5))) || b_beat) && !berr && (dsack_n == 2'b00);
+  wire        fill_ok  = ((KCLK ? kc_end : (phi2 && (s == 3'd5))) || b_beat) && !berr && ((dsack_n == 2'b00) || xc_hit);
   wire        i_fill   = fill_ok && cyc_fill;
   wire        d_fill   = fill_ok && cyc_dfill;
   // the write's bytes: from A1-A0, as many as SIZ says remain, to the long's end
@@ -461,7 +471,7 @@ module tg68k #(
     if (!reset_n) begin
       kb_addr <= 0; kb_dout <= 0; kb_fc <= 0; kb_siz <= 0; kb_rw <= 1; kb_as_n <= 1; kb_ds_n <= 1; kb_ecs <= 0; kb_cbreq <= 0;
     end else begin
-      kb_as_n <= as_n_r; kb_ds_n <= ds_n_r; kb_ecs <= (s == 3'd2);
+      kb_as_n <= as_n_r || xc_hold; kb_ds_n <= ds_n_r || xc_hold; kb_ecs <= ((s == 3'd2) && !xc_hold) || xc_rel;   // (THE CACHE CARD: a hit never reaches the bus, a miss late)
       kb_cbreq <= BR && cyc_burst && (s != 3'd0) && !(s == 3'd6 && b_n == 2'd3);
       if (s == 3'd2) begin kb_addr <= eff_addr; kb_rw <= eff_rw; kb_fc <= eff_fc; kb_siz <= eff_siz; kb_dout <= (post && post_ack) ? k_dout : eff_dout; end   // (a posted write's first beat: pb_dout is loaded at this same edge)
     end
@@ -474,6 +484,126 @@ module tg68k #(
   assign cpu_siz  = KCLK ? kb_siz  : eff_siz;
   assign cpu_dout = KCLK ? kb_dout : eff_dout;
   assign cbreq    = BR ? kb_cbreq : 1'b0;
+
+  // ------------------------------------------------------ THE CACHE CARD
+  // (XCACHE; SE30_PLAN.md "THE CACHE CARD: THE DOCUMENTS AND THE DESIGN")
+  // The Macintosh IIci's RAM cache card, on the processor's bus: a read of
+  // RAM or ROM that it holds is answered in two clocks, with no burst (G
+  // chapter 5: "any longword in just two clock cycles", 50 MB a second); one
+  // it does not hold is retried from the MDU (BERR* + HALT*, UM 7.5.2) while
+  // the card takes the data off the bus; a write goes to the MDU as ever
+  // and the card updates a long it holds.  /CENABLE and /CFLUSH are the
+  // RBV's (VIA2 data B bits 0 and 3).
+  //
+  // It is in here because the bus is behind a register under KCLK: a real
+  // cycle - taken at a phi2 edge Q0, on the bus from the phi1 edge P1,
+  // DSACK* taken at P2 - is three clocks at least.  The card's RAMs read
+  // the request's physical address at Q0 and the tag is compared at P1:
+  //   a hit ends the cycle there (kc_end with s == 2): the long into
+  //     kk_din, DSACK 00, no CBACK*; AS*, DS* and ECS never reach the bus;
+  //     S5 at Q1 and the next cycle may be taken at Q2 - two clocks;
+  //   a miss holds AS*, DS* and ECS back XC_MISS CPU clocks (the aborted
+  //     two-clock cycle and the retry's start, UM Figure 7-55: OUR READING,
+  //     four), then the MDU's cycle as ever; the card takes each long at
+  //     its end (kc_end, a burst's beats);
+  //   a write to a long the card holds updates its bytes at Q1.  A long it does NOT hold is left alone:
+  //     the ROM enables the card before it sizes the RAM, writing through addresses that alias one
+  //     another, and a card that took a written long in then answered the read-back with a copy the
+  //     alias's write never reached - a RAM failure, the sad Mac chimes and no picture (the board,
+  //     2026-11-15).  Only what the bus has READ goes into the card.
+  // Direct-mapped on the physical address, an entry a long: 32 KB (index
+  // A14-A2) or 128 KB (A16-A2); the tag is {valid, ROM, A26-A15}.  A sweep
+  // clears the valid bits after reset and after /CFLUSH or /CENABLE's
+  // negation; the card is inactive until it ends.  The pace needs nothing:
+  // a two-clock cycle is its zero-credit cycle, a miss's wait is credit.
+  localparam        XC      = (XCACHE != 0) && (KCLK != 0);
+  localparam  [2:0] XC_MISS = 3'd4;
+  wire              xc_ram  = (eff_addr[31:27] == 5'b00000);
+  wire              xc_rom  = (eff_addr[31:25] == 7'b0100_000);
+  wire       [14:0] xc_ridx = {xc_big ? eff_addr[16:15] : 2'b00, eff_addr[14:2]};
+  wire       [12:0] xc_rtag = {xc_rom, eff_addr[26:15]};
+  reg               xc_act;                  // enabled, swept, not being flushed
+  reg               xc_relig, xc_welig;      // the request at this clk's start: a read / a write the card looks at
+  reg        [12:0] xc_tagr;                 //   ... and its tag
+  reg        [13:0] xc_tq;                   // the tag RAM's entry for it
+  reg        [31:0] xc_dq;                   // ... and the data RAM's
+  wire              xc_match = XC && xc_tq[13] && (xc_tq[12:0] == xc_tagr);
+  assign            xc_hit   = xc_match && xc_relig && (s == 3'd2);          // at P1: the card answers
+  wire              xc_miss  = XC && !xc_match && xc_relig && (s == 3'd2);   // at P1: the retry
+  reg         [2:0] xc_w;                    // CPU clocks AS* is still held back
+  assign            xc_hold  = XC && (((s == 3'd2) && xc_relig) || (xc_w > 3'd1));   // AS*, DS* stay high at this P
+  assign            xc_rel   = XC && (xc_w == 3'd1);                         // the retried cycle's first clk: ECS
+  reg               xc_fillc;                // this cycle's longs go into the card
+  reg               xc_upd;                  // this write's long is in the card: its bytes at Q1
+  reg        [14:0] xc_sw;                   // the sweep
+  reg               xc_swreq, xc_swrun;
+  reg        [23:0] xc_nh, xc_nm;
+  assign            dbg_xc = {xc_nh, xc_nm};
+  generate if (XC) begin : g_xc
+    (* ramstyle = "no_rw_check, M10K" *) reg [13:0] xc_tag [0:32767];
+    (* ramstyle = "no_rw_check, M10K" *) reg  [7:0] xc_d3 [0:32767];
+    (* ramstyle = "no_rw_check, M10K" *) reg  [7:0] xc_d2 [0:32767];
+    (* ramstyle = "no_rw_check, M10K" *) reg  [7:0] xc_d1 [0:32767];
+    (* ramstyle = "no_rw_check, M10K" *) reg  [7:0] xc_d0 [0:32767];
+    // the write port: the sweep, a miss's fill (at the long's end, a phi1 edge), a write's update (Q1)
+    wire        xc_fill = phi1 && xc_fillc && (((s == 3'd3) && kc_end0) || b_beat) && !berr && (dsack_n == 2'b00);
+    wire [31:2] xc_fa   = {kb_addr[31:4], (s == 3'd6) ? cyc_la[3:2] : kb_addr[3:2]};
+    wire  [2:0] xc_sz   = (kb_siz == 2'b00) ? 3'd4 : {1'b0, kb_siz};
+    wire  [2:0] xc_a10  = {1'b0, kb_addr[1:0]};
+    wire  [3:0] xc_be   = { (xc_a10 == 3'd0), (xc_a10 <= 3'd1) && (xc_a10 + xc_sz > 3'd1),
+                            (xc_a10 <= 3'd2) && (xc_a10 + xc_sz > 3'd2), (xc_a10 + xc_sz > 3'd3) };   // UM Table 7-7
+    wire        xc_wr   = phi2 && xc_upd;
+    wire [31:2] xc_wa   = xc_fill ? xc_fa : kb_addr[31:2];
+    wire [14:0] xc_widx = xc_swrun ? xc_sw : {xc_big ? xc_wa[16:15] : 2'b00, xc_wa[14:2]};
+    wire [31:0] xc_wd   = xc_fill ? cpu_din : kb_dout;
+    wire  [3:0] xc_dwe  = xc_fill ? 4'b1111 : xc_wr ? xc_be : 4'b0000;
+    wire        xc_twe  = xc_swrun || xc_fill;
+    wire [13:0] xc_twd  = xc_swrun ? 14'd0 : {1'b1, (xc_wa[31:25] == 7'b0100_000), xc_wa[26:15]};
+    always @(posedge clk) begin
+      xc_tq <= xc_tag[xc_ridx];
+      xc_dq <= {xc_d3[xc_ridx], xc_d2[xc_ridx], xc_d1[xc_ridx], xc_d0[xc_ridx]};
+      if (xc_twe) xc_tag[xc_widx] <= xc_twd;
+      if (xc_dwe[3]) xc_d3[xc_widx] <= xc_wd[31:24];
+      if (xc_dwe[2]) xc_d2[xc_widx] <= xc_wd[23:16];
+      if (xc_dwe[1]) xc_d1[xc_widx] <= xc_wd[15:8];
+      if (xc_dwe[0]) xc_d0[xc_widx] <= xc_wd[7:0];
+    end
+    always @(posedge clk or negedge reset_n)
+      if (!reset_n) begin
+        xc_act <= 0; xc_relig <= 0; xc_welig <= 0; xc_tagr <= 0; xc_w <= 0; xc_fillc <= 0; xc_upd <= 0;
+        xc_sw <= 0; xc_swreq <= 1; xc_swrun <= 0; xc_nh <= 0; xc_nm <= 0;
+      end else begin
+        // the request as this clk begins (it is the cycle's own at Q0, the edge that takes it)
+        xc_relig <= xc_act &&  eff_rw && (eff_fc != 3'd7) && (xc_ram || xc_rom);
+        xc_welig <= xc_act && !eff_rw && (eff_fc != 3'd7) && xc_ram;
+        xc_tagr  <= xc_rtag;
+        if (phi1) begin
+          if (xc_w != 0) xc_w <= xc_w - 1'b1;
+          if (s == 3'd2) begin
+            xc_fillc <= xc_miss;
+            xc_upd   <= xc_match && xc_welig;
+            if (xc_miss) begin xc_w <= XC_MISS; xc_nm <= xc_nm + 1'b1; end
+            if (xc_hit) xc_nh <= xc_nh + 1'b1;
+          end
+        end
+        if (phi2) xc_upd <= 0;
+        // the sweep: after reset, a flush, the card disabled
+        if (!xc_en || xc_flush) xc_swreq <= 1;
+        if (xc_swrun) begin
+          xc_sw <= xc_sw + 1'b1;
+          if (xc_sw == 15'h7FFF) xc_swrun <= 0;
+        end else if (xc_swreq && !xc_act) begin xc_swreq <= 0; xc_swrun <= 1; xc_sw <= 0; end
+        // active from a cycle boundary on, never in the middle of one
+        if (!xc_en || xc_flush || xc_swreq || xc_swrun) begin if (s == 3'd0 || !xc_en) xc_act <= 0; end
+        else if (s == 3'd0 && phi1) xc_act <= 1;
+      end
+  end else begin : g_noxc
+    always @* begin
+      xc_act = 0; xc_relig = 0; xc_welig = 0; xc_tagr = 0; xc_tq = 0; xc_dq = 0; xc_w = 0; xc_fillc = 0; xc_upd = 0;
+      xc_sw = 0; xc_swreq = 0; xc_swrun = 0; xc_nh = 0; xc_nm = 0;
+    end
+  end endgenerate
+
 
   // the bytes a walker beat brings, from the lanes the port answered on
   wire  [2:0] w_room = (dsack_r == 2'b10) ? 3'd1 : (dsack_r == 2'b01) ? 3'd2 - {2'b0, walk_done[0]} : 3'd4 - walk_done;
@@ -508,7 +638,7 @@ module tg68k #(
           else begin walk_done <= walk_done + w_n; walk_buf <= w_long; end
         end
         if (s == 3'd2) s <= 3'd3;
-        if (KCLK ? kc_end : (s == 3'd4)) begin s <= 3'd5; e_berr <= berr; e_dsack <= dsack_n; e_cback <= cback; end   // KCLK: the cycle's end, sampled here
+        if (KCLK ? kc_end : (s == 3'd4)) begin s <= 3'd5; e_berr <= berr; e_dsack <= xc_hit ? 2'b00 : dsack_n; e_cback <= cback && !xc_hit; end   // KCLK: the cycle's end, sampled here
         // BURST: a fill beat ends - the last at four longs, a bus error, a
         // narrower termination or CBACK* negated (filled by fill_ok above)
         if (b_beat && (berr || dsack_n != 2'b11)) begin
@@ -646,14 +776,17 @@ module tg68k #(
       kk_wack  <= kc_wdone;
       if (kc_wdone) kk_wdata <= w_long;
       kk_cyc   <= (kc_s4 || kc_cpn) && !walk;
-      kk_din   <= ((kc_s4 || b_beat) && !berr) ? cpu_din : din_r;
-      kk_dsack <= kc_s4 ? (cp_local ? dsack_r : dsack_n) : (s == 3'd2 && cp_local && iack) ? 2'b00 : dsack_r;
+      // (it keeps its own value between cycles, not din_r's: din_r is its copy from S5 on, and nothing
+      // reads kk_din without a cycle's acknowledge or a fill - while din_r -> kk_din, a register-to-
+      // register hop between the two clock trees, missed hold by 0.6 ns with the cache card's RAMs placed)
+      if ((kc_s4 || b_beat) && !berr) kk_din <= xc_hit ? xc_dq : cpu_din;
+      kk_dsack <= kc_s4 ? (cp_local ? dsack_r : xc_hit ? 2'b00 : dsack_n) : (s == 3'd2 && cp_local && iack) ? 2'b00 : dsack_r;
       kk_bh    <= (berr_hold && !(k_make_berr || k_trap_berr || k_cp_berr_ack)) ||
-                  (kc_s4 && berr && !walk) || (kc_end && post && berr) || (kc_cpn && !walk);
+                  (kc_s4 && berr && !walk) || (kc_end0 && post && berr) || (kc_cpn && !walk);
       kk_wberr <= walk && kc_s4 && berr;
       kk_bclr  <= k_make_berr || k_trap_berr || k_cp_berr_ack;
       kk_dout  <= k_dout;
-      kk_fs    <= !(walk && !kc_wdone) && (((s == 3'd0) && !post) || (kc_end && post && (berr || pb_n == 3'd1)));
+      kk_fs    <= !(walk && !kc_wdone) && (((s == 3'd0) && !post) || (kc_end0 && post && (berr || pb_n == 3'd1)));
     end
   wire        kc_wsel   = !kk_post && (kk_walk || (w_req && !kk_wack));
   wire        kc_fetch  = !kc_wsel && (k_busstate == 2'b00) && !park;
@@ -759,7 +892,10 @@ module tg68k #(
   reg   [7:0] p_xcred;   //   ... and of the instruction before's posted write, completed after the release
   reg         pb_old;    // the posted operand's instruction has been released
   reg         p_rel;     // released: the decode beat may step
-  reg   [4:0] p_cyc;     // clk edges of the cycle in progress (saturating)
+  reg   [6:0] p_cyc;     // clk edges of the cycle in progress (saturating at 127: a cycle's credit is 63 clocks
+                         //   at most.  It was 5 bits and stopped at 31, and the sums below, in 5 bits too, then
+                         //   wrapped: every cycle of 16 clocks or more was credited 63 - the IIci at 8 bits a
+                         //   pixel, where a cycle that waits out a video burst is 23, stood idle 40 clocks a time)
   reg         p_cont;    // the cycle in progress continues an operand through a narrow port
   reg  [29:0] p_last_la; // the last data cycle's long address ...
   reg   [1:0] p_last_ds; //   ... and port size
@@ -873,11 +1009,11 @@ module tg68k #(
   wire        pk_old   = pk_rel ? (post || pb_old) : pb_old;
   // ... and after Q, with a posted beat's S5 there
   reg   [5:0] px_addw  = 6'd0;         // p_addw for a cycle whose S5 is two clk edges on
-  wire  [4:0] px_cyc   = (p_cyc > 5'd29) ? 5'h1F : p_cyc + 5'd2;
-  wire  [4:0] px_edges = px_cyc + 5'd1;
-  wire  [4:0] px_len   = {1'b0, px_edges[4:1]} + 5'd1;
-  always @(posedge clk) px_addw <= p_cont ? {1'b0, px_len} : {1'b0, px_len} - 6'd2;
-  wire        px_s5    = kc_end && post;
+  wire  [7:0] px_edges = {1'b0, p_cyc} + 8'd3;                                     // (p_cyc + 2) + 1, at most 130
+  wire  [6:0] px_len   = px_edges[7:1] + 7'd1;
+  wire  [6:0] px_a     = p_cont ? px_len : px_len - 7'd2;
+  always @(posedge clk) px_addw <= (px_a > 7'd63) ? 6'd63 : px_a[5:0];
+  wire        px_s5    = kc_end0 && post;
   wire  [5:0] px_add   = px_addw + {4'd0, (cyc_fc != 3'd6) ? r_mvm : 2'd0};
   wire  [8:0] px_wsum  = {1'b0, pk_wc} + {3'd0, px_add};
   wire  [8:0] px_xsum  = {1'b0, pk_xc} + {3'd0, px_addw};
@@ -906,9 +1042,10 @@ module tg68k #(
   wire        p_release = phi1 && k_decode && !p_rel && p_go_rel;
   assign      dbg_pace  = {p_release, r_row, p_cnt, p_budget, p_fcred};
   // a cycle's clocks: p_cyc + 1 clk edges with s != 0 at its S5, two a C16M, S0 and S1 before them
-  wire  [4:0] p_edges  = p_cyc + 5'd1;
-  wire  [4:0] p_len    = {1'b0, p_edges[4:1]} + 5'd1;                                   // C16M clocks
-  wire  [5:0] p_addw   = p_cont ? {1'b0, p_len} : {1'b0, p_len} - 6'd2;
+  wire  [7:0] p_edges  = {1'b0, p_cyc} + 8'd1;
+  wire  [6:0] p_len    = p_edges[7:1] + 7'd1;                                           // C16M clocks
+  wire  [6:0] p_a      = p_cont ? p_len : p_len - 7'd2;
+  wire  [5:0] p_addw   = (p_a > 7'd63) ? 6'd63 : p_a[5:0];
   wire  [5:0] p_add    = p_addw + {4'd0, (cyc_fc != 3'd6) ? (KCLK ? r_mvm_q : r_mvm) : 2'd0};   // KCLK: r_mvm as today's at this phi2 edge
   wire  [6:0] p_tail_x = {1'b0, p_tail} + {1'b0, p_addw};
   // the write and read credits as the phi2 edge below leaves them, and the
@@ -926,9 +1063,9 @@ module tg68k #(
     if (!reset_n) begin
       p_op <= 16'h0; p_pc <= 32'h0; p_tail <= 6'd0; p_cnt <= 9'h1FF; p_rcred <= 8'd0; p_wcred <= 8'd0; p_fcred <= 8'd0; p_rel <= 1'b0;
       p_xcred <= 8'd0; pb_old <= 1'b0;
-      p_cyc <= 5'd0; p_cont <= 1'b0; p_last_la <= 30'd0; p_last_ds <= 2'b00; p_last_d <= 1'b0;
+      p_cyc <= 7'd0; p_cont <= 1'b0; p_last_la <= 30'd0; p_last_ds <= 2'b00; p_last_d <= 1'b0;
     end else begin
-      if (s != 3'd0 && p_cyc != 5'h1F) p_cyc <= p_cyc + 5'd1;
+      if (s != 3'd0 && p_cyc != 7'h7F) p_cyc <= p_cyc + 7'd1;
       if (phi1) begin
         if (p_cnt != 9'h1FF) p_cnt <= p_cnt + 9'd1;
         if (k_decode && !p_rel && p_go_rel) begin                         // the release
@@ -940,11 +1077,11 @@ module tg68k #(
       end
       if (phi2) begin
         if (s1_take) begin
-          p_cyc <= 5'd0;
+          p_cyc <= 7'd0;
           p_cont <= !wsel && (k_fc != 3'd6) && p_last_d && (p_last_ds != 2'b00) && (k_addr[31:2] == p_last_la);
           if (k_post) pb_old <= 1'b0;
         end
-        if (pb_take) begin p_cyc <= 5'd0; p_cont <= 1'b1; end              // the buffer's later beats continue its operand
+        if (pb_take) begin p_cyc <= 7'd0; p_cont <= 1'b1; end              // the buffer's later beats continue its operand
         if (s == 3'd5 && !(KCLK && e_berr && !post)) begin                // (KCLK: a bus-errored cycle gives no credit, as today's in the wait states)
           if (post && pb_old) begin                                         // a posted beat after its instruction's release
             if (p_xcred + {2'd0, p_addw} < 9'd255) p_xcred <= p_xcred + {2'd0, p_addw}; else p_xcred <= 8'hFF;

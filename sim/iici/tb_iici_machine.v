@@ -28,6 +28,7 @@
 
 module tb_iici_machine;
   parameter PORTRAIT = 0;              // run.sh's PORTRAIT=1: the Portrait Display
+  parameter XCARD = 0;                 // run.sh's XCARD=1 / 2: the RAM cache card fitted, 32 KB / 128 KB
   parameter SDRAM = 0;                 // run.sh's SDRAM=1: the memory through rtl/iici_sdram.v and the chip model
   // clk_mem 100 MHz, clk_sys its half, clk_k clk_sys's half: one process
   reg clk_mem = 0, clk_sys = 0, clk_k = 0;
@@ -188,7 +189,7 @@ module tb_iici_machine;
   wire [15:0] late;
 
   iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/")) machine (
-    .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2),
+    .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2), .cache_card(XCARD[1:0]),
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
     .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(SDRAM ? s_msoon : 1'b0), .mem_refresh(mem_refresh),
     .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),

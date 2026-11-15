@@ -3,6 +3,7 @@
 # with a program in the ROM's place and vid_watch.v counting its cycles.
 #   DEPTH  0-3 = 1, 2, 4, 8 bits a pixel (default 3)    SDRAM  1: through iici_sdram and the chip model
 #   CACHE  1: the caches on and burst reads over 64 KB of bank A (2-5: see below)
+#   XCARD  1 / 2: the RAM cache card fitted, 32 KB / 128 KB (CACHE=7 is its program; any other runs with it too)
 #   OVER   1: the pace's credits set past its 511-clock count at 2 ms; the CPU must carry on
 set -u
 cd "$(dirname "$0")"
@@ -11,7 +12,53 @@ RTL=../../rtl
 DEPTH=${DEPTH:-3} CACHE=${CACHE:-0} python - <<'PY' || exit 1
 import os
 depth = int(os.environ['DEPTH'])
-if os.environ.get('CACHE', '0') == '6':
+if os.environ.get('CACHE', '0') == '8':
+    # everything in bank A, the CPU's caches off: a three-instruction loop copied to $2000 and run there -
+    # fetches and writes that all compete with the video (the memory test's case)
+    prog = bytes.fromhex(
+      '00001000' '40800008'
+      '41f950f26010' '10bc00%02x'      # LEA $50F26010,A0 ; MOVE.B #depth,(A0)
+      '41f900002000'                   # LEA $2000,A0
+      '20fc52802280'                   # MOVE.L #$52802280,(A0)+     ADDQ.L #1,D0 ; MOVE.L D0,(A1)
+      '30bc60fa'                       # MOVE.W #$60FA,(A0)          BRA.S the ADDQ
+      '43f900003000'                   # LEA $3000,A1
+      '4ef900002000' % depth)          # JMP $2000
+elif os.environ.get('CACHE', '0') == '7':
+    # THE CACHE CARD (XCARD=1 / 2): enabled through the RBV, then for ever: 256 longs of bank A written,
+    # read twice (a miss and a hit), a byte and a word written into each and read back (the card's
+    # update), every difference counted in D7; the card flushed after the third pass; D6 counts passes.
+    # The CPU's own caches stay off, so every fetch from the ROM is a cycle the card may answer too.
+    def asm():
+        b = bytearray()
+        b += bytes.fromhex('00001000' '40800008')
+        b += bytes.fromhex('41f950f26010' '10bc00%02x' % depth)        # LEA $50F26010,A0 ; MOVE.B #depth,(A0)
+        b += bytes.fromhex('13fc00fe50f26000')                         # MOVE.B #$FE,$50F26000    /CENABLE low
+        b += bytes.fromhex('7c00' '7e00')                              # MOVEQ #0,D6 ; MOVEQ #0,D7
+        loop = len(b)
+        b += bytes.fromhex('41f900020000')                             # LEA $00020000,A0
+        b += bytes.fromhex('323c00ff')                                 # MOVE.W #255,D1
+        b += bytes.fromhex('2006' 'e198' 'd086')                       # MOVE.L D6,D0 ; ROL.L #8,D0 ; ADD.L D6,D0
+        l1 = len(b)
+        b += bytes.fromhex('2080')                                     # MOVE.L D0,(A0)
+        b += bytes.fromhex('b090' '6702' '5287')                       # CMP.L (A0),D0 ; BEQ.S +2 ; ADDQ.L #1,D7
+        b += bytes.fromhex('b090' '6702' '5287')                       # again: the hit
+        b += bytes.fromhex('11410001')                                 # MOVE.B D1,1(A0)
+        b += bytes.fromhex('2410' '2600' '4843' '1601' '4843')         # MOVE.L (A0),D2 ; MOVE.L D0,D3 ; SWAP D3 ; MOVE.B D1,D3 ; SWAP D3
+        b += bytes.fromhex('b682' '6702' '5287')                       # CMP.L D2,D3 ; BEQ.S +2 ; ADDQ.L #1,D7
+        b += bytes.fromhex('31410002' '3601')                          # MOVE.W D1,2(A0) ; MOVE.W D1,D3
+        b += bytes.fromhex('b698' '6702' '5287')                       # CMP.L (A0)+,D3 ; BEQ.S +2 ; ADDQ.L #1,D7
+        b += bytes.fromhex('d0bc01010101')                             # ADD.L #$01010101,D0
+        d = (l1 - (len(b) + 2)) & 0xFFFF
+        b += bytes.fromhex('51c9%04x' % d)                             # DBRA D1,l1
+        b += bytes.fromhex('0c060002' '6610')                          # CMPI.B #2,D6 ; BNE.S +16
+        b += bytes.fromhex('13fc00f650f26000')                         # MOVE.B #$F6,$50F26000    /CFLUSH low
+        b += bytes.fromhex('13fc00fe50f26000')                         # MOVE.B #$FE,$50F26000
+        b += bytes.fromhex('5286')                                     # ADDQ.L #1,D6
+        d = (loop - (len(b) + 2)) & 0xFFFF
+        b += bytes.fromhex('6000%04x' % d)                             # BRA loop
+        return bytes(b)
+    prog = asm()
+elif os.environ.get('CACHE', '0') == '6':
     # the ROM alone, caches off: fetches that never touch bank A.  On the IIci the ROM and bank B are not on
     # the video's bus, so the count in live video must match the count in vertical blanking
     prog = bytes.fromhex(
@@ -145,6 +192,6 @@ done
   "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/iicx_nuchip.v" "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" \
   "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" \
   "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v "$RTL/iici_sdram.v" ../sdram/sdram_model.v ../iici/tb_iici_machine.v vid_watch.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }
-"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -g/tb_iici_machine/machine/rbv/EARLY=${EARLY:-1} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
-grep -E '^# (      [0-9]+\.[0-9] ms|      long|      [0-9]+: |---- |==== VID)' run.log | sed 's/^# //'
+"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gXCARD=${XCARD:-0} -g/tb_iici_machine/machine/rbv/EARLY=${EARLY:-1} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} ${XON:+"+XON"} ${TRACE:+"+TRACE"} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
+grep -E '^# (      [0-9]+\.[0-9] ms|      long|      writes|      [0-9]+: |---- |==== VID)' run.log | sed 's/^# //'
 grep -q '^# ==== VID PASS' run.log

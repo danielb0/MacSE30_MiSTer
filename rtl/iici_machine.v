@@ -30,8 +30,10 @@
 //   port B as the SE/30's (ADB, the clock chip), PB7 /Par.Err high (no
 //   parity option).
 //
-// NOT HERE YET - the cache card, NuBus cards: every slot is empty (the
-//   NuChip times it out).
+// THE CACHE CARD is in the CPU's wrapper (tg68k.v THE CACHE CARD: the bus
+//   there is behind a register); /CENABLE and /CFLUSH are the RBV's.
+// NOT HERE YET - NuBus cards: every slot is empty (the NuChip times it
+//   out).
 
 `timescale 1ns/1ps
 
@@ -49,6 +51,7 @@ module iici_machine #(
   input         reset_n,
   input   [1:0] bank_a,                // 0 empty, 1 = 1 MB, 2 = 4 MB, 3 = 16 MB
   input   [1:0] bank_b,
+  input   [1:0] cache_card,            // the RAM cache card: 0 none, 1 = 32 KB, 2 = 128 KB (tg68k.v THE CACHE CARD)
 
   // the memory port, to the SDRAM controller (iici_mdu.v)
   output        mem_req,
@@ -151,6 +154,7 @@ module iici_machine #(
   output [56:0] dbg_exc,               // tg68k.v's {exception taken (one clk_k), vector, the opcode, its PC} (PKRN, PEXC)
   output [47:0] dbg_wrap,              // tg68k.v's wrapper state (PWRP)
   output [31:0] dbg_mem,               // the MDU's memory machine (PMDU)
+  output [47:0] dbg_xc,                // the cache card's {hits, misses} (PXCH)
   output [31:0] dbg_fifo,              // the RBV's FIFO (PFIF)
   output [160:0] dbg_jtp,              // tg68k.v's trace tap: {a beat now, its record}, for the probes' trace
   input   [3:0] dbg_cfg,               // the probes' experiment switches: {posted writes off, CDIS*, instruction cache off, data cache off}
@@ -160,14 +164,16 @@ module iici_machine #(
   // ---------------------------------------------------------- the bus
   wire [31:0] cpu_addr, cpu_dout, cpu_din;
   wire        ecs, cpu_as_n, cpu_ds_n, cpu_rw_n, berr, halted, cbreq, cback;
+  wire        cflush_n, cenable_n;     // the RBV's, to the cache card
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
 
-  tg68k #(.KCLK(1), .BURST(1)) cpu (
+  tg68k #(.KCLK(1), .BURST(1), .XCACHE(1)) cpu (
     .clk(clk), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),
     .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n), .cdis(dbg_cfg[2]), .coff(dbg_cfg[1:0]), .pace_en(pace_en), .post_en(!dbg_cfg[3]),
+    .xc_en(cache_card != 2'd0 && !cenable_n), .xc_flush(!cflush_n), .xc_big(cache_card[1]), .dbg_xc(dbg_xc),
     .reset_out_n(reset_out_n), .halted(halted),
     .cbreq(cbreq), .cback(cback),
     .dbg_d6(dbg_regs[63:32]), .dbg_d7(dbg_regs[31:0]), .dbg_trg(), .dbg_exc(dbg_exc), .dbg_wrap(dbg_wrap), .dbg_cache(), .dbg_pace(), .dbg_mmuf(),
@@ -241,7 +247,7 @@ module iici_machine #(
     .wdata(dev_wdata), .rdata(rbv_rdata),
     .scsi_irq(scsi_irq), .scsi_drq(scsi_drq), .asc_irq_n(asc_irq_n), .exp_irq_n(1'b1),
     .slot_irq_n(3'b111), .nb_tm(nb_tm), .irq_n(rbv_irq_n), .tick_n(vbl_n),
-    .cflush_n(), .cenable_n(), .poweroff_n(poweroff_n), .buslk_n(),
+    .cflush_n(cflush_n), .cenable_n(cenable_n), .poweroff_n(poweroff_n), .buslk_n(),
     .vid_req(vid_req), .vid_frame(vid_frame), .vid_ld(vid_ld), .vid_data(vid_data),
     .ce_pix(ce_pix), .r(vid_r), .g(vid_g), .b(vid_b), .hs_n(hsync_n), .vs_n(vsync_n), .hblank(hblank), .vblank(vblank),
     .dbg_underflow(), .dbg_reg(dbg_int[63:32]), .dbg_fifo(dbg_fifo));

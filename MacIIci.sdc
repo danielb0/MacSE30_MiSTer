@@ -74,9 +74,21 @@ if {[info exists ::TimeQuestInfo(nameofexecutable)] && $::TimeQuestInfo(nameofex
   set CK_SYS [get_clocks {emu|pll|pll_inst|altera_pll_i|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
   set_min_delay -from $CK_SYS -to [get_registers {*|tg68k:cpu|kk_*}] 0.3
   set_min_delay -from [get_registers {*|tg68k:cpu|kk_*}] -to $CK_SYS 0.3
+  # the kernel's opcode address into the pace's p_pc, taken at the phi1 edge the kernel's clock shares
+  # (0.02-0.09 ns short with the cache card's RAMs placed)
+  set_min_delay -from [get_registers {*|tg68k:cpu|TG68KdotC_Kernel:kernel|opcode_pc[*]}] -to $CK_SYS 0.3
+  # (NOT 0.5 on kk_* with the bus registers kb_* added: that build's router ran 50 minutes without ending,
+  # 2026-11-15 - killed.  The crossings it was for have no hold relationship: below.)
   # ... and the same for the SDRAM controller's request samplers (x*_ registers, clk_mem, taking clk_sys
   # registers on a shared edge): build probes7 left mdu v_base[14] -> xv_addr[14] 0.18-0.35 ns short
   set_min_delay -from $CK_SYS -to [get_registers {*|iici_sdram:sdram|x*}] 0.3
+  # ... and back: the controller's read data and acknowledges (clk_mem) into the MDU's registers on a shared
+  # edge.  A long may follow the last at once, the acknowledge staying up, so the MDU's edge must take the old
+  # one: a real relationship.  v_rdata[25] -> vid_data[25] was 0.16-0.31 ns short in the build of 2026-11-15
+  # (cache2); it had passed unguided until then.
+  # (the video's long alone, into the MDU's register for it.  The guide on all five - m_rdata into every
+  # consumer of the CPU's data - left the router running 75 minutes without ending, 2026-11-15: killed.)
+  set_min_delay -from [get_registers {*|iici_sdram:sdram|v_rdata[*]}] -to [get_registers {*|iici_mdu:mdu|vid_data[*]}] 0.3
 }
 
 # mdu v_base -> sdram xv_addr: no hold relationship.  v_base moves only on the clk_sys edge that raises
@@ -85,6 +97,16 @@ if {[info exists ::TimeQuestInfo(nameofexecutable)] && $::TimeQuestInfo(nameofex
 # and met), so xv_addr's enable is off while v_base moves; it loads a clk_mem clock later, v_base long still.
 # The fitter's 0.3 ns guide (above) left bit 10 0.16-0.33 ns short in the build of 2026-11-15 (probes13).
 set_false_path -hold -from [get_registers {*|iici_mdu:mdu|v_base[*]}] -to [get_registers {*|iici_sdram:sdram|xv_addr[*]}]
+
+# the wrapper's kk_din -> din_r: no hold relationship.  kk_din moves at clk_k's rising edges, which are the
+# phi1 edges of clk_sys; din_r takes it at phi2 edges only (tg68k.v, S5), 20 ns later.  The fitter's guide
+# left bit 19 0.13-0.25 ns short in the first builds with the cache card.
+set_false_path -hold -from [get_registers {*|tg68k:cpu|kk_din[*]}] -to [get_registers {*|tg68k:cpu|din_r[*]}]
+
+# the bus registers kb_* -> the MDU's held request q_*: no hold relationship.  kb_* move at clk_k's rising
+# edges (phi1); q_* load on mem_start, which has ECS in it, and ECS is kb_ecs && phi2 (tg68k.v): phi2 edges
+# only.  The first build with the cache card left kb_dout -> q_wdata 0.14-0.32 ns short.
+set_false_path -hold -from [get_registers {*|tg68k:cpu|kb_*}] -to [get_registers {*|iici_mdu:mdu|q_*}]
 
 set SDRAM_OUT [get_ports {SDRAM_A[*] SDRAM_BA[*] SDRAM_DQ[*] SDRAM_DQMH SDRAM_DQML SDRAM_nCAS SDRAM_nRAS SDRAM_nWE SDRAM_nCS SDRAM_CKE}]
 set_output_delay -clock sdram_clk -max  2.0 $SDRAM_OUT

@@ -14,6 +14,7 @@ module vid_watch;
   always @(posedge clk) begin
     as_q <= as_n;
     if (as_q && !as_n) cyc = cyc + 1;
+    if (tb_iici_machine.machine.cpu.phi1 && tb_iici_machine.machine.cpu.xc_hit) cyc = cyc + 1;   // a cycle the cache card answered: never on the bus
     if (tb_iici_machine.machine.mdu.v_req) vb = vb + 1;
     // a request held behind a posted write's acknowledge (m_hold) must go out before the next cycle's is held
     if (tb_iici_machine.machine.mdu.mem_start && tb_iici_machine.machine.mdu.blocked && tb_iici_machine.machine.mdu.m_hold) begin
@@ -84,6 +85,77 @@ module vid_watch;
         tb_iici_machine.machine.rbv.wp, tb_iici_machine.machine.rbv.rp_c, tb_iici_machine.machine.rbv.busy, tb_iici_machine.machine.rbv.got, tb_iici_machine.machine.rbv.vb_sync[2]);
     end
   end
+  // THE CACHE CARD (tg68k.v): a hit is two clocks and never on the bus; a miss puts AS* out four CPU
+  // clocks late; the counts
+  integer xh = 0, xm = 0, xbus = 0, xlat = 0, xlmin = 999, xlmax = 0, xgap = 0, xgmin = 999, xseq = 0;
+  reg     xwait = 0, xafter = 0; integer xa = 0;
+  always @(posedge clk) begin
+    if (xgap < 9999) xgap = xgap + 1;
+    if (xafter) begin
+      xa = xa + 1;
+      if (!as_n) xbus = xbus + 1;                                  // a hit's cycle seen on the bus
+      if (xa == 1 && tb_iici_machine.machine.cpu.s != 3'd5) xseq = xseq + 1;
+      if (xa == 2 && tb_iici_machine.machine.cpu.s != 3'd0) xseq = xseq + 1;
+      if (xa == 3) xafter = 0;
+    end
+    if (xwait) begin
+      xlat = xlat + 1;
+      if (!as_n) begin xwait = 0; if (xlat < xlmin) xlmin = xlat; if (xlat > xlmax) xlmax = xlat; end
+    end
+    if (tb_iici_machine.machine.cpu.phi1 && tb_iici_machine.machine.cpu.xc_hit) begin
+      xh = xh + 1; xafter = 1; xa = 0;
+      if (xgap < xgmin) xgmin = xgap;
+      xgap = 0;
+    end
+    if (tb_iici_machine.machine.cpu.phi1 && tb_iici_machine.machine.cpu.xc_miss) begin xm = xm + 1; xwait = 1; xlat = 0; end
+  end
+  // +XON: the card enabled from the start, for the programs that do not write the RBV
+  initial if ($test$plusargs("XON")) force tb_iici_machine.machine.cenable_n = 1'b0;
+  // the bus cycles into bank A while the picture is shown: how long AS* is low (clk, two a CPU clock), and
+  // the clk from one cycle's end to the next one's start
+  integer awn = 0, awsum = 0, awmax = 0, arn = 0, arsum = 0, armax = 0, alow = 0, wh [0:63], ih;
+  reg     awr = 0, abank = 0;
+  initial for (ih = 0; ih < 64; ih = ih + 1) wh[ih] = 0;
+  always @(posedge clk) begin
+    if (!as_n) begin
+      if (as_q) begin alow = 0; awr = !tb_iici_machine.machine.cpu_rw_n; abank = (tb_iici_machine.machine.cpu_addr[31:26] == 6'd0); end
+      alow = alow + 1;
+    end else if (!as_q && abank && slot >= 16 && !tb_iici_machine.machine.rbv.vb_sync[2]) begin
+      if (awr) begin awn = awn + 1; awsum = awsum + alow; if (alow > awmax) awmax = alow; wh[(alow > 63) ? 63 : alow] = wh[(alow > 63) ? 63 : alow] + 1; end
+      else begin arn = arn + 1; arsum = arsum + alow; if (alow > armax) armax = alow; end
+    end
+  end
+  // the video against a waiting CPU cycle: bursts begun while a bank-A cycle waits, and how many of
+  // those cycles had already waited out the burst before (the video twice in a row over the same cycle)
+  integer vover = 0, vtwice = 0, vthrice = 0, vall = 0, awaitn = 0;
+  always @(posedge clk) begin
+    if (as_n) awaitn = 0;
+    if (tb_iici_machine.machine.mdu.v_req && slot >= 16) begin
+      vall = vall + 1;
+      if (!as_n && tb_iici_machine.machine.cpu_addr[31:26] == 6'd0 && tb_iici_machine.machine.mdu.held) begin
+        vover = vover + 1; awaitn = awaitn + 1;
+        if (awaitn == 2) vtwice = vtwice + 1;
+        if (awaitn == 3) vthrice = vthrice + 1;
+      end
+    end
+  end
+  // +TRACE: the bus and the video, CPU clock by CPU clock, for a stretch of live video
+  //   A = AS* low, w = a write, h = held by the MDU, V = a burst starts, v = the burst's hold, p = a burst pending,
+  //   r = the RBV asks
+  reg [8*400-1:0] tl; integer tn = 0; reg ton = 0;
+  always @(posedge clk) if (ton && tb_iici_machine.machine.cpu.p_release)
+    $write("\n[release: op %04x ran %0d clocks, budget %0d; credits r %0d w %0d f %0d x %0d, tail %0d]\n",
+      tb_iici_machine.machine.cpu.p_op, tb_iici_machine.machine.cpu.p_cnt, tb_iici_machine.machine.cpu.p_budget,
+      tb_iici_machine.machine.cpu.p_rcred, tb_iici_machine.machine.cpu.p_wcred, tb_iici_machine.machine.cpu.p_fcred,
+      tb_iici_machine.machine.cpu.p_xcred, tb_iici_machine.machine.cpu.p_tail);
+  initial if ($test$plusargs("TRACE")) begin #2000000; ton = 1; end
+  always @(posedge clk) if (ton && tb_iici_machine.machine.cpu.phi2) begin
+    $write("%s", !as_n ? (tb_iici_machine.machine.mdu.held ? "h" : (!tb_iici_machine.machine.cpu_rw_n ? "w" : "A")) : ".");
+    $write("%s", tb_iici_machine.machine.mdu.v_req ? "V" : (tb_iici_machine.machine.mdu.v_hold != 0) ? "v" : tb_iici_machine.machine.mdu.v_pend ? "p" : tb_iici_machine.machine.rbv.vid_req ? "r" : " ");
+    tn = tn + 1;
+    if (tn % 60 == 0) $write("\n");
+    if (tn == 720) begin ton = 0; $write("\n"); end
+  end
   initial forever begin
     #100000;
     if (slot >= 14) begin                       // past vertical blanking: the screen is being fetched
@@ -115,6 +187,23 @@ module vid_watch;
     $display("---- the RBV's FIFO ran dry on %0d pixels; it held %0d to %0d longs; a burst's first long came %0d to %0d clk after the request (the longest: %0d of them before the MDU began), with as few as %0d held", tb_iici_machine.machine.rbv.dbg_underflow, fmin, fmaxh, latmin, latmax, lat_mmax, lvl_at);
     if (fmaxh > 17) stuck = stuck + 1;   // (17: the read pointer is seen two clk late)
     if (tb_iici_machine.machine.rbv.dbg_underflow != 0) stuck = stuck + 1;
+    if (tb_iici_machine.XCARD != 0) begin
+      $display("---- the cache card: %0d hits, %0d misses; hits %0d clk apart at the closest (4 = two CPU clocks); a miss's AS* %0d to %0d clk after its P1 (9 = four CPU clocks late); %0d hits seen on the bus, %0d out of sequence",
+               xh, xm, xgmin, xlmin, xlmax, xbus, xseq);
+      $display("---- the card's program: D6 (passes) %0d, D7 (differences) %0d", tb_iici_machine.machine.cpu.dbg_d6, tb_iici_machine.machine.cpu.dbg_d7);
+      // (a program that never reads the bus - the grey fill from the instruction cache - gives the card nothing)
+      if (xbus != 0 || xseq != 0 || xgmin < 4 || (xm != 0 && (xlmin != xlmax || xlmin != 9))) stuck = stuck + 1;
+      if (tb_iici_machine.machine.cpu.dbg_d6 != 0 && (xh == 0 || xm == 0)) stuck = stuck + 1;
+      if (tb_iici_machine.machine.cpu.dbg_d7 != 0) stuck = stuck + 1;
+    end
+    if (awn != 0) begin
+      $display("---- bank A writes in live video: %0d, AS* low %0d clk on average, %0d at most (8 = a four-clock write); reads: %0d, %0d on average, %0d at most (10 = five clocks)",
+               awn, awsum / awn, awmax, arn, (arn != 0) ? arsum / arn : 0, armax);
+      $write("      writes by AS* low, clk:");
+      for (ih = 0; ih < 64; ih = ih + 1) if (wh[ih] != 0) $write(" %0d:%0d", ih, wh[ih]);
+      $display("");
+    end
+    $display("---- video bursts: %0d; begun over a waiting bank-A cycle: %0d; over one that had already waited out a burst: %0d (three in a row: %0d)", vall, vover, vtwice, vthrice);
     $display("---- held requests overwritten before they went out: %0d", overw);
     if (overw != 0) stuck = stuck + 1;
     if (stuck == 0 && worst > 20) $display("==== VID PASS: the CPU keeps running beside the video's bursts");
