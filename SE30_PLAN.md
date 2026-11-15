@@ -29616,6 +29616,59 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     1.39: THE RUN THE COMPLETION CRITERION IS JUDGED ON.  Low End Mac:
     3.5 without the cache and 4.3 with it relative to the SE (23 %).
   - NEXT (Daniel 2026-11-15): the cache card.
+
+  THE CACHE CARD: THE DOCUMENTS AND THE DESIGN (2026-11-15 afternoon;
+  committed through fb701aa; 32 MB boots, Norton there as at 8 MB - the
+  application is in bank A at $00Dxxxxx, so no memory size moves it out).
+  - DOCUMENTS (C:/temp/Mac/Docs/IIci, Daniel): "Designing Cards and
+    Drivers for the Macintosh Family" 2e, chapter 18 (PDF pages 414-426,
+    text layer); Bomarc's IIci logic board schematic (the cache PORT on
+    sheet 4, not the card).  With G chapter 5 ("RAM cache card in the
+    Macintosh IIci", pp 223-227), S MDU 6.2 and the 68030 UM 7.5.2:
+    - CACHE (active high, from the card) stops the MDU beginning a RAM,
+      ROM or NuBus cycle; asserted at AS* or before; no effect on I/O
+      cycles or on a cycle begun (DCD p 392).  The card is inactive with
+      /CENABLE negated, on a /CIOUT cycle, under another bus master.
+    - HIT: the card answers; "any longword in just two clock cycles" (G).
+      G's "50 MB per second with a cache card" is 4 bytes in 2 clocks:
+      NO BURST on a hit (5-2-2-2 is 36.36 MB/s, the no-card figure).
+    - MISS: BERR* + HALT*, the retry; CACHE negated so the MDU runs the
+      retried cycle; the card takes the data from the bus, each long of a
+      burst fill.  UM Figure 7-55 (synchronous late retry): the cycle
+      ends as a 2-clock one, the retry's S0 about two clocks after HALT*
+      is negated.  OUR READING: a miss is the normal cycle 4 CPU clocks
+      late (9 clocks for a 5-clock read).  No Apple figure for it.
+    - WRITE: the MDU's, no penalty (CACHE follows R/W); the card updates
+      a long it holds (OUR CHOICE: by bytes; the other typical design
+      invalidates).
+    - ROM reads are cached as RAM's (S MDU 6.2: "substitute for RAM and
+      ROM accesses"): 5 clocks to 2 on a hit.
+    - Control: RBV VIA2 data bit 0 /CEnable (0 enables), bit 3 /CFLUSH (0
+      flushes); the ROM's HWPriv selectors 4 / 5 / 6.  The ROM never
+      addresses $52000000-$52FFFFFF (the card's test space): not built.
+    - The card's organisation is the designer's (DCD: "determined by the
+      card").  OURS: direct-mapped, one entry a long, physical address;
+      OSD Off / 32 KB / 128 KB (Apple's card 32 KB, Norton's reference
+      128 KB); M10K: 32K x 32 data in four byte lanes, 32K x 14 tags
+      (valid, ROM, A26-A15), about 170 of the 327 free blocks; a sweep
+      clears the valid bits at reset and while /CFLUSH is low, the card
+      inactive until it ends.
+  - WHERE IT GOES.  Under KCLK the wrapper's bus is behind a register: a
+    real bus cycle is 3 clocks at least (taken at a phi2 edge Q0, the
+    address out at the phi1 edge P1, DSACK* taken at P2).  A 2-clock hit
+    must end at P1, so the card is INSIDE tg68k.v (parameter, off for the
+    SE/30 and IIcx): its RAMs read eff_addr at Q0, the tag is compared at
+    P1; a hit ends the cycle there (kc_end with s == 2), the data into
+    kk_din, DSACK 00, no CBACK, AS* never on the bus (kb_as_n held); a
+    miss holds AS* back 4 CPU clocks, then the MDU's cycle as ever and
+    the card filled at each long's end; a write updates a matching long
+    at the phi2 edge after P1.  The pace needs nothing: a 2-clock cycle
+    is its zero-credit cycle (p_cyc 1 at S5), a miss's wait is credit.
+  - THE RISK: one clk (20 ns) from the M10K's address register through
+    the tag compare to the kernel's kk_ registers, and eff_addr to 170
+    blocks' address registers in the half clock before Q0 - the
+    wrapper's tightest paths.  FALLBACK if it does not close: a 3-clock
+    hit on the real bus, said plainly, because it moves the benchmark.
   - NORTON (probes9, System 7.5.5 from the work disk, 1 bit a pixel,
     Daniel 2026-11-14 21:56): CPU 10.2 against Norton's Mac IIci 9.95
     (+2.5 %), FPU 2.62 against 2.70 (-3.0 %).  The criterion is ~2 %.
