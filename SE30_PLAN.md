@@ -29350,7 +29350,163 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     select from act.  sim/iici_hs PASS at DRQ_LAT 2, 3, 5, 9, 12, 20, 30,
     40 (reads and writes: 34 + 8 strobes, every byte once and in order);
     sim/mdu PASS 84.
-  - Build probes9: compiling (the fix; the trace still out).
+  - BUILD probes9 (the fix; the trace out; 39 min, routed in 6): TIMING MET
+    AT EVERY CORNER - worst setup +0.083 (slow -40C), worst hold +0.074;
+    the capture >= 0.985; no latch loops; 39,527 ALMs.  sim/iici PASS 12
+    before it.  output_files/MacIIci_probes9.rbf (md5 in the session's
+    report), built from the tree committed as c28737c + 6d7f3f4, not
+    stamped.
+  - ON THE BOARD (probes9, Daniel, 2026-11-14 ~21:45): THE IIci BOOTS FROM
+    THE SCSI WORK DISK.  The MDU's acknowledge fix is confirmed.
+
+  256 COLOURS: THE CPU's BUS STOPS (2026-11-14, night; OPEN).
+  - SEEN: choosing 256 colours in Monitors hangs the machine.  Probes:
+    PACT does not move at all - the last cycle is a program fetch from
+    RAM at physical $001C36FC that is never acknowledged; not halted, no
+    bus error since start-up, IPL* 5 pending and not taken.  So bank A
+    has stopped answering the CPU: the video fetch (eight times the data
+    at 8 bits a pixel), which has priority over the CPU in the MDU, or the
+    SDRAM controller behind it.
+  - sim/iici_vid (new): tb_iici_machine with a program that sets the depth
+    in $10 and counts in a loop of RAM writes, vid_watch.v counting the
+    CPU's bus cycles in each 100 us beside the video's bursts.  At 8 bits
+    a pixel through iici_sdram: caches off, ~390 CPU cycles per 100 us
+    beside 72 bursts; caches and bursts on (CACR $3919, sums over 64 KB),
+    ~49 burst reads per 100 us, never a slot with none.  So NOT plain
+    starvation of the CPU by the video: PASS both.
+  - Screen at the hang: blank grey with part of the pointer (the driver had
+    cleared the screen; the picture is still fetched).
+  - NEXT READING: PACT frozen with interrupts pending is also what a loop
+    wholly inside the caches looks like - the driver's wait-for-VBL
+    (interrupts masked) spinning on a CACHED read of the RBV's $02.  The
+    experiment needs no build: PCFG 1 (data cache off), then 256 colours.
+    RESULT: still hangs with the data cache off, and switching both
+    caches off on the hung machine does not start the bus: NOT a cached
+    loop.  Slot IER reads $3F at the hang (bit 6 off: inside the driver's
+    section), VIA1's flags all pending, untaken.
+  - Daniel: 4 COLOURS AND 16 COLOURS BOTH WORK; only 256 hangs.  So the
+    mode change is sound and the trigger is 8 bits a pixel alone: the
+    video near the bank's capacity (a burst holds bank A VB = 20 CPU
+    clocks, 800 ns, for 8 longs; the screen takes 8 longs every 1,056 ns),
+    the 256-entry CLUT load, the long-write grey fill.
+  - sim/iici_vid CACHE=2 (the grey fill: MOVE.L D3,(A0)+ / DBRA from the
+    cache, posted writes back to back): running.  Build probes10 with
+    PMDU / PSDR / PFIF (the MDU's memory machine, the SDRAM's sequencer,
+    the RBV's FIFO, live): compiling.
+  - sim/iici_vid CACHE=2, SDRAM=1 and 0: PASS - no slot without CPU
+    cycles, every long of the fill written, and no held request
+    overwritten (the MDU holds ONE request behind a posted write's
+    acknowledge; a second before the first went out would replace it - a
+    detector for that is in vid_watch.v; not reached in these runs, still
+    not excluded by the MDU itself).
+  - Daniel: 256 GREYS hangs as 256 colours does: the palette is not it.
+    MacsBug, running, is not tripped: no exception.
+  - BUILD probes10 (PMDU / PSDR / PFIF; ours met, the framework's HDMI OSD
+    -0.047 at slow -40C; 39,580 ALMs; routed in 7 min).  AT THE HANG:
+    AS* is HIGH - no bus cycle open.  The MDU idle (m_act 0, nothing
+    pending or held), the last cycle a burst of four longs delivered
+    (m_got 4), a program fetch at physical $001C2824.  The SDRAM idle.
+    The video fetching normally (v_hold cycling, 7-11 longs held, depth 3).
+    So the memory path is NOT stuck: THE CPU HAS STOPPED STARTING CYCLES
+    after a burst fetch, an interrupt pending and untaken.  The earlier
+    reading ("a RAM cycle never answered") was wrong: PACT counts AS*
+    falling, and it had simply stopped falling.
+  - NEXT: PKRN (the kernel's opcode and its PC, live) and PEXC (the last
+    exception and a count), from tg68k.v's dbg_exc on clk_k - no change to
+    the wrapper.  Build probes11 compiling.  Suspects: the wrapper's burst
+    handling when the first long is late (only 8 bits a pixel makes the
+    memory late often), or an instruction that never ends.
+  - BUILD probes11 (PKRN / PEXC; ours met, setup +0.006 at slow 100C;
+    ascal -0.155 at slow -40C; 39,913 ALMs).  AT THE HANG (256 colours):
+    PKRN - the kernel is in opcode $48E7 (MOVEM.L regs,-(A7)) at logical
+    PC $001743FC, the LAST LONG OF ITS CACHE LINE; the last bus cycle the
+    burst that filled that line (physical $001C43FC, four longs
+    delivered); AS* high since.  The last exception a level-1 autovector
+    (54,255 taken): none caused it.  So: after a burst fill whose last
+    long is the instruction about to run, the wrapper never starts the
+    MOVEM's writes or the next line's fetch.
+  - sim/iici_vid CACHE=3 (that shape: 32 blocks of code in RAM on one
+    cache line's index, each a miss and a burst, a MOVEM in the line's
+    last long): PASS, 124 or more CPU cycles per 100 us.  CACHE=4 (the
+    same with the PMMU on over an identity map and a PFLUSHA in each
+    block, so a table walk follows every burst): PASS, 122 or more.  SIX
+    runs at 8 bits a pixel clean; the board's stop needs something none
+    has (interrupts, at least).  No more guessing at it.
+  - PWRP (build probes12, compiling): tg68k.v's new dbg_wrap, 42 bits of
+    the wrapper's own state, live - s, post, park, walk, w_req, w_ack_s,
+    ack_pending, the burst's b_done / b_adv / cyc_burst / b_n, the kk_*
+    flags (s0, post, brst, walk, wack, cyc, bh, fs, pgo_q, pgo_p), the
+    kernel's decode / busstate / state / pmmu_busy / pmmu_fault, the
+    decisions kc_take / anyhit / bblk / stallq / wsel / int / force,
+    berr_hold, pb_n.  An OUTPUT ONLY on the shared wrapper (the SE/30 and
+    IIcx leave it open): it joins the tg68k.v changes that need the
+    identical-build check before any merge to dev.  sim/iici PASS 12.
+
+  END OF SESSION 2026-11-14 / 15 (Daniel stopped ~00:30: "carry on
+  testing in the morning") - READ THIS TO RESUME THE IIci.
+  - ON THE BOARD, WORKING: floppy and SCSI boot, mouse, keyboard, sound,
+    Shut Down, 32-bit addressing, 1 / 2 / 4 bits a pixel on the 13-inch
+    monitor, the Portrait Display's picture and timing.
+  - FIXED AND BOARD-CONFIRMED TODAY, committed on iici through 4841f84
+    (NOT pushed): the RBV's blanking bit, the ADB / clock rates, the
+    SDRAM's disk port, the MDU's stale device acknowledge; the RBV and the
+    MDU to Apple's specifications.
+  - OPEN, in order: (1) the CPU stops at the high video rates - build
+    probes12 (PWRP) was compiling at the session's end: its timing at
+    every corner, then one hang at 256 colours, then the wrapper's state
+    from scripts/read_probes_iici.tcl; (2) the Portrait Display's picture
+    is blue: the blue channel as grey when that monitor is chosen;
+    (3) the rest of the basic board tests (the list above); (4) KNOWN
+    ISSUES 65; (5) the cache card - Norton's reference IIci has one, so
+    the completion criterion needs it; (6) the RBV FIFO's earlier request
+    at the two fast modes (S 6.3.2), the RBV's video sheets and the MDU's
+    waveform sheets against ours, the Blue Book unread.
+  - UNCOMMITTED at the session's end: the PMDU / PSDR / PFIF / PKRN /
+    PEXC / PWRP probes (MacIIci.sv, iici_machine.v, iici_mdu.v,
+    iici_rbv.v, iici_sdram.v, tg68k.v, read_probes_iici.tcl),
+    sim/iici_vid, these plan entries.
+  - NORTON (probes9, System 7.5.5 from the work disk, 1 bit a pixel,
+    Daniel 2026-11-14 21:56): CPU 10.2 against Norton's Mac IIci 9.95
+    (+2.5 %), FPU 2.62 against 2.70 (-3.0 %).  The criterion is ~2 %.
+    NOT YET COMPARABLE (Daniel, from Norton's own notes): its Mac IIci was
+    measured with the built-in video at 256 COLOURS and a 128K CACHE CARD,
+    and it says every benchmark runs faster on a 1-bit display.  Ours was
+    1 bit with no cache card (not built: "NOT HERE YET" in
+    iici_machine.v).  The depth costs the CPU bank A's time, the card
+    hides that cost: the two differences pull opposite ways, so 10.2
+    against 9.95 is partly a coincidence.  A fair figure needs 256 colours
+    working and either the cache card or a card-less reference.  Norton's
+    video ratings: Mac IIci 25.4, Mac IIcx 14.8 (the IIci's above the
+    IIfx's) - the third yardstick, also at 256 colours.
+  - THE IIci's BASIC BOARD TESTS (Daniel, from 2026-11-14 night; results as
+    they come):
+    DONE, WORKING: floppy boot (6.0.7); SCSI boot (7.5.5, the work disk);
+      mouse; keyboard (Cmd-A; TattleTech: Extended ADB); 1, 2 and 4 bits a
+      pixel, colours and greys; SOUND; 32-BIT ADDRESSING on (the Memory
+      control panel, a restart); SHUT DOWN from the Special menu.
+    FAILING: 8 bits a pixel (256 colours and 256 greys): the CPU stops.
+      The Portrait Display at 16 greys hangs too (4 bits at 57.28 MHz:
+      229 Mbit/s, the 13-inch monitor's 8 bits are 242) - S 6.6 names the
+      two together as the cases where the shift register drains the FIFO
+      fastest.  So the stop goes with the video's data rate.
+    THE PORTRAIT DISPLAY (640 x 870) comes up after the OSD's monitor
+      option and a restart (the sense is read at reset), but its picture
+      is BLUE ONLY: the ROM's driver loads the grey ramp into the blue
+      channel alone for monitor type 001 (red and green 0).  Apple's
+      monochrome monitors take one DAC channel; the core shows all three.
+      TO FIX: with the portrait monitor selected, the blue channel as
+      grey.  (S 6.12, the monitor types, is not among the scanned sheets.)
+    S 6.3.2, not yet built: the FIFO asks for its next half "three long
+      words earlier" for 8-bit 13-inch and 4-bit 15-inch video; ours asks
+      at 8 held, whatever the depth.
+    TO DO, new on the IIci: the clock's time and rate; 4, 8 and 32 MB;
+      Restart.
+    TO DO, the SE/30's devices through the MDU: floppy write, eject, a
+      high-density disk; a large SCSI copy verified (the blind WRITE path)
+      and a second disk; a CD image; typing with modifiers; a PRAM image
+      across a reload; the FPU beyond Norton.
+    NOT BUILT: the cache card (Norton's reference IIci has one), NuBus
+      cards.
   - SCSI REVIEW WHILE IT BUILT (Daniel: the fault is in new code around
     it): se30_scsi and its parameters, the MDU's SCSI select / DACK /
     strobes (GLUE's, line for line) and the top's image wiring are the
