@@ -71,7 +71,7 @@ module tb_iici_machine;
   function [31:0] mread(input [24:0] ad);
     begin
       if (ad[24:21] == 4'b0011) mread = rom[ad[16:0]];
-      else if (ad[23]) mread = ram_b[ad[19:0]];
+      else if (ad[21]) mread = ram_b[ad[19:0]];       // bank B: chip bank 1 (iici_mdu.v ram_phys)
       else mread = ram_a[ad[19:0]];
     end
   endfunction
@@ -81,7 +81,7 @@ module tb_iici_machine;
       o = mread(ad);
       o = {be[3] ? w[31:24] : o[31:24], be[2] ? w[23:16] : o[23:16], be[1] ? w[15:8] : o[15:8], be[0] ? w[7:0] : o[7:0]};
       if (ad[24:21] == 4'b0011) ;                   // the ROM: no write reaches it (the MDU sends none)
-      else if (ad[23]) ram_b[ad[19:0]] = o; else ram_a[ad[19:0]] = o;
+      else if (ad[21]) ram_b[ad[19:0]] = o; else ram_a[ad[19:0]] = o;
     end
   endtask
 
@@ -168,7 +168,7 @@ module tb_iici_machine;
     assign dq_chip = oe_c ? do_c : 16'hzzzz;
     always @(dq_chip or sdram.dq_oe) dq_back <= #(2.0) (sdram.dq_oe ? 16'hzzzz : dq_chip);
     assign sd_dq = dq_back;
-    sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1), .COL_BITS(9), .tCK(10.0), .tAC(6.0)) chip (
+    sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1), .COL_BITS(10), .tCK(10.0), .tAC(6.0)) chip (
       .clk(clk_c), .cke(cke_c), .cs_n(cs_c), .ras_n(ras_c), .cas_n(cas_c), .we_n(we_c),
       .ba(ba_c), .addr(a_c), .dqm(a_c[12:11]), .dq(dq_chip));
   end else begin : g_nosd
@@ -188,7 +188,7 @@ module tb_iici_machine;
   wire [15:0] late;
 
   iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/")) machine (
-    .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(SDRAM ? 2'd0 : 2'd2),
+    .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2),
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
     .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(SDRAM ? s_msoon : 1'b0), .mem_refresh(mem_refresh),
     .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),

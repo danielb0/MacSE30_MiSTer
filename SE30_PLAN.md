@@ -29529,6 +29529,93 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     ascal alone (-0.091 at slow -40C, -0.077 at slow 100C).
     output_files/MacIIci_probes13.rbf (md5 7204c7e3...).  ON THE BOARD
     (Daniel, 2026-11-15 ~11:15): 256 COLOURS WORKS.
+
+  256 COLOURS MEASURED, AND THE VIDEO'S TWO FAULTS (2026-11-15 midday;
+  a456b87 holds the pace fix and the Portrait grey).
+  - NORTON AT 256 COLOURS (probes13, Daniel): 16 MB (all bank A) CPU 6.3,
+    video 15.7, FPU 2.31; 8 MB (4 + 4) CPU 6.45, video 17.4, FPU 2.31.
+    At 1 bit the same build gives 10.2 and 2.62 again: the pace fix cost
+    nothing, the whole loss is the depth.
+  - IT IS AUTHENTIC.  S 6.10 (CI_RBV sheet 29), "bank A RAM access time
+    taken by RBV video", 13-inch at 25 MHz: 6 / 13 / 26 / 51 % of all
+    time at 1 / 2 / 4 / 8 bits, 9 / 19 / 38 / 76 % of live video time.
+    Ours at 8 bits: 20 bursts of 20 CPU clocks in a line of 714 = 51 %
+    and 76 %, to the figure.  The sheet adds that code "always runs at
+    full speed from Bank B RAM".  PIFA sampled on the board: with 4 + 4
+    MB the ROM puts low memory and the System in BANK B ($040xxxxx) and
+    the top of memory - where applications load - in BANK A; during
+    Norton's CPU test 136 of 150 samples were bank A code.  A real IIci
+    with 8 MB and no cache card pays the same.  Norton's reference (8
+    MB, 256 colours) had the 128K CACHE CARD, which answers reads without
+    the RAM: the card is what its 9.95 rests on.  DANIEL: the cache card
+    is needed before our figures can be judged; first the two faults.
+  - SPEEDOMETER (Daniel's screenshot 120628; its reference IIci had 20
+    MB, probably no card): graphics B&W 0.42 / 2 bit 0.39 / 4 bit 0.38 /
+    8 bit 0.25 against 0.50 / 0.52 / 0.51 / 0.43.  From 4 to 8 bits the
+    reference keeps 84 %, ours 66 %: the card-less yardstick.
+  - FAULT 1, A BAND OF LINES SHIFTED SIDEWAYS, now and then, more often at
+    8 MB (and, apart from it, the monitor dropping sync for a second at
+    66.7 Hz - not ours).  The RBV's FIFO ran dry: it asked at 8 longs
+    held, and the first long came up to 40 clk_sys later (sim/iici_vid:
+    half of it waiting in the MDU for the burst before or a CPU cycle,
+    half in the SDRAM behind a refresh or a CPU request), six longs of
+    display at 8 bits.  FIXED: iici_rbv.v asks at 10 held at the two
+    fastest modes (S 6.3.2 says three longs earlier; two here, because
+    the SDRAM brings all eight within 240 ns and 11 + 8 could pass 16);
+    iici_sdram.v takes the video before a refresh that is only owed.
+    dbg_fifo carries the count of dots shown with the FIFO empty (PFIF).
+    BUILD probes14 (13:29, 39,938 ALMs, ours met at every corner, the
+    framework's ascal -0.096; md5 abf78c14...): ON THE BOARD the picture
+    is stable, the count 0, the level 7 to 16 (it was 5 to 16, and 0 at
+    times).
+  - FAULT 2, THE ROM AND BANK B SLOWED BY THE VIDEO.  On the IIci they
+    are not on the video's bus.  Here one SDRAM serves all three and a
+    CPU request waited out a video burst's 23 clocks: a ROM-only loop
+    (sim/iici_vid CACHE=6) ran 385 cycles in 100 us of blanking, 377 at
+    1 bit, 339 at 8 bits - 12 % lost.  (A copy of the screen in M10K was
+    weighed: about 300 of the 327 free blocks, some 500 ALMs, and the
+    cache card wants 35 to 110 blocks - set aside.)  FIXED in
+    iici_sdram.v, "THE CPU INSIDE A VIDEO BURST": the burst is a
+    background engine with its row open in its own chip bank; a request
+    for another chip bank starts at once.  The video's READs go only on
+    the clocks that take clk_sys's signals, the CPU has the clock when it
+    wants it; the rules for the shared data pins and THE MASK ON A12/A11
+    are in the header.  iici_mdu.v: with bank B fitted, bank A is chip
+    bank 0 and bank B chip bank 1 (the ROM 3, the floppy image 2); bank A
+    alone keeps the 32 MB chip's layout.  BENCHES: sim/sdram_iici 18
+    checks (48 placings of a read, a burst, a write inside a burst, a
+    second read behind each: all data right, every read on time, no
+    data-sheet violation; a read right behind a write that landed in a
+    burst is one CPU clock late in 8 of 16); sim/mdu 84; sim/iici 12 on
+    both memories, now with bank B through the 64 MB chip model;
+    sim/iici_hs; sim/iici_vid CACHE=6 at 8 bits 383 against 384 in
+    blanking; CACHE=3 the FIFO 5 to 16.
+    THE FIRST BUILD DID NOT ROUTE (14:11: "routing phase terminated due
+    to routing congestion", peak 74 % at X56-66 Y0-10, 6e+03 ns of hold
+    delay; a device 95 % full).  Made room, no seed: PWRP / PKRN / PEXC
+    (168 probe bits, the stop they were for is fixed) behind
+    IICI_CPU_PROBES, off; the READs' choice in iici_sdram.v from clk_mem
+    registers alone (p_go: it is made between clk_sys's clocks, where
+    only a waiting request can start), so fewer registers take clk_sys's
+    signals.  Benches as before (sdram_iici 18, iici 12, CACHE=6 383 /
+    384, CACHE=3).
+    BUILD probes15 (14:50, 39,652 ALMs, md5 2b06bbc4...): MET AT EVERY
+    CORNER, the framework's paths with it - worst setup +0.101, hold
+    +0.047, the capture >= 0.985.  ON THE BOARD (Daniel, ~15:05): boots
+    at 8 MB, 8 bits stable, the empty count 0, the FIFO 7 to 16.  NORTON
+    UNCHANGED: CPU 6.45, video 17.4, FPU 2.33 - the tests' code and data
+    are in bank A (the top of memory); the ROM's fetches were not where
+    the time went.  What is left to the reference is bank A at 8 bits:
+    the cache card's job.
+  - NORTON'S RATIOS (Daniel read the Mac IIcx's CPU reference: 7.14; its
+    Mac IIci, 8 bits, 8 MB, the card: 9.95).  The clock ratio is 1.60;
+    Norton's IIci with the card at 8 bits is 1.39 x the IIcx; ours with
+    no card is 1.43 x at 1 bit and 0.90 x at 8 bits.  So the plain core
+    is under the ceiling and plausible, the card does not hide all of
+    the video's cost, and it has to bring our 8-bit figure from 0.90 to
+    1.39: THE RUN THE COMPLETION CRITERION IS JUDGED ON.  Low End Mac:
+    3.5 without the cache and 4.3 with it relative to the SE (23 %).
+  - NEXT (Daniel 2026-11-15): the cache card.
   - NORTON (probes9, System 7.5.5 from the work disk, 1 bit a pixel,
     Daniel 2026-11-14 21:56): CPU 10.2 against Norton's Mac IIci 9.95
     (+2.5 %), FPU 2.62 against 2.70 (-3.0 %).  The criterion is ~2 %.

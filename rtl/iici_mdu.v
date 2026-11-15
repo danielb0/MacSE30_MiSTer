@@ -34,7 +34,7 @@
 //   $3FFFFFFF is not the MDU's: a bus error after 16 us (S p.20).  A bank
 //   aliases modulo its SIMMs' size (S p.20, Table 8) and an empty bank
 //   reads all ones (se30_simms's rule).  The ROM $40000000-$41FFFFFF.  In the SDRAM: bank A at long 0,
-//   bank B at 32 MB, the ROM at 24 MB (the SE/30's layout).
+//   the ROM at 24 MB (the SE/30's layout); bank B in chip bank 1 (ram_phys).
 //   Refresh: every 15.6 us (244 C16M clocks) one RAM cycle's time (REF
 //   CPU clocks) in which a RAM cycle waits; a cycle in progress first ends.
 //
@@ -213,7 +213,11 @@ module iici_mdu #(
   wire       empty  = d_ram && (kind == 2'd0);
   wire [21:0] off   = (kind == 2'd1) ? {4'b0, cpu_addr[19:2]} :
                       (kind == 2'd2) ? {2'b0, cpu_addr[21:2]} : cpu_addr[23:2];
-  wire [24:0] ram_phys = {1'b0, bank, 1'b0, off};
+  // In the SDRAM (iici_sdram.v: a longword address is {chip, column 9, chip bank, row, column 8-1}):
+  // with bank B fitted - a 64 MB chip or more - bank A is chip bank 0 and bank B chip bank 1, each across
+  // both column halves, so that a bank-B cycle can run inside the RBV's burst from bank A (the ROM is chip
+  // bank 3).  Bank A alone keeps the 32 MB chip's layout: chip banks 0 and 1.
+  wire [24:0] ram_phys = (bank_b != 2'd0) ? {1'b0, off[21], 1'b0, bank, off[20:0]} : {1'b0, bank, 1'b0, off};
   wire [24:0] rom_phys = {4'b0011, {(21-ROM_AW){1'b0}}, cpu_addr[ROM_AW+1:2]};
   wire       burst_ok = d_ram && !empty && cpu_rw_n && cbreq;
   assign cback = burst_ok;

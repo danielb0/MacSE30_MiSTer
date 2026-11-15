@@ -81,7 +81,7 @@ for {set i 0} {$i < $n} {incr i} {
 		set m [rd PMDU]; set s [rd PSDR]; set q [rd PFIF]
 		puts [format "  PMDU AS* %d  m_act %d m_done %d  m_wpend %d m_hold %d  held %d blocked %d soon %d | v_pend %d v_hold %d  ref_pend %d ref_run %d | m_got %d m_cnt %d m_due %d | dev active %d done %d  as_hi_c %d" 			[f $m 31 31] [f $m 30 30] [f $m 29 29] [f $m 28 28] [f $m 27 27] [f $m 26 26] [f $m 25 25] [f $m 24 24] [f $m 23 23] [f $m 22 18] [f $m 17 17] [f $m 16 14] 			[f $m 13 11] [f $m 10 7] [f $m 6 3] [f $m 2 2] [f $m 1 1] [f $m 0 0]]
 		puts [format "  PSDR state %d (1 idle 2 rd 3 wr 4 vid 5 dl 7 dk)  busy %d busy_z %d  m_pend %d v_pend %d  mq %d vq %d  m_wack %d m_ack %d m_hold %d  mb_in %d mb_out %d  a_n %d rd_cnt %d  ready %d" 			[f $s 31 28] [f $s 27 23] [f $s 22 22] [f $s 21 21] [f $s 20 20] [f $s 19 19] [f $s 18 18] [f $s 17 17] [f $s 16 16] [f $s 15 14] [f $s 13 11] [f $s 10 8] [f $s 7 5] [f $s 4 1] [f $s 0 0]]
-		puts [format "  PFIF busy %d hold %d vid_req %d  got %d  held %d longs | VID.3ST %d VID.OFF %d depth %d" 			[f $q 15 15] [f $q 14 14] [f $q 13 13] [f $q 12 9] [f $q 8 4] [f $q 3 3] [f $q 2 2] [f $q 1 0]]
+		puts [format "  PFIF busy %d hold %d vid_req %d  got %d  held %d longs | VID.3ST %d VID.OFF %d depth %d | dots shown with it empty %d (a 16-bit count)" 			[f $q 15 15] [f $q 14 14] [f $q 13 13] [f $q 12 9] [f $q 8 4] [f $q 3 3] [f $q 2 2] [f $q 1 0] [f $q 31 16]]
 	}
 	foreach nm {PBE0 PBE1 PBE2} {
 		if {[info exists idx($nm)]} {

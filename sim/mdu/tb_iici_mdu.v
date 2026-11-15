@@ -215,7 +215,7 @@ module tb_iici_mdu;
     cyc(32'h04000040, 1, 0, 1); check(!got_cback, "no CBACK* for an empty bank");
     bank_a = 2'd3; bank_b = 2'd2;
     cyc(32'h04000080, 0, 32'hB2B2B2B2, 0);
-    check(last_maddr == 25'h800020, "bank B at 32 MB in the SDRAM");
+    check(last_maddr == 25'h200020, "bank B in the SDRAM's chip bank 1");
     cyc(32'h04400080, 1, 0, 0); check(d[0] == 32'hB2B2B2B2, "a 4 MB bank B aliases modulo 4 MB");
     cyc(32'h08000080, 1, 0, 0); check(got_berr, "$08000080 is above bank B: a bus error (S p.20)");
     cyc(32'h3C000080, 1, 0, 0); check(got_berr, "$3C000080: a bus error");

@@ -151,7 +151,7 @@ module iici_machine #(
   output [56:0] dbg_exc,               // tg68k.v's {exception taken (one clk_k), vector, the opcode, its PC} (PKRN, PEXC)
   output [47:0] dbg_wrap,              // tg68k.v's wrapper state (PWRP)
   output [31:0] dbg_mem,               // the MDU's memory machine (PMDU)
-  output [15:0] dbg_fifo,              // the RBV's FIFO (PFIF)
+  output [31:0] dbg_fifo,              // the RBV's FIFO (PFIF)
   output [160:0] dbg_jtp,              // tg68k.v's trace tap: {a beat now, its record}, for the probes' trace
   input   [3:0] dbg_cfg,               // the probes' experiment switches: {posted writes off, CDIS*, instruction cache off, data cache off}
   output [63:0] dbg_int                // {the RBV's dbg_reg, 12'b0, IPL*, VIA1 / RBV / SCC IRQ*, VIA1 IFR, IER}: the probes'

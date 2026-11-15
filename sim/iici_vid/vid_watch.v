@@ -54,6 +54,36 @@ module vid_watch;
     release tb_iici_machine.machine.cpu.p_rcred; release tb_iici_machine.machine.cpu.p_wcred;
     release tb_iici_machine.machine.cpu.p_fcred;
   end
+  // the RBV's FIFO: the fewest and the most longs held while the picture is shown (its own count, clk's side)
+  integer fmin = 99, fmaxh = 0;
+  always @(posedge clk) begin
+    if (tb_iici_machine.machine.rbv.vb_sync[2] == 0 && !tb_iici_machine.machine.rbv.hold && slot >= 14 && tb_iici_machine.machine.rbv.cnt_c < fmin) fmin = tb_iici_machine.machine.rbv.cnt_c;
+    if (!tb_iici_machine.machine.rbv.hold && tb_iici_machine.machine.rbv.cnt_c > fmaxh) fmaxh = tb_iici_machine.machine.rbv.cnt_c;
+  end
+  // each burst: the clocks from the RBV's request to its first long, and the longs held then
+  integer lat = 0, latmax = 0, latmin = 999, lat_m = 0, lat_mmax = 0, lvl_at = 99, nover = 0; reg bq = 0, first = 0, wait_m = 0;
+  always @(posedge clk) begin
+    bq <= tb_iici_machine.machine.rbv.busy;
+    if (tb_iici_machine.machine.rbv.busy && !bq) begin lat = 0; first = 1; wait_m = 1; end
+    if (wait_m && tb_iici_machine.machine.mdu.v_req) begin wait_m = 0; lat_m = lat; end           // the MDU's burst starts
+    else if (tb_iici_machine.machine.rbv.busy) lat = lat + 1;
+    if (first && tb_iici_machine.machine.rbv.vid_ld && tb_iici_machine.machine.rbv.busy) begin
+      first = 0;
+      if (slot >= 14 && !tb_iici_machine.machine.rbv.vb_sync[2]) begin
+        if (lat > latmax) begin latmax = lat; lat_mmax = lat_m; end
+        if (lat < latmin) latmin = lat;
+        if (tb_iici_machine.machine.rbv.cnt_c < lvl_at) begin
+          lvl_at = tb_iici_machine.machine.rbv.cnt_c;
+          $display("      %0t: a burst's first long after %0d clk, %0d longs held", $time, lat, lvl_at);
+        end
+      end
+    end
+    if (!tb_iici_machine.machine.rbv.hold && tb_iici_machine.machine.rbv.cnt_c > 16) begin
+      nover = nover + 1;
+      if (nover <= 3) $display("      %0t: %0d longs held (wp %0d rp_c %0d busy %b got %0d vblank %b)", $time, tb_iici_machine.machine.rbv.cnt_c,
+        tb_iici_machine.machine.rbv.wp, tb_iici_machine.machine.rbv.rp_c, tb_iici_machine.machine.rbv.busy, tb_iici_machine.machine.rbv.got, tb_iici_machine.machine.rbv.vb_sync[2]);
+    end
+  end
   initial forever begin
     #100000;
     if (slot >= 14) begin                       // past vertical blanking: the screen is being fetched
@@ -82,6 +112,9 @@ module vid_watch;
     end
     $display("---- the pace's largest budget: %0d clocks (op %04x at %08x; credits r %0d w %0d f %0d x %0d); %0d clocks with a budget over 511; the handler at $20000 entered %0d times", bmax, bop, bpc, rmax, wmax, fmax, xmax, over, hand);
     if (over != 0 && !$test$plusargs("OVER")) stuck = stuck + 1;
+    $display("---- the RBV's FIFO ran dry on %0d pixels; it held %0d to %0d longs; a burst's first long came %0d to %0d clk after the request (the longest: %0d of them before the MDU began), with as few as %0d held", tb_iici_machine.machine.rbv.dbg_underflow, fmin, fmaxh, latmin, latmax, lat_mmax, lvl_at);
+    if (fmaxh > 17) stuck = stuck + 1;   // (17: the read pointer is seen two clk late)
+    if (tb_iici_machine.machine.rbv.dbg_underflow != 0) stuck = stuck + 1;
     $display("---- held requests overwritten before they went out: %0d", overw);
     if (overw != 0) stuck = stuck + 1;
     if (stuck == 0 && worst > 20) $display("==== VID PASS: the CPU keeps running beside the video's bursts");

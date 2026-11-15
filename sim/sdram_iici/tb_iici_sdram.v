@@ -140,7 +140,7 @@ module tb_iici_sdram;
     end
   endtask
 
-  integer i, bad;
+  integer i, j, d, kind, bad, late, vbad, wbad, wlate;
   initial begin
     repeat (5) @(posedge clk); #1 reset_n = 1;
     while (!ready) @(posedge clk);
@@ -186,6 +186,63 @@ module tb_iici_sdram;
     check(got[0] == 32'hDEAABEBB, "a read behind a video burst: the right data");
     repeat (40) @(posedge clk_sys);
 
+    // THE CPU INSIDE A VIDEO BURST: a request for another chip bank (bank B is chip bank 1, the ROM 3), at
+    // every clk_sys edge of a burst and after it - a read, a burst of four, a write - then a second read
+    // right behind it.  Every read on time (m_soon at 5, the long at 6), every long right, the video's
+    // eight right, and nothing the chip's data sheet forbids (the model: THE MASK IS ON A12/A11, the
+    // rows, tRP / tRC).
+    for (i = 0; i < 4; i = i + 1) begin req(1, 0, 25'h200300 + i, 4'hF, 32'hD0000000 + i); wait_acks(1); end
+    late = 0; bad = 0; vbad = 0; wbad = 0; wlate = 0;
+    for (kind = 0; kind < 3; kind = kind + 1)
+      for (d = 0; d < 16; d = d + 1) begin
+        repeat (12) @(posedge clk_sys);
+        @(posedge clk_sys); #1 v_addr = 25'h000400; v_req = 1; vacks = 0; @(posedge clk_sys); #1 v_req = 0;
+        repeat (d) @(posedge clk_sys);
+        if (kind == 0) begin
+          req(0, 0, 25'h200301, 4'hF, 0); wait_acks(1);
+          if (got[0] !== 32'hD0000001) bad = bad + 1;
+          if (soon_at - e0 != 5 || ack_at[0] - e0 != 6) begin late = late + 1; if (late <= 4) $display("      a read %0d edges into a burst: m_soon at %0d, the long at %0d", d, soon_at - e0, ack_at[0] - e0); end
+        end else if (kind == 1) begin
+          req(0, 1, 25'h200302, 4'hF, 0); wait_acks(4);
+          if (got[0] !== 32'hD0000002 || got[1] !== 32'hD0000003 || got[2] !== 32'hD0000000 || got[3] !== 32'hD0000001) bad = bad + 1;
+          if (soon_at - e0 != 5 || ack_at[0] - e0 != 6) begin late = late + 1; if (late <= 4) $display("      a burst %0d edges into a video burst: m_soon at %0d, the first long at %0d", d, soon_at - e0, ack_at[0] - e0); end
+        end else begin
+          req(1, 0, 25'h200380, 4'hF, 32'hE0000000 + d); wait_acks(1);
+        end
+        // a second request right behind: the ROM's chip bank
+        req(0, 0, 25'h600000, 4'hF, 0); wait_acks(1);
+        if (got[0] !== 32'h11223344) bad = bad + 1;
+        // (behind a write that waited for the video's last READ to leave the data pins - 20 ns - the read
+        // is a CPU clock late: the chip is busy with the write for as long as it would be alone)
+        if (kind == 2 && soon_at - e0 == 6 && ack_at[0] - e0 == 7) wlate = wlate + 1;
+        else if (soon_at - e0 != 5 || ack_at[0] - e0 != 6) begin late = late + 1; if (late <= 4) $display("      the second read (kind %0d, %0d edges in): m_soon at %0d, the long at %0d", kind, d, soon_at - e0, ack_at[0] - e0); end
+        j = 0; while (vacks < 8 && j < 200) begin @(posedge clk_sys); j = j + 1; end
+        if (vacks != 8) vbad = vbad + 1;
+        for (j = 0; j < 8; j = j + 1) if (vgot[j] !== 32'hC0000000 + j) vbad = vbad + 1;
+        if (kind == 2) begin
+          req(0, 0, 25'h200380, 4'hF, 0); wait_acks(1);
+          if (got[0] !== 32'hE0000000 + d) wbad = wbad + 1;
+        end
+      end
+    check(bad == 0, "the CPU inside a video burst: every long read right (48 placings, two requests each)");
+    check(late == 0, "the CPU inside a video burst: every read on time, as if the chip were free");
+    check(vbad == 0, "the CPU inside a video burst: the video's eight longs right every time");
+    check(wbad == 0, "the CPU inside a video burst: every write lands");
+    $display("      inside a video burst: %0d of 16 reads right behind a write were one CPU clock late", wlate);
+    // ... and a request for the video's own chip bank waits for the burst, and is right
+    bad = 0;
+    for (d = 0; d < 12; d = d + 1) begin
+      repeat (12) @(posedge clk_sys);
+      @(posedge clk_sys); #1 v_addr = 25'h000400; v_req = 1; vacks = 0; @(posedge clk_sys); #1 v_req = 0;
+      repeat (d) @(posedge clk_sys);
+      req(0, 0, 25'h000100, 4'hF, 0); wait_acks(1);
+      if (got[0] !== 32'hDEAABEBB) bad = bad + 1;
+      j = 0; while (vacks < 8 && j < 200) begin @(posedge clk_sys); j = j + 1; end
+      for (j = 0; j < 8; j = j + 1) if (vgot[j] !== 32'hC0000000 + j) bad = bad + 1;
+    end
+    check(bad == 0, "a request for the video's own chip bank during a burst: both right");
+    repeat (40) @(posedge clk_sys);
+
     i = refs; @(posedge clk_sys); #1 m_refresh = 1; @(posedge clk_sys); #1 m_refresh = 0;
     repeat (20) @(posedge clk_sys);
     check(refs - i >= 2, "the refresh window: two AUTO REFRESH");
@@ -213,5 +270,5 @@ module tb_iici_sdram;
     else $display("==== FAIL: %0d failures, %0d passes", fails, pass);
     $finish;
   end
-  initial begin #9000000; $display("==== FAIL: timeout"); $finish; end
+  initial begin #30000000; $display("==== FAIL: timeout"); $finish; end
 endmodule

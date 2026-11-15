@@ -45,8 +45,8 @@
 //
 // THE FIFO: 16 longs, written in clk from the MDU's bursts, read in clk_vid
 //   (Gray-coded pointers, two flip-flops each way).  Whenever 8 or fewer
-//   are held and no burst is under way, vid_req asks the MDU for 8, which
-//   arrive on vid_ld.  The frame restart is a handshake at vertical
+//   are held (10 at the two fastest modes, S 6.3.2) and no burst is under
+//   way, vid_req asks the MDU for 8, which arrive on vid_ld.  The frame restart is a handshake at vertical
 //   blanking: the video side asks (f_req); clk's side, once no burst is
 //   under way, pulses vid_frame (the MDU's address back to the screen
 //   buffer's base), stops asking and answers (f_ack); the video side lets
@@ -70,7 +70,8 @@
 module iici_rbv #(
   parameter PIX_NUM = 189,             // 640 x 480: ce_pix on PIX_NUM / PIX_DEN of clk_vid (30.24 of 57.28 MHz)
   parameter PIX_DEN = 358,
-  parameter TICK    = 260469           // C16M clocks per 60.15 Hz tick (16.63 ms)
+  parameter TICK    = 260469,          // C16M clocks per 60.15 Hz tick (16.63 ms)
+  parameter EARLY   = 1                // the FIFO's earlier request at the two fastest modes (S 6.3.2); 0 for the bench's comparison
 ) (
   input             clk,
   input             clk_vid,           // 57.28 MHz
@@ -120,7 +121,7 @@ module iici_rbv #(
   output reg        vblank,
   output     [15:0] dbg_underflow,     // dots the FIFO could not give (clk_vid)
   output     [31:0] dbg_reg,           // {slots, 0, sier, 0, ifr, 0, ier}: the probes'
-  output     [15:0] dbg_fifo           // the FIFO's fill side, for the probes (PFIF)
+  output     [31:0] dbg_fifo           // the FIFO's fill side and the pixels shown with it empty, for the probes (PFIF)
 );
 
   // =================================================================
@@ -269,8 +270,13 @@ module iici_rbv #(
   reg  [4:0] rp_g;                                 // (clk_vid's: the read pointer's Gray code)
   reg        vsync_v;                              // (clk_vid's: vertical sync)
   reg        vblk_v;                               // (clk_vid's: vertical blanking)
+  // S 6.3.2: a half is asked for when its last long has been used, "or three long words earlier, for
+  // 8-bit 13-inch or 4-bit 15-inch video".  Ours asks TWO earlier, at 10 held: the chip's burst brings a
+  // long every two CPU clocks, so its three are used before the sixth arrives; the SDRAM brings all eight
+  // within 240 ns of the first, and 11 + 8 could pass the 16 held when the first comes quickly
+  wire       fast = (EARLY != 0) && (portrait ? (monp[1:0] == 2'd2) : (monp[1:0] == 2'd3));
   assign vid_req = busy && (got != 4'd8);
-  assign dbg_fifo = {busy, hold, vid_req, got, cnt_c, monp[7:6], monp[1:0]};
+  assign dbg_fifo = {dbg_underflow, busy, hold, vid_req, got, cnt_c, monp[7:6], monp[1:0]};   // (the count is clk_vid's, read at rest)
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       wp <= 0; wp_g <= 0; rp_g_s1 <= 0; rp_g_s2 <= 0; got <= 0; busy <= 0; hold <= 1;
@@ -292,7 +298,7 @@ module iici_rbv #(
         f_seen <= f_req_s2; vid_frame <= 1; hold <= 1; f_ack <= !f_ack;
       end else if (f_go_s2 != f_go_seen) begin
         f_go_seen <= f_go_s2; hold <= 0;
-      end else if (!busy && !hold && cnt_c <= 5'd8) begin
+      end else if (!busy && !hold && cnt_c <= (fast ? 5'd10 : 5'd8)) begin
         busy <= 1; got <= 0;
       end
     end

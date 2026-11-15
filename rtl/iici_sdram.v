@@ -47,9 +47,34 @@
 // THE VIDEO PORT: v_req (one clk_sys clock) asks for eight longs from
 //   v_addr, one row (the RBV's bursts are 32-byte aligned): eight READs
 //   two clocks apart; each long leaves on v_ack, three clocks apart.  The
-//   CPU comes first at every decision; a CPU request that arrives during
-//   a video burst waits for it (on the IIci bank B never waits for video:
-//   those late cycles are the MDU's dbg_late).
+//   CPU comes first at every decision.
+//
+// THE CPU INSIDE A VIDEO BURST (2026-11-15).  On the IIci the ROM and bank B
+//   are not on the video's bus: a CPU cycle there never waits for the RBV.
+//   Here they share the chip, and a request that arrived during a burst
+//   waited out its 23 clocks (a ROM loop lost 12 % at 8 bits a pixel).  The
+//   burst is now a background engine (v_run) with its row open in its own
+//   chip bank, and a CPU request for ANOTHER chip bank (the MDU puts bank A
+//   in chip bank 0, bank B in 1, the ROM in 3) starts at once, as if the
+//   chip were free.  The rules, in clocks at which a command is decided
+//   (t = the CPU's ACTIVE, k = a video READ):
+//   - the video's READs go only on the clocks that take clk_sys's signals
+//     (sample_en), where a fresh CPU request would start: the CPU has the
+//     clock if it wants it, and no video READ is ever one clock before a
+//     fresh ACTIVE.  THE MASK IS ON A12/A11: an ACTIVE's row bits there
+//     would mask the second word of a READ decided the clock before;
+//   - a CPU read's words are in dq_r at t + 8 and t + 9 (a burst's to
+//     t + 15), a video READ's at k + 5 and k + 6: no video READ from t + 2
+//     to t + 4 (a burst: to t + 10) - vblk;
+//   - a write drives the data pins from t + 2 to t + 6 and its WRITEs put
+//     the byte mask on A12/A11 at t + 3 and t + 4: the last video READ is
+//     at t - 4 or before (the write waits, the video giving up its clocks
+//     meanwhile) and the next at t + 6 or after;
+//   - the video's ACTIVE is on a sample_en clock too, so a fresh ACTIVE is
+//     two clocks from it (tRRD);
+//   - a request for the video's own chip bank (bank A: the MDU holds those
+//     for the burst's 20 CPU clocks), a refresh, the download and the disk
+//     wait for the burst and its precharge, as before.
 //
 // REFRESH: two AUTO REFRESH (each to both chips) in each of the MDU's
 //   windows (m_refresh, every 15.57 us: one per 7.79 us, inside tREFI's
@@ -265,7 +290,7 @@ module iici_sdram #(
   reg        m_wack;                   // a write's acknowledge, to go out
 
   // --------------------------------------------------- the sequencer
-  localparam [3:0] S_INIT = 4'd0, S_IDLE = 4'd1, S_RD = 4'd2, S_WR = 4'd3, S_VID = 4'd4, S_DL = 4'd5, S_TRAIN = 4'd6, S_DK = 4'd7;
+  localparam [3:0] S_INIT = 4'd0, S_IDLE = 4'd1, S_RD = 4'd2, S_WR = 4'd3, S_DL = 4'd5, S_TRAIN = 4'd6, S_DK = 4'd7;
   reg  [3:0] state;
   reg  [4:0] seq;
   reg  [4:0] busy;
@@ -279,7 +304,7 @@ module iici_sdram #(
   reg        ih_pause, ih_12, ih_3;
   reg        busy_z;                   // busy is 0 this clock (registered from busy_n)
   reg        ref_force;                // a refresh is overdue (registered)
-  localparam [2:0] O_NONE = 3'd0, O_REF = 3'd1, O_VID = 3'd2, O_DL = 3'd3, O_DK = 3'd4;
+  localparam [2:0] O_NONE = 3'd0, O_REF = 3'd1, O_VID = 3'd2, O_DL = 3'd3, O_DK = 3'd4, O_VRD = 3'd5;
   reg  [2:0] o_kind;                   // the other request, chosen a clock ahead
   reg        o_chip;
   reg  [1:0] o_ba;
@@ -311,9 +336,30 @@ module iici_sdram #(
   reg  [8:0] k_col_r;
   reg [15:0] k_wdata_r;
   reg [15:0] hi_w;                     // a long's high word, waiting for its low one
+  // the video burst, in the background (the header's THE CPU INSIDE A VIDEO BURST)
+  reg        v_run;                    // a burst is under way, its precharge included
+  reg  [1:0] v_bank;                   // its chip bank
+  reg  [5:0] v_colb;                   // its row's columns, the top six bits
+  reg  [3:0] v_n;                      // READs decided so far
+  reg  [2:0] v_tail;                   // clocks left after the last READ (its two words and tRP)
+  reg  [3:0] vblk, vblk_n;             // clocks for which no video READ may be decided
+  reg        vrd_q1, vrd_q2, vrd_q3;   // a video READ was decided 1, 2, 3 clocks ago
+  reg  [5:0] vt;                       // its words' way to dq_r: the high word at vt[4], the low at vt[5]
+  reg [15:0] hi_v;
+  // the CPU's request and the burst: another chip bank (or chip), and clear of the video's last READs
+  wire       q_safe  = q_addr[24] || (q_addr[22:21] != v_bank);
+  wire       q_gap   = q_we ? !(vrd_q1 || vrd_q2 || vrd_q3) : !vrd_q1;
+  wire       c_want  = m_pend || m_fresh;
+  wire       c_go    = c_want && (!v_run || (q_safe && q_gap));
+  // ... and the waiting request alone, from this clock's own registers: the READs' choice (below) is made on
+  // the clocks between clk_sys's, where no fresh request can start
+  wire       p_safe  = xm_addr[24] || (xm_addr[22:21] != v_bank);
+  wire       p_gap   = xm_we ? !(vrd_q1 || vrd_q2 || vrd_q3) : !vrd_q1;
+  wire       p_go    = (state == S_IDLE) && busy_z && m_pend && p_safe && p_gap;
+  reg        vrd_fire;
   // which column each READ names: the CPU's burst wraps in its line
   wire [1:0] ent_n = a_ent + a_n[1:0];
-  wire [9:0] col_n = (state == S_VID) ? {a_col[9:4], a_n[2:0], 1'b0} : {a_col[9:3], ent_n, 1'b0};
+  wire [9:0] col_n = {a_col[9:3], ent_n, 1'b0};
 
   assign ready = (state != S_INIT) && (state != S_TRAIN);
 
@@ -328,6 +374,7 @@ module iici_sdram #(
       m_ack <= 0; m_soon <= 0; soon_hold <= 0; m_rdata <= 0; v_ack <= 0; v_rdata <= 0; dl_ack <= 0; dk_ack <= 0; dk_rdata <= 0;
       ref_cnt <= 0; ref_owed <= 0; m_pend <= 0; v_pend <= 0;
       mb_in <= 0; mb_out <= 0; vb_in <= 0; vb_out <= 0; m_hold <= 0; v_hold <= 0; m_wack <= 0;
+      v_run <= 0; v_bank <= 0; v_colb <= 0; v_n <= 0; v_tail <= 0; vblk <= 0; vrd_q1 <= 0; vrd_q2 <= 0; vrd_q3 <= 0; vt <= 0; hi_v <= 0;
       a_chip <= 0; a_bank <= 0; a_col <= 0; a_ent <= 0; a_n <= 0; a_len <= 0; a_be <= 0; a_wdata <= 0; rd_cnt <= 0; hi_w <= 0;
       k_we_r <= 0; k_bank_r <= 0; k_col_r <= 0; k_wdata_r <= 0;
       cap_sel <= 0; cap_ok <= 0; tr_step <= 0; tr_pass <= 0; tr_c1 <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
@@ -338,6 +385,7 @@ module iici_sdram #(
       c1_dup <= 0;
       busy_n = (busy != 0) ? busy - 1'b1 : 5'd0;
       seq_n = seq; init_n = init_cnt;
+      vblk_n = (vblk != 0) ? vblk - 1'b1 : 4'd0;
       if (ref_cnt != 11'h7FF) ref_cnt <= ref_cnt + 1'b1;
       if (state != S_INIT) sd_addr[12:11] <= 2'b00;
       if (m_fresh) m_pend <= 1;
@@ -426,15 +474,15 @@ module iici_sdram #(
           endcase
         end
 
-        // the CPU first, then refresh, then video, then the download and
-        // the disk
+        // the CPU first, then an overdue refresh, the video, a refresh owed,
+        // then the download and the disk
         // The CPU's request decides on the edge that takes it (the 5-clock
         // read needs ACTIVE at 2); every other request was chosen a clock ahead
         // (o_*, below) and the chip's readiness too (busy_z): the first
         // compile's -2.0 ns was this arbitration into sd_addr's I/O cells.
         S_IDLE: begin
           if (busy_z) begin
-            if (m_pend || m_fresh) begin
+            if (c_go) begin
               cmd <= {a_word[25], CMD_ACTIVE[2:0]}; sd_ba <= a_word[23:22]; sd_addr <= a_word[21:9];
               a_chip <= a_word[25]; a_bank <= a_word[23:22]; a_col <= {a_word[24], a_word[8:0]};
               a_ent <= q_addr[1:0]; a_n <= 0; rd_cnt <= 0; a_len <= q_burst ? 3'd4 : 3'd1;
@@ -443,19 +491,22 @@ module iici_sdram #(
               // the next ACTIVE: tRC, or a burst's last READ + 2 + tRP
               busy_n = q_we ? WR_BUSY : q_burst ? 5'd15 : ACT_BUSY;
               state <= q_we ? S_WR : S_RD;
+              // inside a video burst: its next READ at t + 5 (a burst of four: t + 11; a write: t + 6)
+              vblk_n = q_we ? 4'd5 : q_burst ? 4'd10 : 4'd4;
             end else if (o_kind == O_REF) begin
               cmd <= CMD_REFRESH; busy_n = REF_BUSY; ref_cnt <= 0;
               if (ref_owed != 0) ref_owed <= ref_owed - 1'b1;
               c1_dup <= 1; c1_cmd <= CMD_REFRESH[2:0];
-            end else if (o_kind != O_NONE) begin
+            end else if (o_kind == O_VID) begin
+              // the video's row, opened; its READs are the engine's, below.  One clock busy: the choice
+              // below is a clock stale
+              cmd <= {o_chip, CMD_ACTIVE[2:0]}; sd_ba <= o_ba; sd_addr <= o_row;
+              v_run <= 1; v_bank <= w_word[23:22]; v_colb <= {w_word[24], w_word[8:4]}; v_n <= 0;
+              v_pend <= 0; busy_n = 5'd1; vblk_n = 4'd2;      // tRCD: the first READ at + 3 or after
+            end else if (o_kind == O_DL || o_kind == O_DK) begin
               cmd <= {o_chip, CMD_ACTIVE[2:0]}; sd_ba <= o_ba; sd_addr <= o_row;
               seq_n = 1;
               case (o_kind)
-                O_VID: begin
-                  a_chip <= w_word[25]; a_bank <= w_word[23:22]; a_col <= {w_word[24], w_word[8:0]};
-                  a_n <= 0; rd_cnt <= 0; a_len <= 3'd0;      // eight (a_n wraps at 8)
-                  v_pend <= 0; busy_n = 5'd23; state <= S_VID;
-                end
                 O_DL: begin busy_n = WR_BUSY; state <= S_DL; end
                 default: begin                               // O_DK
                   k_we_r <= xs_dk_we; k_bank_r <= xs_dk_addr[23:22]; k_col_r <= xs_dk_addr[8:0]; k_wdata_r <= xs_dk_wdata;
@@ -469,28 +520,27 @@ module iici_sdram #(
         // a CPU read, a long or a burst of four: READs two clocks apart
         // from T_RCD, the last auto-precharged; the words from dq_r at
         // T_RCD + RD_LAT on, one a clock
-        S_RD, S_VID: begin
+        S_RD: begin
           seq_n = seq + 1'b1;
-          if (f_geR && f_even && (state == S_VID ? (a_n != 3'd0 || f_sR) : (a_n < a_len))) begin
+          if (f_geR && f_even && (a_n < a_len)) begin
             cmd <= {a_chip, CMD_READ[2:0]}; sd_ba <= a_bank;
-            sd_addr <= {2'b00, (state == S_VID) ? (a_n == 3'd7) : (a_n == a_len - 1'b1), col_n};
+            sd_addr <= {2'b00, (a_n == a_len - 1'b1), col_n};
             a_n <= a_n + 1'b1;
           end
           // m_soon two clocks before the first long's m_ack (the clock its
           // low word arrives, T_RCD + RD_LAT + 1): whichever clk_sys edge
           // sees it, the long is on m_rdata by the next
-          if (state == S_RD && f_soon) begin m_soon <= 1; soon_hold <= 2'd2; end
+          if (f_soon) begin m_soon <= 1; soon_hold <= 2'd2; end
           if (f_rd) begin
             rd_cnt <= rd_cnt + 1'b1;
             if (!rd_cnt[0]) hi_w <= dq_r;
-            else if (state == S_RD) begin
+            else begin
               // the first long straight out, on its own clock (the MDU's
               // edge follows); a burst's others through the buffer
               if (!m_hold[1] && !m_wack && mb_out == mb_in) begin m_rdata <= {hi_w, dq_r}; m_ack <= 1; m_hold <= 2'd2; end
               else begin mb[mb_in[1:0]] <= {hi_w, dq_r}; mb_in <= mb_in + 1'b1; end
             end
-            else begin vb[vb_in[2:0]] <= {hi_w, dq_r}; vb_in <= vb_in + 1'b1; end
-            if (rd_cnt == ((state == S_VID) ? 4'd15 : {a_len, 1'b0} - 4'd1)) state <= S_IDLE;
+            if (rd_cnt == {a_len, 1'b0} - 4'd1) state <= S_IDLE;
           end
         end
 
@@ -533,6 +583,23 @@ module iici_sdram #(
         default: state <= S_IDLE;
       endcase
 
+      // the video burst's READs, chosen a clock ahead (O_VRD, below), unless the CPU has this clock: it
+      // starts, or it is waiting for its gap after the video's last READ.  Its words by their tags.
+      vrd_fire = (o_kind == O_VRD) && !((state == S_IDLE) && busy_z && c_want && q_safe);
+      if (vrd_fire) begin
+        cmd <= {o_chip, CMD_READ[2:0]}; sd_ba <= o_ba; sd_addr <= o_row;
+        v_n <= v_n + 1'b1;
+        if (v_n == 4'd7) v_tail <= 3'd4;        // the last READ's words and tRP: the row's bank is free at + 6
+      end
+      vrd_q1 <= vrd_fire; vrd_q2 <= vrd_q1; vrd_q3 <= vrd_q2;
+      vt <= {vt[4:0], vrd_fire};
+      if (vt[4]) hi_v <= dq_r;
+      if (vt[5]) begin vb[vb_in[2:0]] <= {hi_v, dq_r}; vb_in <= vb_in + 1'b1; end
+      if (v_run && v_n == 4'd8) begin
+        if (v_tail != 0) v_tail <= v_tail - 1'b1; else v_run <= 0;
+      end
+      vblk <= vblk_n;
+
       // the data pins' next clock
       oe_pre <= 1'b0;
       case (state)
@@ -558,14 +625,27 @@ module iici_sdram #(
       // the download, the disk (a clock stale: the issued one's flag clears
       // while the chip is busy, so it is never issued twice)
       ref_force <= (ref_cnt >= REF_FORCE);
-      if (ref_owed != 0 || ref_force) begin o_kind <= O_REF; end
-      else if (v_pend) begin o_kind <= O_VID; o_chip <= w_word[25]; o_ba <= w_word[23:22]; o_row <= w_word[21:9]; end
+      // (the video before a refresh that is merely owed: the RBV's FIFO is draining while it waits, and
+      // the refresh has the rest of its window; an overdue refresh still comes first)
+      // While a burst runs only its READs are chosen, for the clocks that take clk_sys's signals (this
+      // clock does not: the next does); its ACTIVE likewise.
+      if (v_run) begin
+        if (!sample_en && v_n != 4'd8 && vblk <= 4'd1 && !p_go) begin
+          o_kind <= O_VRD; o_chip <= 1'b0; o_ba <= v_bank; o_row <= {2'b00, (v_n == 4'd7), v_colb, v_n[2:0], 1'b0};
+        end else o_kind <= O_NONE;
+      end
+      else if (ref_force) begin o_kind <= O_REF; end
+      else if (v_pend) begin
+        if (!sample_en) begin o_kind <= O_VID; o_chip <= w_word[25]; o_ba <= w_word[23:22]; o_row <= w_word[21:9]; end
+        else o_kind <= O_NONE;
+      end
+      else if (ref_owed != 0) begin o_kind <= O_REF; end
       else if (xs_dl_req && !dl_ack) begin o_kind <= O_DL; o_chip <= 1'b0; o_ba <= xs_dl_addr[23:22]; o_row <= xs_dl_addr[21:9]; end
       else if (xs_dk_req && !dk_ack) begin o_kind <= O_DK; o_chip <= 1'b0; o_ba <= xs_dk_addr[23:22]; o_row <= xs_dk_addr[21:9]; end
       else o_kind <= O_NONE;
     end
 
   // the probes' view of the sequencer (PSDR)
-  assign dbg_state = {state, busy, busy_z, m_pend, v_pend, mq, vq, m_wack, m_ack, m_hold, mb_in, mb_out, a_n, rd_cnt, ready};
+  assign dbg_state = {v_run ? 4'd4 : state, busy, busy_z, m_pend, v_pend, mq, vq, m_wack, m_ack, m_hold, mb_in, mb_out, a_n, rd_cnt, ready};   // (4: a video burst)
 
 endmodule

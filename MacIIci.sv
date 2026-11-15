@@ -514,7 +514,7 @@ wire  [3:0] d_cfg;
 wire [31:0] d_din, d_dout;
 wire  [1:0] d_siz;
 wire [31:0] d_mem, d_sdr;
-wire [15:0] d_fifo;
+wire [31:0] d_fifo;
 wire [56:0] d_exc;
 wire [47:0] d_wrap;
 `ifndef USE_DBG_PROBES
@@ -619,6 +619,9 @@ altsource_probe #(.instance_id("PTRD"), .probe_width(72), .source_width(13), .sl
 	.source_initial_value("0"))
 	cp_ptrd (.probe(tr_rd), .source(tr_raddr), .source_clk(clk_sys), .source_ena(1'b1));
 `endif
+// the wrapper's and the kernel's state (PWRP, PKRN, PEXC: the stop at 256 colours, found 2026-11-15):
+// out of the builds unless IICI_CPU_PROBES - 168 probe bits and their routes in a device 95 % full
+`ifdef IICI_CPU_PROBES
 reg [47:0] pkrn = 0;
 reg [71:0] pexc = 0;
 always @(posedge clk_k) begin
@@ -631,11 +634,12 @@ altsource_probe #(.instance_id("PKRN"), .probe_width(48), .source_width(1), .sld
 	cp_pkrn (.probe(pkrn), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 altsource_probe #(.instance_id("PEXC"), .probe_width(72), .source_width(1), .sld_auto_instance_index("YES"))
 	cp_pexc (.probe(pexc), .source(), .source_clk(clk_sys), .source_ena(1'b1));
+`endif
 altsource_probe #(.instance_id("PMDU"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
 	cp_pmdu (.probe(d_mem), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 altsource_probe #(.instance_id("PSDR"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
 	cp_psdr (.probe(d_sdr), .source(), .source_clk(clk_sys), .source_ena(1'b1));
-altsource_probe #(.instance_id("PFIF"), .probe_width(16), .source_width(1), .sld_auto_instance_index("YES"))
+altsource_probe #(.instance_id("PFIF"), .probe_width(32), .source_width(1), .sld_auto_instance_index("YES"))
 	cp_pfif (.probe(d_fifo), .source(), .source_clk(clk_sys), .source_ena(1'b1));
 altsource_probe #(.instance_id("PBE0"), .probe_width(68), .source_width(1), .sld_auto_instance_index("YES"))
 	cp_pbe0 (.probe(pbe0), .source(), .source_clk(clk_sys), .source_ena(1'b1));
