@@ -29848,6 +29848,38 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     two-clock hits, a miss four clocks late, writes forget (G p 224),
     ROM reads answered.  APD Memory / Integer recorded, not a target.
     Speedometer to be run for the record (its references inconsistent).
+  - NORTON IN DETAIL, 128K CARD (Daniel 22:05, screenshot 20261116_220534;
+    7.1, 8 MB, 256 colours; Norton's IIci / ours, > 1 = we are slow):
+    overall CPU 1.01, video 0.957, FPU 1.08 (ours 9.85 / 26.5 / 2.50).
+    CPU: BMove/A 0.907, BMove/M 0.875, Mem R/W 1.03, Function 0.966,
+    Bit Shifts 1.00, Mult/Div 1.04, Branches 0.982, Instruction 1.06,
+    Sort 1.08, Tree 0.994, Search 1.03.  Video: Rects 1.01, RoundRects
+    1.03, Ovals 1.03, Lines 0.958, Picture 0.918, CBits S/A 0.942, S/M
+    0.961, L/A 0.798, L/M 0.850, DrawText 1.10, Scrolling 0.925.  FPU:
+    1.02 / 0.983 / 1.03 / 1.01 / 1.04 / 1.05 / 1.04 / 1.05 (mul, div,
+    add, sub S/D), Int->S 1.09, S->Int 1.02, Sin 1.07, Cos 1.07, Tan
+    1.06, ATan 1.07, Abs 1.04, Sqrt 1.02, Log10 0.982, Vector 1.16.
+    READ: BULK COPIES TOO FAST, LARGE ONES MOST (CopyBits Large 15-25 %,
+    Small 4-6 %, BMove 10-14 %) - Norton's own reference now shows APD
+    Memory's excess.  Large blocks miss the card, small ones hit: the
+    lever is the MISS PENALTY, our undocumented reading (four clocks,
+    UM Fig 7-55).  It barely touches hits, so the CPU's 1.01 should
+    hold.  NEXT: re-read UM 7.5.2 / Fig 7-55 for the retry's clocks;
+    on the board, 32K vs 128K Norton CBits Large (misses should show
+    more on 32K).  Instruction-heavy (Instruction, Sort, DrawText) 6-10
+    % slow and the FPU 8 % slow are item (b).
+  - NORTON IN DETAIL, 32K CARD (Daniel 22:18, screenshot 20261116_221838):
+    CPU 1.02, video 0.986, FPU 1.08.  BMove/A 0.914, /M 0.878 (128K:
+    0.907 / 0.875); CBits L/A 0.866, L/M 0.905 (0.798 / 0.850), S/A
+    0.979, S/M 1.00; Picture 0.948; Rects 1.04; DrawText 1.13; Scrolling
+    0.932; FPU identical.  READ: a smaller card is slower whether misses
+    are priced right or cheap - so this does NOT discriminate the miss
+    penalty from hit generosity (the 32K-vs-128K check above was ill
+    reasoned).  It shows CopyBits Large / Picture are card-size
+    sensitive (their excess is the card's), and BMove is NOT (its 9-12 %
+    is the same on both: misses both cards - the penalty - or fits both -
+    hits / writes; Norton's buffer size unknown).  NEXT stays: UM 7.5.2 /
+    Fig 7-55, the late retry's clock count.
     FOR THE NEXT BUILD (MacIIci.sdc): set_false_path -hold mdu q_* ->
     sdram xm_*, with its reason (q_* move only on an edge where m_req is
     low; xm_* take them a clk_sys clock later on q_go).  The ascal path
