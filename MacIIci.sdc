@@ -98,6 +98,13 @@ if {[info exists ::TimeQuestInfo(nameofexecutable)] && $::TimeQuestInfo(nameofex
 # The fitter's 0.3 ns guide (above) left bit 10 0.16-0.33 ns short in the build of 2026-11-15 (probes13).
 set_false_path -hold -from [get_registers {*|iici_mdu:mdu|v_base[*]}] -to [get_registers {*|iici_sdram:sdram|xv_addr[*]}]
 
+# mdu q_* -> sdram xm_*: no hold relationship.  q_* load only on a clk_sys edge with mem_start && blocked
+# (iici_mdu.v), where m_req = (mem_start && !blocked) || q_go is low (q_go pulses from m_hold, set on that same
+# edge), so xm_*'s enable (iici_sdram.v: m_req && !mq) is off while q_* move; q_go rises a clk_sys clock later
+# and xm_* take q_* then.  The 0.3 ns guide (above) left q_addr[19] -> xm_addr[19] 1 ps short at fast -40C
+# (build cache4, 2026-11-16).
+set_false_path -hold -from [get_registers {*|iici_mdu:mdu|q_*}] -to [get_registers {*|iici_sdram:sdram|xm_*}]
+
 # the wrapper's kk_din -> din_r: no hold relationship.  kk_din moves at clk_k's rising edges, which are the
 # phi1 edges of clk_sys; din_r takes it at phi2 edges only (tg68k.v, S5), 20 ns later.  The fitter's guide
 # left bit 19 0.13-0.25 ns short in the first builds with the cache card.

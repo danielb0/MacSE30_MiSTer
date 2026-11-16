@@ -492,7 +492,7 @@ module tg68k #(
   // chapter 5: "any longword in just two clock cycles", 50 MB a second); one
   // it does not hold is retried from the MDU (BERR* + HALT*, UM 7.5.2) while
   // the card takes the data off the bus; a write goes to the MDU as ever
-  // and the card updates a long it holds.  /CENABLE and /CFLUSH are the
+  // and the card forgets a long it holds.  /CENABLE and /CFLUSH are the
   // RBV's (VIA2 data B bits 0 and 3).
   //
   // It is in here because the bus is behind a register under KCLK: a real
@@ -506,7 +506,8 @@ module tg68k #(
   //     two-clock cycle and the retry's start, UM Figure 7-55: OUR READING,
   //     four), then the MDU's cycle as ever; the card takes each long at
   //     its end (kc_end, a burst's beats);
-  //   a write to a long the card holds updates its bytes at Q1.  A long it does NOT hold is left alone:
+  //   a write to a long the card holds turns its valid bit off at Q1 (XC_WUPD 0: the Guide's typical card,
+  //     p 224 - "it must turn off the validity bit"; XC_WUPD 1 updates its bytes).  A long it does NOT hold is left alone:
   //     the ROM enables the card before it sizes the RAM, writing through addresses that alias one
   //     another, and a card that took a written long in then answered the read-back with a copy the
   //     alias's write never reached - a RAM failure, the sad Mac chimes and no picture (the board,
@@ -518,6 +519,8 @@ module tg68k #(
   // a two-clock cycle is its zero-credit cycle, a miss's wait is credit.
   localparam        XC      = (XCACHE != 0) && (KCLK != 0);
   localparam  [2:0] XC_MISS = 3'd4;
+  localparam        XC_WUPD = 0;   // a write to a long the card holds: 0 turns its valid bit off (G p 224, the
+                                   // typical card), 1 updates its bytes (our first choice, too generous on the board)
   wire              xc_ram  = (eff_addr[31:27] == 5'b00000);
   wire              xc_rom  = (eff_addr[31:25] == 7'b0100_000);
   wire       [14:0] xc_ridx = {xc_big ? eff_addr[16:15] : 2'b00, eff_addr[14:2]};
@@ -556,9 +559,9 @@ module tg68k #(
     wire [31:2] xc_wa   = xc_fill ? xc_fa : kb_addr[31:2];
     wire [14:0] xc_widx = xc_swrun ? xc_sw : {xc_big ? xc_wa[16:15] : 2'b00, xc_wa[14:2]};
     wire [31:0] xc_wd   = xc_fill ? cpu_din : kb_dout;
-    wire  [3:0] xc_dwe  = xc_fill ? 4'b1111 : xc_wr ? xc_be : 4'b0000;
-    wire        xc_twe  = xc_swrun || xc_fill;
-    wire [13:0] xc_twd  = xc_swrun ? 14'd0 : {1'b1, (xc_wa[31:25] == 7'b0100_000), xc_wa[26:15]};
+    wire  [3:0] xc_dwe  = xc_fill ? 4'b1111 : (xc_wr && XC_WUPD) ? xc_be : 4'b0000;
+    wire        xc_twe  = xc_swrun || xc_fill || (xc_wr && !XC_WUPD);                 // (a write: the valid bit off)
+    wire [13:0] xc_twd  = (xc_swrun || !xc_fill) ? 14'd0 : {1'b1, (xc_wa[31:25] == 7'b0100_000), xc_wa[26:15]};
     always @(posedge clk) begin
       xc_tq <= xc_tag[xc_ridx];
       xc_dq <= {xc_d3[xc_ridx], xc_d2[xc_ridx], xc_d1[xc_ridx], xc_d0[xc_ridx]};

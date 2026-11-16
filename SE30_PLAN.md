@@ -29759,6 +29759,106 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     the kernel's opcode_pc to clk_sys, v_rdata -> vid_data.  kc_end0 (the
     bus's own end) feeds the posted beat's terms: the card's compare into
     kk_pgo_pn was 21.3 ns in 20.
+
+  THE CACHE CARD'S WRITES: THE TYPICAL CARD FORGETS (2026-11-16).
+  - G ch. 5 (pp 223-224), "the operation of a typical cache card": the
+    hit's check of the validity bits "is necessary because it is possible
+    for the processor to write new data to main memory without the cache
+    card being updated"; "If the cache card does not update its data RAM
+    on a write operation, it must turn off the validity bit".  Writes are
+    the MDU's (G: CACHE is asserted "for a read operation"; DCD p 392 is
+    garbled there - "leaves CACHE unasserted except when the cache is not
+    active" - and names no R/W term).  So both write behaviours are
+    allowed, and the one G describes is the forgetting card; updating
+    was our choice, one of the three that each favoured the card.
+  - CHANGED (tg68k.v, XC_WUPD = 0): a write to a long the card holds
+    clears its valid bit at Q1; the data RAM is no longer written by a
+    write.  XC_WUPD = 1 restores updating.  The match is cache3's (tag,
+    RAM only), so every read is right wherever cache3's was: a dropped
+    long is read again from RAM.  The miss penalty (four clocks) and ROM
+    reads are unchanged: one choice at a time against the board.
+  - BENCHES: sim/iici_vid CACHE=7, XCARD=1 and 2: D7 (differences) 0;
+    7,359 hits, 1,478 misses in two passes (each pass now misses on the
+    three read-backs after a write: ~768 a pass where updating missed
+    ~256); hits two clocks, misses four clocks late, no hit on the bus.
+    sim/iici XCARD=1 and 2: PASS 12 - but it stops at 11,210 cycles,
+    before the ROM enables the card; the ROM's sizing with the card is
+    proven only on the board (cache2's lesson).
+  - BUILD cache4 (20:21-21:13, fit 39 min; 39,058 ALMs; tag f0bccd7a with
+    tg68k.v dirty; output_files/MacIIci_cache4.rbf, md5 0840cd30...):
+    TIMING NOT MET, -0.519 (sta_corners_iici.tcl).  The capture: A or B
+    met at every corner.  Failing: (1) the framework's ascal
+    o_vpix_inner[1].r[7] -> o_poly_lum[7] (pll_hdmi), setup -0.254 slow
+    100C, -0.519 slow -40C - met in cache3, placement; (2) ours, mdu
+    q_addr[19] -> sdram xm_addr[19] hold -0.001 fast -40C, under the
+    0.3 ns guide on clk_sys -> x*.  Neither touches the card.
+    archive_build.ps1 refuses -Revision MacIIci (copied by hand, as
+    cache1-3).  ON THE BOARD (Daniel 21:32, 8 MB, 32K card, 256
+    colours, APD 1.1.3; screenshot 20261116_213255): Integer 0.83,
+    Complex 1.06, FP 1.14, FPU 0.81, MEMORY 1.41 (UNCHANGED), Processor
+    1.04, VIDEO 1.16 (real 1.17: RIGHT).  The card's gain (with / without,
+    real -> ours): Integer 1.29 -> 1.41, Complex 1.15 -> 1.18, FP 1.16 ->
+    1.18, FPU 1.07 -> 1.07, Memory 2.17 -> 2.66, Video 1.15 -> 1.12.  So
+    forgetting is kept (documented, and Video came right); Memory's
+    excess is not writes.  32K = 128K on Memory: its data fits the card
+    and rests on the hit (two clocks, documented).  NEXT: read APD's
+    Memory and Integer tests (APD113.dsk) for their pattern before
+    another lever - the miss and ROM reads may not touch Memory.
+  - NORTON ON cache4 (Daniel, 2026-11-16, 8 MB, 256 colours, the 32K
+    card - a shade slower than the reference's 128K): CPU 9.79 (-1.6 %),
+    VIDEO 25.8 (+1.6 %), FPU 2.50 (-7.4 %) against 9.95 / 25.4 / 2.70
+    (cache3, 128K: 10.3 / 30.2 / 2.54).  CPU AND VIDEO WITHIN THE ~2 %
+    CRITERION; the video's 19 % was the write update.  The FPU's 7 % is
+    open item (b), the 68882's timing (the SE/30's too), not the card.
+  - APD's TESTS, READ (2026-11-16 night).  The application's CODE is
+    VISE-compressed ('A89F000C', the loader's decompressor CODE 44
+    $366-$4FE); scratchpad tools: rsrc.py, vise_dcmp.py (a line-for-line
+    translation), dis68k.py (capstone, A-traps named).  The data fork is
+    a PowerPC PEF (the Power Mac path, never run on a 68030).  The 68k
+    benchmarks are C++ classes in CODE 32 'Benchmark'; a driver ($1E2C)
+    calls a test's vtable slot $1C as often as it can in 60 ticks, timed
+    by the Time Manager ($67C), and divides with SANE.
+    MEMORY ($47CA set-up, $47FA run): NewPtr($2000) - 8 KB in the
+    application heap (bank A here) - and each run copies its upper 4 KB
+    onto its lower 4 KB, MOVE.L (A3)+,(A4)+ unrolled 32 times: 1,024
+    long reads and 1,024 long writes.  The source is never written: it
+    stays in any card after the first run.  So with the card Memory is
+    two-clock hits plus bank A WRITES under the video; nothing else.
+    INTEGER ($1F8E constructor, $201E run): a long unrolled block (far
+    over the 256-byte instruction cache) on an object's fields in the
+    heap - reads, ADDQ.L #1 read-modify-writes - with the long multiply
+    and divide library through the jump table ($9A / $A2(A5)) in every
+    block.  The fields sit in the 68030's data cache; the card's share
+    is the instruction fetches.  PROCESSOR ($490A): a 100-pass register
+    loop, no memory - 1.04 either way, as observed.  FPU: unrolled FMOVE
+    / FADD / FMUL / FDIV.S on fields ($6BA on).
+    READ: the card is too generous exactly where the hits are code or
+    plain reads and the rest is MDU writes or fetches - not in the miss
+    (Memory never misses after its first run) and not in ROM reads
+    (neither test touches the ROM in its loop).  The candidates: the
+    write's cost under the video beside a hit (S MDU: a bank A cycle
+    waits out a burst; ours does, iici_mdu.v 'held'), and the 68030's
+    own time for MOVE.L (An)+,(An)+ and the fetches when the bus is two
+    clocks (the pace; UM Section 11) - the instruction-timing question
+    (b) again.  NOT PURSUED (Daniel, 2026-11-16: "a rabbit hole"): APD's
+    own "IIci" reference looks inaccurate and the real figures are one
+    forum post, while both levers left (a dearer write beside a hit,
+    slower instruction timing on a two-clock bus) would slow Norton's
+    CPU, now 1.6 % under its reference.  THE CARD IS DONE AS cache4:
+    two-clock hits, a miss four clocks late, writes forget (G p 224),
+    ROM reads answered.  APD Memory / Integer recorded, not a target.
+    Speedometer to be run for the record (its references inconsistent).
+    FOR THE NEXT BUILD (MacIIci.sdc): set_false_path -hold mdu q_* ->
+    sdram xm_*, with its reason (q_* move only on an edge where m_req is
+    low; xm_* take them a clk_sys clock later on q_go).  The ascal path
+    is the framework's HDMI scaler: Daniel (2026-11-16), "often fails
+    timing. We ignore it" - not part of the verdict.  So cache4's only
+    failure of ours is the 1 ps hold above.
+  - THE TARGETS on the board (APD, 32K card, real vs ours): Memory 1.13
+    against 1.41 - the outlier; Video 1.17 / 1.24; Integer 0.81 / 0.83;
+    Norton 128K: CPU 9.95 / 10.3, video 25.4 / 30.2.  If Memory comes
+    down and the rest stays, the next choice to try is ROM reads; if it
+    overshoots, the update was right and the miss is the lever.
   - NORTON (probes9, System 7.5.5 from the work disk, 1 bit a pixel,
     Daniel 2026-11-14 21:56): CPU 10.2 against Norton's Mac IIci 9.95
     (+2.5 %), FPU 2.62 against 2.70 (-3.0 %).  The criterion is ~2 %.
