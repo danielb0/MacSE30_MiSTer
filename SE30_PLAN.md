@@ -23011,6 +23011,68 @@ build that routes long is suspect before its report is read.
     CLEANLY.  So the panic needs the heavy X session - paging (swap 17 MB)
     and big processes exiting - not the shutdown itself.  A reproduction
     must run X (or another memory-hungry load) first.
+    REPRODUCED (Daniel, 2026-11-17 ~20:45, build cache7, 128K card, 32 MB,
+    ddb.onpanic=1; X then `halt` from X; screenshots 20261117_204848 ..
+    204935): the SAME panic.  pid 1195, killed by signal 9 (halt's
+    SIGKILL; sigexit -> exit1 -> uvm_proc_exit -> uvmspace_free ->
+    uvm_unmap_detach -> amap_wipeout -> uvm_anfree -> pmap_page_protect ->
+    pmap_remove_mapping(pmap $90DF10, va $5EBE000, pte $10A0BD7C) + $20).
+    "uvm_fault(kernel_map, $10A0A000, 1) -> 0xe" (EFAULT: NetBSD's own map
+    has no entry for that page-table page); trap type 8, code $4020145 =
+    MMUSR $0402 (I, 2 levels) + SSW $0145 (supervisor data read, long, DF);
+    kernel pc $25418.  READ: pmap_page_protect removes every mapping of a
+    shared page; one pv entry (another pmap's) points into a page-table page
+    the kernel has already freed (NetBSD's map AND the MMU both say invalid -
+    the MMU did not misread a valid table).  Same function and the same
+    $10A0Bxxx region both times: reproducible and specific, not random
+    corruption.  EITHER a NetBSD mac68k pmap bug under mass exit with shared
+    anons, OR the core corrupting a pmap record (a write lost, a stale read
+    - the card, bank B).  DISCRIMINATORS: (a) the same run, card None; (b)
+    the same run on the IIcx core (no card, no bank B, no KCLK) at the same
+    memory size; (c) MAME's IIci with NetBSD as ground truth (slow).  The
+    trigger: X with clients, then `halt` from X (mass SIGKILL exits).
+    ddb `ps` (screenshots 20261117_205409/205417): the exiting process WAS
+    THE X SERVER (pid 1195, state 7); only halt, init, X and one zombie
+    left - the other pmap ($90DF10) with a mapping of the shared page most
+    likely belonged to a process already gone (its page tables freed, the
+    pv record surviving).  NEW SUSPECT, IIci-specific: the screen is in
+    MAIN RAM (bank A, fetched by the RBV), where the IIcx's is on its card;
+    X maps the frame buffer and draws all session - if NetBSD's and the
+    core's ideas of where it sits disagree, X overwrites kernel pages
+    (page tables, pv records), found broken at the mass exit.  (dmesg:
+    "intvid0 at obio0 @ 0", "framebuffer at 0x3a4c000" - to read: a VA or
+    a physical address, and what the RBV / MDU fetch.)  THE IIcx RUN
+    (same X + halt; no card, no bank B, no frame buffer in RAM) is the most
+    informative next test; then card None on the IIci.
+    THE FRAME-BUFFER SUSPECT, CHECKED AGAINST NetBSD's SOURCE (2026-11-17,
+    grf_obio.c trunk, pmap_bootstrap.c netbsd-11): "intvid0 ... @ 0" prints
+    mac68k_video.mv_phys = the frame buffer's PHYSICAL address from the
+    Booter = 0 - where our RBV / MDU fetch (bank A from 0): core and NetBSD
+    AGREE.  NetBSD reserves no RAM for it explicitly (only msgbuf + 1 / 8
+    pages at the top of the last range); the RAM ranges come from the Mac's
+    own MMU tables (get_mapping - NOT YET READ), built on our core by the
+    real IIci ROM, which do not map the screen as RAM.  "framebuffer at
+    0x3a4c000" is genfb's (sys/dev), almost certainly a kernel VA.  So the
+    suspect is UNLIKELY, not ruled out.  If the IIcx run is clean: read
+    get_mapping (machdep.c) - it may also explain "total memory = 16384 KB"
+    beside "avail memory = 27000 KB".
+    THE IIcx RUN (Daniel, 2026-11-17 ~22:00; 32 MB, 1-bit, X with clients then
+    `halt` - the IIci's trigger exactly): NetBSD HALTS CLEANLY.  IIci 2 of 2 panics, IIcx 0 of 1: the
+    cause is very likely IIci-only - the cache card, bank B, the frame
+    buffer in RAM (now unlikely) or the KCLK wrapper.  NEXT: the IIci, 32 MB,
+    CACHE CARD NONE, the same trigger.
+    The IIcx's top just before its halt (20261117_214043): up 29 min, load
+    2.6, 0 % idle, X 36 MB, ctwm, xterm, xclock, xeyes AND makemandb (5:08
+    of CPU), swap 24 MB used (the IIci panicked at 17) - MORE paging and
+    more to tear down than the IIci's, and clean: the IIci core is the cause.
+    WHAT IS LEFT (the IIcx shares the kernel, MMU and caches - their own
+    logic is very unlikely): the IIci's KCLK wrapper (bus starts/ends,
+    posted writes, burst fills, the MMU walker's path - it reads and writes
+    the very page tables found broken), the cache card, bank B, and the thin
+    timing of cache6 / cache7's CPU -> wrapper cone (cache6 -0.036 ns;
+    cache7 +0.133).  ORDER OF TESTS (Daniel, later): (1) IIci, 32 MB, card
+    NONE, X + clients + halt; (2) the timing-closed build (cache10) with the
+    card; (3) benches on the walker's path under KCLK and bank B.
     TESTS (each ~30 min - boot, X, shut down from X; Daniel, another time):
     (1) 32 MB, CACHE CARD NONE, `sysctl -w ddb.onpanic=1` after boot; if it
     panics: at db>, `dmesg 60`, `show registers`, `bt` (screenshots);
@@ -30349,6 +30411,20 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     and opcode_pc -> p_pc (real relationships, guided; -0.06 to -0.37 in
     cache8's congested fit) - the robust remedy if they persist: v_rdata
     changing only on the clk_mem edges clk_sys does not share.
+  - BUILD cache9 (7cd0fc12, the ternary address; fit ~118 min): THE ADDRESS
+    CONE IS GONE from the failures.  Left of ours: 32 paths, worst -0.651
+    (slow 100C), m_rdata (clk_mem) -> the cache card's data RAMs (M10K
+    datain): 2 levels, 6.3 ns of wire fanning each bit to the card's ~128
+    blocks, in a 10 ns clk_mem -> clk_sys path.  The rest (-1.217) the
+    framework's ascal.  No failing hold (the v_rdata / opcode_pc pairs met).
+  - THE SECOND CUT (uncommitted): the card's RAM writes registered in the
+    fabric (xc_widx_q / xc_wd_q / xc_dwe_q / xc_twe_q / xc_twd_q) and landing
+    a clk later from them - the fan-out wire gets a whole clk from a
+    register; a lookup whose RAM read meets the landing write on its entry
+    reads undefined data (no_rw_check), so it MISSES (xc_rhaz) - safe, the
+    long comes from memory.  Writes cannot follow a card lookup that closely
+    except a fill followed at once by a read of the same long (a posted
+    write blocks the next take until its S5).
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
