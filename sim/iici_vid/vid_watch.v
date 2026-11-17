@@ -111,6 +111,56 @@ module vid_watch;
     // the card's decisions on RAM reads (its tag's ROM bit clear): none when the MMU marks RAM cache-inhibited (CACHE=9)
     if (tb_iici_machine.machine.cpu.phi1 && (tb_iici_machine.machine.cpu.xc_hit || tb_iici_machine.machine.cpu.xc_miss) && !tb_iici_machine.machine.cpu.xc_tagr[12]) xram = xram + 1;
   end
+  // +TT (CACHE=11, gen_time_iici.py): each window from the AS* of CLR.L $3000+8w to that of CLR.L $3004+8w -
+  // its clocks (clk / 2), and its data cycles (FC 1 / 5, the markers excepted) by direction: count and CPU
+  // clocks (a bus cycle: AS* low in clk / 2 + 1, as the trace reads it; a card hit: two, never on the bus)
+  reg [8*400-1:0] tl; integer tn = 0; reg ton = 0;
+  integer tclk = 0, tw = -1, t0 = 0, tnr = 0, tlr = 0, tnw = 0, tlw = 0, tnh = 0, talow = 0;
+  reg     trw = 0, tdata = 0;
+  always @(posedge clk) begin
+    tclk = tclk + 1;
+    if ($test$plusargs("TT")) begin
+      if (as_q && !as_n) begin
+        if (!tb_iici_machine.machine.cpu_rw_n && tb_iici_machine.machine.cpu_addr[31:9] == 23'h18) begin   // $3000-$31FF
+          if (!tb_iici_machine.machine.cpu_addr[2]) begin
+            tw = tb_iici_machine.machine.cpu_addr[8:3]; t0 = tclk; tnr = 0; tlr = 0; tnw = 0; tlw = 0; tnh = 0;
+            if ($test$plusargs("TTCOPY") && (tb_iici_machine.machine.cpu_addr[8:3] == 6 || tb_iici_machine.machine.cpu_addr[8:3] == 26)) begin
+              ton = 1; tn = 0; $display("==== trace: window %0d", tb_iici_machine.machine.cpu_addr[8:3]);
+            end
+          end else if (tw == tb_iici_machine.machine.cpu_addr[8:3]) begin
+            $display("---- tw %0d clk %0d reads %0d %0d writes %0d %0d hits %0d", tw, tclk - t0, tnr, tlr, tnw, tlw, tnh);
+            tw = -1;
+          end
+          tdata = 0;
+        end else begin
+          tdata = (tb_iici_machine.machine.cpu_fc[1:0] == 2'b01); trw = tb_iici_machine.machine.cpu_rw_n;
+        end
+        talow = 0;
+      end
+      if (!as_n) talow = talow + 1;
+      if (!as_q && as_n && tdata && tw >= 0) begin
+        if (trw) begin tnr = tnr + 1; tlr = tlr + talow / 2 + 1; end else begin tnw = tnw + 1; tlw = tlw + talow / 2 + 1; end
+        tdata = 0;
+      end
+      // a data cache hit (DCACHE=1): the kernel acknowledged at P, no cycle - a zero-wait read
+      if (tb_iici_machine.machine.cpu.k_clkena && tb_iici_machine.machine.cpu.kc_hit && tb_iici_machine.machine.cpu.kc_dread && !tb_iici_machine.machine.cpu.kc_zs && tw >= 0) begin
+        tnr = tnr + 1; tlr = tlr + 2; tnh = tnh + 1;
+      end
+      if (tb_iici_machine.machine.cpu.phi1 && tb_iici_machine.machine.cpu.xc_hit && tw >= 0 && tb_iici_machine.machine.cpu.cyc_fc[1:0] == 2'b01) begin
+        tnr = tnr + 1; tlr = tlr + 2; tnh = tnh + 1;
+      end
+    end
+  end
+  // +TTDBG: the pace at each phi1 edge for 80 CPU clocks of window 26 (the copy loop on a long boundary)
+  integer dbn = 0;
+  always @(posedge clk) if ($test$plusargs("TTDBG") && tw == 26 && dbn < 80 && tb_iici_machine.machine.cpu.phi1) begin
+    dbn = dbn + 1;
+    $display("P op %04x pc %08x dec %b go %b | kk_rel %b pgo_q %b pgo_p %b pk_rel %b | int %b hit %b take %b cyc %b xc_hit %b s %0d post %b busst %b",
+      tb_iici_machine.machine.cpu.k_opcode, tb_iici_machine.machine.cpu.k_opcode_pc, tb_iici_machine.machine.cpu.k_decode, tb_iici_machine.machine.cpu.k_go,
+      tb_iici_machine.machine.cpu.kk_rel, tb_iici_machine.machine.cpu.kk_pgo_q, tb_iici_machine.machine.cpu.kk_pgo_p, tb_iici_machine.machine.cpu.pk_rel,
+      tb_iici_machine.machine.cpu.kc_int, tb_iici_machine.machine.cpu.kc_hit, tb_iici_machine.machine.cpu.kc_take, tb_iici_machine.machine.cpu.kk_cyc,
+      tb_iici_machine.machine.cpu.xc_hit, tb_iici_machine.machine.cpu.s, tb_iici_machine.machine.cpu.post, tb_iici_machine.machine.cpu.k_busstate);
+  end
   // +XON: the card enabled from the start, for the programs that do not write the RBV
   initial if ($test$plusargs("XON")) force tb_iici_machine.machine.cenable_n = 1'b0;
   // the bus cycles into bank A while the picture is shown: how long AS* is low (clk, two a CPU clock), and
@@ -144,7 +194,6 @@ module vid_watch;
   // +TRACE: the bus and the video, CPU clock by CPU clock, for a stretch of live video
   //   A = AS* low, w = a write, h = held by the MDU, V = a burst starts, v = the burst's hold, p = a burst pending,
   //   r = the RBV asks
-  reg [8*400-1:0] tl; integer tn = 0; reg ton = 0;
   always @(posedge clk) if (ton && tb_iici_machine.machine.cpu.p_release)
     $write("\n[release: op %04x ran %0d clocks, budget %0d; credits r %0d w %0d f %0d x %0d, tail %0d]\n",
       tb_iici_machine.machine.cpu.p_op, tb_iici_machine.machine.cpu.p_cnt, tb_iici_machine.machine.cpu.p_budget,

@@ -4,6 +4,7 @@
 #   DEPTH  0-3 = 1, 2, 4, 8 bits a pixel (default 3)    SDRAM  1: through iici_sdram and the chip model
 #   CACHE  1: the caches on and burst reads over 64 KB of bank A (2-5: see below)
 #   XCARD  1 / 2: the RAM cache card fitted, 32 KB / 128 KB (CACHE=7 is its program; any other runs with it too)
+#   CACHE=11: the timing windows (gen_time_iici.py; +TT; report_time_iici.py run.log)
 #   CACHE=10: back-to-back RAM writes and a read after a write (S Figures 15-16), for TRACE=1
 #   CACHE=9: CACHE=7 with RAM cache-inhibited by TT0 (CIOUT*): the card must not touch RAM's reads
 #   OVER   1: the pace's credits set past its 511-clock count at 2 ms; the CPU must carry on
@@ -11,6 +12,7 @@ set -u
 cd "$(dirname "$0")"
 MODELSIM=${MODELSIM:-/c/intelFPGA_lite/17.0/modelsim_ase/win32aloem}
 RTL=../../rtl
+if [ "${CACHE:-0}" = 11 ]; then DCACHE=${DCACHE:-0} python gen_time_iici.py || exit 1; else
 DEPTH=${DEPTH:-3} CACHE=${CACHE:-0} python - <<'PY' || exit 1
 import os
 depth = int(os.environ['DEPTH'])
@@ -199,6 +201,7 @@ else:
 rom = bytearray(524288); rom[:len(prog)] = prog
 open('rom.hex', 'w').write(''.join('%02x%02x\n' % (rom[i], rom[i+1]) for i in range(0, len(rom), 2)))
 PY
+fi
 rm -rf work
 "$MODELSIM/vlib.exe" work >/dev/null || exit 1
 for f in TG68K_Pack.vhd TG68K_ALU.vhd TG68K_PMMU_030.vhd TG68KdotC_Kernel.vhd; do
@@ -210,6 +213,6 @@ done
   "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/iicx_nuchip.v" "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" \
   "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" \
   "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v "$RTL/iici_sdram.v" ../sdram/sdram_model.v ../iici/tb_iici_machine.v vid_watch.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }
-"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gXCARD=${XCARD:-0} -g/tb_iici_machine/machine/rbv/EARLY=${EARLY:-1} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} ${XON:+"+XON"} ${TRACE:+"+TRACE"} $( [ "${CACHE:-0}" = 9 ] && echo +CICHK ) -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
+"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gXCARD=${XCARD:-0} -g/tb_iici_machine/machine/rbv/EARLY=${EARLY:-1} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} ${XON:+"+XON"} ${TRACE:+"+TRACE"} ${TTCOPY:+"+TTCOPY"} ${TTDBG:+"+TTDBG"} $( [ "${CACHE:-0}" = 11 ] && echo +TT ) $( [ "${CACHE:-0}" = 9 ] && echo +CICHK ) -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
 grep -E '^# (      [0-9]+\.[0-9] ms|      long|      writes|      [0-9]+: |---- |==== VID)' run.log | sed 's/^# //'
 grep -q '^# ==== VID PASS' run.log

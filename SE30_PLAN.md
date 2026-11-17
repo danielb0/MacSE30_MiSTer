@@ -22987,6 +22987,34 @@ SE/30 and IIcx builds must come out identical. Until then: every IIci build
 is read for hold at every corner (scripts/sta_corners_iici.tcl), and a
 build that routes long is suspect before its report is read.
 
+66. **OPEN, MUST BE RESOLVED BEFORE THE IIci's RELEASE (Daniel, 2026-11-17)
+    - NETBSD KERNEL PANIC "MMU fault" ON SHUT DOWN FROM X, IIci, 32 MB.**
+    Build cache6, 128K card (to confirm), NetBSD 11.1 nopoke-mono kernel,
+    after a ~25 min X session with heavy paging (swap 17 MB used; X 36 MB).
+    Screenshot 20261117_155956: trap(frame, 8 = MMU fault, code $4020145,
+    v $10A0BF14) in pmap_remove_mapping + $20, from uvm_proc_exit ->
+    uvmspace_free -> uvm_unmap_detach -> amap_unref -> amap_pp_adjref ->
+    amap_wiperange -> uvm_anfree -> pmap_page_protect -> pmap_remove_mapping
+    (pmap $90DF58, va $5F8A000, pte $10A0BF14): the kernel faulted reading
+    a page-table entry through its own page-table map - NetBSD's tables
+    damaged, or a wrong translation.  No dump: /etc/sysctl.conf sets
+    ddb.onpanic 1 -> 0, and savecore found "dump time is zero" (nothing
+    written to sd1b; its kvm errors are NetBSD's tooling).  New on the IIci
+    and in play: bank B (32 MB = 16 + 16; first heavy use under paging),
+    the cache card's coherence with the MMU's table walks and U/M writes,
+    the KCLK wrapper (posted writes, bursts).  A/UX ran clean on the IIci
+    at 16 MB (bank A only); the IIcx and SE/30 ran NetBSD without this.
+    NetBSD needs 20 MB, and the IIci's sizes are 4 / 8 / 16 (A only) / 32,
+    so bank B cannot be left out under NetBSD.
+    TESTS (each ~30 min - boot, X, shut down from X; Daniel, another time):
+    (1) 32 MB, CACHE CARD NONE, `sysctl -w ddb.onpanic=1` after boot; if it
+    panics: at db>, `dmesg 60`, `show registers`, `bt` (screenshots);
+    clean over a few tries -> the card.  (2) A/UX at 32 MB, a heavy session
+    (bank B under another OS).  (3) a Mac RAM test at 32 MB (TechTool or
+    Apple's diagnostics).  Benches meanwhile, if a lead appears: the card
+    against walker reads / descriptor writes; bank B's addressing in
+    iici_mdu.v / iici_sdram.v.
+
 **THE BUG-CLASS SCANS (Daniel, 2026-10-18: "I'd rather scan now than meet
 some sporadic intermittent bug in six months time"; both cores' next test
 versions wait for them, then the forum, then MiSTer-devel):**
@@ -29914,6 +29942,45 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
       MODE32 on a shared SE/30 / IIcx / IIci disk: its icon CROSSED OUT at
       the IIci's startup (Daniel, 2026-11-17) - it sees a 32-bit-clean ROM
       and stands aside, as on a real IIci (TidBITS 1991-06-17).
+      A/UX ON THE IIci, the first time (Daniel, 2026-11-17 afternoon, build
+      cache6, 16 MB): runs - four xeyes clients and QuarkXPress under X11;
+      "a little bit snappier than on the IIcx, but very similar" (Norton's
+      real IIci is ~1.4x the IIcx's CPU; the disk is full speed on both; the
+      IIci's screen shares bank A).
+      A/UX's SHUT DOWN DID NOT POWER OFF (Daniel, cache6, 128K card, the OSD
+      Power switch Normal): an empty, frozen desktop; the next boot had no
+      long fsck - A/UX finished its shutdown, only the power-off failed.
+      A/UX's dopowerdown (unix.dis, $59032): machineID 9 clears VIA2 data bit
+      2; 11 the OSS; ANY OTHER clears bit 2 AND sets bit 2 at via2_addr + $400
+      (a real VIA2's DDRB).  The RBV has three address pins, A0, A1 and A4 (S
+      6.1, sheet 12), so $400 IS register $00 on a real IIci too: PWR.OFF* low
+      for a few microseconds.  The Guide (ch. 6, Figure 6-7): /POWEROFF makes
+      the power-off circuit pull /PFW low, "when /PFW goes low, the power
+      supply switches itself off", off 2 ms later - a trigger.  iicx_power.v
+      needed /POWEROFF HELD 2 ms (its bench even asserted that a 1 ms one did
+      nothing - a reading, not the Guide's).  FIXED (iicx_power.v: the request
+      latched, off 2 ms after it began; locked on, the restart then): sim/power
+      PASS 8, case 3 now a 3 us pulse -> off at 62,670 clocks.  Shared with
+      the IIcx (Mac OS holds the bit low: unchanged).  TO CONFIRM on the
+      board: A/UX's Shut Down powers the IIci off.
+      NETBSD 11.1 ON THE IIci, 32 MB (Daniel, 2026-11-17 ~15:40, cache6, the
+      nopoke-mono kernel from NetBSD-WSFBMONO.iso): boots - "Apple Macintosh
+      IIci (68030)", fpu mc68882, "Mac IIci/Q700 ROMs" glue, intvid0 RBV
+      640 x 480 8 bpp, genfb with "colormap callback provided", the console
+      drawn.  "total memory = 16384 KB" beside "avail memory = 27000 KB":
+      avail > bank A alone, so bank B is in use; the "total" line is
+      NetBSD's count over two ranges (not chased).  X11: a black screen with
+      no disk activity for some minutes (as on the IIcx: ~9 min to the root
+      window there), then a BLUE root and clients loading - COLOURS RIGHT
+      (Daniel), unlike the IIcx's pale green (no CLUT hook for its card;
+      grf_obio.c's RBV has one).
+      Screenshot 20261117_155414: ctwm's own desktop (navy root, workspace
+      manager, icon manager), uxterm, xclock, xeyes; ps: X 5:51 of CPU, init,
+      syslogd, inetd, cron, ctwm - NetBSD + X11 RUN ON THE IIci.
+      top (20261117_155607): up 25 min, 90 % idle, ~28 MB in use, swap 17 of
+      128 MB (X 36 MB: NetBSD pages - MMU faults and restarts, clean).  Daniel:
+      "slightly more usable on the IIci, but still extremely slow; A/UX is much
+      more usable" - modern X.org on a 68030, not the core.
     FAILING: 8 bits a pixel (256 colours and 256 greys): the CPU stops.
       The Portrait Display at 16 greys hangs too (4 bits at 57.28 MHz:
       229 Mbit/s, the 13-inch monitor's 8 bits are 242) - S 6.6 names the
@@ -29935,8 +30002,9 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
       high-density disk; a large SCSI copy verified (the blind WRITE path)
       and a second disk; a CD image; typing with modifiers; a PRAM image
       across a reload; the FPU beyond Norton.
-    NOT BUILT: the cache card (Norton's reference IIci has one), NuBus
-      cards.
+    NOT BUILT: the cache card (Norton's reference IIci has one - BUILT
+      since, 2026-11-15).  NuBus cards: NEVER in the IIci build (Daniel,
+      2026-11-17) - the built-in video is its only display.
   - SCSI REVIEW WHILE IT BUILT (Daniel: the fault is in new code around
     it): se30_scsi and its parameters, the MDU's SCSI select / DACK /
     strobes (GLUE's, line for line) and the top's image wiring are the
@@ -30042,6 +30110,167 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     Section 11's overlap of MOVE.L (An)+,(An)+ / MOVEM with their bus
     cycles) - open item (b), instruction timings, with the Instruction /
     Sort / DrawText 6-10 % slow on the same machine.
+
+  INSTRUCTION TIMINGS ON THE IIci (open item (b); 2026-11-17).
+  - THE FPU IS NOT THIS.  The IIci's Norton FPU detail repeats the IIcx's
+    fingerprint (KNOWN ISSUES 60): multiply / divide ~1.0, add / sub 4-5 %
+    slow, the four trig functions 6-7 % slow, Log10 2 % fast, Vector the
+    slowest - at 15.67 and 25 MHz, with and without a cache card.  So the
+    68882's side, machine-independent; KI 60 stays parked.
+  - THE IIci TIMING TEST (new): sim/iici_vid CACHE=11 - gen_time_iici.py
+    builds sim/system timetest's machine-independent windows (DBRA,
+    register-only, RAM fill / read / copy, the two branch loops, an
+    indexed read), run twice (w, w + 20); vid_watch.v +TT counts each
+    window's clocks and data cycles with their measured lengths;
+    report_time_iici.py judges them by report_time.py's own Equation 11-2
+    with the measured W.  ~8 min a run (STOP_NS=6000000; the "VID FAIL:
+    starved" at the end is the program's STOP).  Caveats: a card miss's
+    four held clocks are not in the measured W (the read windows w5 / w25
+    read 1.27-1.29 for that alone); and the model averages W, so a few
+    writes held by a video burst (W 2.6 in pass 2) read as ~8 % slow
+    though they cannot hide under DBRA's head (w24, the fill, 1.089).
+  - NO CARD: every window within 1 % of the manual (w24's averaging aside).
+  - 128K CARD: the copy loop on a long boundary (w26) ran 10.10 clocks a
+    turn against 12.00 - 16 % FAST, the BMove / CopyBits Large pattern.
+    THE BUG (KCLK only - the IIci; the SE/30 and IIcx do not use it): the
+    pace keeps p_go twice on clk_k, kk_pgo_q for the decisions at the next
+    phi2 edge Q and kk_pgo_p for the kernel's step and the release at P.
+    A hit (kc_hit) and a posted write (kc_pack) acknowledge the kernel AT
+    P, but were gated by the Q copy; at a P where the budget ends just
+    after it (pgo_q 1, pgo_p 0) an I-cache fetch hit stepped DBRA's decode
+    beat with no release, and DBRA ran inside MOVE's budget (the probe:
+    vid_watch +TTDBG).  FIX (tg68k.v): kc_stallp = k_decode && !kk_pgo_p
+    gates kc_hit, and a take that would be a posted write (kc_pkok);
+    ordinary takes keep kk_pgo_q (their acknowledge is at a later P, where
+    the release happens).  w26 now 12.96 (1.08 = the averaging, as w24);
+    every other window unchanged.
+  - NORTON IN DETAIL ON THE IIcx (Daniel 13:11, screenshot
+    20261117_131152; 7.1, 8 MB; Norton's IIcx / ours, > 1 = slow): CPU
+    0.993, video 0.834, FPU 1.05.  BMove/A 0.841, /M 0.771 (FAST 16-23 %),
+    Mem R/W 0.968, Function 0.960, Bit Shifts 0.998, Mult/Div 1.03,
+    Branches 0.999, Instruction 1.04, Sort 1.00, Tree 0.959, Search 1.04;
+    DrawText 0.983; FPU per operation as the IIci's.  READ: the copies are
+    fast on EVERY machine (no card, no KCLK there); Sort and DrawText slow
+    on the IIci only; Instruction a little slow on both.
+  - THE ROM's BLOCKMOVE ($4080C9B0): pushes jCacheFlush ($06F4) as its
+    return address, then 8 x MOVE.L (A0)+,(A1)+ / SUB.L D2,D0 / BGE.B
+    ($4080C9DC) for large blocks; the flush ($4080547C) sets CACR CI - the
+    instruction cache is EMPTY after every BlockMove.  New window w7 / w27
+    (BlockMove's loop verbatim): 1.010 / 1.011, no card, data cache off
+    and on (DCACHE=1: CACR $2909, ED WA EI; data-cache hits counted as
+    zero-wait reads) - the loop itself is exact.  CI clears every valid
+    bit (se30_cache030.v:141) - the flush is right.
+  - THE COMMON CAUSE - THE NO-CACHE CASE: sim/system timetest window 0
+    (DBRA, the instruction cache off; SE/30, no KCLK) reads 10.17 clocks a
+    turn against the manual's 12.0-12.2: 0.84-0.85, 15-16 % FAST (1.17.5:
+    "TimeDBRA ~15 % high, accepted").  The pace charges an instruction the
+    tables' CACHE-CASE time (CC) plus each fetch's wait states; the
+    manual's no-cache case is the longer NCC time plus the wait states
+    (UM 11.5: NCC = NCCt + accesses x W; DBcc 8 against 6, MOVE Rn,(An) 4
+    against 3, MOVE SRC,(An) 5 against 4).  So every instruction whose
+    fetches miss the instruction cache gets ~1-2 clocks too few: code after
+    each BlockMove's flush, cold ROM paths, anything larger than the 256
+    bytes of instruction cache.  It fits BMove 16-23 % fast on the IIcx
+    and less on the IIci (the card's two-clock fetches leave less W).
+    THE FIX IS A PACE DESIGN CHANGE ON ALL THREE MACHINES (an instruction
+    whose fetches went to the bus budgeted from NCC, not CC) - a kernel-
+    side batch: sweep chain, timetest, Norton on each machine.  Daniel's
+    decision.  It would slow cold code; Instruction / Sort / DrawText,
+    already slow on the IIci, need reading in the same light (large
+    unrolled code - the IIci's slowness there is still unexplained).
+  - BUILD cache6 (2026-11-17 12:57-13:50; fit ~40 min, routing ~25;
+    tag 868e35e2 with tg68k.v dirty = the kc_stallp pace fix; 38,982
+    ALMs, 410 M10K; output_files/MacIIci_cache6.rbf, md5 2c79606a...):
+    NOT MET BY 36 ps FOR OURS at slow -40C only - iici_sdram vrd_q3 ->
+    sd_addr[12]~_Duplicate_1 (the fitter's copy of the pin register;
+    q_gap / p_gap's OR of vrd_q1..q3 in the command decision), logic the
+    change did not touch (cache5 met it: placement).  The rest is the
+    framework's ascal (-0.111 slow 100C), ignored by rule; capture A or B
+    met at each corner; no failing hold.  RTL remedy for the next build
+    (no seed lottery): register the OR - vrd_w3 <= vrd_fire || vrd_q1 ||
+    vrd_q2 is next clock's (vrd_q1 || vrd_q2 || vrd_q3), one level fewer.
+  - NORTON IN DETAIL ON cache6 (Daniel 14:06, screenshot
+    20261117_140603; 7.1, 8 MB, 128K card, 256 colours; cache5 -> cache6):
+    CPU 1.01 -> 1.01, video 0.959 -> 0.973, FPU 1.08 -> 1.08.  BMove/A
+    0.904 -> 0.953, /M 0.872 -> 0.910; CBits L/A 0.799 -> 0.876, L/M
+    0.852 -> 0.875, S/A 0.944 -> 0.970, S/M 0.963 -> 0.971; Picture 0.916
+    -> 0.926; Function 0.966 -> 0.973; Rects 1.02 -> 1.03, RoundRects 1.03
+    -> 1.05; Instruction 1.08 -> 1.07, Sort 1.08 -> 1.09, DrawText 1.10 ->
+    1.11; Scrolling 0.928 (unchanged); the FPU unchanged.  READ: THE FIX
+    REACHED NORTON - the copies moved as predicted (BMove +5 %, CopyBits
+    Large +3-10 %), the CPU overall held at 1.01, video within 3 %.  What
+    is left of the copies (BMove 5-9 %, CBits L 12 %) is the no-cache case
+    (above): the next lever, Daniel's decision.  Instruction / Sort /
+    DrawText unmoved (not this bug).
+  - THE NO-CACHE CASE: DESIGN (2026-11-17; not built).  History first:
+    1.17.5 weighed this and did NOT apply it - the manual gives a RANGE for
+    the no-cache case (UM 11.5: the NCC formula is an upper estimate,
+    "equal to or greater than the actual"; the lower estimate is the
+    tables' internal clocks plus the bus clocks run, serialized), and the
+    chime (ROM, caches off) matched a real SE/30 by ear.  Today's reading:
+    the DBRA window's LOWER estimate is 12.2 (4 internal + the 8.2 fetch
+    clocks the core itself runs) and the core does it in 10.17 - below
+    BOTH estimates, by overlapping its fetches with internal work; the
+    chime pass is 542 against a lower estimate of 534.5 - inside.  So:
+    THE RULE: for an instruction that ran any instruction-fetch bus cycle
+    (a card hit counts: a 68030 bus cycle; an I-cache hit does not), the
+    budget is max(Eq. 11-2's, the lower estimate), the lower estimate =
+    the tables' internal clocks (NCC less two per listed access, both
+    parts) + every bus cycle's full length in it (fetch and data) = NCCint
+    + credits + 2 x its bus cycles.  Instructions that run from the cache
+    are untouched.  Documented on both sides (the tables' NCC and access
+    counts; the measured bus), and the least change that reaches the
+    manual: DBRA 10.17 -> ~12.2, the chime ~unchanged (it already meets
+    its lower estimate).
+    BUILD: gen_pace030.py emits ncc_int per part (um11.py has NCC and the
+    access counts per row); the wrapper counts an instruction's bus cycles
+    (4 bits, saturating) and flags a fetch cycle; f_budget takes the max;
+    the KCLK prediction (pk_bq / pk_bpt / pk_bpn) the same.  Risk: the
+    KCLK pace path was the IIci's tightest (19.2 of 20 ns, compiles 5-8) -
+    the max may need its own register stage.
+    TESTS INSTEAD OF THE 36-HOUR CHAIN (the pace only withholds the decode
+    beat - it changes WHEN the kernel steps, never what it does): (1) the
+    kernel's beat trace by step, old against new pace (sim/machine
+    ktrace_cmp_masked.py) on deterministic programs - every sim/system
+    program, sim/iici_vid's - identical = timing-only, proven; (2) timing:
+    sim/system timetest (window 0 -> ~12; the chime in its range; the GCR
+    gap still >= 15), sim/iici_vid CACHE=11 both cards, DCACHE=1; (3)
+    liveness: the bench watchdogs, the budget's 1FF ceiling kept; (4) the
+    short sweeps as insurance (isweep ~4 min and the like); (5) the board:
+    boot, floppy mount, chime by ear, Norton in detail on all three.  The
+    long fault/interrupt sweeps already run every clock position, so a
+    shift in timing cannot take a case outside them.  ~2 h of benches,
+    three compiles, Daniel's board time.
+  - THE NO-CACHE CASE BUILT (2026-11-17, uncommitted): gen_pace030.py emits
+    each row's internal clocks (NCC less two per listed access, never < 0;
+    the decoder otherwise byte-identical, checked by stripping the new
+    fields); tg68k.v counts an instruction's bus cycles (p_ncyc, a narrow
+    port's continuation beats excepted) and flags a fetch on the bus
+    (p_fmiss); budget = max(Eq. 11-2, ni_ea + ni_op + credits + 2 x
+    cycles) when p_fmiss; the KCLK prediction (pk_bq / bpt / bpn) the same.
+    PROOF, TIMING-ONLY: sim/system's eleven programs, old wrapper (sim/
+    system_base, TG68K=) against new, beat traces compared step by step
+    (sim/machine/ktrace_steps.py): KCLK=0 and KCLK=1, 22 runs, ~345,000
+    kernel steps, ZERO differences; all 22 PASS (watchdogs quiet).
+    TIMING (report_time.py; both wrappers alike): window 0, DBRA uncached,
+    10.17 -> 12.21 (manual 12.0-12.2); the chime pass 541.75 -> 614.10
+    (manual 534.5-697.0; 1.04 s -> ~1.18 s on the bench's measure) - NOT
+    "about unchanged" as predicted: over the whole pass it met the lower
+    estimate, but instruction by instruction many were below their own;
+    every I-cache window unchanged (+0.01-0.02); SCSI blind +1 in 168-174;
+    the SWIM gaps identical (GCR 23).  THE CHIME IS DANIEL'S CALL: by ear
+    the old core matched a real SE/30 (~0.7 s); the new one is ~13 % longer
+    but inside the manual's range.
+  - THE 36 ps REMEDY BUILT (iici_sdram.v vrd_w3 = the OR registered a clock
+    ahead): sim/sdram_iici PASS 18, output byte-identical to HEAD's.
+  - BUILD cache7 (2026-11-17 15:49-16:25; fit ~25 min; tag 868e35e2 with
+    the tree dirty = the no-cache rule, the KCLK pace fix, iicx_power's
+    latch, vrd_w3; 39,059 ALMs, 410 M10K; output_files/MacIIci_cache7.rbf,
+    md5 1a0afec317156e0d855f5ac5f9f82a7b): MET FOR OURS AT EVERY CORNER - the one failing path the
+    framework's ascal (-0.217 slow -40C); capture A or B met at each
+    corner; no failing hold; vrd_q3 -> sd_addr gone.  TO DO ON THE BOARD:
+    the chime by ear; A/UX's Shut Down powers off; floppy mount; Norton in
+    detail (128K, 256 colours) against cache6; then the forum test build.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the

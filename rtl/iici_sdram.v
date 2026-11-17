@@ -344,17 +344,20 @@ module iici_sdram #(
   reg  [2:0] v_tail;                   // clocks left after the last READ (its two words and tRP)
   reg  [3:0] vblk, vblk_n;             // clocks for which no video READ may be decided
   reg        vrd_q1, vrd_q2, vrd_q3;   // a video READ was decided 1, 2, 3 clocks ago
+  reg        vrd_w3;                   // ... any of the three: (vrd_q1 || vrd_q2 || vrd_q3), registered a clock
+                                       //   ahead (build cache6 missed by 36 ps at slow -40C through their OR
+                                       //   into sd_addr's register; this is the same signal, one level fewer)
   reg  [5:0] vt;                       // its words' way to dq_r: the high word at vt[4], the low at vt[5]
   reg [15:0] hi_v;
   // the CPU's request and the burst: another chip bank (or chip), and clear of the video's last READs
   wire       q_safe  = q_addr[24] || (q_addr[22:21] != v_bank);
-  wire       q_gap   = q_we ? !(vrd_q1 || vrd_q2 || vrd_q3) : !vrd_q1;
+  wire       q_gap   = q_we ? !vrd_w3 : !vrd_q1;
   wire       c_want  = m_pend || m_fresh;
   wire       c_go    = c_want && (!v_run || (q_safe && q_gap));
   // ... and the waiting request alone, from this clock's own registers: the READs' choice (below) is made on
   // the clocks between clk_sys's, where no fresh request can start
   wire       p_safe  = xm_addr[24] || (xm_addr[22:21] != v_bank);
-  wire       p_gap   = xm_we ? !(vrd_q1 || vrd_q2 || vrd_q3) : !vrd_q1;
+  wire       p_gap   = xm_we ? !vrd_w3 : !vrd_q1;
   wire       p_go    = (state == S_IDLE) && busy_z && m_pend && p_safe && p_gap;
   reg        vrd_fire;
   // which column each READ names: the CPU's burst wraps in its line
@@ -374,7 +377,7 @@ module iici_sdram #(
       m_ack <= 0; m_soon <= 0; soon_hold <= 0; m_rdata <= 0; v_ack <= 0; v_rdata <= 0; dl_ack <= 0; dk_ack <= 0; dk_rdata <= 0;
       ref_cnt <= 0; ref_owed <= 0; m_pend <= 0; v_pend <= 0;
       mb_in <= 0; mb_out <= 0; vb_in <= 0; vb_out <= 0; m_hold <= 0; v_hold <= 0; m_wack <= 0;
-      v_run <= 0; v_bank <= 0; v_colb <= 0; v_n <= 0; v_tail <= 0; vblk <= 0; vrd_q1 <= 0; vrd_q2 <= 0; vrd_q3 <= 0; vt <= 0; hi_v <= 0;
+      v_run <= 0; v_bank <= 0; v_colb <= 0; v_n <= 0; v_tail <= 0; vblk <= 0; vrd_q1 <= 0; vrd_q2 <= 0; vrd_q3 <= 0; vrd_w3 <= 0; vt <= 0; hi_v <= 0;
       a_chip <= 0; a_bank <= 0; a_col <= 0; a_ent <= 0; a_n <= 0; a_len <= 0; a_be <= 0; a_wdata <= 0; rd_cnt <= 0; hi_w <= 0;
       k_we_r <= 0; k_bank_r <= 0; k_col_r <= 0; k_wdata_r <= 0;
       cap_sel <= 0; cap_ok <= 0; tr_step <= 0; tr_pass <= 0; tr_c1 <= 0; tr_n <= 0; tr_good <= 0; tr_w1 <= 0;
@@ -592,6 +595,7 @@ module iici_sdram #(
         if (v_n == 4'd7) v_tail <= 3'd4;        // the last READ's words and tRP: the row's bank is free at + 6
       end
       vrd_q1 <= vrd_fire; vrd_q2 <= vrd_q1; vrd_q3 <= vrd_q2;
+      vrd_w3 <= vrd_fire || vrd_q1 || vrd_q2;
       vt <= {vt[4:0], vrd_fire};
       if (vt[4]) hi_v <= dq_r;
       if (vt[5]) begin vb[vb_in[2:0]] <= {hi_v, dq_r}; vb_in <= vb_in + 1'b1; end

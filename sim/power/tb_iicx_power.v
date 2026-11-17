@@ -5,7 +5,8 @@
 //   1. /POWEROFF held low while the machine runs: off 2 ms later (62,669
 //      clk_sys clocks + the clock that acts), and off stays
 //   2. the Power key brings the machine back; the OSD's reset does too
-//   3. a /POWEROFF shorter than 2 ms does nothing, nor one while held in reset
+//   3. a /POWEROFF of a few microseconds (A/UX on the IIci) turns it off 2 ms
+//      after it began; one while held in reset does nothing
 //   4. the rear switch locked on: a restart pulse of one clock, never off
 
 `timescale 1ns/1ps
@@ -52,9 +53,10 @@ module tb_iicx_power;
     check(off == 0, "2 the OSD's reset brings it back", off);
     running = 1;
     // 3.
-    poweroff_req = 1; repeat (31334) @(posedge clk); #1 poweroff_req = 0;   // 1 ms
-    repeat (100000) @(posedge clk);
-    check(off == 0 && restarts == 0, "3 a 1 ms /POWEROFF does nothing", off);
+    #1 poweroff_req = 1; repeat (100) @(posedge clk); #1 poweroff_req = 0; n = 100;   // ~3 us
+    while (!off && n < 100000) begin @(posedge clk); #1; n = n + 1; end
+    check(n == 62670, "3 a 3 us /POWEROFF: off 2 ms after it began", n);
+    #1 running = 0; pulse_key; @(posedge clk); #1 running = 1;
     running = 0; poweroff_req = 1; repeat (100000) @(posedge clk); #1 poweroff_req = 0; running = 1;
     check(off == 0 && restarts == 0, "3 nor one while held in reset", off);
     // 4.

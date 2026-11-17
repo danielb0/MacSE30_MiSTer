@@ -83,13 +83,21 @@ def ea_row(tbl, key, sz):
     return TABLES[tbl][k]
 
 
+def internal(r):
+    """The row's internal clocks: its no-cache-case clocks less two for every
+    access it lists (UM 11.5's lower estimate of the no-cache case is these
+    plus the bus clocks the instruction runs - SE30_PLAN.md "THE NO-CACHE
+    CASE"); never below zero."""
+    return max(0, r["ncc"] - 2 * (r["r"] + r["p"] + r["w"]))
+
+
 def packed(r):
-    return (r["ophead"], r["head"], r["tail"], r["cc"])
+    return (r["ophead"], r["head"], r["tail"], r["cc"], min(internal(r), 63))
 
 
 def ea_function(tbl, name):
     """Verilog for one EA table function."""
-    lines = ["  function [13:0] %s;   // {ophead, h[4:0], t[1:0], cc[5:0]}" % name,
+    lines = ["  function [19:0] %s;   // {ophead, h[4:0], t[1:0], cc[5:0], ni[5:0]}" % name,
              "    input [2:0] mode; input [2:0] rg; input lsz;",
              "    begin",
              "      case (mode)"]
@@ -99,9 +107,9 @@ def ea_function(tbl, name):
             continue
         if rw == rl or rl is None or rw is None:
             r = rw or rl
-            lines.append("        3'd%d: %s = {1'b%d, 5'd%d, 2'd%d, 6'd%d};" % ((m, name) + packed(r)))
+            lines.append("        3'd%d: %s = {1'b%d, 5'd%d, 2'd%d, 6'd%d, 6'd%d};" % ((m, name) + packed(r)))
         else:
-            lines.append("        3'd%d: %s = lsz ? {1'b%d, 5'd%d, 2'd%d, 6'd%d} : {1'b%d, 5'd%d, 2'd%d, 6'd%d};"
+            lines.append("        3'd%d: %s = lsz ? {1'b%d, 5'd%d, 2'd%d, 6'd%d, 6'd%d} : {1'b%d, 5'd%d, 2'd%d, 6'd%d, 6'd%d};"
                          % ((m, name) + packed(rl) + packed(rw)))
     lines.append("        3'd7: case (rg)")
     for g in range(5):
@@ -110,13 +118,13 @@ def ea_function(tbl, name):
             continue
         if rw == rl or rl is None or rw is None:
             r = rw or rl
-            lines.append("          3'd%d: %s = {1'b%d, 5'd%d, 2'd%d, 6'd%d};" % ((g, name) + packed(r)))
+            lines.append("          3'd%d: %s = {1'b%d, 5'd%d, 2'd%d, 6'd%d, 6'd%d};" % ((g, name) + packed(r)))
         else:
-            lines.append("          3'd%d: %s = lsz ? {1'b%d, 5'd%d, 2'd%d, 6'd%d} : {1'b%d, 5'd%d, 2'd%d, 6'd%d};"
+            lines.append("          3'd%d: %s = lsz ? {1'b%d, 5'd%d, 2'd%d, 6'd%d, 6'd%d} : {1'b%d, 5'd%d, 2'd%d, 6'd%d, 6'd%d};"
                          % ((g, name) + packed(rl) + packed(rw)))
-    lines += ["          default: %s = 14'd0;" % name,
+    lines += ["          default: %s = 20'd0;" % name,
               "        endcase",
-              "        default: %s = 14'd0;" % name,
+              "        default: %s = 20'd0;" % name,
               "      endcase",
               "    end",
               "  endfunction", ""]
@@ -368,6 +376,9 @@ def main():
     w("  output reg  [1:0] op_t,")
     w("  output reg  [6:0] op_cc,")
     w("  output reg  [6:0] op_cc_t,")
+    w("  output reg  [5:0] ea_ni,      // the internal clocks (NCC less two an access): UM 11.5's lower no-cache estimate")
+    w("  output reg  [6:0] op_ni,")
+    w("  output reg  [6:0] op_ni_t,")
     w("  output reg  [1:0] br,")
     w("  output reg  [1:0] mvm,")
     w("  output reg  [7:0] row        // the pattern that matched (gen_pace030.py's order, 255 none): the profile's")
@@ -378,10 +389,10 @@ def main():
     w("  reg  [2:0] tbl;      // 0 none, 1 fea, 2 fiea, 3 cea, 4 ciea, 5 jea")
     w("  reg  [2:0] szs;      // the immediate's size: 0 from op[7:6], 1 .B, 2 .W, 3 .L, 4 MOVE's op[13:12]")
     w("  wire       lsz = (szs == 3'd0) ? (op[7:6] == 2'b10) : (szs == 3'd4) ? (op[13:12] == 2'b10) : (szs == 3'd3);")
-    w("  reg [13:0] ea;")
+    w("  reg [19:0] ea;")
     w("")
     w("  always @* begin")
-    w("    tbl = 3'd0; szs = 3'd0; op_h = 5'd0; op_t = 2'd0; op_cc = 7'd0; op_cc_t = 7'd0; br = 2'd0; mvm = 2'd0; row = 8'd255;")
+    w("    tbl = 3'd0; szs = 3'd0; op_h = 5'd0; op_t = 2'd0; op_cc = 7'd0; op_cc_t = 7'd0; op_ni = 7'd0; op_ni_t = 7'd0; br = 2'd0; mvm = 2'd0; row = 8'd255;")
     w("    casez (op)")
     names = []
     assert len(P) <= 255
@@ -396,7 +407,8 @@ def main():
         alt = T[tbl][kw["alt"]] if "alt" in kw else r
         fields = ["row = 8'd%d" % idx, "tbl = 3'd%d" % ea, "szs = 3'd%d" % sz,
                   "op_h = 5'd%d" % r["head"], "op_t = 2'd%d" % r["tail"], "op_cc = 7'd%d" % cc,
-                  "op_cc_t = 7'd%d" % min(alt["cc"], 127)]
+                  "op_cc_t = 7'd%d" % min(alt["cc"], 127),
+                  "op_ni = 7'd%d" % min(internal(r), 127), "op_ni_t = 7'd%d" % min(internal(alt), 127)]
         if "br" in kw:
             fields.append("br = 2'd%d" % kw["br"])
         if "mvm" in kw:
@@ -410,10 +422,10 @@ def main():
     w("      3'd3: ea = f_cea(op[5:3], op[2:0], lsz);")
     w("      3'd4: ea = f_ciea(op[5:3], op[2:0], lsz);")
     w("      3'd5: ea = f_jea(op[5:3], op[2:0], lsz);")
-    w("      default: ea = 14'd0;")
+    w("      default: ea = 20'd0;")
     w("    endcase")
     w("    ea_on = (tbl != 3'd0);")
-    w("    {ea_ophead, ea_h, ea_t, ea_cc} = ea;")
+    w("    {ea_ophead, ea_h, ea_t, ea_cc, ea_ni} = ea;")
     w("  end")
     w("")
     w("endmodule")
