@@ -914,8 +914,6 @@ module tg68k #(
                          //   wrapped: every cycle of 16 clocks or more was credited 63 - the IIci at 8 bits a
                          //   pixel, where a cycle that waits out a video burst is 23, stood idle 40 clocks a time)
   reg         p_cont;    // the cycle in progress continues an operand through a narrow port
-  reg   [4:0] p_ncyc;    // its bus cycles so far, a narrow port's continuation beats excepted (saturating) ...
-  reg         p_fmiss;   //   ... and that one of them was an instruction fetch: it ran in the no-cache case
   reg  [29:0] p_last_la; // the last data cycle's long address ...
   reg   [1:0] p_last_ds; //   ... and port size
   reg         p_last_d;  //   ... and that it was a data cycle
@@ -925,15 +923,12 @@ module tg68k #(
   wire  [7:0] d_row;
   wire  [5:0] d_ea_cc;
   wire  [6:0] d_op_cc, d_op_cc_t;
-  wire  [5:0] d_ea_ni;   // the internal clocks of each part (UM 11.5's lower no-cache estimate, below)
-  wire  [6:0] d_op_ni, d_op_ni_t;
   // KCLK: the decoder reads the opcode p_op holds after the coming phi1 edge
   // (item 5 of STAGE 1 DESIGN, below), and its answer is registered there
   wire [15:0] p_op_n;
   se30_pace030 pace (
     .op(KCLK ? p_op_n : p_op), .ea_on(d_ea_on), .ea_ophead(d_ea_ophead), .ea_h(d_ea_h), .ea_t(d_ea_t), .ea_cc(d_ea_cc),
-    .op_h(d_op_h), .op_t(d_op_t), .op_cc(d_op_cc), .op_cc_t(d_op_cc_t), .br(d_br), .mvm(d_mvm), .row(d_row),
-    .ea_ni(d_ea_ni), .op_ni(d_op_ni), .op_ni_t(d_op_ni_t));
+    .op_h(d_op_h), .op_t(d_op_t), .op_cc(d_op_cc), .op_cc_t(d_op_cc_t), .br(d_br), .mvm(d_mvm), .row(d_row));
   // the decoder's answer, registered: settled two clocks before the earliest next decision
   reg         r_ea_on;
   reg   [5:0] r_ea_h;    // the EA's head, the op's included where the manual says "n + op head"
@@ -941,8 +936,6 @@ module tg68k #(
   reg   [4:0] r_op_h;
   reg   [5:0] r_ea_cc;
   reg   [6:0] r_op_cc, r_op_cc_t;
-  reg   [5:0] r_ea_ni;
-  reg   [6:0] r_op_ni, r_op_ni_t;
   reg         r_taken;   // a branch: the next instruction is not the one that follows
   reg   [7:0] r_row;     // the decoder's row, for the profile (dbg_pace)
   reg   [1:0] r_mvm_q;   // KCLK: r_mvm as it stood before the last phi1 edge (today's at the phi2 edge after it)
@@ -953,7 +946,6 @@ module tg68k #(
     r_ea_h   <= {1'b0, d_ea_h} + (d_ea_ophead ? {1'b0, d_op_h} : 6'd0);
     r_ea_t   <= d_ea_t; r_ea_cc <= d_ea_cc;
     r_op_h   <= d_op_h; r_op_t <= d_op_t; r_op_cc <= d_op_cc; r_op_cc_t <= d_op_cc_t;
-    r_ea_ni  <= (d_ea_on && (d_ea_cc != 6'd0)) ? d_ea_ni : 6'd0; r_op_ni <= d_op_ni; r_op_ni_t <= d_op_ni_t;
     r_br     <= d_br; r_mvm <= d_mvm; r_row <= d_row; r_mvm_q <= r_mvm;
     r_taken  <= (d_br != 2'd0) && (k_opcode_pc != p_pc + {29'd0, p_ilen});
   end
@@ -982,28 +974,8 @@ module tg68k #(
       f_budget = (ea_on ? {4'd0, ea_cc} - {4'd0, ov_ea_c} : 10'd0) + ({3'd0, op_clk} - {1'b0, ov_op_c}) + credit;
     end
   endfunction
-  // THE NO-CACHE CASE (SE30_PLAN.md "THE NO-CACHE CASE: DESIGN"): an instruction that ran an
-  // instruction fetch on the bus is held to at least UM 11.5's lower estimate of the no-cache case -
-  // the tables' internal clocks (NCC less two an access, both parts) plus every bus cycle it ran at its
-  // full length (its wait-state credits and two clocks a cycle).  Equation 11-2 lets the fetches'
-  // clocks overlap the internal work, which the no-cache tables do not: the uncached DBRA ran 10.2
-  // clocks where the manual's estimates are 12.0-12.2, and BlockMove's cache flush put every copy's
-  // surroundings on that path.  An instruction that ran from the cache keeps Equation 11-2.
-  function [9:0] f_lower(input [5:0] ea_ni, input [6:0] op_ni, input [7:0] rc, input [7:0] wc, input [7:0] fc,
-                         input [7:0] xc, input [4:0] n);
-    reg [10:0] sum;
-    begin
-      sum     = {5'd0, ea_ni} + {4'd0, op_ni} + {3'd0, rc} + {3'd0, wc} + {3'd0, fc} + {3'd0, xc} + {5'd0, n, 1'b0};
-      f_lower = (sum > 11'd1023) ? 10'd1023 : sum[9:0];
-    end
-  endfunction
-  function [9:0] f_nc(input fmiss, input [9:0] cc, input [9:0] lo);
-    f_nc = (fmiss && lo > cc) ? lo : cc;
-  endfunction
   wire  [6:0] p_op_clk = p_taken ? r_op_cc_t : r_op_cc;
-  wire  [6:0] p_op_ni  = p_taken ? r_op_ni_t : r_op_ni;
-  wire  [9:0] p_budget = f_nc(p_fmiss, f_budget(r_ea_on, r_ea_h, r_ea_t, r_ea_cc, r_op_h, p_op_clk, p_tail, p_rcred, p_wcred, p_fcred, p_xcred),
-                              f_lower(r_ea_ni, p_op_ni, p_rcred, p_wcred, p_fcred, p_xcred, p_ncyc));
+  wire  [9:0] p_budget = f_budget(r_ea_on, r_ea_h, r_ea_t, r_ea_cc, r_op_h, p_op_clk, p_tail, p_rcred, p_wcred, p_fcred, p_xcred);
   // the tail this instruction leaves: the op's, its writes' wait states in, and its reads' if it had no EA part
   wire  [9:0] p_tail_n = {8'd0, r_op_t} + {2'd0, p_wcred} + (r_ea_on ? 10'd0 : {2'd0, p_rcred});
   wire  [5:0] p_tail_s = (p_tail_n > 10'd63) ? 6'd63 : p_tail_n[5:0];
@@ -1052,8 +1024,6 @@ module tg68k #(
   wire  [7:0] pk_fc    = pk_rel ? 8'd0 : p_fcred;
   wire  [7:0] pk_xc    = pk_rel ? 8'd0 : p_xcred;
   wire        pk_old   = pk_rel ? (post || pb_old) : pb_old;
-  wire  [4:0] pk_n     = pk_rel ? 5'd0 : p_ncyc;                          // the no-cache case's count and flag (above)
-  wire        pk_fm    = pk_rel ? 1'b0 : p_fmiss;
   // ... and after Q, with a posted beat's S5 there
   reg   [5:0] px_addw  = 6'd0;         // p_addw for a cycle whose S5 is two clk edges on
   wire  [7:0] px_edges = {1'b0, p_cyc} + 8'd3;                                     // (p_cyc + 2) + 1, at most 130
@@ -1072,14 +1042,9 @@ module tg68k #(
   wire  [5:0] pq_tail  = !px_x ? pk_tail : (px_tsum > 7'd63) ? 6'd63 : px_tsum[5:0];
   wire        dn_ea_on = d_ea_on && (d_ea_cc != 6'd0);
   wire  [5:0] dn_ea_h  = {1'b0, d_ea_h} + (d_ea_ophead ? {1'b0, d_op_h} : 6'd0);
-  wire  [4:0] pq_n     = (px_s5 && !p_cont && pk_n != 5'h1F) ? pk_n + 5'd1 : pk_n;   // a posted beat ending at Q
-  wire  [5:0] dn_ea_ni = dn_ea_on ? d_ea_ni : 6'd0;
-  wire  [9:0] pk_bq    = f_nc(pk_fm, f_budget(r_ea_on, r_ea_h, r_ea_t, r_ea_cc, r_op_h, p_op_clk, pk_tail, pk_rc, pk_wc, pk_fc, pk_xc),
-                                     f_lower(r_ea_ni, p_op_ni, pk_rc, pk_wc, pk_fc, pk_xc, pk_n));
-  wire  [9:0] pk_bpt   = f_nc(pk_fm, f_budget(dn_ea_on, dn_ea_h, d_ea_t, d_ea_cc, d_op_h, d_op_cc_t, pq_tail, pk_rc, pq_wc, pk_fc, pq_xc),
-                                     f_lower(dn_ea_ni, d_op_ni_t, pk_rc, pq_wc, pk_fc, pq_xc, pq_n));
-  wire  [9:0] pk_bpn   = f_nc(pk_fm, f_budget(dn_ea_on, dn_ea_h, d_ea_t, d_ea_cc, d_op_h, d_op_cc,   pq_tail, pk_rc, pq_wc, pk_fc, pq_xc),
-                                     f_lower(dn_ea_ni, d_op_ni, pk_rc, pq_wc, pk_fc, pq_xc, pq_n));
+  wire  [9:0] pk_bq    = f_budget(r_ea_on, r_ea_h, r_ea_t, r_ea_cc, r_op_h, p_op_clk, pk_tail, pk_rc, pk_wc, pk_fc, pk_xc);
+  wire  [9:0] pk_bpt   = f_budget(dn_ea_on, dn_ea_h, d_ea_t, d_ea_cc, d_op_h, d_op_cc_t, pq_tail, pk_rc, pq_wc, pk_fc, pq_xc);
+  wire  [9:0] pk_bpn   = f_budget(dn_ea_on, dn_ea_h, d_ea_t, d_ea_cc, d_op_h, d_op_cc,   pq_tail, pk_rc, pq_wc, pk_fc, pq_xc);
   always @(posedge clk_k or negedge reset_n)
     if (!reset_n) begin
       kk_pgo_q <= 1'b1; kk_pgo_pt <= 1'b1; kk_pgo_pn <= 1'b1;            // p_cnt resets to 1FF: due
@@ -1114,7 +1079,7 @@ module tg68k #(
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
       p_op <= 16'h0; p_pc <= 32'h0; p_tail <= 6'd0; p_cnt <= 9'h1FF; p_rcred <= 8'd0; p_wcred <= 8'd0; p_fcred <= 8'd0; p_rel <= 1'b0;
-      p_xcred <= 8'd0; pb_old <= 1'b0; p_ncyc <= 5'd0; p_fmiss <= 1'b0;
+      p_xcred <= 8'd0; pb_old <= 1'b0;
       p_cyc <= 7'd0; p_cont <= 1'b0; p_last_la <= 30'd0; p_last_ds <= 2'b00; p_last_d <= 1'b0;
     end else begin
       if (s != 3'd0 && p_cyc != 7'h7F) p_cyc <= p_cyc + 7'd1;
@@ -1124,7 +1089,6 @@ module tg68k #(
           p_op <= k_opcode; p_pc <= k_opcode_pc; p_tail <= (p_tail_n > 10'd63) ? 6'd63 : p_tail_n[5:0];
           p_cnt <= 9'd1; p_rcred <= 8'd0; p_wcred <= 8'd0; p_fcred <= 8'd0;     // this clock is the instruction's first
           p_xcred <= 8'd0; if (post) pb_old <= 1'b1;                       // a write still posted is the instruction before's
-          p_ncyc <= 5'd0; p_fmiss <= 1'b0;
           p_rel <= !k_clkena;                                              // an internal beat steps now
         end else if (k_clkena && k_decode) p_rel <= 1'b0;                  // the decode beat taken
       end
@@ -1147,8 +1111,6 @@ module tg68k #(
             if (p_rcred + {2'd0, p_add} < 9'd255) p_rcred <= p_rcred + {2'd0, p_add}; else p_rcred <= 8'hFF;
           end
           p_last_d <= (cyc_fc != 3'd6); p_last_ds <= dsack5; p_last_la <= cyc_la;
-          if (!p_cont && p_ncyc != 5'h1F) p_ncyc <= p_ncyc + 5'd1;          // (the no-cache case's bus cycles, above)
-          if (cyc_fc == 3'd6 && !(post && pb_old)) p_fmiss <= 1'b1;
         end
       end
     end

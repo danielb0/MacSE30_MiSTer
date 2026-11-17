@@ -23006,6 +23006,10 @@ build that routes long is suspect before its report is read.
     at 16 MB (bank A only); the IIcx and SE/30 ran NetBSD without this.
     NetBSD needs 20 MB, and the IIci's sizes are 4 / 8 / 16 (A only) / 32,
     so bank B cannot be left out under NetBSD.
+    SECOND RUN (Daniel, 2026-11-17 ~16:45, the same 32 MB, no X): shut down
+    CLEANLY.  So the panic needs the heavy X session - paging (swap 17 MB)
+    and big processes exiting - not the shutdown itself.  A reproduction
+    must run X (or another memory-hungry load) first.
     TESTS (each ~30 min - boot, X, shut down from X; Daniel, another time):
     (1) 32 MB, CACHE CARD NONE, `sysctl -w ddb.onpanic=1` after boot; if it
     panics: at db>, `dmesg 60`, `show registers`, `bt` (screenshots);
@@ -30271,6 +30275,40 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     corner; no failing hold; vrd_q3 -> sd_addr gone.  TO DO ON THE BOARD:
     the chime by ear; A/UX's Shut Down powers off; floppy mount; Norton in
     detail (128K, 256 colours) against cache6; then the forum test build.
+  - NORTON IN DETAIL ON cache7 (Daniel 16:47, screenshot 20261117_164746;
+    7.1, 8 MB, 128K, 256 colours; FROM NOW ON OURS / REAL, real = 1.00):
+    CPU 0.978, video 1.02, FPU 0.924.  BMove/A 1.06, /M 1.10, Mem R/W
+    0.962, Function 0.997, Bit Shifts 1.00, Mult/Div 0.964, Branches 1.02,
+    Instruction 0.944, Sort 0.921, Tree 1.00, Search 0.955; Rects 0.967,
+    RoundRects 0.944, Ovals 0.939, Lines 1.01, Picture 1.07, CBits S/A
+    1.02, S/M 1.01, L/A 1.14, L/M 1.14, DrawText 0.893, Scrolling 1.08;
+    FPU per operation 0.86-1.02 (Vector 0.859).  Against cache6 (inverted:
+    CPU 0.99, BMove 1.05 / 1.10, Function 1.03, Lines 1.04, Search 0.97,
+    CBits L 1.14 / 1.14): THE NO-CACHE RULE DID NOT MOVE THE COPIES ON THE
+    IIci (the card's two-clock fetches make cold code cheap here); it slowed
+    general code 1.5-3 % (CPU 0.99 -> 0.978, just outside ~2 %).  Its real
+    test is the IIcx (BMove 1.19 / 1.30 there, five-clock fetches): an IIcx
+    build.  The IIci's copy excess (6-14 %) has another cause; candidate to
+    measure on the bench first: the A-line trap's exception processing
+    (BlockMove and QuickDraw are traps; many small calls).
+  - DECISION (Daniel, 2026-11-17 ~17:00: "If the results are slightly worse,
+    why not revert to cache6? We could literally go on forever like this"):
+    THE NO-CACHE RULE IS TAKEN OUT - unproven on the board, it cost the IIci
+    ~1 % of CPU, and 1.17.5 had weighed it out for the same reasons (the
+    manual gives a range; the chime sounded right).  tg68k.v restored to
+    the copy cache6 was built from (byte-identical; it differs from 868e35e
+    by the KCLK fix only); se30_pace030.v and gen_pace030.py restored from
+    868e35e (the generator regenerates the decoder byte for byte).  KEPT:
+    the KCLK hit gate, iicx_power's latch, iici_sdram's vrd_w3.  The design
+    and its bench results stay above for the record (sim/iici_vid CACHE=11
+    and DCACHE=1 stay as tools).  STOPPING RULE FOR THE IIci (proposed to
+    Daniel with this): Norton CPU and video within ~2-3 % (cache6: 0.99 /
+    1.03) is done; the FPU stays KNOWN ISSUES 60; Instruction / Sort /
+    DrawText and the remaining copy excess are recorded differences, not
+    chased.  The release blocker left: KNOWN ISSUES 66.  NEXT: build cache8
+    (= cache6's behaviour + the power-off latch + clean timing), the board
+    (A/UX power-off, the chime as before, a floppy, a quick Norton), the
+    forum test build.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
