@@ -5023,9 +5023,13 @@ PROCESS (brief, OP1out, OP1outbrief, cpu)
 		memaddr_delta <= memaddr_delta_rega + memaddr_delta_regb;
 
 		-- if access done, and not aligned, don't increment
-        addr <= memaddr_reg+memaddr_delta;
+        -- (IIci timing, 2026-11-17) one three-input sum, not memaddr_delta's adder then a second: Cyclone V
+        -- builds a + b + c as a single ternary carry chain, so no wire between two adders can be stretched
+        -- (build cache8: 8.2 ns between them, -5.5 ns on the PMMU's same-clock check into the wrapper's take).
+        -- The same value: (rega + regb) + reg mod 2^32 = reg + rega + regb.
+        addr <= memaddr_reg + memaddr_delta_rega + memaddr_delta_regb;
         -- route logical address through PMMU for translation
-        pmmu_addr_log_int <= memaddr_reg + memaddr_delta;
+        pmmu_addr_log_int <= memaddr_reg + memaddr_delta_rega + memaddr_delta_regb;
 
 		IF use_base='0' THEN
 			memaddr_reg <= (others=>'0');

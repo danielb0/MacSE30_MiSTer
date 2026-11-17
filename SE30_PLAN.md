@@ -17113,6 +17113,7 @@ status and where each was decided. Test tooling is not listed here.
 | 14 | **Report NetBSD's mac68k `ncrscsi` completion bug upstream** (KNOWN ISSUES 62): `sys/arch/mac68k/dev/ncr5380.c` finish_req sets `XS_STS_DONE` before `scsipi_done()`, which then skips releasing the periph (`scsipi_base.c` ~1622), so the second command on any disk hangs; candidate fix: drop that line (as the atari copy has). No core change and no local kernel patch - we patch only if it goes into NetBSD's own source (a GNATS PR, port-mac68k) | **optional** (Daniel, 2026-11-08: "I don't see much point patching it ourselves, unless we merge it in with the upstream code") | KNOWN ISSUES 62 |
 | 15 | **Networking over the serial port**: route an SCC channel (the modem port) to the MiSTer UART, with an OSD UART mode (as other cores: PPP / modem emulation on the MiSTer's Linux side); the Mac runs MacTCP with MacPPP or FreePPP. Small logic (the SCC exists; wiring, the mode, the baud clocks; about 2-3k ALMs of headroom once the probes are out: SE/30 test build 40,145 / 41,910 with them). Security and support stay on MiSTer's Linux side. Limits: modem-port speed, no TLS (FTP, Telnet, Gopher, IRC, local file transfer). One job with item 9 (MIDI / MT32-pi): the same routing plus a MIDI mode. NOT planned: real Ethernet (a PDS or NuBus DP8390-family card) - the framework has no Ethernet frame path to the core; a rabbit hole | **nice to have, not urgent** (Daniel, 2026-11-08: "We might get it at some point") - a peripheral change, no CPU sweep chain | here |
 | 16 | **A fast cache-card mode on the IIci** (a third OSD choice beside the authentic 32 KB / 128 KB card; the authentic card stays the default): the CPU stays paced, only memory answers sooner - NOT the unpaced CPU switch ruled out 2026-10-05. Levers: (a) writes UPDATE a held long instead of forgetting it (G p 224's other typical design; cache3 on the board: Norton CPU 10.3 / video 30.2 against cache4's 9.79 / 25.8); (b) a cheaper miss - the MDU's cycle started while the tag is checked instead of a late retry (UM 12.6's parallel scheme; new work, needs a timing check); (c) a burst (2-1-1-1) on a hit, filling the 68030's own caches faster. Never allocate on writes (cache2's Sad Mac: the ROM's RAM sizing). Ceiling: a hit is already the 68030's two-clock minimum, so the gain is waits removed - est. 5-20 % by program, most in video and copies. Cost small: XC_WUPD becomes a bit taken at reset (tg68k.v) | **wanted, after the release and after the authentic card is settled** (Daniel, 2026-11-17) | plan block "THE CACHE CARD AGAINST ITS DOCUMENTS"
+| 17 | **A "fantasy Mac II" - as fast as the FPGA allows** (a SEPARATE core, never a variant of the IIci; for our entertainment, perhaps a forum post - people do the same with other machines): the kernel unpaced (~1.8x a 68030 at the same clock, measured in October), its clock pushed from 25 to ~30 MHz (the IIci meets 25 MHz with ~6 ns spare; further means pipelining the kernel), memory at the bus minimum (+20-40 % on copies), video contention removed (screen work 1.5-2x), the 68882 engine clocked up (2-3x, its own timing work). Estimate ~2-2.5x a real IIci, about a Quadra 700. Costs: software and drivers that rely on 68030 timing - the floppy's GCR loop (a one-clock margin unpaced), sound, serial, games' timing loops; the ROM recalibrates its delays at boot, not everything. Beyond it is a 68040 core (the Centris 650 idea). GOAL (Daniel, 2026-11-17): faster than a IIfx (~1.6-2x a IIci) and competing with the lesser Quadras / Centrises (610 / 605 ~2-2.5x, the Quadra 700 ~2.5-3x - general figures, to measure) | **maybe, for fun; not for release as an authentic machine** (Daniel, 2026-11-17) | here |
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
@@ -29985,6 +29986,10 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
       128 MB (X 36 MB: NetBSD pages - MMU faults and restarts, clean).  Daniel:
       "slightly more usable on the IIci, but still extremely slow; A/UX is much
       more usable" - modern X.org on a 68030, not the core.
+      THE PORTRAIT DISPLAY WORKS (Daniel, 2026-11-17 18:46, screenshot
+      20261117_184655): 640 x 870 in greys, Monitors offering Black & White /
+      4 / 16 greys, the desktop drawn right - the 16-grey stop (the FIFO,
+      fixed 2026-11-15) and the blue-only picture (a456b87) both gone.
     FAILING: 8 bits a pixel (256 colours and 256 greys): the CPU stops.
       The Portrait Display at 16 greys hangs too (4 bits at 57.28 MHz:
       229 Mbit/s, the 13-inch monitor's 8 bits are 242) - S 6.6 names the
@@ -30309,6 +30314,41 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     (= cache6's behaviour + the power-off latch + clean timing), the board
     (A/UX power-off, the chime as before, a floppy, a quick Norton), the
     forum test build.
+
+  - BUILD cache8 (2026-11-17 16:55-18:40; tag 80ddfebc, the tree clean = cache6's
+    pace + iicx_power's latch + vrd_w3; 38,987 ALMs): FIT 95 MIN, TIMING NOT MET
+    -5.498 ns (slow 100C) - left to finish (lesson-long-route-is-suspect; the
+    35-min stop is for builds that add constraints).  ~3,600 failing paths,
+    ALL clk_k (G5) -> clk_sys (G0) into the wrapper's Q decisions, from the
+    kernel's memaddr_delta_regb through its address adders (Add55, Add57), the
+    PMMU's same-clock translation (fast_xlat, fast_hit, busy), k_busstate, and
+    the wrapper's take: as_n_r, cyc_la / cyc_fc / cyc_burst / cyc_fill,
+    pb_addr / pb_n / pb_rem / pb_lane, p_cyc / p_rcred / p_cont, hit_ack,
+    dsack_r, ack_pending, berr_hold, walk_buf (sclr).  Each 9-12 levels: CELL
+    6-8.5 ns, INTERCONNECT 15-17 ns (~70 %); one wire Add55 -> Add57 8.2 ns.
+    THE LOGIC FITS 20 ns; THE PLACEMENT DOES NOT: a cone reaching thousands of
+    registers on a 93 % full device is stretched, and pass / fail flips with
+    placement - cache5 met, cache6 -0.036, cache7 met at +0.133, cache8 -5.5.
+    TIMING CLOSURE (Daniel, 2026-11-17 evening: "Let's do the timing closure
+    first"), before any IIci build is posted.  To design: the cut that takes
+    this cone out of one clk_sys half-period without moving the bus's
+    timing.  Read first: the plan's STAGE 1 DESIGN and "COMPILE 4 REVIEWED"
+    blocks (the same cone, kc_* / kk_* registers, the hit decided without
+    the PMMU terms, option (A)/(B)); KNOWN ISSUES 65.
+  - THE FIRST CUT (2026-11-17 evening): the kernel formed the bus and PMMU
+    address as memaddr_delta = rega + regb, then addr = memaddr_reg +
+    memaddr_delta - two carry chains (cache8's Add55, Add57), the 8.2 ns
+    wire between them.  Now addr and pmmu_addr_log_int are each one
+    three-input sum (memaddr_reg + rega + regb): Cyclone V's ternary carry
+    chain, no wire between adders to stretch (memaddr_delta stays for the
+    brief-extension adder).  Without that hop cache8's worst path arrives
+    ~21.2 ns against 23.4.  PROOF: sim/system's eleven programs at KCLK = 1,
+    HEAD's kernel (a git worktree) against the new: every KTRACE file
+    BYTE-IDENTICAL (~577,000 lines, every kernel input at every clock); all
+    PASS.  Watch items for the compile: the hold pairs v_rdata -> vid_data
+    and opcode_pc -> p_pc (real relationships, guided; -0.06 to -0.37 in
+    cache8's congested fit) - the robust remedy if they persist: v_rdata
+    changing only on the clk_mem edges clk_sys does not share.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
