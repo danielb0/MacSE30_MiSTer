@@ -87,7 +87,7 @@ module vid_watch;
   end
   // THE CACHE CARD (tg68k.v): a hit is two clocks and never on the bus; a miss puts AS* out four CPU
   // clocks late; the counts
-  integer xh = 0, xm = 0, xbus = 0, xlat = 0, xlmin = 999, xlmax = 0, xgap = 0, xgmin = 999, xseq = 0;
+  integer xh = 0, xm = 0, xbus = 0, xlat = 0, xlmin = 999, xlmax = 0, xgap = 0, xgmin = 999, xseq = 0, xram = 0;
   reg     xwait = 0, xafter = 0; integer xa = 0;
   always @(posedge clk) begin
     if (xgap < 9999) xgap = xgap + 1;
@@ -108,6 +108,8 @@ module vid_watch;
       xgap = 0;
     end
     if (tb_iici_machine.machine.cpu.phi1 && tb_iici_machine.machine.cpu.xc_miss) begin xm = xm + 1; xwait = 1; xlat = 0; end
+    // the card's decisions on RAM reads (its tag's ROM bit clear): none when the MMU marks RAM cache-inhibited (CACHE=9)
+    if (tb_iici_machine.machine.cpu.phi1 && (tb_iici_machine.machine.cpu.xc_hit || tb_iici_machine.machine.cpu.xc_miss) && !tb_iici_machine.machine.cpu.xc_tagr[12]) xram = xram + 1;
   end
   // +XON: the card enabled from the start, for the programs that do not write the RBV
   initial if ($test$plusargs("XON")) force tb_iici_machine.machine.cenable_n = 1'b0;
@@ -191,13 +193,15 @@ module vid_watch;
       $display("---- the cache card: %0d hits, %0d misses; hits %0d clk apart at the closest (4 = two CPU clocks); a miss's AS* %0d to %0d clk after its P1 (9 = four CPU clocks late); %0d hits seen on the bus, %0d out of sequence",
                xh, xm, xgmin, xlmin, xlmax, xbus, xseq);
       $display("---- the card's program: D6 (passes) %0d, D7 (differences) %0d", tb_iici_machine.machine.cpu.dbg_d6, tb_iici_machine.machine.cpu.dbg_d7);
+      $display("---- the card's decisions on RAM reads: %0d%s", xram, $test$plusargs("CICHK") ? " (CIOUT on all of RAM: must be 0)" : "");
+      if ($test$plusargs("CICHK") && xram != 0) stuck = stuck + 1;
       // (a program that never reads the bus - the grey fill from the instruction cache - gives the card nothing)
       if (xbus != 0 || xseq != 0 || xgmin < 4 || (xm != 0 && (xlmin != xlmax || xlmin != 9))) stuck = stuck + 1;
       if (tb_iici_machine.machine.cpu.dbg_d6 != 0 && (xh == 0 || xm == 0)) stuck = stuck + 1;
       if (tb_iici_machine.machine.cpu.dbg_d7 != 0) stuck = stuck + 1;
     end
     if (awn != 0) begin
-      $display("---- bank A writes in live video: %0d, AS* low %0d clk on average, %0d at most (8 = a four-clock write); reads: %0d, %0d on average, %0d at most (10 = five clocks)",
+      $display("---- bank A writes in live video: %0d, AS* low %0d clk on average, %0d at most (6 = a four-clock write); reads: %0d, %0d on average, %0d at most (8 = five clocks)",
                awn, awsum / awn, awmax, arn, (arn != 0) ? arsum / arn : 0, armax);
       $write("      writes by AS* low, clk:");
       for (ih = 0; ih < 64; ih = ih + 1) if (wh[ih] != 0) $write(" %0d:%0d", ih, wh[ih]);

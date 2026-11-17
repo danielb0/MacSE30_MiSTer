@@ -493,7 +493,8 @@ module tg68k #(
   // it does not hold is retried from the MDU (BERR* + HALT*, UM 7.5.2) while
   // the card takes the data off the bus; a write goes to the MDU as ever
   // and the card forgets a long it holds.  /CENABLE and /CFLUSH are the
-  // RBV's (VIA2 data B bits 0 and 3).
+  // RBV's (VIA2 data B bits 0 and 3).  A read the MMU marks cache-inhibited
+  // (CIOUT*) the card ignores (UM 5.7.2, DCD p 392).
   //
   // It is in here because the bus is behind a register under KCLK: a real
   // cycle - taken at a phi2 edge Q0, on the bus from the phi1 edge P1,
@@ -502,9 +503,11 @@ module tg68k #(
   //   a hit ends the cycle there (kc_end with s == 2): the long into
   //     kk_din, DSACK 00, no CBACK*; AS*, DS* and ECS never reach the bus;
   //     S5 at Q1 and the next cycle may be taken at Q2 - two clocks;
-  //   a miss holds AS*, DS* and ECS back XC_MISS CPU clocks (the aborted
-  //     two-clock cycle and the retry's start, UM Figure 7-55: OUR READING,
-  //     four), then the MDU's cycle as ever; the card takes each long at
+  //   a miss holds AS*, DS* and ECS back XC_MISS CPU clocks (UM 12.6, an
+  //     external cache's late retry: "the minimum penalty is the four clock
+  //     periods required to retry the cycle (two clocks during which the
+  //     miss is detected and two clocks idle bus time)"; Figure 7-55), then
+  //     the MDU's cycle as ever; the card takes each long at
   //     its end (kc_end, a burst's beats);
   //   a write to a long the card holds turns its valid bit off at Q1 (XC_WUPD 0: the Guide's typical card,
   //     p 224 - "it must turn off the validity bit"; XC_WUPD 1 updates its bytes).  A long it does NOT hold is left alone:
@@ -525,6 +528,10 @@ module tg68k #(
   wire              xc_rom  = (eff_addr[31:25] == 7'b0100_000);
   wire       [14:0] xc_ridx = {xc_big ? eff_addr[16:15] : 2'b00, eff_addr[14:2]};
   wire       [12:0] xc_rtag = {xc_rom, eff_addr[26:15]};
+  // CIOUT*: "an external cache should ignore the bus transfer" (UM 5.7.2); the card is inactive on a
+  // /CIOUT cycle (DCD p 392) - no lookup, no retry, no fill: the MDU's cycle as ever.  A write is still
+  // seen (the valid bit off), which costs no time.  The walker's reads and posted writes carry no CI.
+  wire              xc_ci   = !post && !wsel && k_ci;
   reg               xc_act;                  // enabled, swept, not being flushed
   reg               xc_relig, xc_welig;      // the request at this clk's start: a read / a write the card looks at
   reg        [12:0] xc_tagr;                 //   ... and its tag
@@ -577,7 +584,7 @@ module tg68k #(
         xc_sw <= 0; xc_swreq <= 1; xc_swrun <= 0; xc_nh <= 0; xc_nm <= 0;
       end else begin
         // the request as this clk begins (it is the cycle's own at Q0, the edge that takes it)
-        xc_relig <= xc_act &&  eff_rw && (eff_fc != 3'd7) && (xc_ram || xc_rom);
+        xc_relig <= xc_act &&  eff_rw && (eff_fc != 3'd7) && (xc_ram || xc_rom) && !xc_ci;
         xc_welig <= xc_act && !eff_rw && (eff_fc != 3'd7) && xc_ram;
         xc_tagr  <= xc_rtag;
         if (phi1) begin

@@ -23,10 +23,14 @@
 // RAM AND ROM (cycle lengths in CPU clocks, AS* to the end of S5; GLUE's
 // ram acknowledge in the clock after it first sees AS* is a 4-clock cycle
 // on the KCLK wrapper, so a cycle of L clocks acknowledges L-3 clocks in)
-//   RAM read 5, write 4, each 6 / 5 when it follows a write to the same
-//   bank before its precharge has passed (DC3 Figures 15-3..15-6; READING:
-//   "after a write" as a recovery of REC clocks from the write's end);
-//   burst read 5-2-2-2 when CBREQ* (CBACK* with the first termination);
+//   RAM read 5, write 4, each 6 / 5 when it comes straight after a RAM
+//   write (S Figures 15 and 16: "delayed by preceding write" - the write's
+//   state machine runs states 6-9 into the next cycle, whose state 0 then
+//   starts at s4, not s2; a cycle a clock later is not delayed): REC clocks
+//   from the write's end, measured on the bench (sim/iici_vid CACHE=10:
+//   write 4, write after write 5, read after write 6).  READING: only a
+//   cycle to the same bank (the figures name none);
+//   burst read 5-2-2-2 when CBREQ* (S Figure 13; CBACK* with the first termination);
 //   ROM 5 (G Table 5-9: 20.0 MB/s at 25 MHz).  The memory port answers
 //   each long with m_ack; the termination is at the documented clock, or
 //   later if the data is late (counted in dbg_late), never earlier.
@@ -66,7 +70,7 @@ module iici_mdu #(
   parameter ROM_AW  = 17,              // the ROM's longword address bits: 512 KB
   parameter C16_NUM = 4896,            // c16_en = C16_NUM / C16_DEN of clk (15.6672 MHz from 50)
   parameter C16_DEN = 15625,
-  parameter REC     = 1,               // CPU clocks after a RAM write's end in which its bank adds a clock (back to back: calibrated to the wrapper's gap)
+  parameter REC     = 1,               // CPU clocks after a RAM write's end in which its bank adds a clock (S Figures 15-16: back to back only)
   parameter REF     = 5,               // CPU clocks a refresh holds the RAM
   parameter VB      = 20               // CPU clocks a video burst holds bank A (5 + 7 x 2 + 1)
 ) (

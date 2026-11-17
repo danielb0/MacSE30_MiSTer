@@ -17112,6 +17112,7 @@ status and where each was decided. Test tooling is not listed here.
 | 13 | **Explain the 68882 benchmarks' ~6-10 % slowness** (Speedometer 4.02, compile 41: KWhet 0.90, Matrix 0.93, FFT 0.83, FPU average 0.94 of the built-in record; KNOWN ISSUES 1). The profile puts it in the CPU's side of the coprocessor dialog (46.4 clocks an FPU instruction, ~6 CIR cycles; the 68882 busy 4.3 %). FIRST (Daniel, 2026-11-01): rerun Speedometer 4.02's FPU set on the current core - compile 41 came before the A/UX fixes (KNOWN ISSUES 25-53), several in the FPU dialog and its fault paths; the gap may have moved. **DONE (Daniel, 2026-11-01): the full Speedometer 4.02 suite on the current core is identical to the saved set 'Macintosh IIcx v1', made with a much earlier core (compile 9 on the IIcx, 2026-10-10: FPU FFT 0.07, KWhet 0.17, Matrix 0.09) - the A/UX fixes moved no figure; the gap stands.** Then: a sim/cpfpu bench timing FADD/FMUL/FMOVE loops clock by clock, the dialog split from the arithmetic, the CIR cycles held to the 68030's documented bus-cycle times; any clocks between them are the kernel's. ~1 h of bench work, no long runs | **DONE 2026-11-02 (Daniel: "go ahead with the FPU bench"): the dialog is not slow** - `sim/cpfpu` PROG=ftime + `ftime.py`, results in `sim/cpfpu/ftime_results.txt`; KNOWN ISSUES 1 has the reading | 2026-11-01 |
 | 14 | **Report NetBSD's mac68k `ncrscsi` completion bug upstream** (KNOWN ISSUES 62): `sys/arch/mac68k/dev/ncr5380.c` finish_req sets `XS_STS_DONE` before `scsipi_done()`, which then skips releasing the periph (`scsipi_base.c` ~1622), so the second command on any disk hangs; candidate fix: drop that line (as the atari copy has). No core change and no local kernel patch - we patch only if it goes into NetBSD's own source (a GNATS PR, port-mac68k) | **optional** (Daniel, 2026-11-08: "I don't see much point patching it ourselves, unless we merge it in with the upstream code") | KNOWN ISSUES 62 |
 | 15 | **Networking over the serial port**: route an SCC channel (the modem port) to the MiSTer UART, with an OSD UART mode (as other cores: PPP / modem emulation on the MiSTer's Linux side); the Mac runs MacTCP with MacPPP or FreePPP. Small logic (the SCC exists; wiring, the mode, the baud clocks; about 2-3k ALMs of headroom once the probes are out: SE/30 test build 40,145 / 41,910 with them). Security and support stay on MiSTer's Linux side. Limits: modem-port speed, no TLS (FTP, Telnet, Gopher, IRC, local file transfer). One job with item 9 (MIDI / MT32-pi): the same routing plus a MIDI mode. NOT planned: real Ethernet (a PDS or NuBus DP8390-family card) - the framework has no Ethernet frame path to the core; a rabbit hole | **nice to have, not urgent** (Daniel, 2026-11-08: "We might get it at some point") - a peripheral change, no CPU sweep chain | here |
+| 16 | **A fast cache-card mode on the IIci** (a third OSD choice beside the authentic 32 KB / 128 KB card; the authentic card stays the default): the CPU stays paced, only memory answers sooner - NOT the unpaced CPU switch ruled out 2026-10-05. Levers: (a) writes UPDATE a held long instead of forgetting it (G p 224's other typical design; cache3 on the board: Norton CPU 10.3 / video 30.2 against cache4's 9.79 / 25.8); (b) a cheaper miss - the MDU's cycle started while the tag is checked instead of a late retry (UM 12.6's parallel scheme; new work, needs a timing check); (c) a burst (2-1-1-1) on a hit, filling the 68030's own caches faster. Never allocate on writes (cache2's Sad Mac: the ROM's RAM sizing). Ceiling: a hit is already the 68030's two-clock minimum, so the gain is waits removed - est. 5-20 % by program, most in video and copies. Cost small: XC_WUPD becomes a bit taken at reset (tg68k.v) | **wanted, after the release and after the authentic card is settled** (Daniel, 2026-11-17) | plan block "THE CACHE CARD AGAINST ITS DOCUMENTS"
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
@@ -29910,6 +29911,9 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
       mouse; keyboard (Cmd-A; TattleTech: Extended ADB); 1, 2 and 4 bits a
       pixel, colours and greys; SOUND; 32-BIT ADDRESSING on (the Memory
       control panel, a restart); SHUT DOWN from the Special menu.
+      MODE32 on a shared SE/30 / IIcx / IIci disk: its icon CROSSED OUT at
+      the IIci's startup (Daniel, 2026-11-17) - it sees a 32-bit-clean ROM
+      and stands aside, as on a real IIci (TidBITS 1991-06-17).
     FAILING: 8 bits a pixel (256 colours and 256 greys): the CPU stops.
       The Portrait Display at 16 greys hangs too (4 bits at 57.28 MHz:
       229 Mbit/s, the 13-inch monitor's 8 bits are 242) - S 6.6 names the
@@ -29945,6 +29949,99 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     followed the lines in the failing build and are edge-set latches in
     S.  In reserve: an IIcx build with ROM_AW = 17 and the IIci ROM, to
     run that SCSI Manager on GLUE and VIA2.
+
+  THE CACHE CARD AGAINST ITS DOCUMENTS, CHOICE BY CHOICE (2026-11-17).
+  - DANIEL: tighten the card's conformity with the published specs, not
+    tune it to the reference figures.  Every behaviour, its source:
+    - HIT, two clocks, no burst: G ch. 5 ("any longword in just two clock
+      cycles", 50 MB/s); /STERM on the connector (DCD Table 18-3); UM 12.6
+      ("for a two-clock bus or burst capability, use of the synchronous
+      bus is mandated").  DOCUMENTED.
+    - MISS, four clocks late: UM 12.6 (External Caches), read 2026-11-17:
+      "The minimum penalty is the four clock periods required to retry the
+      cycle (two clocks during which the miss is detected and two clocks
+      idle bus time)".  The card is synchronous (DCD p 385: "Apple strongly
+      suggests ... synchronous logic (clocked by the CPUCLK signal)") and
+      CACHE must be up at AS* (DCD p 392), so a miss can only be a late
+      retry.  NO LONGER OUR READING: Motorola's figure.  A slower card is
+      possible but no document gives one; four stays.
+    - WRITES forget a held long: G p 224 (kept from cache4).
+    - ROM reads answered: S MDU 6.2 and DCD p 392 (CACHE stops RAM, ROM
+      and NuBus cycles).  DOCUMENTED.
+    - CPU space (FC 7) and I/O untouched: DCD p 392.  As built.
+    - CIOUT*: UM 5.7.2, "indicating that an external cache should ignore
+      the bus transfer"; DCD p 392, the card inactive on a /CIOUT cycle.
+      OURS IGNORED IT: every RAM / ROM read was looked up, retried on a
+      miss and filled, whatever the MMU's CI bit.  FIXED (tg68k.v xc_ci =
+      k_ci for the kernel's own requests; the PMMU's cache_inhibit is
+      combinational with the physical address, TT and ATC alike): a
+      cache-inhibited read is the MDU's, no lookup, no retry, no fill.  A
+      write still clears a held long (costs no time; a card that snoops
+      every write is within G p 224).  WHAT IT MOVES ON THE BOARD depends
+      on what the ROM's tables mark CI in RAM (DCD: NuBus and I/O always;
+      the IIci's screen is in bank A, reached through slot $B's space) -
+      to be seen, not assumed.
+  - BENCHES (sim/iici_vid, ~5.5 min each): CACHE=7 XCARD=1 unchanged
+    (7,359 hits, 1,478 misses, D7 0; the new count of the card's decisions
+    on RAM reads 1,857 - the sanity plant).  NEW CACHE=9: CACHE=7's
+    program with TT0 = $00008507 (RAM cache-inhibited) and +CICHK:
+    XCARD=1 and 2 both 7,139 hits (the ROM's fetches), 23 misses, 0
+    decisions on RAM reads, D7 0, VID PASS.
+  - BUILD cache5 (2026-11-17 10:28-11:17; map 9 min, fit ~37 min; tag
+    243873f2 with tg68k.v dirty = the CIOUT gate; 38,864 ALMs, 410 M10K;
+    output_files/MacIIci_cache5.rbf, md5 fee055d1...): MET FOR OURS AT
+    EVERY CORNER.  sta_corners_iici: capture A or B met at each corner;
+    reg-to-reg setup -0.050 (slow 100C) / -0.098 (slow -40C) = 20 paths,
+    ALL the framework's ascal (o_hcpt -> o_vcpt*, pll_hdmi), ignored by
+    Daniel's rule; no failing hold path anywhere; cache4's q_* -> xm_*
+    hold gone (the sdc's false path).
+  - NORTON IN DETAIL ON cache5 (Daniel 11:30, screenshot
+    20261117_113044; 7.1, 8 MB, 128K card, 256 colours; IIci / ours):
+    CPU 1.01, video 0.959, FPU 1.08.  BMove/A 0.904, /M 0.872; Mem R/W
+    1.03; Instruction 1.08; Sort 1.08; Picture 0.916; CBits S/A 0.944,
+    S/M 0.963, L/A 0.799, L/M 0.852; DrawText 1.10; Scrolling 0.928; FPU
+    as before.  IDENTICAL TO cache4 within the last digit.  READ: the
+    ROM's tables leave everything Norton touches cacheable (the screen
+    included), so CIOUT never asserts on these cycles.  The gate stays
+    (it is the spec, and costs nothing), but it is not where the bulk
+    copies' 10-25 % comes from.  THE CARD IS NOW TO ITS DOCUMENTS IN
+    EVERY BEHAVIOUR WE CAN NAME (table above).
+  - WHERE THE COPY EXCESS CAN STILL BE, BY THE DOCUMENTS: a large copy
+    is read misses (5-2-2-2 bursts after the 4-clock retry) and bank A
+    writes, back to back.  iici_mdu.v still carries a READING there: the
+    write recovery ("6 / 5 when it follows a write to the same bank
+    before its precharge has passed ... READING: REC clocks from the
+    write's end", REC = 1 "calibrated to the wrapper's gap"), taken from
+    DCD 3e Figures 15-3..15-6, not from Apple's MDU drawing (343S1018-A,
+    Figures 13-23 the RAM / ROM waveforms), which arrived after.  NEXT:
+    read S Figures 13-23 for back-to-back RAM cycles, a write after a
+    write and a read after a write, and the burst; replace the READING.
+  - S's RAM WAVEFORMS READ (2026-11-17; sheets 26-31, rendered: S
+    Figure 13 burst read, 14 burst write (a co-processor master's only),
+    15 random reads, 16 random writes, 18 refresh):
+      read 5; read straight after a write 6 ("delayed by preceding
+      write"); write 4; write straight after a write 5 ("delayed by
+      previous write cycle"); burst read 5-2-2-2; refresh a 6-clock cycle
+      every 15.6 us overlapping the previous cycle by 1, "next RAM cycle
+      may be held off for 5 clocks".  The delay's mechanism: the write's
+      state machine runs states 6-9 into the next cycle, so that cycle's
+      state 0 starts at s4, not s2 - only a cycle straight after the
+      write is delayed.
+    MEASURED (sim/iici_vid NEW CACHE=10 TRACE=1: the I-cache on, the bus
+    carries write, write, read in bank A; 2m47s): 4, 5, 6 clocks - THE
+    DRAWING EXACTLY.  The ROM-fetch loop (CACHE=0 TRACE=1): write 4, ROM
+    read 5.  So iici_mdu.v's REC = 1 lands on Apple's figures ("calibrated
+    to the wrapper's gap" was right); its comments now cite S, not DCD 3e.
+    Still a READING: whether a write delays a cycle to the OTHER bank (S
+    names none; ours: same bank only) - Norton's copies stay in bank A.
+    The bench's histogram notes were one clock off: 6 clk AS* low = a
+    four-clock write, 8 = a five-clock read (fixed in vid_watch.v).
+  - SO: THE CARD AND THE MDU'S RAM TIMING ARE BOTH TO THEIR DOCUMENTS.
+    The bulk copies' 10-25 % excess is not in either.  What is left is
+    the CPU's own time per instruction on a fast bus (the pace: UM
+    Section 11's overlap of MOVE.L (An)+,(An)+ / MOVEM with their bus
+    cycles) - open item (b), instruction timings, with the Instruction /
+    Sort / DrawText 6-10 % slow on the same machine.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the

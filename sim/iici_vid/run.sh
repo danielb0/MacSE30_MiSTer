@@ -4,6 +4,8 @@
 #   DEPTH  0-3 = 1, 2, 4, 8 bits a pixel (default 3)    SDRAM  1: through iici_sdram and the chip model
 #   CACHE  1: the caches on and burst reads over 64 KB of bank A (2-5: see below)
 #   XCARD  1 / 2: the RAM cache card fitted, 32 KB / 128 KB (CACHE=7 is its program; any other runs with it too)
+#   CACHE=10: back-to-back RAM writes and a read after a write (S Figures 15-16), for TRACE=1
+#   CACHE=9: CACHE=7 with RAM cache-inhibited by TT0 (CIOUT*): the card must not touch RAM's reads
 #   OVER   1: the pace's credits set past its 511-clock count at 2 ms; the CPU must carry on
 set -u
 cd "$(dirname "$0")"
@@ -23,7 +25,9 @@ if os.environ.get('CACHE', '0') == '8':
       '30bc60fa'                       # MOVE.W #$60FA,(A0)          BRA.S the ADDQ
       '43f900003000'                   # LEA $3000,A1
       '4ef900002000' % depth)          # JMP $2000
-elif os.environ.get('CACHE', '0') == '7':
+elif os.environ.get('CACHE', '0') in ('7', '9'):
+    # (CACHE=9: the same with TT0 marking $00xxxxxx cache-inhibited - CIOUT* on every RAM cycle: the card must
+    # leave RAM's reads alone, answer the ROM's fetches, and D7 stay 0)
     # THE CACHE CARD (XCARD=1 / 2): enabled through the RBV, then for ever: 256 longs of bank A written,
     # read twice (a miss and a hit), a byte and a word written into each and read back (the card's
     # update), every difference counted in D7; the card flushed after the third pass; D6 counts passes.
@@ -32,6 +36,9 @@ elif os.environ.get('CACHE', '0') == '7':
         b = bytearray()
         b += bytes.fromhex('00001000' '40800008')
         b += bytes.fromhex('41f950f26010' '10bc00%02x' % depth)        # LEA $50F26010,A0 ; MOVE.B #depth,(A0)
+        if os.environ.get('CACHE') == '9':
+            b += bytes.fromhex('23fc0000850700007ff8')                 # MOVE.L #$00008507,$7FF8   TT0: $00xxxxxx, E, CI, RWM, any FC
+            b += bytes.fromhex('41f900007ff8' 'f0100800')              # LEA $7FF8,A0 ; PMOVE (A0),TT0
         b += bytes.fromhex('13fc00fe50f26000')                         # MOVE.B #$FE,$50F26000    /CENABLE low
         b += bytes.fromhex('7c00' '7e00')                              # MOVEQ #0,D6 ; MOVEQ #0,D7
         loop = len(b)
@@ -90,6 +97,17 @@ elif os.environ.get('CACHE', '0') == '5':
     disp = (-(len(loop) + 2)) & 0xFFFF
     tail = bytes.fromhex('51c9%04x' % disp + '23fc000100f000012006' + '46fca700' + '4ef9000100f0')   # MOVE #$A700,SR
     prog = head + loop + tail
+elif os.environ.get('CACHE', '0') == '10':
+    # back-to-back RAM cycles (S Figures 15 and 16): the instruction cache on, the data cache off, so the
+    # bus carries only a write to bank A, a second write straight after it, then a read - TRACE=1 shows
+    # their lengths (S: write 4, write after a write 5, read after a write 6)
+    prog = bytes.fromhex(
+      '00001000' '40800008'
+      '7001' '4e7b0002'                # MOVEQ #1,D0 ; MOVEC D0,CACR   (EI)
+      '41f950f26010' '10bc00%02x'      # LEA $50F26010,A0 ; MOVE.B #depth,(A0)
+      '43f900002000'                   # LEA $2000,A1
+      '2280' '23400004' '24290008'     # MOVE.L D0,(A1) ; MOVE.L D0,4(A1) ; MOVE.L 8(A1),D2
+      '5280' '60f2' % depth)           # ADDQ.L #1,D0 ; BRA the first MOVE
 elif os.environ.get('CACHE', '0') == '4':
     # CACHE=3's blocks with the PMMU on, as on the board (the stop's PC was logical): an identity map of 256
     # early-termination descriptors at $8000 (TC $80F08900: 32 KB pages, TIA 8, TIB 9), and a PFLUSHA at each
@@ -192,6 +210,6 @@ done
   "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/iicx_nuchip.v" "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" \
   "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" \
   "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v "$RTL/iici_sdram.v" ../sdram/sdram_model.v ../iici/tb_iici_machine.v vid_watch.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }
-"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gXCARD=${XCARD:-0} -g/tb_iici_machine/machine/rbv/EARLY=${EARLY:-1} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} ${XON:+"+XON"} ${TRACE:+"+TRACE"} -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
+"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gXCARD=${XCARD:-0} -g/tb_iici_machine/machine/rbv/EARLY=${EARLY:-1} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} ${XON:+"+XON"} ${TRACE:+"+TRACE"} $( [ "${CACHE:-0}" = 9 ] && echo +CICHK ) -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
 grep -E '^# (      [0-9]+\.[0-9] ms|      long|      writes|      [0-9]+: |---- |==== VID)' run.log | sed 's/^# //'
 grep -q '^# ==== VID PASS' run.log
