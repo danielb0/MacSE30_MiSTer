@@ -30693,6 +30693,32 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     checked and fine (Daniel): cache14 IS BOARD-CHECKED - boot, 256 colours,
     Portrait, Norton, A/UX's shut down.
 
+**END OF SESSION 2026-11-18 (closed by Daniel ~16:15: "good job") - READ THIS TO RESUME.**
+THE FIRST IIci FORUM TEST BUILD IS OUT: output_files/MacIIci_dev_release1.rbf = build cache14 (md5
+3954c74189cd94a82d54831fd4ff2e6c, commit 631e420; timing met at every corner, worst +0.019 ns; 38,244 ALMs,
+91 %), board-checked by Daniel (boot, 256 colours, the Portrait Display, Norton 0.990 / 1.03 / 0.924 of a
+real IIci, A/UX's Shut Down to a dark screen; the floppy passed on cache11).  ROMs: C:/temp/Mac/IIci/IIci
+ROMS.zip (boot0 = the 368CADFE IIci ROM, boot2 = the shared ADB firmware), both verified.  iici pushed by
+Daniel to 76c8514.  The blocks above ("THE SECOND CUT WITHOUT ITS HAZARD TERM" to "cache14 ON THE BOARD")
+and KNOWN ISSUES 66 have the day:
+  - timing closed: the card's hazard flag removed (it could not fire), YC and ALSA out, the video long
+    leaving only between clk_sys edges (the v_rdata -> vid_data hold path gone by design);
+  - KNOWN ISSUES 66 PROVEN NetBSD's (pmap_enter and physical page 0 = the IIci's frame buffer): the kernel
+    on C:/temp/Mac/NetBSD-WSFBPA0.iso quits X cleanly; no PR draft wanted for now;
+  - A/UX's "hang" at shut down was the display keeping its last frame (the RBV in reset): fixed, confirmed;
+  - the Task Scheduler runs jobs at background priority: create tasks with -Priority 4;
+  - a route past ~40 min has never met timing: sim/iici_build.sh stops it (ROUTE_LIMIT).
+STILL THE KNIFE-EDGE: cache13 (73 % peak, 5 min) and cache14 (83 %, 31 min) differ by one condition.  Four
+fitter-only min-delay guides remain in MacIIci.sdc (clk_sys <-> clk_k, into the SDRAM's x* samplers,
+opcode_pc -> p_pc): a roomy fit can put such a pair side by side (cache13's failure) - the cure is the one
+used for v_rdata, the two sides never moving and sampling on one edge.
+NEXT (Daniel's order): wait for forum reports on dev release 1; then, ON HIS WORD, FUTURE ADDITIONS 18 (the
+Portrait Display rotated for a monitor on its side) on its own branch off iici - that build is to be the
+RELEASE CANDIDATE; the 128 KB card stays unless rotation needs its room, then the card at 32 KB (and Norton
+re-measured).  Never cut: the video scaling / V-integer options.  Housekeeping: Task Scheduler jobs
+SE30_cache11 .. SE30_cache14 are finished and still registered (delete on his OK); cr_ie_info.json and a
+few run logs lie untracked.
+
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
 documentation with its plan block above: BURST FILLS; THE MDU; THE IIci MACHINE; THE RBV; THE PORTRAIT
