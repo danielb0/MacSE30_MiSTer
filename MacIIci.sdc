@@ -82,14 +82,15 @@ if {[info exists ::TimeQuestInfo(nameofexecutable)] && $::TimeQuestInfo(nameofex
   # ... and the same for the SDRAM controller's request samplers (x*_ registers, clk_mem, taking clk_sys
   # registers on a shared edge): build probes7 left mdu v_base[14] -> xv_addr[14] 0.18-0.35 ns short
   set_min_delay -from $CK_SYS -to [get_registers {*|iici_sdram:sdram|x*}] 0.3
-  # ... and back: the controller's read data and acknowledges (clk_mem) into the MDU's registers on a shared
-  # edge.  A long may follow the last at once, the acknowledge staying up, so the MDU's edge must take the old
-  # one: a real relationship.  v_rdata[25] -> vid_data[25] was 0.16-0.31 ns short in the build of 2026-11-15
-  # (cache2); it had passed unguided until then.
-  # (the video's long alone, into the MDU's register for it.  The guide on all five - m_rdata into every
-  # consumer of the CPU's data - left the router running 75 minutes without ending, 2026-11-15: killed.)
-  set_min_delay -from [get_registers {*|iici_sdram:sdram|v_rdata[*]}] -to [get_registers {*|iici_mdu:mdu|vid_data[*]}] 0.3
 }
+
+# sdram v_rdata / v_ack -> mdu vid_data / vid_ld: no hold relationship.  The controller lets a video long (and
+# its acknowledge) leave only on its clock BETWEEN clk_sys edges (iici_sdram.v: the buffer is popped under
+# !sample_en, and v_hold brings the next pop and the acknowledge's fall two clk_mem clocks later, between edges
+# again), so neither register moves on an edge the MDU samples it at: 10 ns either side.  Until 2026-11-18
+# nothing forbade a long from beginning on a shared edge (the benches never saw one); the fitter's 0.3 ns guide left
+# v_rdata[25] 0.16-0.31 ns short in build cache2 and v_rdata[30] 0.36 ns short in cache13.  (sim: the VRD watch.)
+set_false_path -hold -from [get_registers {*|iici_sdram:sdram|v_rdata[*] *|iici_sdram:sdram|v_ack}] -to [get_registers {*|iici_mdu:mdu|vid_data[*] *|iici_mdu:mdu|vid_ld}]
 
 # mdu v_base -> sdram xv_addr: no hold relationship.  v_base moves only on the clk_sys edge that raises
 # v_req (iici_mdu.v, v_start), and xv_addr loads only on a clk_mem edge that samples v_req high (iici_sdram.v:

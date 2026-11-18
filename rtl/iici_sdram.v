@@ -240,6 +240,23 @@ module iici_sdram #(
   reg        phi_q, phi_qq;
   always @(posedge clk) begin phi_q <= phi; phi_qq <= phi_q; end
   wire       sample_en = (phi_q != phi_qq);
+  // simulation only: the video's long and its acknowledge must never move on a clk_sys edge (below, where the
+  // long leaves); +VRD_PLANT makes them (the long leaves ON the shared edge) - the watch's own test
+`ifdef SIMULATION
+  reg        vrd_plant;
+  initial    vrd_plant = $test$plusargs("VRD_PLANT");
+`else
+  wire       vrd_plant = 1'b0;
+`endif
+  // synthesis translate_off
+  reg        vrd_se_d = 0, vrd_run = 0;
+  reg [32:0] vrd_prev = 0;
+  always @(posedge clk) begin
+    vrd_se_d <= sample_en; vrd_prev <= {v_ack, v_rdata}; vrd_run <= reset_n;
+    if (vrd_run && reset_n && vrd_se_d && ({v_ack, v_rdata} !== vrd_prev))
+      $display("==== VRD FAIL: the video's long or its acknowledge moved on a clk_sys edge, %0t", $time);
+  end
+  // synthesis translate_on
   reg        mq, vq, vq_q, rq, rq_q;
   reg        xm_we, xm_burst;
   reg [24:0] xm_addr, xv_addr;
@@ -407,7 +424,12 @@ module iici_sdram #(
       else if (mb_out != mb_in) begin m_rdata <= mb[mb_out[1:0]]; mb_out <= mb_out + 1'b1; m_ack <= 1; m_hold <= 2'd2; end
       else begin m_ack <= 0; m_hold <= 0; end
       if (v_hold[1]) v_hold <= v_hold - 1'b1;
-      else if (vb_out != vb_in) begin v_rdata <= vb[vb_out[2:0]]; vb_out <= vb_out + 1'b1; v_ack <= 1; v_hold <= 2'd2; end
+      // (the video's long leaves only on our clock BETWEEN clk_sys edges (!sample_en), and so on every second
+      // clock after it: v_rdata and v_ack never move on an edge the MDU samples them at.  Nothing forbade
+      // a long from beginning on a shared edge, to be replaced on the very edge that took it - a hold path of
+      // the two clock trees' skew, -0.36 ns in build cache13; the benches never saw one, and with the rule
+      // their results are unchanged.  The MDU takes each long at the clk_sys edge it took it before.)
+      else if (vb_out != vb_in && (sample_en == vrd_plant)) begin v_rdata <= vb[vb_out[2:0]]; vb_out <= vb_out + 1'b1; v_ack <= 1; v_hold <= 2'd2; end
       else begin v_ack <= 0; v_hold <= 0; end
       if (soon_hold != 0) begin soon_hold <= soon_hold - 1'b1; if (soon_hold == 2'd1) m_soon <= 0; end
 
