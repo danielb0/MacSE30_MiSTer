@@ -30683,6 +30683,11 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     Down (the screen dark), the video at 256 colours and Portrait (the
     SDRAM's video path changed), a quick Norton.  THE CANDIDATE FIRST FORUM
     TEST BUILD.  Open, Daniel's: whether to build the card at 32 KB now.
+    cache14 ON THE BOARD, NORTON (Daniel, 2026-11-18 15:10, screenshot
+    20261118_151045; 7.1, 8 MB, 128K card; ours / real IIci): CPU 0.990,
+    video 1.03, FPU 0.924 - cache11's figures (0.988 / 1.03 / 0.924); every
+    test within 0.01 of cache11's except Tree 1.02 (1.00).  It boots and
+    draws at 256 colours with the SDRAM's video change in.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
