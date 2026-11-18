@@ -17114,6 +17114,7 @@ status and where each was decided. Test tooling is not listed here.
 | 15 | **Networking over the serial port**: route an SCC channel (the modem port) to the MiSTer UART, with an OSD UART mode (as other cores: PPP / modem emulation on the MiSTer's Linux side); the Mac runs MacTCP with MacPPP or FreePPP. Small logic (the SCC exists; wiring, the mode, the baud clocks; about 2-3k ALMs of headroom once the probes are out: SE/30 test build 40,145 / 41,910 with them). Security and support stay on MiSTer's Linux side. Limits: modem-port speed, no TLS (FTP, Telnet, Gopher, IRC, local file transfer). One job with item 9 (MIDI / MT32-pi): the same routing plus a MIDI mode. NOT planned: real Ethernet (a PDS or NuBus DP8390-family card) - the framework has no Ethernet frame path to the core; a rabbit hole | **nice to have, not urgent** (Daniel, 2026-11-08: "We might get it at some point") - a peripheral change, no CPU sweep chain | here |
 | 16 | **A fast cache-card mode on the IIci** (a third OSD choice beside the authentic 32 KB / 128 KB card; the authentic card stays the default): the CPU stays paced, only memory answers sooner - NOT the unpaced CPU switch ruled out 2026-10-05. Levers: (a) writes UPDATE a held long instead of forgetting it (G p 224's other typical design; cache3 on the board: Norton CPU 10.3 / video 30.2 against cache4's 9.79 / 25.8); (b) a cheaper miss - the MDU's cycle started while the tag is checked instead of a late retry (UM 12.6's parallel scheme; new work, needs a timing check); (c) a burst (2-1-1-1) on a hit, filling the 68030's own caches faster. Never allocate on writes (cache2's Sad Mac: the ROM's RAM sizing). Ceiling: a hit is already the 68030's two-clock minimum, so the gain is waits removed - est. 5-20 % by program, most in video and copies. Cost small: XC_WUPD becomes a bit taken at reset (tg68k.v) | **wanted, after the release and after the authentic card is settled** (Daniel, 2026-11-17) | plan block "THE CACHE CARD AGAINST ITS DOCUMENTS"
 | 17 | **A "fantasy Mac II" - as fast as the FPGA allows** (a SEPARATE core, never a variant of the IIci; for our entertainment, perhaps a forum post - people do the same with other machines): the kernel unpaced (~1.8x a 68030 at the same clock, measured in October), its clock pushed from 25 to ~30 MHz (the IIci meets 25 MHz with ~6 ns spare; further means pipelining the kernel), memory at the bus minimum (+20-40 % on copies), video contention removed (screen work 1.5-2x), the 68882 engine clocked up (2-3x, its own timing work). Estimate ~2-2.5x a real IIci, about a Quadra 700. Costs: software and drivers that rely on 68030 timing - the floppy's GCR loop (a one-clock margin unpaced), sound, serial, games' timing loops; the ROM recalibrates its delays at boot, not everything. Beyond it is a 68040 core (the Centris 650 idea). GOAL (Daniel, 2026-11-17): faster than a IIfx (~1.6-2x a IIci) and competing with the lesser Quadras / Centrises (610 / 605 ~2-2.5x, the Quadra 700 ~2.5-3x - general figures, to measure) | **maybe, for fun; not for release as an authentic machine** (Daniel, 2026-11-17) | here |
+| 18 | **The Portrait Display on a rotated monitor (IIci)**: Portrait mode sends the 640x870 picture upright inside a landscape HDMI frame, bars at the sides; on a monitor turned on its side (Daniel has a rotating stand coming, 2026-11) it would lie sideways. Wanted: the core turns the picture a quarter turn, direction chosen in the OSD, in Portrait mode only. MiSTer's way is the arcade cores': the frame through a frame buffer in the board's DDR memory, read out rotated (the template's MISTER_FB and the arcade framework's rotation block; MacIIci.sv has neither today). To read first: the template's frame-buffer interface and arcade_video's screen_rotate; the cost in ALMs (room: ~640 since YC and ALSA went) and the frame of latency. A change in the video path of a design that closes timing narrowly - bench and board it on its own build. | WANTED, BEFORE THE IIci's RELEASE IF POSSIBLE (Daniel, 2026-11-18: "I would like to add it before the release if possible"); after the first forum test build | 2026-11-18 |
 
 **KNOWN ISSUES (accepted deviations and open faults; opened 2026-10-04 by
 Daniel - add to it, move items out when fixed).**
@@ -30645,6 +30646,43 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     any change redraws the placement.  cache11 STAYS THE BUILD IN HAND: it
     meets timing and is board-tested; its one known fault is this picture
     after an A/UX shut down (the machine is off; the Power key starts it).
+  - YC AND ALSA OUT (Daniel, 2026-11-18: "Get rid of that and the ALSA"):
+    MacIIci.qsf MISTER_DISABLE_YC (S-Video / composite: 15 kHz only, no
+    IIci monitor has it) and MISTER_DISABLE_ALSA (the Linux side's audio;
+    the core has no MIDI path out).  KEPT on his word: the scaler's
+    filtering and video_freak ("all the Macs need the v-integer scaling to
+    look decent"); the 128 KB card - unless FUTURE ADDITIONS 18 (the
+    rotated Portrait Display) needs its room.  sim/iici_build.sh now stops
+    a route 40 min after it begins (ROUTE_LIMIT) and tasks run at
+    -Priority 4.
+  - BUILD cache13 (f50f5d6f: the RBV fix + YC / ALSA out): 38,343 ALMs
+    (91 %, 642 fewer), router peak 73 %, ROUTED IN 4 MIN 47 S - and NOT
+    MET: setup +0.016, ONE hold path -0.359 at every corner, iici_sdram
+    v_rdata[30] -> iici_mdu vid_data[30] (clk_mem -> clk_sys), the pair
+    the 0.3 ns fitter guide had held since cache2.  (A quick route is no
+    promise: this path is skew, not congestion.)
+  - THE VIDEO LONG LEAVES ONLY BETWEEN clk_sys EDGES (631e420): iici_sdram
+    pops its video buffer only under !sample_en, so v_rdata and v_ack never
+    move on an edge the MDU samples (v_hold keeps every later pop and the
+    acknowledge's fall two clk_mem on, between edges again); the MDU takes
+    each long at the edge it did.  MacIIci.sdc: the fitter guide for the
+    pair replaced by set_false_path -hold with that reason.  A simulation
+    watch (VRD) reports a move on a shared edge; +VRD_PLANT forces one (631
+    reports).  sim/sdram_iici PASS 18; sim/iici_vid SDRAM=1 DEPTH=3
+    IDENTICAL to the tree before, CACHE=7 XCARD=2 and CACHE=2 PASS, the
+    watch 0.  The benches never saw the old logic start a long on a shared
+    edge: the rule makes a guarantee of what happened in practice.
+  - BUILD cache14 (631e4209 = cache13 + that): MET AT EVERY CORNER, worst
+    +0.019 (hold, fast -40C), setup +0.318; the capture met by A or B at
+    each corner (0.985-1.404); no combinational loop in the STA report.
+    38,244 ALMs (91 %).  BUT router peak 83 % in X67_Y11-X77_Y22 and 31 MIN
+    of routing, against cache13's 73 % and 5 min for one condition's
+    difference: the kernel's corner is still the knife-edge, YC and ALSA
+    notwithstanding.  output_files/MacIIci_cache14.rbf, md5
+    3954c74189cd94a82d54831fd4ff2e6c.  NOT YET ON THE BOARD: A/UX's Shut
+    Down (the screen dark), the video at 256 colours and Portrait (the
+    SDRAM's video path changed), a quick Norton.  THE CANDIDATE FIRST FORUM
+    TEST BUILD.  Open, Daniel's: whether to build the card at 32 KB now.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
