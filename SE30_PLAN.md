@@ -30592,7 +30592,9 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     1.02.  WITHIN THE STOPPING RULE (CPU and video within ~2-3 %); the FPU
     stays KNOWN ISSUES 60; Instruction / Sort / DrawText and the large
     copies are the recorded differences.  The build boots and runs Norton
-    with the card: its first board test.
+    with the card: its first board test.  THE FLOPPY (Daniel, 2026-11-18): format,
+    write, unmount, mount, read - all pass.  Left for this build: A/UX's
+    Shut Down powering off.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
