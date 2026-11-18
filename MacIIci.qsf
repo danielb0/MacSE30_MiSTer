@@ -68,10 +68,10 @@ set_global_assignment -name SEED 1
 #set_global_assignment -name VERILOG_MACRO "MISTER_SMALL_VBUF=1"
 
 # Disable YC / Composite output to save some resources
-#set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_YC=1"
+set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_YC=1"
 
 # Disable ALSA audio output to save some resources
-#set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
+set_global_assignment -name VERILOG_MACRO "MISTER_DISABLE_ALSA=1"
 
 # The bring-up probe deck (rtl/dbg_probes.sv, read with scripts/read_probes.tcl
 # over JTAG): PBLD PIFA PLAS PSTA PACT.  Leave it in until the machine boots;

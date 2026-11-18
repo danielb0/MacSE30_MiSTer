@@ -27,9 +27,26 @@ if [ -n "$(git status --porcelain | grep -v '^??')" ]; then
 fi
 t0=$(date +%s)
 $PS scripts/stamp_build_tag.ps1 >> "$LOG" 2>&1 || { log "stamp failed"; log "done (not built)"; exit 1; }
+# the route's limit: no build that routed for more than ~30 min has met timing (SE30_PLAN.md, build cache12),
+# so the fitter is stopped ROUTE_LIMIT minutes after its routing begins (the fitter's own message file says when)
+ROUTE_LIMIT=${ROUTE_LIMIT:-40}
+( t=0
+  while [ $t -lt 720 ]; do
+    sleep 60; t=$((t + 1))
+    tasklist 2>/dev/null | grep -qi "quartus_sh" || exit 0
+    if [ -f db/$rev.fit.qmsg ] && [ db/$rev.fit.qmsg -nt output_files/build_$LABEL.log.start ] && grep -aq "Fitter routing operations beginning" db/$rev.fit.qmsg; then
+      r0=${r0:-$t}
+      if [ $((t - r0)) -ge $ROUTE_LIMIT ] && tasklist 2>/dev/null | grep -qi "quartus_fit"; then
+        log "routing past $ROUTE_LIMIT min - the fitter stopped: $(grep -ao 'Router estimated peak interconnect usage is [^\"]*' db/$rev.fit.qmsg | tail -1)"
+        taskkill //F //IM quartus_fit.exe > /dev/null 2>&1; exit 0
+      fi
+    fi
+  done ) &
+touch output_files/build_$LABEL.log.start
 QUARTUS_REVISION=$rev bash scripts/build_only.sh > output_files/build_$LABEL.log 2>&1; rc=$?
 log "build_only rc=$rc after $(( ($(date +%s) - t0) / 60 )) min: $(grep -iE 'timing|ALMs|rbf|error' output_files/build_$LABEL.log | grep -v '^Info' | head -4 | tr '\n' ' ' | cut -c1-300)"
 log "router: $(grep -hE '170196|170194' output_files/build_$LABEL.log | sed 's/^ *Info ([0-9]*): //' | tr '\n' ' ' | cut -c1-300)"
+rm -f output_files/build_$LABEL.log.start
 if [ $rc != 0 ]; then
   git checkout -- rtl/build_tag.v $rev.qsf; log "build FAILED"; log "done"; exit 1
 fi
