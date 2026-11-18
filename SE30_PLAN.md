@@ -30580,6 +30580,19 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     below-normal CPU, memory priority 2, so Windows trimmed the fitter's
     working set with 5 GB free.  Raised on the running process (normal, 5)
     at 09:57; from now on tasks are created with -Priority 4.
+  - cache11 ON THE BOARD, NORTON (Daniel, 2026-11-18 10:29, screenshot
+    20261118_102929; System 7.1, 8 MB, 128K card; ours / real, real = 1.00):
+    CPU 0.988, video 1.03, FPU 0.925 - cache6's figures (0.99 / 1.03), as
+    it should be: cache11 is cache6's pace with the timing closed.  CPU:
+    BMove/A 1.05, /M 1.10, Mem R/W 0.963, Function 1.03, Bit Shifts 1.00,
+    Mult/Div 0.964, Branches 1.02, Instruction 0.943, Sort 0.921, Tree 1.00,
+    Search 0.968.  Video: Rects 0.970, RoundRects 0.957, Ovals 0.962, Lines
+    1.04, Picture 1.08, CBits S/A 1.03, S/M 1.03, L/A 1.14, L/M 1.14,
+    DrawText 0.906, Scrolling 1.08.  FPU per operation 0.861 (Vector) to
+    1.02.  WITHIN THE STOPPING RULE (CPU and video within ~2-3 %); the FPU
+    stays KNOWN ISSUES 60; Instruction / Sort / DrawText and the large
+    copies are the recorded differences.  The build boots and runs Norton
+    with the card: its first board test.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
