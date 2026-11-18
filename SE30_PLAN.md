@@ -22988,7 +22988,7 @@ SE/30 and IIcx builds must come out identical. Until then: every IIci build
 is read for hold at every corner (scripts/sta_corners_iici.tcl), and a
 build that routes long is suspect before its report is read.
 
-66. **OPEN, MUST BE RESOLVED BEFORE THE IIci's RELEASE (Daniel, 2026-11-17)
+66. **NetBSD's BUG, NOT THE CORE (proven on the board 2026-11-18 with a patched kernel: the end of this entry); was: OPEN, MUST BE RESOLVED BEFORE THE IIci's RELEASE (Daniel, 2026-11-17)
     - NETBSD KERNEL PANIC "MMU fault" ON SHUT DOWN FROM X, IIci, 32 MB.**
     Build cache6, 128K card (to confirm), NetBSD 11.1 nopoke-mono kernel,
     after a ~25 min X session with heavy paging (swap 17 MB used; X 36 MB).
@@ -23152,6 +23152,11 @@ build that routes long is suspect before its report is read.
     disassembly, not booted.  THE TEST: IIci, 32 MB, this kernel, X with a
     client or two, quit X - a clean exit is the proof; then this issue
     closes as NetBSD's and a fourth draft goes into netbsd_pr_drafts.md.
+    PROVEN ON THE BOARD (Daniel, 2026-11-18 ~10:45, the IIci, the pa0
+    kernel): "X quit cleanly" - where the unpatched kernel panicked in 4
+    runs of 4.  THE CAUSE IS NetBSD's pmap_enter AND PHYSICAL PAGE 0; THE
+    CORE IS CLEARED.  (One run; the core build it ran on to be noted.)
+    Left: the PR draft, Daniel's call whether to file.
     TESTS (each ~30 min - boot, X, shut down from X; Daniel, another time):
     (1) 32 MB, CACHE CARD NONE, `sysctl -w ddb.onpanic=1` after boot; if it
     panics: at db>, `dmesg 60`, `show registers`, `bt` (screenshots);
