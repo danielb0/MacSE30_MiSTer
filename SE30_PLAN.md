@@ -23073,6 +23073,47 @@ build that routes long is suspect before its report is read.
     cache7 +0.133).  ORDER OF TESTS (Daniel, later): (1) IIci, 32 MB, card
     NONE, X + clients + halt; (2) the timing-closed build (cache10) with the
     card; (3) benches on the walker's path under KCLK and bank B.
+    TEST (1) DONE (Daniel, 2026-11-17 23:41, cache7, 32 MB, CARD NONE, 8-bit;
+    top before: swap 17 MB, as panic 1): THE SAME PANIC - THE CARD IS CLEARED.
+    pid 1239 = X; pmap_remove_mapping(pmap $90DF7C, va $5F8A000, pte
+    $10A0BF14) + $20, uvm_fault(kernel_map, $10A0A000) -> 0xe, code
+    $4020145.  PANIC 1 HAD THE IDENTICAL va $5F8A000 AND pte $10A0BF14
+    (panic 2: $5EBE000 / $10A0BD7C): one particular mapping in X's address
+    space each time - not random corruption (bank B or a lost write would
+    not land on the same address twice).  LEADING SUSPECT: X's FRAME-BUFFER
+    MAPPING - the IIci's screen is main RAM (bank A from 0), NetBSD reserves
+    none of it explicitly; if those pages are also ordinary managed RAM, a
+    page can be X's screen mapping and a freed anon at once, and the mass
+    exit trips over the stale pv record.  The IIcx's screen is on its card:
+    clean.  If so, a real IIci would panic too (a NetBSD bug).  CHEAP TEST
+    (no crash): with X up, `pmap $(pgrep -x X) | grep -i 5f8` - is
+    $5F8A000 the frame buffer (a device mapping, ~300 KB at 8 bits)?  Also
+    in this boot's log: "timecounter went backwards" once at 373 s - the
+    time source jumping back (a VIA timer read?) - a separate look.
+    THE pmap CHECK (Daniel, 2026-11-18 00:18, cache7, card on; X = pid 1319,
+    37,120 KB; screenshot 20261118_001807): $5F8A000 lies in 05EA6000, a
+    1,008 KB [ anon ] read/write region (to $5FA2000; panic 2's $5EBE000
+    too) - ORDINARY ANONYMOUS MEMORY, NOT THE FRAME BUFFER: that suspect is
+    OUT.  The stale pv record was in ANOTHER pmap at X's own address - a
+    child forked from X (xkbcomp at X's start, say) sharing X's anon pages;
+    at its exit one mapping record of a shared page survived, and X's exit
+    tripped over it.  Deterministic (the same address twice), IIci-only.
+    NEW LEADING SUSPECT: THE IIci's BURST FILLS (BURST=1; the SE/30 and IIcx
+    never burst).  NetBSD reads page tables through the 68030's data cache
+    when tearing a process down; a write landing in a line while a burst is
+    still filling it, overwritten by the burst's older long, leaves a stale
+    PTE in the cache - NetBSD then skips a mapping it believes gone and its
+    pv record survives.  A hypothesis that fits every observation.  TESTS:
+    (a) a bench sweep - writes (posted, every size and lane) into a line at
+    every clock of its burst fill, the cache's contents checked against
+    memory after; (b) on the board, an IIci build with BURST=0, the same
+    trigger.  Also still open: bank B, the KCLK walker path.
+    PANIC 4 (Daniel, 2026-11-18 00:21, the same session, card on): QUITTING X
+    ALONE, no halt - pid 1319 (X), pmap_remove_mapping, pte $10A0BF30,
+    va $5F98000 (inside the same 1,008 KB anon region $5EA6000-$5FA2000),
+    uvm_fault(kernel_map, $10A0A000) -> 0xe.  THE TRIGGER IS X's OWN
+    TEARDOWN, not the mass exit (halt only ended X).  Simplest reproduction:
+    start X with clients, quit X.
     TESTS (each ~30 min - boot, X, shut down from X; Daniel, another time):
     (1) 32 MB, CACHE CARD NONE, `sysctl -w ddb.onpanic=1` after boot; if it
     panics: at db>, `dmesg 60`, `show registers`, `bt` (screenshots);
@@ -30425,6 +30466,59 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     long comes from memory.  Writes cannot follow a card lookup that closely
     except a fill followed at once by a read of the same long (a posted
     write blocks the next take until its S5).
+  - BUILD cache10 (473c304 = cache9 + THE SECOND CUT; started ~22:03
+    2026-11-17, ended 08:03 2026-11-18): DID NOT ROUTE.  Placement fine
+    (38,968 ALMs, 93 %), then 9 h 41 min of routing never converged: 175
+    signals unrouted, 187 wires shared, all in the kernel (Reset, regfile,
+    Add58, micro_state, pmove_dn_regnum ...).  Router peak interconnect 86 %
+    in X67_Y11-X77_Y22 (the kernel's corner) against cache7 73 %, cache8 75 %,
+    cache9 77 %; routing time cache7 5 min, cache8 75 min, cache9 98 min -
+    each cut has pushed the kernel's corner closer to full.  No bitstream;
+    the STA run on it is void.
+    LIKELY CAUSE (not proven): the second cut's hazard compare
+    xc_widx_q == xc_ridx puts one more consumer on the CPU's address (xc_ridx
+    comes from it) right in the congested corner, next to the ternary sum.
+    NEXT, on Daniel's go (a compile is ~2-10 h): keep the registered writes but
+    drop the index compare - xc_rhaz <= any card RAM write landing (no address
+    term), so a lookup in the clk after any landing write misses; per the
+    analysis above that is only a fill followed at once by a read, so the
+    cost is a handful of misses, no correctness change; benches CACHE=7/9/10/11
+    + isweep first.  If that still congests: back to cache9's netlist and
+    take m_rdata's fan-out with a duplicated clk_sys register stage instead.
+  - THE SECOND CUT WITHOUT ITS HAZARD TERM (2026-11-18, Daniel: "please find
+    a solution for the core not passing timing"; this replaces the NEXT
+    above).  cache10's report read first: (1) the hold detours are not the
+    cause - 3,000-4,000 ns in every IIci build, 7,000 ns in the SE/30's,
+    which routes in 5 minutes; (2) one fitting attempt, the failures all in
+    the kernel plus xc_widx_q[10] and xc_d0's read address; (3) the card is
+    184 M10K (8K x 1 slices: 56 for the tags, 128 for the data), each taking
+    13 bits of the CPU's address combinationally - the heavy load on the
+    kernel's corner, and it cannot move (a two-clock hit needs the RAMs read
+    at the take).  THE HAZARD xc_rhaz GUARDED CANNOT OCCUR: the RAMs are read
+    at every clk, but the read that is used is the one at a cycle's take, a
+    phi2 edge with s == 0 (tg68k.v, case (s) 3'd0); a fill is decided at the
+    phi1 edge that ends its cycle or beat and lands at the phi2 edge after
+    it, where s is 5 or 6 - the next take is a CPU clock later; a write's
+    valid bit lands at a phi1 edge; the sweep runs with the card inactive and
+    xc_act rises after its last write has landed.  (The earlier "a fill
+    followed at once by a read" does not exist: no take at that edge.)  So
+    xc_rhaz and its 15-bit compare on the CPU's address are REMOVED, not
+    replaced by a flag; and xc_wd no longer muxes kb_dout in (XC_WUPD 0: only
+    a fill writes data) - 32 fewer loads on the bus's data register, in the
+    same corner.  A simulation-only watch (xc_rdw, translate_off) reports any
+    used lookup that reads an entry a write lands on; +XC_RDW_PLANT reports
+    every such read, used or not (the watch's own test).  BENCHES
+    (sim/iici_vid, seven runs side by side, 9 min): CACHE=7 XCARD=2 new
+    against 473c304 - the whole output IDENTICAL (7,359 hits, 1,478 misses,
+    D7 0); XCARD=1 SDRAM=1 PASS (6,741 / 1,362, D7 0); CACHE=9 PASS (7,139 /
+    23, 0 decisions on RAM); CACHE=10 PASS; CACHE=11 XCARD=2 XON its figures
+    as last night's run of 473c304 (3,257 / 1,462; its "starved" verdict is
+    the timing program's, as then); the watch 0 in all; the plant 2,578
+    (fails as it must).  BUILD cache11 follows (sim/iici_build.sh, new: the
+    IIci's stamp / build / sta_corners_iici / archive by label).  If its
+    router's peak is again past ~80 %: the levers with real mass are
+    Daniel's - the framework's YC and ALSA outputs (~520 ALMs), or the
+    128 KB card option (138 of the 184 M10K).
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the

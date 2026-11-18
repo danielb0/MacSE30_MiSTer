@@ -213,6 +213,7 @@ done
   "$RTL/se30_via.v" "$RTL/se30_swim.v" "$RTL/se30_fdhd.v" "$RTL/iicx_nuchip.v" "$RTL/se30_pic1654.v" "$RTL/se30_adb_xcvr.v" \
   "$RTL/se30_adb_dev.v" "$RTL/se30_rtc.v" "$RTL/se30_asc.v" "$RTL/se30_ncr53c80.v" "$RTL/se30_scsi.v" "$RTL/se30_scc.v" \
   "$RTL/se30_scc_chan.v" ../machine/scsi_idle.v "$RTL/iici_sdram.v" ../sdram/sdram_model.v ../iici/tb_iici_machine.v vid_watch.v > vlog.log 2>&1 || { cat vlog.log; exit 1; }
-"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gXCARD=${XCARD:-0} -g/tb_iici_machine/machine/rbv/EARLY=${EARLY:-1} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} ${XON:+"+XON"} ${TRACE:+"+TRACE"} ${TTCOPY:+"+TTCOPY"} ${TTDBG:+"+TTDBG"} $( [ "${CACHE:-0}" = 11 ] && echo +TT ) $( [ "${CACHE:-0}" = 9 ] && echo +CICHK ) -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
+"$MODELSIM/vsim.exe" -c -quiet -gSDRAM=${SDRAM:-0} -gXCARD=${XCARD:-0} -g/tb_iici_machine/machine/rbv/EARLY=${EARLY:-1} -gvid_watch/STOP_NS=${STOP_NS:-4000000} +CYCLES=100000000 ${OVER:+"+OVER"} ${XON:+"+XON"} ${TRACE:+"+TRACE"} ${XCPLANT:+"+XC_RDW_PLANT"} ${TTCOPY:+"+TTCOPY"} ${TTDBG:+"+TTDBG"} $( [ "${CACHE:-0}" = 11 ] && echo +TT ) $( [ "${CACHE:-0}" = 9 ] && echo +CICHK ) -do "set StdArithNoWarnings 1; set NumericStdNoWarnings 1; run -all; quit -f" work.tb_iici_machine work.vid_watch > run.log 2>&1
 grep -E '^# (      [0-9]+\.[0-9] ms|      long|      writes|      [0-9]+: |---- |==== VID)' run.log | sed 's/^# //'
-grep -q '^# ==== VID PASS' run.log
+echo "---- the card's read-during-write watch (tg68k.v xc_rdw): $(grep -c '==== XC FAIL' run.log) lookups on a landing write (0 = none)"
+grep -q '^# ==== VID PASS' run.log && ! grep -q '==== XC FAIL' run.log

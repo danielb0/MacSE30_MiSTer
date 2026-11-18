@@ -537,8 +537,7 @@ module tg68k #(
   reg        [12:0] xc_tagr;                 //   ... and its tag
   reg        [13:0] xc_tq;                   // the tag RAM's entry for it
   reg        [31:0] xc_dq;                   // ... and the data RAM's
-  reg               xc_rhaz;                 // the lookup's RAM read met the write landing on its entry: a miss
-  wire              xc_match = XC && xc_tq[13] && (xc_tq[12:0] == xc_tagr) && !xc_rhaz;
+  wire              xc_match = XC && xc_tq[13] && (xc_tq[12:0] == xc_tagr);
   assign            xc_hit   = xc_match && xc_relig && (s == 3'd2);          // at P1: the card answers
   wire              xc_miss  = XC && !xc_match && xc_relig && (s == 3'd2);   // at P1: the retry
   reg         [2:0] xc_w;                    // CPU clocks AS* is still held back
@@ -566,25 +565,41 @@ module tg68k #(
     wire        xc_wr   = phi2 && xc_upd;
     wire [31:2] xc_wa   = xc_fill ? xc_fa : kb_addr[31:2];
     wire [14:0] xc_widx = xc_swrun ? xc_sw : {xc_big ? xc_wa[16:15] : 2'b00, xc_wa[14:2]};
-    wire [31:0] xc_wd   = xc_fill ? cpu_din : kb_dout;
+    wire [31:0] xc_wd   = (XC_WUPD && !xc_fill) ? kb_dout : cpu_din;                  // (XC_WUPD 0: only a fill writes data)
     wire  [3:0] xc_dwe  = xc_fill ? 4'b1111 : (xc_wr && XC_WUPD) ? xc_be : 4'b0000;
     wire        xc_twe  = xc_swrun || xc_fill || (xc_wr && !XC_WUPD);                 // (a write: the valid bit off)
     wire [13:0] xc_twd  = (xc_swrun || !xc_fill) ? 14'd0 : {1'b1, (xc_wa[31:25] == 7'b0100_000), xc_wa[26:15]};
     // The write lands a clk after it is decided: the request registered in the fabric (xc_*_q), then the
     // RAMs' own input registers.  The bus's read data fans out to every RAM block of the card, and from the
     // SDRAM's clock that was 2 levels and 6.3 ns of wire in a 10 ns path (build cache9, -0.65 ns); from a
-    // register it has a whole clk.  A lookup reading the entry the write lands on, on the same edge, would get
-    // the RAM's undefined read-during-write: it misses instead (xc_rhaz) - the long comes from memory.
+    // register it has a whole clk.  No lookup can read an entry on the edge a write lands on it (the RAM's
+    // undefined read-during-write): the RAMs are read at every clk, but the read that is used is the one at
+    // a cycle's take - a phi2 edge with s == 0 - and
+    //   a fill is decided at the phi1 edge that ends its cycle or its beat (kc_end0, b_beat) and lands at
+    //     the phi2 edge after it, where s is 5 or 6: the next take is a whole CPU clock later;
+    //   a write's valid bit goes off from its Q1 and lands at the phi1 edge after it;
+    //   the sweep runs with the card inactive (xc_act), and the card wakes after its last write has landed.
+    // So nothing compares the landing write's index with the CPU's address (build cache10 did, and its router
+    // gave up in the kernel's corner: one more load on that address).  sim: xc_rdw below watches for it.
     reg  [14:0] xc_widx_q;
     reg  [31:0] xc_wd_q;
     reg   [3:0] xc_dwe_q;
     reg         xc_twe_q;
     reg  [13:0] xc_twd_q;
-    initial begin xc_widx_q = 0; xc_wd_q = 0; xc_dwe_q = 0; xc_twe_q = 0; xc_twd_q = 0; xc_rhaz = 0; end
+    initial begin xc_widx_q = 0; xc_wd_q = 0; xc_dwe_q = 0; xc_twe_q = 0; xc_twd_q = 0; end
+    // synthesis translate_off
+    reg         xc_rdw = 0;            // the read at the last edge met a write landing on its entry
+    reg         xc_plant = 0;          // +XC_RDW_PLANT: every such read reported, used or not (the watch's own test)
+    initial     xc_plant = $test$plusargs("XC_RDW_PLANT");
+    always @(posedge clk) begin
+      xc_rdw <= (xc_twe_q || (xc_dwe_q != 4'b0000)) && (xc_widx_q == xc_ridx);
+      if (reset_n && xc_rdw && ((phi1 && (s == 3'd2) && (xc_relig || xc_welig)) || (xc_plant && xc_act)))
+        $display("==== XC FAIL: a card lookup read the entry a write was landing on, %0t", $time);
+    end
+    // synthesis translate_on
     always @(posedge clk) begin
       xc_tq <= xc_tag[xc_ridx];
       xc_dq <= {xc_d3[xc_ridx], xc_d2[xc_ridx], xc_d1[xc_ridx], xc_d0[xc_ridx]};
-      xc_rhaz <= (xc_twe_q || (xc_dwe_q != 4'b0000)) && (xc_widx_q == xc_ridx);
       if (xc_twe_q) xc_tag[xc_widx_q] <= xc_twd_q;
       if (xc_dwe_q[3]) xc_d3[xc_widx_q] <= xc_wd_q[31:24];
       if (xc_dwe_q[2]) xc_d2[xc_widx_q] <= xc_wd_q[23:16];
@@ -623,7 +638,7 @@ module tg68k #(
       end
   end else begin : g_noxc
     always @* begin
-      xc_act = 0; xc_relig = 0; xc_welig = 0; xc_tagr = 0; xc_tq = 0; xc_dq = 0; xc_w = 0; xc_fillc = 0; xc_upd = 0; xc_rhaz = 0;
+      xc_act = 0; xc_relig = 0; xc_welig = 0; xc_tagr = 0; xc_tq = 0; xc_dq = 0; xc_w = 0; xc_fillc = 0; xc_upd = 0;
       xc_sw = 0; xc_swreq = 0; xc_swrun = 0; xc_nh = 0; xc_nm = 0;
     end
   end endgenerate
