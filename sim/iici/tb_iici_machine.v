@@ -193,7 +193,7 @@ module tb_iici_machine;
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
     .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(SDRAM ? s_msoon : 1'b0), .mem_refresh(mem_refresh),
     .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
-    .ce_pix(ce_pix), .vid_r(), .vid_g(), .vid_b(), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(), .vblank(), .poweroff_req(),
+    .ce_pix(ce_pix), .vid_r(), .vid_g(), .vid_b(), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(), .vblank(), .poweroff_req(), .power_off(1'b0),
     .nmi_n(1'b1), .pace_en(1'b1),
     .ps2_key(11'd0), .ps2_mouse(25'd0), .timestamp(33'd0),
     .pram_h_we(1'b0), .pram_h_addr(8'd0), .pram_h_wdata(8'd0), .pram_h_raddr(8'd0), .pram_h_rdata(), .pram_wr(),

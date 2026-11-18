@@ -443,7 +443,7 @@ iici_machine machine
 	.mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(mem_soon), .mem_refresh(mem_refresh),
 	.v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
 	.ce_pix(ce_pix), .vid_r(vid_r), .vid_g(vid_g), .vid_b(vid_b),
-	.hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank), .poweroff_req(poweroff_req),
+	.hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank), .poweroff_req(poweroff_req), .power_off(pwr_off),
 	.nmi_n(1'b1), .pace_en(1'b1),
 	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse_s), .timestamp(TIMESTAMP),
 	.pram_h_we(pram_h_we), .pram_h_addr(pram_h_addr), .pram_h_wdata(pram_h_wdata), .pram_h_raddr(pram_h_raddr),

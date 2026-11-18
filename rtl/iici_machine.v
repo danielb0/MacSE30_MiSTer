@@ -80,6 +80,7 @@ module iici_machine #(
   output        hblank,
   output        vblank,
   output        poweroff_req,          // data B's v2PowerOff
+  input         power_off,             // the supply is off (the top's): the RBV runs on, below
 
   input         nmi_n,
   input         pace_en,
@@ -240,9 +241,14 @@ module iici_machine #(
   // ------------------------------------------------------------- RBV
   wire       via_reset_n = reset_n && reset_out_n;
   wire       vbl_n, poweroff_n;
+  // With the supply off the top holds the machine in reset and sends a black picture - but the picture's
+  // timing is the RBV's, and an RBV in reset sends no pixels and no sync: the display kept the last frame
+  // it had (A/UX's desktop, 2026-11-18; the machine was off).  So the RBV alone stays out of reset while
+  // the power is off; the top resets it with the rest when the power comes back.
+  wire       rbv_reset_n = via_reset_n || power_off;
   wire [7:0] rbv_rdata;
   iici_rbv rbv (
-    .clk(clk), .clk_vid(clk_vid), .reset_n(via_reset_n), .c16_en(c16_en), .portrait(portrait),
+    .clk(clk), .clk_vid(clk_vid), .reset_n(rbv_reset_n), .c16_en(c16_en), .portrait(portrait),
     .rbv_sel(rbv_sel), .vdac_sel(vdac_sel), .strobe(dev_strobe && c16_en), .addr(dev_addr[4:0]), .rw(dev_rw),
     .wdata(dev_wdata), .rdata(rbv_rdata),
     .scsi_irq(scsi_irq), .scsi_drq(scsi_drq), .asc_irq_n(asc_irq_n), .exp_irq_n(1'b1),
