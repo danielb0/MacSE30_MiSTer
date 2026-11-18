@@ -30616,6 +30616,35 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     off = the Finder's path differs, hang = the write / hardware path; (2)
     Mac OS on cache11, Special > Shut Down: the screen dark = the top's
     power path works.
+    THE ANSWER (Daniel's tests, 2026-11-18): Mac OS's Shut Down powers
+    cache11 off properly; A/UX's `powerdown` "powered off the machine, but
+    left the desktop frozen on screen"; no fsck after it or after the
+    Finder's Shut Down.  THE MACHINE WAS GOING OFF ALL ALONG - ONLY THE
+    PICTURE WAS WRONG: the IIci's video timing is the RBV's, the RBV sat in
+    the machine's reset while the power was off (hc, vc, ce_pix held), so
+    no pixels and no sync left the core and the display kept its last
+    frame - under A/UX the desktop.  cache6's "did not power off" was the
+    same picture.  FIX (0e8b6bc): iici_machine.v power_off (the top's
+    pwr_off) - the RBV alone stays out of reset while the power is off
+    (rbv_reset_n = via_reset_n || power_off); the top forces the picture
+    black as before and resets the RBV with the rest when the power comes
+    back.  With power_off low the logic is what it was.  BENCH
+    (tb_iici_machine, forced): running 35 lines / 30,241 pixel enables a
+    ms; power off with the machine in reset 35 / 30,240; in reset without
+    the fix 0 / 0 (the board's case); out of reset 35 / 30,240.
+  - BUILD cache12 (0e8b6bc6, started 11:07, Task Scheduler at normal
+    priority): STOPPED at 12:53 after 77 MIN OF ROUTING (Daniel: "leave
+    them for a reasonable amount of time and then stop them").  Router
+    peak estimate 77 % in X22_Y11-X32_Y22 (cache11: 76 %, routed in 25
+    min); nothing else was logged - a stopped fit writes no report.  THE
+    RECORD OF ROUTING TIMES: met timing at 5, 17 and 25 min (cache7, 5,
+    11), -0.036 at 20 (cache6); 75 min failed -5.5 (cache8), 98 min failed
+    -0.65 (cache9), cache10 never routed.  NOTHING THAT ROUTED PAST ~30 MIN
+    HAS MET TIMING: the limit for a route is about 40 minutes, not 100.
+    The change was one more input on the RBV's reset gate; at 93 % full
+    any change redraws the placement.  cache11 STAYS THE BUILD IN HAND: it
+    meets timing and is board-tested; its one known fault is this picture
+    after an A/UX shut down (the machine is off; the Power key starts it).
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
