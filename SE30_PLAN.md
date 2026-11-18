@@ -23114,6 +23114,44 @@ build that routes long is suspect before its report is read.
     uvm_fault(kernel_map, $10A0A000) -> 0xe.  THE TRIGGER IS X's OWN
     TEARDOWN, not the mass exit (halt only ended X).  Simplest reproduction:
     start X with clients, quit X.
+    THE CAUSE, VERY LIKELY (2026-11-18, read from NetBSD's source; NOT YET
+    PROVEN ON THE BOARD): A NetBSD KERNEL BUG, NOT X AND NOT THE CORE.
+    sys/arch/m68k/m68k/pmap_motorola.c (netbsd-11, 1.89), pmap_enter:
+    "opa = pmap_pte_pa(pte); ... if (opa == pa) { wiring change ... goto
+    validate; }" - opa is read WITHOUT testing PG_V, and an empty entry
+    reads 0.  Entering PHYSICAL PAGE 0 into an empty slot therefore takes
+    the same-page path: the pte is written valid but pmap_ptpage_addref is
+    skipped.  The IIci's frame buffer is at physical 0 (intvid0 @ 0) and X
+    mmaps it.  At X's teardown pmap_remove_mapping's delref for that page
+    leaves the page-table page's count one short: it reaches 0 with one
+    valid mapping left, the PT page is freed and its STE invalidated,
+    pmap_remove skips the rest of the segment (!pmap_ste_v), the last
+    mapping's pv entry survives, and uvm_anfree -> pmap_page_protect ->
+    pmap_remove_mapping (no validity check outside DEBUG) reads the pte in
+    the freed PT page: the MMU fault.  IT FITS EVERYTHING: IIci only (the
+    IIcx's and SE/30's frame buffers are not at physical 0), X only, the
+    card irrelevant, ONE specific va each time (the last mapping left), and
+    the addresses: NetBSD's pages are 8 KB (the kernel's code: va >> 13),
+    pte = pm_ptab + (va >> 13) * 4 with pm_ptab $10A00000 gives $10A0BF14 /
+    $10A0BD7C / $10A0BF30 for the three vas exactly, all in the PT page at
+    $10A0A000 (X's $05xxxxxx).  A real IIci with bank A fitted should do
+    the same.  THE BURST-FILL SUSPECT IS OUT by reading tg68k.v: no take and
+    no cache hit while s == 6, so nothing overtakes a fill.  (User PT pages
+    are not cache-inhibited on a 68030 in this pmap; coherence rests on
+    TBIS / TBIA clearing the data cache - recalled from locore, not
+    re-read.)
+    THE PATCHED KERNEL (Daniel: "Please patch the kernel ... Base it on the
+    already patched kernel"): C:/temp/Mac/netbsd-WSFBSBC-nopoke-mono-pa0
+    (md5 2c8ae8be1ce531991a848088fa0e783c; .gz beside it) on
+    C:/temp/Mac/NetBSD-WSFBPA0.iso (file WSFBPA0.GZ), made by
+    tools/iso/netbsd_patch_pa0.py from the nopoke-mono kernel: 21 bytes in
+    pmap_enter ($261B0-$261C9: opa compared as frame | PG_V, so the
+    same-page path needs a VALID old entry; $26228: "old entry valid", not
+    "opa != 0", decides the removal), in place.  Every other case takes its
+    old path, so the IIcx and SE/30 are unaffected.  Checked by
+    disassembly, not booted.  THE TEST: IIci, 32 MB, this kernel, X with a
+    client or two, quit X - a clean exit is the proof; then this issue
+    closes as NetBSD's and a fourth draft goes into netbsd_pr_drafts.md.
     TESTS (each ~30 min - boot, X, shut down from X; Daniel, another time):
     (1) 32 MB, CACHE CARD NONE, `sysctl -w ddb.onpanic=1` after boot; if it
     panics: at db>, `dmesg 60`, `show registers`, `bt` (screenshots);
@@ -30519,6 +30557,24 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     router's peak is again past ~80 %: the levers with real mass are
     Daniel's - the framework's YC and ALSA outputs (~520 ALMs), or the
     128 KB card option (138 of the 184 M10K).
+  - BUILD cache11 (634d27ee, 2026-11-18 09:14-10:11, 56 min in all): ROUTED
+    AND TIMING MET AT EVERY CORNER.  38,985 ALMs (93 %); router peak
+    estimate 76 % (X56_Y23-X66_Y34; cache10 86 %), routing 24 min 42 s
+    (cache9 98 min, cache10 9 h 41 min without converging).  The flow's
+    multicorner summary: worst setup +0.070 (clk_sys), worst hold +0.047 -
+    nothing negative, the framework's ascal included.  sta_corners_iici:
+    worst +0.047 over every corner, the capture met by A or B at each
+    (best margin 0.98-1.40), SDRAM outputs >= 2.46 / 1.27, no combinational
+    loop in the STA report.  output_files/MacIIci_cache11.rbf, md5
+    912b0ca3f2e90f1f0c2f7aff7f6dd18a.  NOT YET ON THE BOARD.  The margins
+    are thin (+0.05 to +0.13 for ours): the device is still 93 % full and
+    the card's 184 M10K still load the CPU's address - a later change may
+    tip it again; the levers above stand.
+    THE TASK SCHEDULER RUNS ITS JOBS AT BACKGROUND PRIORITY (Daniel saw the
+    fitter at 600 MB where it is usually ~3.5 GB): task priority 7 =
+    below-normal CPU, memory priority 2, so Windows trimmed the fitter's
+    working set with 5 GB free.  Raised on the running process (normal, 5)
+    at 09:57; from now on tasks are created with -Priority 4.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
