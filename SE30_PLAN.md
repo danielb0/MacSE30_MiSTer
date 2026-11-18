@@ -30595,6 +30595,27 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
     with the card: its first board test.  THE FLOPPY (Daniel, 2026-11-18): format,
     write, unmount, mount, read - all pass.  Left for this build: A/UX's
     Shut Down powering off.
+  - A/UX's SHUT DOWN STILL DOES NOT POWER cache11 OFF (Daniel, 2026-11-18): a
+    blank desktop, the mouse frozen, a click from the speaker; no fsck at
+    the next start - the shutdown itself completed.  YESTERDAY'S READING
+    CORRECTED: boardinit's jump table (unix, $5882A: words, index machineID
+    - 4) sends machineID 9 to the RBV / 25 MHz case = the IIci (11 the OSS
+    = IIfx, 16 the Egret + RBV = IIsi); and dopowerdown's case 9 is the
+    simple one - ANDI.B #$FB,([via2_addr]) with via2_addr $50026000, the
+    bit HELD low - not the pulse through $400.  So the latch added to
+    iicx_power.v was not the IIci's problem (it stays: harmless, the
+    Guide's behaviour).  BENCH (tb_iici_machine, that instruction through
+    that pointer, MMU off): the RBV is read ($8F), written $8B, and
+    poweroff_req rises - the machine side works there.  MacIIci.sv blanks
+    VGA and holds reset on pwr_off exactly as MacSE30.sv does for the IIcx,
+    so the desktop still showing means `off` was never set on the board.
+    NOT YET KNOWN: whether dopowerdown runs at all on the IIci (the Finder's
+    Shut Down may pass real_shutdown other flags), or whether its write
+    misses the RBV with the MMU on.  BOARD TESTS THAT SEPARATE THEM: (1)
+    A/UX, root shell: `powerdown` (the system call with the power flag) -
+    off = the Finder's path differs, hang = the write / hardware path; (2)
+    Mac OS on cache11, Special > Shut Down: the screen dark = the top's
+    power path works.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
