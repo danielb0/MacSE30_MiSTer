@@ -63,3 +63,7 @@ sim/wsfb_replay/ram.hex
 sim/wsfb_replay/*.log
 sim/wsfb_replay/transcript
 sim/wsfb_replay/work/
+
+# the IIci build wrapper's log (sim/iici_build.sh) and a saved part of the 2026-11-11 regression
+sim/iici_build.log
+sim/regression.log.2_cacr0
