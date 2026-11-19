@@ -48,6 +48,9 @@ set_global_assignment -name ECO_OPTIMIZE_TIMING ON
 set_global_assignment -name PERIPHERY_TO_CORE_PLACEMENT_AND_ROUTING_OPTIMIZATION ON
 set_global_assignment -name PHYSICAL_SYNTHESIS_ASYNCHRONOUS_SIGNAL_PIPELINING ON
 set_global_assignment -name ALM_REGISTER_PACKING_EFFORT MEDIUM
+# FUTURE ADDITIONS 18 (the rotated Portrait Display, ~400 ALMs): build rot1 stalled in routing (79 % peak,
+# 91 % full); the placer spreads for the router instead (SE30_PLAN.md "THE ROTATED PORTRAIT DISPLAY")
+set_global_assignment -name FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
 set_global_assignment -name SEED 1
 
 set_global_assignment -name VERILOG_MACRO "MISTER_FB=1"

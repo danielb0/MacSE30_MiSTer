@@ -30753,8 +30753,14 @@ few run logs lie untracked.
   restored.  THE ROUTE-LIMIT WATCHER IN sim/iici_build.sh DID NOT FIRE (its first real test: cache14
   routed in 31 min, cache12 was stopped by hand); its conditions all hold when replayed by hand - give it
   a per-minute heartbeat in the log before the next build.  What sits in X22_Y58-X32_Y69 is not yet known.
-- NEXT: Daniel's choice (below the block's options, told 2026-11-19): the agreed fallback (the cache card
-  at 32 KB, Norton re-measured), or first find what is in the congested region.  Board (Daniel): Portrait
+- WHAT ROTATION COSTS (synthesis of 462ba95 vs rot1): LUTs 57,826 -> 58,482 (+656), registers 31,643 ->
+  32,021 (+378), block memory +137,216 bits; the rotator 149 LUTs / 301 registers; ascal +11 LUTs (its
+  frame-buffer read path is already there for the Linux framebuffer - only the palette is new); the DDR
+  port's bridge ~230 LUTs.  ~400 ALMs on cache14's 38,244: the knife-edge crossed, no one block too big.
+  In cache14's placement the congested region held ascal, the RBV, the floppy and the SCC - the video side.
+- DANIEL 2026-11-19: "Routability setting" - MacIIci.qsf FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
+  (the placer spreads for the router; costs timing effort, no functional change).  Build rot2.  If it
+  fails: the cache card at 32 KB (Norton re-measured).  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
