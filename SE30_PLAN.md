@@ -24062,7 +24062,11 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     and 640 x 480 already checked); a quick Norton against cache14's
     0.990 / 1.03 / 0.924. Before the IIci's release.
     1 AND 2 bpp DONE on rot4 (Daniel, 2026-11-19); the Norton run left
-    (now on rot4, the candidate).
+    (now on rot4, the candidate) - IN THE 13" MODE, 256 colours, as usual
+    (Daniel, 2026-11-19): no reference exists for a rotated picture, and
+    the rotator only taps the RBV's finished output into DDR - the Mac's
+    side (CPU, its RAM, the RBV's reads) is the same rotated or not.  Does
+    not need the stand.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
