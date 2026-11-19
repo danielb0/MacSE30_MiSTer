@@ -30824,9 +30824,9 @@ few run logs lie untracked.
 - rot4 ON THE BOARD (Daniel, 2026-11-19 ~15:20): rotated black and white and 4 greys work (FUTURE BOARD
   TESTS 18: 1 and 2 bpp DONE; the Norton run left for the stand).  Noticed: 16 Greys smooth, 16 "Colors"
   patterned.  Expected from the one video line = blue (the core shows vid_b as grey on all three; Colors
-  mode leaves the standard 16 colours' blue parts, and the Finder dithers).  OPEN, low priority: whether a
-  real IIci's Monitors control panel offers Colors at all with the Portrait Display (a mono monitor) - if
-  not, find what makes the ROM's driver think it can (the RBV's monitor/sense reading).  Board (Daniel): Portrait
+  mode leaves the standard 16 colours' blue parts, and the Finder dithers).  NOT OPEN: Colors on the
+  Portrait Display was settled 2026-11-15 ("THE PORTRAIT DISPLAY'S BLUE PICTURE": a video of a real
+  Portrait Display on a Quadra 700 shows the button selectable) - authentic.  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
