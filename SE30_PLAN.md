@@ -30788,7 +30788,21 @@ few run logs lie untracked.
   better" (Daniel).  Point users to it in the README / forum note.
 - BOARD CHECKS (Daniel, 2026-11-19): DONE - anticlockwise, switching No <-> rotated while running, the
   640 x 480 monitor unchanged.  LEFT FOR WHEN HIS ROTATING STAND COMES: 1 and 2 bpp rotated, and a quick
-  Norton on rot2 (FUTURE BOARD TESTS).  Board (Daniel): Portrait
+  Norton on rot2 (FUTURE BOARD TESTS).
+- rot2's SCREENSHOT (Daniel, 13:22) was the unrotated 640 x 870 capture stretched into 870 x 640: hps_io's
+  video_rotated was unconnected (the arcade block drives it).  Connected (e5ce21b); the rotation option
+  greyed out with the 640 x 480 monitor (9e156ad, D2 + status_menumask bit 2).  Main_MiSTer (video.cpp,
+  read 2026-11-19): video_rotated swaps width/height in its scaling sums; the vertical scaler filter is
+  the filter for the vertical axis, NOT chosen by rotation; osd_rotate (MiSTer.ini) turns the OSD for any
+  core, its option 3 alone follows the core (analogue only); the screenshot code was not read.
+- BUILD rot3 (dce08cf, 13:44): routed in 5.8 min (peak 65 %), 38,313 ALMs, no loop - TIMING NOT MET,
+  -0.655 ns: capture A's dq_q[8] -> dq_r[8] (pin AE24, X82_Y0, the bottom-right corner) took 6.54 ns of
+  data against ~5.9 at the slow corners; every capture figure is rot2's, that hop 1.2 ns worse on every
+  bit's worst.  At slow 100C capture B fails its own setup (-0.140, as in rot2), so there NEITHER capture
+  is whole.  The fitter-only set_max_delay 7.0 on dq_q -> dq_r (MacIIci.sdc) is a request the
+  routability-first placer can lose: rot2 met by luck.  output_files/MacIIci_rot3.rbf (md5 97bb7b11) is
+  NOT a candidate.  PROPOSED: place every dq_r beside its pin by location assignment (as pll_hdmi is
+  pinned), so no fit can move it.  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
