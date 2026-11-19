@@ -30806,7 +30806,19 @@ few run logs lie untracked.
 - rot3 ON THE BOARD (Daniel, 14:28; functional checks only - rot3 is not a candidate): the rotation option
   greys out with the 640 x 480 monitor; screenshots now the right shape (794 x 1080 = 640:870, upright).
   The OSD is not turned by the core (as Main_MiSTer's source said): users set osd_rotate=1 or 2 in
-  MiSTer.ini - for the README / forum note with the vertical-display filter.  Board (Daniel): Portrait
+  MiSTer.ini - for the README / forum note with the vertical-display filter.
+- rot3 PER BIT (slow 100C, capture A): dq_q -> dq_r failed on bits 8 (-0.655), 11 (-0.339), 4 (-0.093) only;
+  every dq_r sat in the device's middle by its consumers (back-annotated: rows 36-40), the far pins' bits
+  furthest; their next hop had 3.5-4.6 ns spare.  FIX 78e21ed: those three dq_r pinned by LAB location
+  halfway to their pins (LAB_X61_Y18 / X61_Y20 / X52_Y19 - real sites, from rot3's placement; LAB-level
+  assignments are accepted by 17.0 Lite).  The other 13 left free.
+- BUILD rot4 (78e21ed) MET FOR OURS AT EVERY CORNER: 38 min, routed in 7 min (peak 66 %), 38,369 ALMs,
+  427 M10K, no loop.  Capture A's dq_q -> dq_r now +0.215 / +0.265 at the slow corners (rot3 -0.655); a whole
+  capture at every corner (A slow, B fast).  Every path but ascal's: setup +0.137, hold +0.088 worst.
+  sta_corners' "-0.180 NOT MET" is ascal's alone (o_h_poly_t -> o_h_poly_pix, the HDMI clock, slow -40C) -
+  accepted (Daniel 2026-11-16: the framework scaler's timing is not a blocker).  output_files/MacIIci_rot4.rbf md5 f4325c8b = THE CANDIDATE:
+  rot3's logic (video_rotated, the greyed option) + the pinned capture.  Board: a boot and the rotated
+  picture.  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
