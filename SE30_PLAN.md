@@ -24067,6 +24067,10 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     the rotator only taps the RBV's finished output into DDR - the Mac's
     side (CPU, its RAM, the RBV's reads) is the same rotated or not.  Does
     not need the stand.
+    DONE 2026-11-19 16:06 (Daniel, rot4, 13", 256 colours, real IIci =
+    1.00): CPU 0.988, video 1.02, FPU 0.925 (cache14 0.990 / 1.03 / 0.924)
+    - the same.  Detail as before: BMove/M 1.10, CopyBits L 1.14, DrawText
+    0.891, Sort 0.919, Instruction 0.933.  ITEM 18 CLOSED.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
@@ -30825,6 +30829,8 @@ few run logs lie untracked.
   accepted (Daniel 2026-11-16: the framework scaler's timing is not a blocker).  output_files/MacIIci_rot4.rbf md5 f4325c8b = THE CANDIDATE:
   rot3's logic (video_rotated, the greyed option) + the pinned capture.  Board: a boot and the rotated
   picture.
+- rot4 NORTON (16:06, 13", 256 colours): CPU 0.988, video 1.02, FPU 0.925 = cache14's.  Every board
+  check of the rotation done: rot4 IS THE RELEASE CANDIDATE (Daniel's word on the release itself).
 - rot4 ON THE BOARD (Daniel, 2026-11-19 ~15:20): rotated black and white and 4 greys work (FUTURE BOARD
   TESTS 18: 1 and 2 bpp DONE; the Norton run left for the stand).  Noticed: 16 Greys smooth, 16 "Colors"
   patterned.  Expected from the one video line = blue (the core shows vid_b as grey on all three; Colors
