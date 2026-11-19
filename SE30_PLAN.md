@@ -30765,7 +30765,15 @@ few run logs lie untracked.
   In cache14's placement the congested region held ascal, the RBV, the floppy and the SCC - the video side.
 - DANIEL 2026-11-19: "Routability setting" - MacIIci.qsf FITTER_AGGRESSIVE_ROUTABILITY_OPTIMIZATION ALWAYS
   (the placer spreads for the router; costs timing effort, no functional change).  Build rot2.  If it
-  fails: the cache card at 32 KB (Norton re-measured).  Board (Daniel): Portrait
+  fails: the cache card at 32 KB (Norton re-measured).
+- BUILD rot2 (74d7cb1) MET AT EVERY CORNER: routed in 6.5 min (rot1: stalled past an hour), router peak
+  72 % in the same X22_Y58-X32_Y69 (rot1 79 %); worst slack +0.102 ns over every corner (capture excepted,
+  A or B met at each); 38,402 ALMs (92 %), 427 M10K; no combinational loop; the whole build 41 min.
+  output_files/MacIIci_rot2.rbf md5 6af98884.  The 40-min watcher was replaced by hand at 12:25 with a
+  70-min one (Daniel: give the setting time); neither had to act.  NOT YET ON THE BOARD (Daniel):
+  Portrait rotated both ways at 1/2/4 bpp, the greys, No <-> rotated while running, the 640 x 480 monitor
+  unchanged, a quick Norton (the routability setting moved placement; the core's clocks did not change).
+  Task Scheduler jobs SE30_rot1 / SE30_rot2 finished, still registered (delete on Daniel's OK).  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
