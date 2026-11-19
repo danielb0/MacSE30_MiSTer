@@ -77,7 +77,7 @@ localparam CONF_STR = {
 	"SC5,NVR,Mount PRAM;",
 	"-;",
 	"O[12],Monitor,640x480 RGB,Portrait 640x870;",
-	"O[16:15],Portrait rotated,No,Clockwise,Anticlockwise;",
+	"D2O[16:15],Portrait rotated,No,Clockwise,Anticlockwise;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[9:8],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"h0O[11:10],Memory,16 MB,4 MB;",
@@ -249,7 +249,7 @@ end
 
 // the SIMMs and the monitor change only while the machine is held
 wire        big = sdram_sz[15] && (sdram_sz[1:0] >= 2'd2);   // a 64 or 128 MB module: bank B fits
-assign      menumask = {14'd0, big, !big};
+assign      menumask = {13'd0, !status[12], big, !big};   // bit 2: the 640 x 480 monitor chosen - rotation greyed out
 reg   [1:0] bank_a = 2'd3, bank_b = 2'd0;
 reg         portrait = 0;
 reg   [1:0] cache_card = 0;                 // the RAM cache card: 0 none, 1 = 32 KB, 2 = 128 KB (fitted with the power off)
