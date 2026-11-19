@@ -30773,7 +30773,13 @@ few run logs lie untracked.
   70-min one (Daniel: give the setting time); neither had to act.  NOT YET ON THE BOARD (Daniel):
   Portrait rotated both ways at 1/2/4 bpp, the greys, No <-> rotated while running, the 640 x 480 monitor
   unchanged, a quick Norton (the routability setting moved placement; the core's clocks did not change).
-  Task Scheduler jobs SE30_rot1 / SE30_rot2 finished, still registered (delete on Daniel's OK).  Board (Daniel): Portrait
+  Task Scheduler jobs SE30_rot1 / SE30_rot2 finished, still registered (delete on Daniel's OK).
+- rot2 ON THE BOARD (Daniel, 2026-11-19 13:24, photo): IT WORKS - Portrait rotated, System 7.5.5
+  desktop upright on a monitor on its side.  Text looked uneven ("missing lines", letters unevenly
+  spaced): the 640 Mac columns become 1,080 HDMI lines (x1.6875) by nearest neighbour; the aspect
+  measured from the photo is ~1.36 (870:640 = 1.359).  No integer scale fits (2 x 640 > 1080).  CURE =
+  the framework's scaler filter: MiSTer has a preset for vertical displays that "makes it look much
+  better" (Daniel).  Point users to it in the README / forum note.  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
