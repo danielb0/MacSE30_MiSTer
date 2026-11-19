@@ -179,8 +179,8 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
 	.ioctl_wait(ioctl_wait),
-	// the Portrait Display turned a quarter turn (VIDEO, rtl/iici_rotate.v): the framework's
-	// screenshots and its settings for a vertical display follow it, as on the arcade cores
+	// the Portrait Display turned a quarter turn (VIDEO, rtl/iici_rotate.v), as the arcade cores
+	// report it: Main_MiSTer swaps width and height in its scaling (video.cpp video_scaling_adjust)
 	.video_rotated(rotated)
 );
 
