@@ -30094,6 +30094,11 @@ phi1) needs clk_sys = 50 MHz, 20 ns.
       MODE32 on a shared SE/30 / IIcx / IIci disk: its icon CROSSED OUT at
       the IIci's startup (Daniel, 2026-11-17) - it sees a 32-bit-clean ROM
       and stands aside, as on a real IIci (TidBITS 1991-06-17).
+      UPDATE 2026-11-19 (Daniel): on dev release 1 (cache14) MODE32 now loads with a normal icon; 32-bit
+      mode works and nothing else changes that he can see.  Not explained (the ROM and the machine
+      identity have not changed since cache6): open questions - the MODE32 version, the System, the
+      32-bit setting, and whether the shared disk was booted on the SE/30 or IIcx core in between (its
+      settings).  Low priority: no fault seen.
       A/UX ON THE IIci, the first time (Daniel, 2026-11-17 afternoon, build
       cache6, 16 MB): runs - four xeyes clients and QuarkXPress under X11;
       "a little bit snappier than on the IIcx, but very similar" (Norton's
