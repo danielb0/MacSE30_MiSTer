@@ -33,7 +33,6 @@ assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
-assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;
 
 assign VGA_SL = 0;
 assign VGA_F1 = 0;
@@ -64,7 +63,8 @@ assign BUTTONS   = 0;
 //   2 =  8 MB  (4 MB in each bank)
 //   3 = 32 MB  (16 MB in each bank)
 // The monitor (THE PORTRAIT DISPLAY): latched at reset, as the ROM reads the
-// sense lines once.
+// sense lines once.  Its rotation (for a monitor on its side) is the
+// display's alone and takes effect at once.
 localparam CONF_STR = {
 	"MACIICI;;",
 	"-;",
@@ -77,6 +77,7 @@ localparam CONF_STR = {
 	"SC5,NVR,Mount PRAM;",
 	"-;",
 	"O[12],Monitor,640x480 RGB,Portrait 640x870;",
+	"O[16:15],Portrait rotated,No,Clockwise,Anticlockwise;",
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[9:8],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"h0O[11:10],Memory,16 MB,4 MB;",
@@ -664,15 +665,18 @@ assign CE_PIXEL  = ce_pix;
 
 wire [1:0] ar = status[2:1];
 wire       vga_de = ~(hblank | vblank);
+// rotated, the scaler shows the frame buffer (870 x 640); video_freak's
+// integer scales measure the picture coming in, so they are off then
+wire       rotated = portrait && (status[16:15] == 2'd1 || status[16:15] == 2'd2);
 video_freak video_freak
 (
 	.*,
 	.VGA_DE_IN(vga_de),
-	.ARX((!ar) ? (portrait ? 12'd640 : 12'd4) : (ar - 1'd1)),
-	.ARY((!ar) ? (portrait ? 12'd870 : 12'd3) : 12'd0),
+	.ARX((!ar) ? (rotated ? 12'd870 : portrait ? 12'd640 : 12'd4) : (ar - 1'd1)),
+	.ARY((!ar) ? (rotated ? 12'd640 : portrait ? 12'd870 : 12'd3) : 12'd0),
 	.CROP_SIZE(12'd0),
 	.CROP_OFF(5'd0),
-	.SCALE({1'b0, status[9:8]})
+	.SCALE(rotated ? 3'd0 : {1'b0, status[9:8]})
 );
 
 assign VGA_HS = hsync_n;
@@ -682,5 +686,19 @@ assign VGA_VS = vsync_n;
 assign VGA_R  = pwr_off ? 8'd0 : portrait ? vid_b : vid_r;
 assign VGA_G  = pwr_off ? 8'd0 : portrait ? vid_b : vid_g;
 assign VGA_B  = pwr_off ? 8'd0 : vid_b;
+
+// The Portrait Display turned a quarter turn, through a frame buffer in DDR
+// (FUTURE ADDITIONS 18; rtl/iici_rotate.v).  The analogue output stays upright.
+assign FB_FORCE_BLANK = 0;
+iici_rotate rotate (
+	.clk(clk_vid), .ce(ce_pix), .de(vga_de), .vblank(vblank), .grey(VGA_B),
+	.enable_in(rotated), .cw_in(status[16:15] == 2'd1),
+	.FB_EN(FB_EN), .FB_FORMAT(FB_FORMAT), .FB_WIDTH(FB_WIDTH), .FB_HEIGHT(FB_HEIGHT),
+	.FB_BASE(FB_BASE), .FB_STRIDE(FB_STRIDE), .FB_VBL(FB_VBL), .FB_LL(FB_LL),
+	.FB_PAL_CLK(FB_PAL_CLK), .FB_PAL_ADDR(FB_PAL_ADDR), .FB_PAL_DOUT(FB_PAL_DOUT), .FB_PAL_WR(FB_PAL_WR),
+	.DDRAM_CLK(DDRAM_CLK), .DDRAM_BUSY(DDRAM_BUSY), .DDRAM_BURSTCNT(DDRAM_BURSTCNT), .DDRAM_ADDR(DDRAM_ADDR),
+	.DDRAM_DIN(DDRAM_DIN), .DDRAM_BE(DDRAM_BE), .DDRAM_WE(DDRAM_WE), .DDRAM_RD(DDRAM_RD),
+	.overrun()
+);
 
 endmodule

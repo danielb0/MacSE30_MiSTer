@@ -30719,6 +30719,37 @@ re-measured).  Never cut: the video scaling / V-integer options.  Housekeeping: 
 SE30_cache11 .. SE30_cache14 are finished and still registered (delete on his OK); cr_ie_info.json and a
 few run logs lie untracked.
 
+**THE ROTATED PORTRAIT DISPLAY (FUTURE ADDITIONS 18, 2026-11-19, branch `iici-rotate` off iici 462ba95; Daniel: "Yes, build it").**
+- WHY NOT THE ARCADE BLOCK: sys/arcade_video.v screen_rotate writes every pixel as its own 32-bit DDR
+  write and never looks at DDRAM_BUSY - enough at an arcade's 6-8 MHz, not at the Portrait Display's
+  57.14 MHz, where consecutive pixels land a picture-width apart.
+- BUILT: rtl/iici_rotate.v.  Eight lines (a strip) collect in block RAM (eight byte-wide RAMs, two strips
+  deep, 16 M10K); each column of a strip is eight adjacent pixels of the turned picture = one 64-bit word,
+  so a strip leaves as 640 word writes (one a clock while DDR takes them: read-ahead + one holding word),
+  with the busy handshake, while the next strip fills.  Budget: 640 words in 6,656 clocks.  H = 870 is not
+  a multiple of 8: clockwise the first strip is 6 lines, anticlockwise the last; the two spare bytes land in
+  the out row's padding (stride 880).  Frame buffer at DDR 0x24000000 (the arcade block's three 8 MB
+  slots), 8 bpp through the scaler's palette loaded with a grey ramp (exact greys) - MISTER_FB and
+  MISTER_FB_PALETTE on in MacIIci.qsf.  Three buffers: written / shown / newest finished; the shown one
+  always takes the newest finished (the arcade block's buf_next goes back to an older frame when the
+  scaler's frames come faster); FB_EN only while the shown buffer holds a whole frame written with rotation
+  on.  The OSD's setting synchronised into clk_vid (two flip-flops).
+- OSD: "Portrait rotated: No / Clockwise / Anticlockwise" (status[16:15]); Portrait only; takes effect at
+  once (display only, no reset).  Clockwise = the top row becomes the right-hand column.  Rotated: aspect
+  870:640, video_freak's integer scales off (they measure the unrotated picture); the analogue VGA output
+  stays upright, as on the arcade cores.  One frame more latency.
+- BENCH sim/rotate (tb_iici_rotate.v, run.sh, matrix.sh): the RBV's Portrait timing, a picture different
+  at every pixel and frame, a DDR model with BUSY in random runs; each frame's buffer compared pixel by
+  pixel with the frame turned as asked; direction changed between frames, rotation off and on once; FB_EN
+  and the shown buffer checked at every scaler vblank.  matrix.sh, ALL PASS (7 frames, 558,080 writes
+  each): base (50 % busy), busy75, cegap (pixel enable 189/358), fastvbl / slowvbl (scaler frames 1.6x
+  faster / 2.2x slower than ours), ll (FB_LL).  PLANTS FAIL as they must: 1 = a clockwise frame with the
+  anticlockwise strip phase (556,800 errors), 2 = one DDR write lost (8 errors).  LIMIT: at 90 % busy a
+  strip's words no longer fit its time (the first, three-clock sender overran even there - replaced).
+- NEXT: build rot1 (sim/iici_build.sh, every corner, route limit 40 min); ALMs vs cache14's 38,244; if it
+  will not fit or meet timing, the cache card at 32 KB (Daniel 2026-11-18).  Board (Daniel): Portrait
+  rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
+
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
 documentation with its plan block above: BURST FILLS; THE MDU; THE IIci MACHINE; THE RBV; THE PORTRAIT

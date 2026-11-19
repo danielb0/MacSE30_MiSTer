@@ -2,6 +2,7 @@ set_global_assignment -name QIP_FILE rtl/tg68k/tg68k.qip
 set_global_assignment -name QIP_FILE rtl/pll_iici.qip
 set_global_assignment -name VERILOG_FILE rtl/iici_mdu.v
 set_global_assignment -name VERILOG_FILE rtl/iici_rbv.v
+set_global_assignment -name VERILOG_FILE rtl/iici_rotate.v
 set_global_assignment -name VERILOG_FILE rtl/iici_sdram.v
 set_global_assignment -name VERILOG_FILE rtl/iici_machine.v
 set_global_assignment -name VERILOG_FILE rtl/iicx_nuchip.v
