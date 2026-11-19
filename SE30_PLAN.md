@@ -24061,6 +24061,8 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     Portrait rotated at 1 and 2 bpp (4 bpp, anticlockwise, live switching
     and 640 x 480 already checked); a quick Norton against cache14's
     0.990 / 1.03 / 0.924. Before the IIci's release.
+    1 AND 2 bpp DONE on rot4 (Daniel, 2026-11-19); the Norton run left
+    (now on rot4, the candidate).
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
