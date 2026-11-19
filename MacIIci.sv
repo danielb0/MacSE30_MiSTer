@@ -147,6 +147,7 @@ assign sd_wr          = {pram_sd_wr, 1'b0, scsi_io_wr[1:0], 1'b0, flp_sd_wr};
 wire [15:0] sdram_sz;
 wire [15:0] menumask;
 
+wire        rotated;                         // the Portrait Display turned (VIDEO)
 hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -177,7 +178,10 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(1), .VDNUM(6)) hps_io
 	.ioctl_wr(ioctl_wr),
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
-	.ioctl_wait(ioctl_wait)
+	.ioctl_wait(ioctl_wait),
+	// the Portrait Display turned a quarter turn (VIDEO, rtl/iici_rotate.v): the framework's
+	// screenshots and its settings for a vertical display follow it, as on the arcade cores
+	.video_rotated(rotated)
 );
 
 ///////////////////////   CLOCKS   ///////////////////////////////
@@ -667,7 +671,7 @@ wire [1:0] ar = status[2:1];
 wire       vga_de = ~(hblank | vblank);
 // rotated, the scaler shows the frame buffer (870 x 640); video_freak's
 // integer scales measure the picture coming in, so they are off then
-wire       rotated = portrait && (status[16:15] == 2'd1 || status[16:15] == 2'd2);
+assign     rotated = portrait && (status[16:15] == 2'd1 || status[16:15] == 2'd2);
 video_freak video_freak
 (
 	.*,
