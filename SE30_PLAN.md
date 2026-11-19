@@ -30746,8 +30746,15 @@ few run logs lie untracked.
   faster / 2.2x slower than ours), ll (FB_LL).  PLANTS FAIL as they must: 1 = a clockwise frame with the
   anticlockwise strip phase (556,800 errors), 2 = one DDR write lost (8 errors).  LIMIT: at 90 % busy a
   strip's words no longer fit its time (the first, three-clock sender overran even there - replaced).
-- NEXT: build rot1 (sim/iici_build.sh, every corner, route limit 40 min); ALMs vs cache14's 38,244; if it
-  will not fit or meet timing, the cache card at 32 KB (Daniel 2026-11-18).  Board (Daniel): Portrait
+- BUILD rot1 (0939df8, 10:35): synthesis fine (block memory +137,216 bits = the eight lane RAMs + the
+  scaler's palette, exactly), placement done; ROUTING STALLED - 78,078 of 78,585 signals after an hour,
+  "an exceedingly large amount of congestion", peak 79 % at X22_Y58-X32_Y69 (NOT the kernel corner
+  X67_Y11-X77_Y22 of cache10).  Stopped by hand at 12:05 after ~62 min of routing; no bitstream, tree
+  restored.  THE ROUTE-LIMIT WATCHER IN sim/iici_build.sh DID NOT FIRE (its first real test: cache14
+  routed in 31 min, cache12 was stopped by hand); its conditions all hold when replayed by hand - give it
+  a per-minute heartbeat in the log before the next build.  What sits in X22_Y58-X32_Y69 is not yet known.
+- NEXT: Daniel's choice (below the block's options, told 2026-11-19): the agreed fallback (the cache card
+  at 32 KB, Norton re-measured), or first find what is in the congested region.  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
