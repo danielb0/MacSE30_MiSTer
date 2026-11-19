@@ -33,7 +33,11 @@ ROUTE_LIMIT=${ROUTE_LIMIT:-40}
 ( t=0
   while [ $t -lt 720 ]; do
     sleep 60; t=$((t + 1))
-    tasklist 2>/dev/null | grep -qi "quartus_sh" || exit 0
+    tasklist 2>/dev/null | grep -qi "quartus_sh" || { log "route watch: no quartus_sh at minute $t - watch ends"; exit 0; }
+    # a heartbeat every 10 min (build rot1's limit never fired; this shows what the watch sees)
+    if [ $((t % 10)) = 0 ]; then
+      log "route watch: minute $t, qmsg $([ -f db/$rev.fit.qmsg ] && echo yes || echo no), newer $([ db/$rev.fit.qmsg -nt output_files/build_$LABEL.log.start ] && echo yes || echo no), routing $(grep -aq 'Fitter routing operations beginning' db/$rev.fit.qmsg 2>/dev/null && echo yes || echo no), since ${r0:-none}"
+    fi
     if [ -f db/$rev.fit.qmsg ] && [ db/$rev.fit.qmsg -nt output_files/build_$LABEL.log.start ] && grep -aq "Fitter routing operations beginning" db/$rev.fit.qmsg; then
       r0=${r0:-$t}
       if [ $((t - r0)) -ge $ROUTE_LIMIT ] && tasklist 2>/dev/null | grep -qi "quartus_fit"; then
