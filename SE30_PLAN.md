@@ -30779,7 +30779,10 @@ few run logs lie untracked.
   spaced): the 640 Mac columns become 1,080 HDMI lines (x1.6875) by nearest neighbour; the aspect
   measured from the photo is ~1.36 (870:640 = 1.359).  No integer scale fits (2 x 640 > 1080).  CURE =
   the framework's scaler filter: MiSTer has a preset for vertical displays that "makes it look much
-  better" (Daniel).  Point users to it in the README / forum note.  Board (Daniel): Portrait
+  better" (Daniel).  Point users to it in the README / forum note.
+- BOARD CHECKS (Daniel, 2026-11-19): DONE - anticlockwise, switching No <-> rotated while running, the
+  640 x 480 monitor unchanged.  LEFT FOR WHEN HIS ROTATING STAND COMES: 1 and 2 bpp rotated, and a quick
+  Norton on rot2 (FUTURE BOARD TESTS).  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
