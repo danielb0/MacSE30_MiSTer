@@ -24055,6 +24055,12 @@ strike what is done).** Each on a scratch copy of the image unless noted.
     - the OSD shows 8/16 MB, both boot as before; with a 64 MB module - the
     OSD shows 8/16/32 MB, 32 MB gives 32,768K. Before the release that
     carries FUTURE ADDITIONS 5.
+18. **The rotated Portrait Display at 1 and 2 bpp, and Norton on rot2**
+    (2026-11-19, FUTURE ADDITIONS 18, block "THE ROTATED PORTRAIT DISPLAY";
+    Daniel: when his rotating stand comes): output_files/MacIIci_rot2.rbf,
+    Portrait rotated at 1 and 2 bpp (4 bpp, anticlockwise, live switching
+    and 640 x 480 already checked); a quick Norton against cache14's
+    0.990 / 1.03 / 0.924. Before the IIci's release.
 
 **END OF SESSION 2026-10-04 (12:30) - READ THIS TO RESUME.** Branch `dev`
 at the commit after this one, tree clean, 65 commits since `903df2c`
