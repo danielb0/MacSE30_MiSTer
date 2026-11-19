@@ -30818,7 +30818,13 @@ few run logs lie untracked.
   sta_corners' "-0.180 NOT MET" is ascal's alone (o_h_poly_t -> o_h_poly_pix, the HDMI clock, slow -40C) -
   accepted (Daniel 2026-11-16: the framework scaler's timing is not a blocker).  output_files/MacIIci_rot4.rbf md5 f4325c8b = THE CANDIDATE:
   rot3's logic (video_rotated, the greyed option) + the pinned capture.  Board: a boot and the rotated
-  picture.  Board (Daniel): Portrait
+  picture.
+- rot4 ON THE BOARD (Daniel, 2026-11-19 ~15:20): rotated black and white and 4 greys work (FUTURE BOARD
+  TESTS 18: 1 and 2 bpp DONE; the Norton run left for the stand).  Noticed: 16 Greys smooth, 16 "Colors"
+  patterned.  Expected from the one video line = blue (the core shows vid_b as grey on all three; Colors
+  mode leaves the standard 16 colours' blue parts, and the Finder dithers).  OPEN, low priority: whether a
+  real IIci's Monitors control panel offers Colors at all with the Portrait Display (a mono monitor) - if
+  not, find what makes the ROM's driver think it can (the RBV's monitor/sense reading).  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
