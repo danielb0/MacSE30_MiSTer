@@ -30802,7 +30802,11 @@ few run logs lie untracked.
   is whole.  The fitter-only set_max_delay 7.0 on dq_q -> dq_r (MacIIci.sdc) is a request the
   routability-first placer can lose: rot2 met by luck.  output_files/MacIIci_rot3.rbf (md5 97bb7b11) is
   NOT a candidate.  PROPOSED: place every dq_r beside its pin by location assignment (as pll_hdmi is
-  pinned), so no fit can move it.  Board (Daniel): Portrait
+  pinned), so no fit can move it.
+- rot3 ON THE BOARD (Daniel, 14:28; functional checks only - rot3 is not a candidate): the rotation option
+  greys out with the 640 x 480 monitor; screenshots now the right shape (794 x 1080 = 640:870, upright).
+  The OSD is not turned by the core (as Main_MiSTer's source said): users set osd_rotate=1 or 2 in
+  MiSTer.ini - for the README / forum note with the vertical-display filter.  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
