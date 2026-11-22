@@ -179,7 +179,9 @@
 `timescale 1ns/1ps
 
 module se30_swim #(
-  parameter     MFM_WRITE = 1          // the ISM's write path (plan 5.16)
+  parameter     MFM_WRITE = 1,         // the ISM's write path (plan 5.16)
+  parameter     RD_CLR    = 14         // C16M clocks from a valid async read to the data register's clear; the IIxx 1 (its
+                                       //   unpaced CPU polls again inside 14 and took a nibble twice: the ROM reads each once)
 ) (
   input         clk,
   input         c16_en,                // FCLK: C16M
@@ -331,7 +333,7 @@ module se30_swim #(
         stall    <= {win[5:0], 1'b0} + 7'd4;                // two bit times plus four CLK
         clr_cnt  <= 0;                                      // a new byte: no clear pending for it
       end else begin
-        if (vread) clr_cnt <= 4'd14;
+        if (vread) clr_cnt <= RD_CLR;
         else if (c16_en && clr_cnt != 0) begin
           clr_cnt <= clr_cnt - 1'b1;
           if (clr_cnt == 4'd1) rd_latch <= 8'h00;
