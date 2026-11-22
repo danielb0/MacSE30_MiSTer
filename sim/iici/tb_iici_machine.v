@@ -29,6 +29,7 @@
 module tb_iici_machine;
   parameter PORTRAIT = 0;              // run.sh's PORTRAIT=1: the Portrait Display
   parameter XCARD = 0;                 // run.sh's XCARD=1 / 2: the RAM cache card fitted, 32 KB / 128 KB
+  parameter IIXX = 0;                  // run.sh's IIXX=1: the IIxx (unpaced, the MDU's FAST memory) - the documented lengths not checked
   parameter SDRAM = 0;                 // run.sh's SDRAM=1: the memory through rtl/iici_sdram.v and the chip model
   // clk_mem 100 MHz, clk_sys its half, clk_k clk_sys's half: one process
   reg clk_mem = 0, clk_sys = 0, clk_k = 0;
@@ -188,13 +189,13 @@ module tb_iici_machine;
   wire [63:0] regs;
   wire [15:0] late;
 
-  iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/")) machine (
+  iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/"), .IIXX(IIXX)) machine (
     .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2), .cache_card(XCARD[1:0]),
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
     .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(SDRAM ? s_msoon : 1'b0), .mem_refresh(mem_refresh),
     .v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
     .ce_pix(ce_pix), .vid_r(), .vid_g(), .vid_b(), .hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(), .vblank(), .poweroff_req(), .power_off(1'b0),
-    .nmi_n(1'b1), .pace_en(1'b1),
+    .nmi_n(1'b1), .pace_en(!IIXX),
     .ps2_key(11'd0), .ps2_mouse(25'd0), .timestamp(33'd0),
     .pram_h_we(1'b0), .pram_h_addr(8'd0), .pram_h_wdata(8'd0), .pram_h_raddr(8'd0), .pram_h_rdata(), .pram_wr(),
     .adb_pm_we(1'b0), .adb_pm_waddr(9'd0), .adb_pm_wdata(12'd0),
@@ -360,7 +361,9 @@ module tb_iici_machine;
     // SDRAM=1: the controller shares one chip between the CPU and the video,
     // so a read that meets a video burst is late (plan: the bank interleave
     // is the refinement) - measured and bounded, not zero
-    if (SDRAM) begin
+    if (IIXX) begin
+      $display("      IIXX: %0d late of %0d memory cycles; the documented lengths not checked", late, cycles);
+    end else if (SDRAM) begin
       $display("      SDRAM: %0d late of %0d memory cycles (%0.2f %%)", late, cycles, 100.0 * late / cycles);
       check(late * 100 < cycles * 2, "SDRAM: late terminations under 2 % of the bus cycles");
       check(ram_rd > 0 && ram_rd_bad + ram_wr_bad <= late, "SDRAM: every RAM cycle off its documented clocks was a late one");
@@ -369,7 +372,7 @@ module tb_iici_machine;
       check(ram_rd > 0 && ram_rd_bad == 0 && ram_wr_bad == 0, "every RAM read and write took its documented clocks (refresh aside: see the lengths)");
     end
     check(vbursts > 0 && machine.rbv.dbg_underflow == 0, "the RBV fetched from bank A and its FIFO never ran dry (the run is under one frame)");
-    check(burst_bad == 0, "every burst was 5-2-2-2 with four longs");
+    if (!IIXX) check(burst_bad == 0, "every burst was 5-2-2-2 with four longs");
     check(!halted && since_new >= LOOP_CYCLES, "the run ends in a long loop (the RAM tests' fill), not a halt or the cycle limit");
     check(ram_wr > 1000, "the ROM wrote RAM: the RAM tests began");
     check(be_n == 1, "the only bus error is the ROM's probe of $58000000 ($50F21C00 is acknowledged: the MDU's Figure 8)");

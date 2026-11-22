@@ -40,7 +40,8 @@
 module iici_machine #(
   parameter FPU_UCODE = "rtl/fpu/ucode/",
   parameter CDROM_EN  = 1,
-  parameter ROM_AW    = 17                   // 512 KB
+  parameter ROM_AW    = 17,                  // 512 KB
+  parameter IIXX      = 0                    // 1: the IIxx - unpaced, the MDU's FAST memory (MacIIxx.qsf)
 ) (
   input         clk,
   input         clk_k,
@@ -199,7 +200,7 @@ module iici_machine #(
   wire        vid_req, vid_frame, vid_ld, asc_irq_n;
   wire [31:0] vid_data;
 
-  iici_mdu #(.ROM_AW(ROM_AW)) mdu (
+  iici_mdu #(.ROM_AW(ROM_AW), .FAST(IIXX), .REC(IIXX ? 0 : 1), .VB(IIXX ? 1 : 20)) mdu (
     .clk(clk), .cpu_en(phi2), .reset_n(reset_n), .c16_en(c16_en),
     .cpu_addr(cpu_addr), .ecs(ecs), .cpu_as_n(cpu_as_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc), .cpu_siz(cpu_siz),
     .cpu_dout(cpu_dout), .cpu_din(cpu_din), .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n),

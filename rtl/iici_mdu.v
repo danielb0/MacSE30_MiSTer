@@ -72,7 +72,8 @@ module iici_mdu #(
   parameter C16_DEN = 15625,
   parameter REC     = 1,               // CPU clocks after a RAM write's end in which its bank adds a clock (S Figures 15-16: back to back only)
   parameter REF     = 5,               // CPU clocks a refresh holds the RAM
-  parameter VB      = 20               // CPU clocks a video burst holds bank A (5 + 7 x 2 + 1)
+  parameter VB      = 20,              // CPU clocks a video burst holds bank A (5 + 7 x 2 + 1)
+  parameter FAST    = 0                // 1: the IIxx (MacIIxx.qsf IIXX): each RAM/ROM termination as soon as its data is in, burst beats every clock
 ) (
   input         clk,
   input         cpu_en,                // one clk per CPU clock
@@ -267,7 +268,7 @@ module iici_mdu #(
   wire held      = d_ram && ((ref_run != 0) || ref_go ||
                              (!bank && ((v_hold != 0) || v_start)));   // a RAM cycle waits out a refresh; bank A a video burst
   wire rec_hit   = d_ram && (bank ? (rec_b != 0) : (rec_a != 0));
-  wire [3:0] due0 = d_rom ? 4'd2 : (cpu_rw_n ? 4'd2 : 4'd1);   // 5 / 4 clocks: L - 3
+  wire [3:0] due0 = FAST ? 4'd1 : d_rom ? 4'd2 : (cpu_rw_n ? 4'd2 : 4'd1);   // 5 / 4 clocks: L - 3 (FAST: the data's own time)
 
   // the longs in, counting the one arriving on this clk (taken straight
   // off the port: the SDRAM's 100 ns are to the termination's clock)
@@ -372,11 +373,11 @@ module iici_mdu #(
               end
             end
           end else if (m_brst && m_used != 3'd4) begin
-            // the fill beats: DSACK* for one clock in every two
-            if (b_on) b_on <= 0;
+            // the fill beats: DSACK* for one clock in every two (FAST: every clock the data is in)
+            if (b_on && !FAST) b_on <= 0;
             else if (m_have > m_used) begin
               b_on <= 1; m_din <= m_next; m_used <= m_used + 1'b1;
-            end else late <= late + 1'b1;
+            end else begin b_on <= 0; late <= late + 1'b1; end
           end else if (m_brst) b_on <= 0;
         end
       end

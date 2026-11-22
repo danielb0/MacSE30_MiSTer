@@ -12,7 +12,7 @@ LABEL=${LABEL:?LABEL=<name> bash sim/iici_build.sh}
 LOG=$(pwd)/sim/iici_build.log
 QB=/c/intelFPGA_lite/17.0/quartus/bin64
 PS="powershell -NoProfile -ExecutionPolicy Bypass -File"
-rev=MacIIci
+rev=${REV:-MacIIci}                      # REV=MacIIxx: the IIxx
 log() { echo "[$(date '+%m-%d %H:%M')] $LABEL: $*" >> "$LOG"; }
 log "start on $(git log --oneline -1 | cut -c1-60)"
 
@@ -54,7 +54,7 @@ rm -f output_files/build_$LABEL.log.start
 if [ $rc != 0 ]; then
   git checkout -- rtl/build_tag.v $rev.qsf; log "build FAILED"; log "done"; exit 1
 fi
-"$QB/quartus_sta" -t scripts/sta_corners_iici.tcl > output_files/sta_corners_$LABEL.log 2>&1
+"$QB/quartus_sta" -t scripts/sta_corners_iici.tcl $rev > output_files/sta_corners_$LABEL.log 2>&1
 log "sta_corners: $(grep -E 'worst slack over every corner|^the capture' output_files/sta_corners_$LABEL.log | tr '\n' ' ' | cut -c1-300)"
 cp output_files/$rev.rbf output_files/${rev}_$LABEL.rbf && log "archived output_files/${rev}_$LABEL.rbf md5 $(md5sum output_files/${rev}_$LABEL.rbf | cut -c1-32)"
 git checkout -- rtl/build_tag.v $rev.qsf

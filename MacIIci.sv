@@ -65,8 +65,19 @@ assign BUTTONS   = 0;
 // The monitor (THE PORTRAIT DISPLAY): latched at reset, as the ROM reads the
 // sense lines once.  Its rotation (for a monitor on its side) is the
 // display's alone and takes effect at once.
+// THE IIxx (MacIIxx.qsf defines IIXX): this top with every speed restraint off -
+// the CPU unpaced and the MDU's FAST memory (iici_mdu.v); its home is MACIIXX.
+`ifdef IIXX
+localparam IIXX = 1;
+`else
+localparam IIXX = 0;
+`endif
 localparam CONF_STR = {
+`ifdef IIXX
+	"MACIIXX;;",
+`else
 	"MACIICI;;",
+`endif
 	"-;",
 	"S0,DSKIMG,Mount Internal Floppy;",
 	"-;",
@@ -440,7 +451,7 @@ wire  [7:0] vid_r, vid_g, vid_b;
 
 se30_mouse_speed mouse_speed (.clk(clk_sys), .speed(status[7:6]), .ps2_in(ps2_mouse), .ps2_out(ps2_mouse_s));
 
-iici_machine machine
+iici_machine #(.IIXX(IIXX)) machine
 (
 	.clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(portrait), .phi1(phi1), .phi2(phi2),
 	.reset_n(machine_reset_n), .bank_a(bank_a), .bank_b(bank_b), .cache_card(cache_card),
@@ -449,7 +460,7 @@ iici_machine machine
 	.v_req(v_req), .v_addr(v_addr), .v_rdata(v_rdata), .v_ack(v_ack),
 	.ce_pix(ce_pix), .vid_r(vid_r), .vid_g(vid_g), .vid_b(vid_b),
 	.hsync_n(hsync_n), .vsync_n(vsync_n), .hblank(hblank), .vblank(vblank), .poweroff_req(poweroff_req), .power_off(pwr_off),
-	.nmi_n(1'b1), .pace_en(1'b1),
+	.nmi_n(1'b1), .pace_en(!IIXX),
 	.ps2_key(ps2_key), .ps2_mouse(ps2_mouse_s), .timestamp(TIMESTAMP),
 	.pram_h_we(pram_h_we), .pram_h_addr(pram_h_addr), .pram_h_wdata(pram_h_wdata), .pram_h_raddr(pram_h_raddr),
 	.pram_h_rdata(pram_h_rdata), .pram_wr(pram_wr),
