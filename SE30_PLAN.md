@@ -30839,6 +30839,32 @@ few run logs lie untracked.
   Portrait Display on a Quadra 700 shows the button selectable) - authentic.  Board (Daniel): Portrait
   rotated both ways at 1/2/4 bpp, the greys, switching No <-> rotated live, the 640 x 480 monitor unchanged.
 
+- *THE IIxx - FUTURE ADDITIONS 17, the "fantasy Mac II" (branch `iixx` off iici-rotate ac01a95;
+  Daniel 2026-11-22: "the fastest possible Mac II. Base it on the IIci, but remove all speed restraints.
+  The only requirement is that it needs to pass timing").*  For fun and Daniel's curiosity, perhaps never
+  released; NEVER merged into or affecting the released cores (Daniel: "That's a kernel change with a full
+  sweep chain: Absolutely not" - no sweep chains for it; kernel changes allowed on the branch). Allowed to
+  go for room: the Portrait Display and its rotation (640 x 480 is enough), the cache card if no longer
+  needed. The name only matters if released; home stays MACIIXX (the IIci ROM copied there as boot0.rom).
+  - Layout: MacIIxx.qpf/.qsf = MacIIci.qsf + VERILOG_MACRO IIXX=1; MacIIci.sv, iici_machine.v (IIXX),
+    iici_mdu.v (FAST) default off, so the IIci build is unchanged. Build: REV=MacIIxx LABEL=.. bash
+    sim/iici_build.sh (sta_corners_iici.tcl takes the revision).
+  - STAGE 1 (2f0e5d9): the CPU unpaced (pace_en low); the MDU's FAST memory: every RAM/ROM termination
+    when its data is in (due 1), burst beats every clock, REC 0, VB 1 (iici_sdram already queues a bank-A
+    request behind a video burst).  FOUND: the SDRAM read is ~5 CPU clocks on its own (ACTIVE, tRCD 3,
+    CL2, capture, the wrapper's crossing), so single reads do not shorten - the gains are the unpaced
+    kernel, 5-1-1-1 bursts and no video hold; the cache card's 2-clock hits still pay.  Benches:
+    sim/iici IIXX=1 SDRAM=1 PASS 9 (RAM tests, D6 = 0); sim/iici_vid SDRAM=1, 1 ms (vblank only):
+    bank-A loop caches off 437 -> 492 bus cycles / 100 us, caches on bursts 53 -> 104.
+  - BUILD xx1 (2f0e5d9, 2026-11-22, 37 min, route 5 min at 67 % peak): TIMING MET AT EVERY CORNER
+    (+0.057 ns, capture met); 37,739 ALMs (rot4 38,369), 427 M10K.  output_files/MacIIxx_xx1.rbf md5
+    6d1f9f12.  Estimate (not measured): Norton CPU ~1.5-1.7x the IIci core, copies/screen 1.2-1.5x,
+    FPU ~1.0, disk the same.  Board risks (FA 17): the floppy's GCR loop (one-clock margin unpaced),
+    sound, serial, timing loops.
+  - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
+    SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
+    clocked up, a pipelined kernel past ~30 MHz.
+
 **END OF SESSION 2026-11-13 (closed by Daniel ~00:00 2026-11-14) - READ THIS TO RESUME.**
 The IIci was built end to end this session, on `iici` (latest 5a246cf, NOT pushed), each step from the
 documentation with its plan block above: BURST FILLS; THE MDU; THE IIci MACHINE; THE RBV; THE PORTRAIT
