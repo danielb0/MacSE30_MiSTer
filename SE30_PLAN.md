@@ -30868,6 +30868,7 @@ few run logs lie untracked.
     initialise) - the ROM's GCR loop ($4086E2B0-E3A0, MOVE.B (A4),D3 / BPL four instructions apart)
     polled again inside the SWIM's 14-clock clear window and took each nibble twice.  FIX d8f9399:
     se30_swim RD_CLR (default 14), the IIxx 1; build xx2.
+    Daniel's Norton references: IIfx CPU 19.3 (xx1 1.07x), Quadra 700 CPU 27.6 (xx1 0.75x: +33 % to go).
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.
