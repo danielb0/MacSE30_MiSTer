@@ -30869,6 +30869,10 @@ few run logs lie untracked.
     polled again inside the SWIM's 14-clock clear window and took each nibble twice.  FIX d8f9399:
     se30_swim RD_CLR (default 14), the IIxx 1; build xx2.
     Daniel's Norton references: IIfx CPU 19.3 (xx1 1.07x), Quadra 700 CPU 27.6 (xx1 0.75x: +33 % to go).
+  - STAGE 2's RULE (Daniel 2026-11-23): "I don't want to change the actual CPU RTL. Anything else is fair
+    game" - the kernel VHDL untouched; the tg68k.v wrapper is fair game.  The kernel's own paths had +5.7 ns
+    at 40 ns, so its ceiling is ~29 MHz: the target is 28.57 MHz (1200/42; clk_sys 57.14, SDRAM 114.3),
+    the clk_sys paths (20 -> 17.5 ns: MDU, devices, SDRAM requests, the wrapper) the work.
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.
