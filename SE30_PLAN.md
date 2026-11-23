@@ -30879,6 +30879,35 @@ few run logs lie untracked.
     game" - the kernel VHDL untouched; the tg68k.v wrapper is fair game.  The kernel's own paths had +5.7 ns
     at 40 ns, so its ceiling is ~29 MHz: the target is 28.57 MHz (1200/42; clk_sys 57.14, SDRAM 114.3),
     the clk_sys paths (20 -> 17.5 ns: MDU, devices, SDRAM requests, the wrapper) the work.
+  - STAGE 2 THE NIGHT OF 2026-11-23 (Daniel: "continue with the stage 2 changes ... If possible get to a
+    build that I can test on the board").  NOT REACHED - no stage 2 build for the board.  Done and kept:
+    * f8099ab: PLL under IIXX at a 1142.857 MHz VCO (clk_k 28.571, clk_sys 57.143, clk_mem 114.286,
+      clk_vid unchanged); devices' counts by CLK_HZ; no Portrait Display / rotation / MISTER_FB.
+    * dfb8035: iici_sdram CL / T_RC (CL3 for the -7 part at 8.75 ns; RD_LAT 6, video taps, v_tail,
+      read-DQM gap after a video READ); phases in 109.375 ps steps; MacIIxx.sdc + files_iixx.qip.
+    * ca4b36f: tg68k FASTS1 (S1 data registers without the hit in their enable, SIZ-chosen line test,
+      post / dz1 / dz2 one LUT after the hit); capture A 2188 ps; the IIci's dq_r pins out.
+    Benches all pass at the IIxx's clocks (sim/sdram_iici IIXX=1 18; sim/iici IIXX=1 SDRAM=1 9; sim/iici_vid
+    CACHE=1/7+card/8/9 - the card 3 passes, 0 differences at 4 ms).  Throughput (bus cycles / 100 us,
+    against stage 1 at 25 MHz): cached bursts 104 -> 115 (+10 %), the bank-A write loop 492 -> 501 (+2 %):
+    CL3 costs back most of the clock on RAM.
+    BUILDS: xx3 (PLL phase illegal at the new VCO), xx5 (-1.47 ns, capture A -0.32), xx6 (-1.19 ns wrapper,
+    dq_q -> dq_r -2.18: MacIIxx.sdc still has the IIci's fitter-only 7.0 ns for that hop - at 114 MHz with
+    A at +2.19 it wants ~5.0; NEXT FIX).  THE WALL: the kernel's outputs - FC, SIZ and the physical
+    address through the PMMU's fast translation (fast_xlat / fast_hit -> addr_out) - arrive ~17.4-18.0 ns
+    after its edge, and the wrapper takes them at the S1 phi2 edge half a CPU clock later (17.5 ns at
+    28.57 MHz); every decision on them (cp_local, the card's tag RAM address, kc_pack, as_n_r / s, post,
+    dsack) needs 2-3 levels more.  With the kernel unchanged and the half-clock S1, the ceiling is
+    ~26 MHz (half period ~19 ns) - no gain over 25 once CL3 is paid.  OPTIONS for Daniel:
+      (a) clk_k ~1.3-1.75 ns ahead of clk_sys (PLL phase; MacIIci.sv's phi from two clk_sys stages -
+          bench sim/iici IIXX=1 PASS with it, an RTL sim proves nothing about hold): every clk_k -> clk_sys
+          path then needs hold padding of up to the shift - thousands of short paths (kb_* -> devices, the
+          SDRAM samplers) - the router-stall risk of lesson-hold-guides-narrow, unless false-path holds
+          are argued per group (kb_* is stable through a cycle; the samplers are gated by phi2);
+      (b) the wrapper takes the kernel's outputs a whole CPU clock after its edge (S1 at phi1): no timing
+          trick, +1/2 CPU clock on every bus cycle - RAM-heavy code may lose what the clock gains;
+      (c) stop stage 2 at 25 MHz and spend the effort on memory latency instead (SDRAM rows kept open,
+          the 68882 engine on a faster clock) - where the bench says the time goes.
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.
