@@ -30874,7 +30874,8 @@ few run logs lie untracked.
     chip ignores writes for 9 FCLK after a load: the unpaced CPU lands inside, the byte is dropped.  FIX
     259c79d: se30_swim WR_LOCK (default 9), the IIxx 0.  BUILD xx4 = branch iixx-s1 (d8f9399 + the fix as
     1788c9d; worktree C:/Git/MacSE30_MiSTer_s1), 25 MHz: ours met at every corner, the capture met; only
-    ascal -0.038 (Daniel: ignore); 37,821 ALMs; output_files/MacIIxx_xx4.rbf md5 d48b4d6d.  FOR THE BOARD.
+    ascal -0.038 (Daniel: ignore); 37,821 ALMs; output_files/MacIIxx_xx4.rbf md5 d48b4d6d.  ON THE BOARD (Daniel
+    2026-11-23): floppy writing PASSES - 880K, read / erase / write / unmount / mount / read.
   - STAGE 2's RULE (Daniel 2026-11-23): "I don't want to change the actual CPU RTL. Anything else is fair
     game" - the kernel VHDL untouched; the tg68k.v wrapper is fair game.  The kernel's own paths had +5.7 ns
     at 40 ns, so its ceiling is ~29 MHz: the target is 28.57 MHz (1200/42; clk_sys 57.14, SDRAM 114.3),
