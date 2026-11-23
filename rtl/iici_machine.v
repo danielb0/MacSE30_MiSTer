@@ -323,7 +323,7 @@ module iici_machine #(
   wire  [3:0] swim_ph, swim_ph_oe;
   wire        enbl1_n, enbl2_n, fdhd_sense, swim_wrdata, swim_wrreq_n;
   wire  [3:0] swim_ph_pin = (swim_ph_oe & swim_ph) | ~swim_ph_oe;
-  se30_swim #(.RD_CLR(IIXX ? 1 : 14)) swim (
+  se30_swim #(.RD_CLR(IIXX ? 1 : 14), .WR_LOCK(IIXX ? 0 : 9)) swim (
     .clk(clk), .c16_en(c16_en), .reset_n(via_reset_n),
     .sel(swim_sel), .strobe(dev_strobe), .rs(dev_addr[12:9]), .wdata(dev_wdata), .rdata(swim_rdata),
     .ph_out(swim_ph), .ph_oe(swim_ph_oe), .ph_in(swim_ph_pin),

@@ -180,6 +180,8 @@
 
 module se30_swim #(
   parameter     MFM_WRITE = 1,         // the ISM's write path (plan 5.16)
+  parameter     WR_LOCK   = 9,         // C16M clocks after a write load in which the buffer ignores writes; the IIxx 0 (its
+                                       //   unpaced CPU writes inside 9 after seeing the buffer empty: the byte was dropped)
   parameter     RD_CLR    = 14         // C16M clocks from a valid async read to the data register's clear; the IIxx 1 (its
                                        //   unpaced CPU polls again inside 14 and took a nibble twice: the ROM reads each once)
 ) (
@@ -381,7 +383,7 @@ module se30_swim #(
         else begin                                          // a cell boundary
           wcnt <= wcell;
           if (wbits == 0) begin                             // a load, and its byte's MSB
-            wload <= 1; wlock <= 4'd9; wempty <= 1; wbits <= 3'd7;
+            wload <= 1; wlock <= WR_LOCK; wempty <= 1; wbits <= 3'd7;
             if (wempty) begin unr_n <= 0; wsr <= 8'h00; wsr_last <= 8'h00; end
             else begin
               wsr <= {wbuf[6:0], 1'b0}; wsr_last <= wbuf;
