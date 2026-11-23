@@ -30861,6 +30861,53 @@ few run logs lie untracked.
     6d1f9f12.  Estimate (not measured): Norton CPU ~1.5-1.7x the IIci core, copies/screen 1.2-1.5x,
     FPU ~1.0, disk the same.  Board risks (FA 17): the floppy's GCR loop (one-clock margin unpaced),
     sound, serial, timing loops.
+  - xx1 ON THE BOARD (Daniel, 2026-11-23, System 7.5.5, the 128 KB card): boots; NORTON CPU 20.7,
+    video 54.7, FPU 2.66 = 2.08 / 2.15 / 0.985 of the real IIci (9.95 / 25.4 / 2.70), 2.11 / 2.11 /
+    1.06 of the IIci core (rot4 0.988 / 1.02 / 0.925) - above the estimate (1.5-1.7): already past the
+    IIfx and at the Quadra 610 / 605 goal on CPU.  FLOPPY: diskettes identified, not mounted (asked to
+    initialise) - the ROM's GCR loop ($4086E2B0-E3A0, MOVE.B (A4),D3 / BPL four instructions apart)
+    polled again inside the SWIM's 14-clock clear window and took each nibble twice.  FIX d8f9399:
+    se30_swim RD_CLR (default 14), the IIxx 1; build xx2.
+    Daniel's Norton references: IIfx CPU 19.3 (xx1 1.07x), Quadra 700 CPU 27.6 (xx1 0.75x: +33 % to go).
+  - xx2 ON THE BOARD (Daniel 2026-11-23): diskettes mount and read; WRITING FAILS - the ROM's GCR write
+    loop ($4086E50C: TST.B (A4) / BPL / MOVE.B D1,(A3)) writes as soon as the buffer shows empty, and the
+    chip ignores writes for 9 FCLK after a load: the unpaced CPU lands inside, the byte is dropped.  FIX
+    259c79d: se30_swim WR_LOCK (default 9), the IIxx 0.  BUILD xx4 = branch iixx-s1 (d8f9399 + the fix as
+    1788c9d; worktree C:/Git/MacSE30_MiSTer_s1), 25 MHz: ours met at every corner, the capture met; only
+    ascal -0.038 (Daniel: ignore); 37,821 ALMs; output_files/MacIIxx_xx4.rbf md5 d48b4d6d.  FOR THE BOARD.
+  - STAGE 2's RULE (Daniel 2026-11-23): "I don't want to change the actual CPU RTL. Anything else is fair
+    game" - the kernel VHDL untouched; the tg68k.v wrapper is fair game.  The kernel's own paths had +5.7 ns
+    at 40 ns, so its ceiling is ~29 MHz: the target is 28.57 MHz (1200/42; clk_sys 57.14, SDRAM 114.3),
+    the clk_sys paths (20 -> 17.5 ns: MDU, devices, SDRAM requests, the wrapper) the work.
+  - STAGE 2 THE NIGHT OF 2026-11-23 (Daniel: "continue with the stage 2 changes ... If possible get to a
+    build that I can test on the board").  NOT REACHED - no stage 2 build for the board.  Done and kept:
+    * f8099ab: PLL under IIXX at a 1142.857 MHz VCO (clk_k 28.571, clk_sys 57.143, clk_mem 114.286,
+      clk_vid unchanged); devices' counts by CLK_HZ; no Portrait Display / rotation / MISTER_FB.
+    * dfb8035: iici_sdram CL / T_RC (CL3 for the -7 part at 8.75 ns; RD_LAT 6, video taps, v_tail,
+      read-DQM gap after a video READ); phases in 109.375 ps steps; MacIIxx.sdc + files_iixx.qip.
+    * ca4b36f: tg68k FASTS1 (S1 data registers without the hit in their enable, SIZ-chosen line test,
+      post / dz1 / dz2 one LUT after the hit); capture A 2188 ps; the IIci's dq_r pins out.
+    Benches all pass at the IIxx's clocks (sim/sdram_iici IIXX=1 18; sim/iici IIXX=1 SDRAM=1 9; sim/iici_vid
+    CACHE=1/7+card/8/9 - the card 3 passes, 0 differences at 4 ms).  Throughput (bus cycles / 100 us,
+    against stage 1 at 25 MHz): cached bursts 104 -> 115 (+10 %), the bank-A write loop 492 -> 501 (+2 %):
+    CL3 costs back most of the clock on RAM.
+    BUILDS: xx3 (PLL phase illegal at the new VCO), xx5 (-1.47 ns, capture A -0.32), xx6 (-1.19 ns wrapper,
+    dq_q -> dq_r -2.18: MacIIxx.sdc still has the IIci's fitter-only 7.0 ns for that hop - at 114 MHz with
+    A at +2.19 it wants ~5.0; NEXT FIX).  THE WALL: the kernel's outputs - FC, SIZ and the physical
+    address through the PMMU's fast translation (fast_xlat / fast_hit -> addr_out) - arrive ~17.4-18.0 ns
+    after its edge, and the wrapper takes them at the S1 phi2 edge half a CPU clock later (17.5 ns at
+    28.57 MHz); every decision on them (cp_local, the card's tag RAM address, kc_pack, as_n_r / s, post,
+    dsack) needs 2-3 levels more.  With the kernel unchanged and the half-clock S1, the ceiling is
+    ~26 MHz (half period ~19 ns) - no gain over 25 once CL3 is paid.  OPTIONS for Daniel:
+      (a) clk_k ~1.3-1.75 ns ahead of clk_sys (PLL phase; MacIIci.sv's phi from two clk_sys stages -
+          bench sim/iici IIXX=1 PASS with it, an RTL sim proves nothing about hold): every clk_k -> clk_sys
+          path then needs hold padding of up to the shift - thousands of short paths (kb_* -> devices, the
+          SDRAM samplers) - the router-stall risk of lesson-hold-guides-narrow, unless false-path holds
+          are argued per group (kb_* is stable through a cycle; the samplers are gated by phi2);
+      (b) the wrapper takes the kernel's outputs a whole CPU clock after its edge (S1 at phi1): no timing
+          trick, +1/2 CPU clock on every bus cycle - RAM-heavy code may lose what the clock gains;
+      (c) stop stage 2 at 25 MHz and spend the effort on memory latency instead (SDRAM rows kept open,
+          the 68882 engine on a faster clock) - where the bench says the time goes.
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.
