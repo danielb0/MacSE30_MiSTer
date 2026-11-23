@@ -30924,6 +30924,15 @@ few run logs lie untracked.
     predicted: the estimate counted only the APU clocks; the CU's move / pre-instruction times the CPU waits
     on went too.  Mathematica's Plot[Sin[x]/x,{x,-10,10}] draws correctly on xx7 (zeros at multiples of pi,
     minima -0.22 at +-4.5, side peaks 0.13 at +-7.7; Daniel's screenshot 20261123_110538).
+    OPEN SDRAM ROWS (Daniel 2026-11-23: "go ahead"), MODELLED, NOT BUILT - they cannot gain a CPU clock here.
+    mem_watch's two policies (CPU clocks, a read hit -1 / a conflict +1): all rows open - CACHE=1 -1262/+19,
+    CACHE=8 -2644/+5276 (a loss: code and data rows in bank A), CACHE=0 (ROM code) -6014/+0, the ROM bench
+    -2960/+229; bursts only - CACHE=1 -1250/+19, else 0.  BUT a hit saves only tRCD = 3 SDRAM clocks (30 ns)
+    and the bus ends a cycle on CPU clock edges (40 ns): READ at 2 instead of 5 puts the long on m_rdata at
+    8, one clock after the P edge at 8 that would end a 4-clock read - the cycle still ends at 12.  The one
+    clock back would be dq_q -> m_rdata without dq_r: dq_q -> dq_r alone has +0.213 ns of its 8.33 (xx7,
+    slow model), so no.  The S_IDLE decision has +0.97 (sd_addr) / +1.28 (cmd) for the hit compare.  The
+    gain is only reads that now wait out a write's precharge (WR_BUSY): under 9 % of reads, a clock each.
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.

@@ -69,6 +69,29 @@ module mem_watch;
     end
   end
 
+  // two open-row policies, in CPU clocks against today's (a read hit -1, a conflict +1, a write hit 0):
+  // P_A every CPU access leaves its row open; P_B only a burst does (singles and writes auto-precharge).
+  // The video's ACTIVE closes the bank it opens (a conflict there is counted, its cost the video's); a refresh all.
+  reg  [12:0] rowa [0:7], rowb [0:7];
+  reg   [7:0] opa = 0, opb = 0;
+  integer pa_save = 0, pa_cost = 0, pb_save = 0, pb_cost = 0, pa_v = 0, pb_v = 0;
+  wire q_we = tb_iici_machine.g_sd.sdram.q_we, q_bu = tb_iici_machine.g_sd.sdram.q_burst;
+  wire [12:0] q_row = tb_iici_machine.g_sd.sdram.a_word[21:9];
+  always @(posedge sclk) if (tb_iici_machine.g_sd.sdram.state == 4'd1 && tb_iici_machine.g_sd.sdram.busy_z) begin
+    if (tb_iici_machine.g_sd.sdram.c_go) begin
+      if (opa[cb] && rowa[cb] == q_row) begin if (!q_we) pa_save = pa_save + 1; end
+      else if (opa[cb]) pa_cost = pa_cost + 1;
+      opa[cb] <= 1; rowa[cb] <= q_row;
+      if (opb[cb] && rowb[cb] == q_row) begin if (!q_we) pb_save = pb_save + 1; end
+      else if (opb[cb]) pb_cost = pb_cost + 1;
+      opb[cb] <= !q_we && q_bu; rowb[cb] <= q_row;
+    end else if (tb_iici_machine.g_sd.sdram.o_kind == 3'd1) begin opa <= 0; opb <= 0; end
+    else if (tb_iici_machine.g_sd.sdram.o_kind == 3'd2) begin
+      if (opa[vbk]) pa_v = pa_v + 1; if (opb[vbk]) pb_v = pb_v + 1;
+      opa[vbk] <= 0; opb[vbk] <= 0;
+    end
+  end
+
   task report;
     begin
       $display("---- MEM: AS* low in clk_sys clocks (n, mean x10, histogram len:count)");
@@ -80,6 +103,8 @@ module mem_watch;
       end
       $display("---- MEM SDRAM: CPU ACTIVEs %0d, row hits %0d, other row open in the bank %0d; video ACTIVEs %0d (hits %0d); refreshes %0d; clocks a CPU request waited for the chip %0d",
                act, hit, conf, vact, vhit, ref_n, wsum);
+      $display("---- MEM POLICY all-open: reads saved %0d CPU clocks, conflicts cost %0d; video precharges first %0d", pa_save, pa_cost, pa_v);
+      $display("---- MEM POLICY bursts-open: reads saved %0d CPU clocks, conflicts cost %0d; video precharges first %0d", pb_save, pb_cost, pb_v);
       $display("---- MEM SDRAM interleaved by 1 KB: row hits %0d, other row open %0d; video hits %0d", hit2, conf2, vhit2);
     end
   endtask
