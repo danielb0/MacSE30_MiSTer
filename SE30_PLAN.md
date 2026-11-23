@@ -30861,6 +30861,13 @@ few run logs lie untracked.
     6d1f9f12.  Estimate (not measured): Norton CPU ~1.5-1.7x the IIci core, copies/screen 1.2-1.5x,
     FPU ~1.0, disk the same.  Board risks (FA 17): the floppy's GCR loop (one-clock margin unpaced),
     sound, serial, timing loops.
+  - xx1 ON THE BOARD (Daniel, 2026-11-23, System 7.5.5, the 128 KB card): boots; NORTON CPU 20.7,
+    video 54.7, FPU 2.66 = 2.08 / 2.15 / 0.985 of the real IIci (9.95 / 25.4 / 2.70), 2.11 / 2.11 /
+    1.06 of the IIci core (rot4 0.988 / 1.02 / 0.925) - above the estimate (1.5-1.7): already past the
+    IIfx and at the Quadra 610 / 605 goal on CPU.  FLOPPY: diskettes identified, not mounted (asked to
+    initialise) - the ROM's GCR loop ($4086E2B0-E3A0, MOVE.B (A4),D3 / BPL four instructions apart)
+    polled again inside the SWIM's 14-clock clear window and took each nibble twice.  FIX d8f9399:
+    se30_swim RD_CLR (default 14), the IIxx 1; build xx2.
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.
