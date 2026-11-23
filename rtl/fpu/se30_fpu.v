@@ -158,6 +158,7 @@ module se30_fpu #(
   parameter NSEL_HEX  = "ucode.nsel.hex",
   parameter CVT_HEX   = "ucode.cvt.hex",    // the CU's conversion times (7e-3, plan 8.9.7)
   parameter CVSEL_HEX = "ucode.cvsel.hex",  // ... which of them an entry uses
+  parameter FAST      = 0,                  // 1: the IIxx - no 68882 times: the APU's waits and pad, the CU's moves, conversions and holds
   parameter TADJ_HEX  = "ucode.tadj.hex"    // the APU's clocks' adjustment (8.9.7)
 ) (
   input             clk,
@@ -253,7 +254,7 @@ module se30_fpu #(
     .word(u_word), .tag(u_tag), .snan(u_snan), .den(u_den), .neg(u_neg));
 
   se30_fpu_apu #(.UROM_HEX(UROM_HEX), .NROM_HEX(NROM_HEX), .ENTRY_HEX(ENTRY_HEX),
-                 .KROM_HEX(KROM_HEX), .NSEL_HEX(NSEL_HEX), .TADJ_HEX(TADJ_HEX)) apu (
+                 .KROM_HEX(KROM_HEX), .NSEL_HEX(NSEL_HEX), .TADJ_HEX(TADJ_HEX), .FAST(FAST)) apu (
     .clk(clk), .reset(reset), .ce(ce),
     .start(apu_start), .abort(apu_abort), .entry_idx(apu_idx), .cmd(acmd),
     .cu_word(zero_src ? 86'd0 : u_word), .cu_tag(zero_src ? TZERO : u_tag),
@@ -599,19 +600,19 @@ module se30_fpu #(
   // figures are 2 below the dyadic ones, the 68882's heads are not; an
   // integer's hold for a monadic operation (cv_intm) 6 more
   localparam signed [9:0] K_MONO = 10'sd2, K_INTM = 10'sd2;
-  localparam [8:0] INT_PRE = 9'd6;  // an integer's CU time before the hand-off (its head: 21)
+  localparam [8:0] INT_PRE = FAST ? 9'd0 : 9'd6;  // an integer's CU time before the hand-off (its head: 21)
   // a packed source's hold from the APU's start (Table 8-3: every P row's
   // total is H + T + 69 - the integers' H + T + 19 - the MPU held while the
   // APU converts, as 8.6.14 item 22 rules for the integers).  Calibrated:
   // with it the typical operand's tail and total are the table's (the head
   // is 9 against 13: the dialog before the wait for both units)
-  localparam [8:0] P_HOLD = 9'd54;
-  localparam [3:0] D_REG = 4'd4;   // a register source's hand-off (Table 8-3: total = H + T + 4)
-  localparam [3:0] D_MEM = 4'd1;   // an S, D or X source's (total = H + T + 1)
+  localparam [8:0] P_HOLD = FAST ? 9'd0 : 9'd54;
+  localparam [3:0] D_REG = FAST ? 4'd0 : 4'd4;   // a register source's hand-off (Table 8-3: total = H + T + 4)
+  localparam [3:0] D_MEM = FAST ? 4'd0 : 4'd1;   // an S, D or X source's (total = H + T + 1)
   // the CU's own moves' times (Table 8-3: FMOVE to FPn 21/34/40/46, to
   // memory 38/44/50), counted from the operand's arrival - the CU busy
-  localparam [7:0] M_RR = 8'd11, M_S = 8'd19, M_D = 8'd21, M_X = 8'd23,
-                   MO_S = 8'd19, MO_D = 8'd21, MO_X = 8'd23;
+  localparam [7:0] M_RR = FAST ? 8'd0 : 8'd11, M_S = FAST ? 8'd0 : 8'd19, M_D = FAST ? 8'd0 : 8'd21, M_X = FAST ? 8'd0 : 8'd23,
+                   MO_S = FAST ? 8'd0 : 8'd19, MO_D = FAST ? 8'd0 : 8'd21, MO_X = FAST ? 8'd0 : 8'd23;
   function [7:0] m_in;  input [2:0] f; m_in  = (f == 3'd1) ? M_S  : (f == 3'd5) ? M_D  : M_X;  endfunction
   function [7:0] m_out; input [2:0] f; m_out = (f == 3'd1) ? MO_S : (f == 3'd5) ? MO_D : MO_X; endfunction
   function signed [9:0] cvk;
@@ -999,7 +1000,7 @@ module se30_fpu #(
                 end
           4'd8: cv_st <= 4'd10;                                 // (cvt_q follows the tags)
           4'd10: begin                                          // Table 8-13's time and the format's rest
-                  cv_T <= ($signed({2'b00, cvt_q}) + cvk(cu_cmd, cvsel_q[3:0]) < 0) ? 8'd0
+                  cv_T <= (FAST || $signed({2'b00, cvt_q}) + cvk(cu_cmd, cvsel_q[3:0]) < 0) ? 8'd0
                         : cvt_q + cvk(cu_cmd, cvsel_q[3:0]);
                   cv_st <= 4'd9;
                 end

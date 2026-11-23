@@ -93,7 +93,8 @@ module se30_fpu_apu #(
   parameter ENTRY_HEX = "ucode.entry.hex",
   parameter KROM_HEX  = "ucode.krom.hex",
   parameter NSEL_HEX  = "ucode.nsel.hex",
-  parameter TADJ_HEX  = "ucode.tadj.hex"    // the 68882's clocks against the 68881's phases (8.9.7)
+  parameter TADJ_HEX  = "ucode.tadj.hex",   // the 68882's clocks against the 68881's phases (8.9.7)
+  parameter FAST      = 0                   // 1: the IIxx - no WAIT holds and no END pad: each word at once
 ) (
   input             clk,
   input             reset,
@@ -413,6 +414,7 @@ module se30_fpu_apu #(
         endcase
       default: ;
     endcase
+    if (FAST) begin wait_h = 16'd0; wait_add = 16'd0; end   // (the IIxx: the 68882's times are padding only)
   end
 
   // A word executes on its last clock: at once, or after its WAIT's hold.
@@ -1060,7 +1062,7 @@ module se30_fpu_apu #(
               if (n_ctl == `NANO_CTL_END) begin
                 budget <= ((budget_n > clocks + 16'd1) ? budget_n : clocks + 16'd1) + tpos;
                 st <= (((budget_n > clocks + 16'd1) ? budget_n : clocks + 16'd1) + tpos > clocks + 16'd1 &&
-                       !save_req) ? S_ENDH : S_IDLE;
+                       !save_req && !FAST) ? S_ENDH : S_IDLE;
               end
               if (n_ctl == `NANO_CTL_CHECKPOINT && save_req)
                 st <= S_SUSP;

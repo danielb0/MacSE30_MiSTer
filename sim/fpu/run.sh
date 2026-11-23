@@ -43,6 +43,6 @@ if [ ! -f out/fpu_rtl.vec ] || [ "$MODEL/out/fpu.vec" -nt out/fpu_rtl.vec ] || \
 fi
 RTL="../../rtl/fpu/se30_fpu_apu.v ../../rtl/fpu/se30_fpu_unpack.v ../../rtl/fpu/se30_fpu_cond.v"
 if [ "$BENCH" = apu ]; then TB=tb_se30_fpu_apu; else TB=tb_se30_fpu; RTL="../../rtl/fpu/se30_fpu.v $RTL"; fi
-"$IVERILOG/iverilog.exe" -g2005-sv -DSIMULATION -I ../../rtl/fpu -I ../../rtl/fpu/ucode   -o out/$TB.vvp $TB.v $RTL || exit 1
+"$IVERILOG/iverilog.exe" -g2005-sv -DSIMULATION -I ../../rtl/fpu -I ../../rtl/fpu/ucode   -P $TB.FAST=${FAST:-0} -o out/$TB.vvp $TB.v $RTL || exit 1
 "$IVERILOG/vvp.exe" -n out/$TB.vvp "$@" | tee run.log
 grep -q '^==== PASS' run.log

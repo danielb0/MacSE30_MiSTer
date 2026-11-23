@@ -58,6 +58,8 @@
 `timescale 1ns/1ps
 
 module tb_se30_fpu;
+  parameter FAST = 0;                  // the IIxx's FPU (run.sh FAST=1): results checked, the 68882's clocks not
+  integer sum_got = 0, sum_want = 0;   // FAST: the vectors' APU clocks, ours against the 68882's
   `include "se30_fpu_fn.vh"
 
   reg clk = 1'b0, ce = 1'b0, reset = 1'b1;
@@ -75,6 +77,7 @@ module tb_se30_fpu;
   wire [4:0]  dbg_state;
 
   se30_fpu #(
+    .FAST(FAST),
     .UROM_HEX("../../rtl/fpu/ucode/ucode.urom.hex"),
     .NROM_HEX("../../rtl/fpu/ucode/ucode.nrom.hex"),
     .ENTRY_HEX("../../rtl/fpu/ucode/ucode.entry.hex"),
@@ -610,7 +613,7 @@ module tb_se30_fpu;
       check(rd[31:16] == 16'h1FD4, "FRESTORE busy: the word reads back");
       cp_cond(6'd0);
       check(prims[0] == 16'h8900 && last_prim == 16'h0800, "the FSIN resumes: $8900, then $0800");
-      check(dbg_clocks == want_clk, "... in the same clocks");
+      check(FAST || dbg_clocks == want_clk, "... in the same clocks");
       fp0_out;
       check(got == want_sin, "... with the same result");
       // an abandoned save: a new instruction lets the stopped APU go on
@@ -1471,7 +1474,8 @@ module tb_se30_fpu;
             if (bad) nfail = nfail + 1; else npass = npass + 1;
             // the clocks: the simulator's, or at most them where a save
             // waited for the end (it cuts END's padding short)
-            clk_bad = ran && ((det_done && det_fmt == 16'h1F38 && det_ca > 0) ? (g_clocks > v_clocks)
+            if (ran) begin sum_got = sum_got + g_clocks; sum_want = sum_want + v_clocks; end
+            clk_bad = !FAST && ran && ((det_done && det_fmt == 16'h1F38 && det_ca > 0) ? (g_clocks > v_clocks)
                                                                              : (g_clocks !== v_clocks));
             if (clk_bad) nclk = nclk + 1;
             if (det_done)
@@ -1512,6 +1516,7 @@ module tb_se30_fpu;
                  n, npass, nfail, nclk, nskip);
         $display("  moves by the CU %0d (clocks not compared), FMOVE and stores by the APU %0d, wrong route %0d",
                  ncu, napu_mv, nroute);
+        $display("  APU clocks over the vectors: %0d, the 68882's %0d", sum_got, sum_want);
         if (detour_on)
           $display("detours: busy at a checkpoint %0d, busy initial %0d, idle %0d, idle after come-again %0d, null %0d",
                    nd_busyc, nd_busyi, nd_idle, nd_cut, nd_null);
