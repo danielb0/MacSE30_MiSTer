@@ -29,6 +29,29 @@ module  pll_iici_0002(
 		.reference_clock_frequency("50.0 MHz"),
 		.operation_mode("direct"),
 		.number_of_clocks(7),
+`ifdef IIXX
+		// the IIxx (MacIIxx.qsf): a 1142.857 MHz VCO (50 x 160 / 7) - clk_k 28.571429 (the kernel's own
+		// paths had 5.7 ns spare at 40 ns), clk_sys 57.142857, clk_mem 114.285714; the SDRAM phases
+		// kept in ns (the board's delays), so steps of 109.4 ps; clk_vid unchanged at 400 / 7
+		.output_clock_frequency0("57.142857 MHz"),
+		.phase_shift0("0 ps"),
+		.duty_cycle0(50),
+		.output_clock_frequency1("114.285714 MHz"),
+		.phase_shift1("0 ps"),
+		.duty_cycle1(50),
+		.output_clock_frequency2("114.285714 MHz"),
+		.phase_shift2("2500 ps"),
+		.duty_cycle2(50),
+		.output_clock_frequency3("114.285714 MHz"),
+		.phase_shift3("1667 ps"),
+		.duty_cycle3(50),
+		.output_clock_frequency4("114.285714 MHz"),
+		.phase_shift4("313 ps"),
+		.duty_cycle4(50),
+		.output_clock_frequency5("28.571429 MHz"),
+		.phase_shift5("0 ps"),
+		.duty_cycle5(50),
+`else
 		.output_clock_frequency0("50.000000 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
@@ -47,6 +70,7 @@ module  pll_iici_0002(
 		.output_clock_frequency5("25.000000 MHz"),
 		.phase_shift5("0 ps"),
 		.duty_cycle5(50),
+`endif
 		.output_clock_frequency6("57.142857 MHz"),
 		.phase_shift6("0 ps"),
 		.duty_cycle6(50),

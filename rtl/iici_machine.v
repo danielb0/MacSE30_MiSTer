@@ -41,7 +41,8 @@ module iici_machine #(
   parameter FPU_UCODE = "rtl/fpu/ucode/",
   parameter CDROM_EN  = 1,
   parameter ROM_AW    = 17,                  // 512 KB
-  parameter IIXX      = 0                    // 1: the IIxx - unpaced, the MDU's FAST memory (MacIIxx.qsf)
+  parameter IIXX      = 0,                   // 1: the IIxx - unpaced, the MDU's FAST memory (MacIIxx.qsf)
+  parameter CLK_HZ    = 50_000_000           // clk: 50 MHz, or the IIxx's 57.142857 (400/7) - the devices' counts follow it
 ) (
   input         clk,
   input         clk_k,
@@ -200,7 +201,7 @@ module iici_machine #(
   wire        vid_req, vid_frame, vid_ld, asc_irq_n;
   wire [31:0] vid_data;
 
-  iici_mdu #(.ROM_AW(ROM_AW), .FAST(IIXX), .REC(IIXX ? 0 : 1), .VB(IIXX ? 1 : 20)) mdu (
+  iici_mdu #(.ROM_AW(ROM_AW), .C16_NUM(CLK_HZ == 50_000_000 ? 4896 : 4284), .C16_DEN(15625), .FAST(IIXX), .REC(IIXX ? 0 : 1), .VB(IIXX ? 1 : 20)) mdu (
     .clk(clk), .cpu_en(phi2), .reset_n(reset_n), .c16_en(c16_en),
     .cpu_addr(cpu_addr), .ecs(ecs), .cpu_as_n(cpu_as_n), .cpu_rw_n(cpu_rw_n), .cpu_fc(cpu_fc), .cpu_siz(cpu_siz),
     .cpu_dout(cpu_dout), .cpu_din(cpu_din), .dsack_n(dsack_n), .berr(berr), .ipl_n(ipl_n),
@@ -233,7 +234,7 @@ module iici_machine #(
 
   // ------------------------------------------------------- NuBus: empty
   wire [19:0] card_addr_nc;
-  iicx_nuchip #(.NB_NUM(1), .NB_DEN(5)) nuchip (                  // 10 MHz from 50
+  iicx_nuchip #(.NB_NUM(CLK_HZ == 50_000_000 ? 1 : 7), .NB_DEN(CLK_HZ == 50_000_000 ? 5 : 40)) nuchip (   // 10 MHz from 50 (57.14: 7/40)
     .clk(clk), .reset_n(reset_n),
     .sel(slot_sel), .addr(cpu_addr), .rw(cpu_rw_n), .be(slot_be), .wdata(cpu_dout),
     .rdata(nb_rdata), .dsack_n(nb_dsack_n), .berr(nb_berr), .tm_pb54(nb_tm), .nb_tick(),
@@ -298,14 +299,14 @@ module iici_machine #(
     .via_cb2_out(via1_cb2_out), .via_cb2_oe(via1_cb2_oe), .dio(adb_dio),
     .line(adb_line), .pull(xcvr_pull), .dbg());
   // the devices and the clock chip count clk itself: 50 MHz here (the SE/30's is 31.3344)
-  se30_adb_kbd #(.CLK_KHZ(16'd50000)) kbd (
+  se30_adb_kbd #(.CLK_KHZ(CLK_HZ / 1000)) kbd (
     .clk(clk), .reset(1'b0), .ps2_key(ps2_key), .line(adb_line), .pull(kbd_pull), .dbg());
-  se30_adb_mouse #(.CLK_KHZ(16'd50000)) mouse (
+  se30_adb_mouse #(.CLK_KHZ(CLK_HZ / 1000)) mouse (
     .clk(clk), .reset(1'b0), .ps2_mouse(ps2_mouse), .line(adb_line), .pull(mouse_pull), .dbg());
 
   // ------------------------------------------------------------- RTC
   assign rtc_d = rtc_d_oe ? rtc_d_out : 1'b1;
-  se30_rtc #(.CLK_HZ(50_000_000)) rtc (
+  se30_rtc #(.CLK_HZ(CLK_HZ)) rtc (
     .clk(clk), .timestamp(timestamp),
     .cs_n(via1_pb_pin[2]), .sck(via1_pb_pin[1]), .d_in(via1_pb_pin[0]),
     .d_out(rtc_d_out), .d_oe(rtc_d_oe), .one_hz(rtc_1hz),

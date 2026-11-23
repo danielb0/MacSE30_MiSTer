@@ -87,8 +87,10 @@ localparam CONF_STR = {
 	"-;",
 	"SC5,NVR,Mount PRAM;",
 	"-;",
+`ifndef IIXX
 	"O[12],Monitor,640x480 RGB,Portrait 640x870;",
 	"D2O[16:15],Portrait rotated,No,Clockwise,Anticlockwise;",
+`endif
 	"O[2:1],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O[9:8],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"h0O[11:10],Memory,16 MB,4 MB;",
@@ -265,7 +267,7 @@ reg   [1:0] bank_a = 2'd3, bank_b = 2'd0;
 reg         portrait = 0;
 reg   [1:0] cache_card = 0;                 // the RAM cache card: 0 none, 1 = 32 KB, 2 = 128 KB (fitted with the power off)
 always @(posedge clk_sys) if (!machine_reset_n) begin
-	portrait <= status[12];
+	portrait <= !IIXX && status[12];     // the IIxx: 640 x 480 only
 	cache_card <= (status[14:13] == 2'd3) ? 2'd0 : status[14:13];
 	case ((!big && status[11]) ? 2'd0 : status[11:10])
 		2'd0: begin bank_a <= 2'd3; bank_b <= 2'd0; end
@@ -429,7 +431,7 @@ wire [24:0] mem_addr, v_addr;
 wire  [3:0] mem_be;
 wire [31:0] mem_wdata, mem_rdata, v_rdata;
 
-iici_sdram sdram
+iici_sdram #(.INIT_PAUSE(IIXX ? 15'd23000 : 15'd20100)) sdram   // 201 us at 100 MHz; the IIxx's 114.3: 201 us
 (
 	.clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(pll_locked),
 	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
@@ -451,7 +453,7 @@ wire  [7:0] vid_r, vid_g, vid_b;
 
 se30_mouse_speed mouse_speed (.clk(clk_sys), .speed(status[7:6]), .ps2_in(ps2_mouse), .ps2_out(ps2_mouse_s));
 
-iici_machine #(.IIXX(IIXX)) machine
+iici_machine #(.IIXX(IIXX), .CLK_HZ(IIXX ? 57_142_857 : 50_000_000)) machine
 (
 	.clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(portrait), .phi1(phi1), .phi2(phi2),
 	.reset_n(machine_reset_n), .bank_a(bank_a), .bank_b(bank_b), .cache_card(cache_card),
@@ -704,6 +706,10 @@ assign VGA_B  = pwr_off ? 8'd0 : vid_b;
 
 // The Portrait Display turned a quarter turn, through a frame buffer in DDR
 // (FUTURE ADDITIONS 18; rtl/iici_rotate.v).  The analogue output stays upright.
+`ifdef IIXX
+// the IIxx: no Portrait Display, so no rotation and no DDR
+assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_WE, DDRAM_RD} = 0;
+`else
 assign FB_FORCE_BLANK = 0;
 iici_rotate rotate (
 	.clk(clk_vid), .ce(ce_pix), .de(vga_de), .vblank(vblank), .grey(VGA_B),
@@ -715,5 +721,6 @@ iici_rotate rotate (
 	.DDRAM_DIN(DDRAM_DIN), .DDRAM_BE(DDRAM_BE), .DDRAM_WE(DDRAM_WE), .DDRAM_RD(DDRAM_RD),
 	.overrun()
 );
+`endif
 
 endmodule

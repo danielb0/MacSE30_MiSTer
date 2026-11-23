@@ -98,7 +98,8 @@
 `timescale 1ns/1ps
 
 module iici_sdram #(
-  parameter TR_READS_LOG2 = 16
+  parameter TR_READS_LOG2 = 16,
+  parameter [14:0] INIT_PAUSE = 15'd20100      // 201 us of clk at 100 MHz (the IIxx's 114.3 MHz: 23000)
 ) (
   input             clk,               // 100 MHz, 2 x clk_sys
   input             clk_sdc,           // the chip's clock, inverted at the pin
@@ -166,7 +167,6 @@ module iici_sdram #(
                    CMD_LOAD_MODE = 4'b0000;
   // A9 = 1 single-location writes, A6-A4 = 010 CL2, A3 = 0 sequential, A2-A0 = 001 BL2
   localparam [12:0] MODE = 13'h0221;
-  localparam INIT_PAUSE = 15'd20100;            // 201 us
   localparam REF_FORCE  = 11'd767;              // 7.67 us with no refresh: one now
   localparam T_RCD      = 4'd3;                 // READ/WRITE this many clocks after ACTIVE
   localparam ACT_BUSY   = 5'd8;                 // ACTIVE to the next ACTIVE or refresh: tRC 7 + 1
