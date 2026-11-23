@@ -30922,7 +30922,8 @@ few run logs lie untracked.
     Predicted: Norton FPU ~10-15 % up on xx4, CPU / graphics / disk unchanged.  ON THE BOARD (Daniel
     2026-11-23): Norton FPU 3.51 (xx1 2.66: +32 %, 1.30x the real IIci), the other tests unchanged.  More than
     predicted: the estimate counted only the APU clocks; the CU's move / pre-instruction times the CPU waits
-    on went too.
+    on went too.  Mathematica's Plot[Sin[x]/x,{x,-10,10}] draws correctly on xx7 (zeros at multiples of pi,
+    minima -0.22 at +-4.5, side peaks 0.13 at +-7.7; Daniel's screenshot 20261123_110538).
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.
