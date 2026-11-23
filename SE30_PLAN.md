@@ -30919,7 +30919,10 @@ few run logs lie untracked.
     bit for bit + the pairs bench, APU clocks 7,195,171 vs the 68882 8,742,312 (-18 %); FAST=0 unchanged
     (8,742,312 exactly).  BUILD xx7 = 290f2fe: met at every corner (0.110 ns hold worst), the capture met
     (A -0.373 hold on SDRAM_DQ[9], B met), 37,690 ALMs; output_files/MacIIxx_xx7.rbf md5 600f3069.
-    Predicted: Norton FPU ~10-15 % up on xx4, CPU / graphics / disk unchanged.  Board: pending.
+    Predicted: Norton FPU ~10-15 % up on xx4, CPU / graphics / disk unchanged.  ON THE BOARD (Daniel
+    2026-11-23): Norton FPU 3.51 (xx1 2.66: +32 %, 1.30x the real IIci), the other tests unchanged.  More than
+    predicted: the estimate counted only the APU clocks; the CU's move / pre-instruction times the CPU waits
+    on went too.
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.
