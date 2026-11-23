@@ -431,7 +431,7 @@ wire [24:0] mem_addr, v_addr;
 wire  [3:0] mem_be;
 wire [31:0] mem_wdata, mem_rdata, v_rdata;
 
-iici_sdram #(.INIT_PAUSE(IIXX ? 15'd23000 : 15'd20100)) sdram   // 201 us at 100 MHz; the IIxx's 114.3: 201 us
+iici_sdram #(.INIT_PAUSE(IIXX ? 15'd23000 : 15'd20100), .CL(IIXX ? 3 : 2), .T_RC(IIXX ? 8 : 7)) sdram   // 201 us at 100 MHz (the IIxx's 114.3: 201 us; CL3, tRC 8)
 (
 	.clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(pll_locked),
 	.ready(sdram_ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),

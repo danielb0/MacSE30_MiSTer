@@ -99,7 +99,13 @@
 
 module iici_sdram #(
   parameter TR_READS_LOG2 = 16,
-  parameter [14:0] INIT_PAUSE = 15'd20100      // 201 us of clk at 100 MHz (the IIxx's 114.3 MHz: 23000)
+  parameter [14:0] INIT_PAUSE = 15'd20100,     // 201 us of clk at 100 MHz (the IIxx's 114.3 MHz: 23000)
+  // THE IIxx (114.286 MHz, 8.75 ns): CAS latency 3 (CL2 needs 10 ns on the AS4C32M16SB-7) and tRC / tRFC
+  // 63 ns = 8 clocks.  CL3 moves every read word a clock later (RD_LAT, the video's vt taps), and read DQM
+  // (two clocks of latency) then covers the clocks two and three after a READ: a fresh ACTIVE's row bits
+  // on A12/A11 must not fall two clocks after a video READ either (q_gap / p_gap)
+  parameter CL   = 2,                            // CAS latency, 2 or 3
+  parameter T_RC = 7                             // tRC and tRFC in clocks (63 ns: 7 at 10 ns, 8 at 8.75)
 ) (
   input             clk,               // 100 MHz, 2 x clk_sys
   input             clk_sdc,           // the chip's clock, inverted at the pin
@@ -166,16 +172,16 @@ module iici_sdram #(
                    CMD_REFRESH   = 4'b0001,
                    CMD_LOAD_MODE = 4'b0000;
   // A9 = 1 single-location writes, A6-A4 = 010 CL2, A3 = 0 sequential, A2-A0 = 001 BL2
-  localparam [12:0] MODE = 13'h0221;
+  localparam [12:0] MODE = {3'b000, 1'b1, 2'b00, CL[2:0], 1'b0, 3'b001};   // $0221 at CL2, $0231 at CL3
   localparam REF_FORCE  = 11'd767;              // 7.67 us with no refresh: one now
   localparam T_RCD      = 4'd3;                 // READ/WRITE this many clocks after ACTIVE
-  localparam ACT_BUSY   = 5'd8;                 // ACTIVE to the next ACTIVE or refresh: tRC 7 + 1
+  localparam ACT_BUSY   = T_RC + 1;             // ACTIVE to the next ACTIVE or refresh: tRC 7 + 1
   localparam WR_BUSY    = 5'd10;                // a write's: the last WRITE (4) + 1 + tWR 2 + tRP 3
-  localparam REF_BUSY   = 5'd8;                 // tRFC 7 + 1 (the second chip's copy)
+  localparam REF_BUSY   = T_RC + 1;             // tRFC 7 + 1 (the second chip's copy)
   // a READ's first word is in dq_r this many clocks after the sequencer
   // decides the READ: the chip takes it a clock on, CL 2, the board's delays
   // (clock out, tAC, data in), dq_q, dq_r
-  localparam [4:0] RD_LAT  = 5'd5;
+  localparam [4:0] RD_LAT  = 5'd5 + (CL - 2);   // (CL3: 6)
   localparam [15:0] TR_W1 = 16'hA5C3, TR_W2 = 16'h5A3C;
   localparam  [1:0] TR_BANK = 2'd3;
   localparam [12:0] TR_ROW  = 13'd8191;
@@ -364,17 +370,17 @@ module iici_sdram #(
   reg        vrd_w3;                   // ... any of the three: (vrd_q1 || vrd_q2 || vrd_q3), registered a clock
                                        //   ahead (build cache6 missed by 36 ps at slow -40C through their OR
                                        //   into sd_addr's register; this is the same signal, one level fewer)
-  reg  [5:0] vt;                       // its words' way to dq_r: the high word at vt[4], the low at vt[5]
+  reg  [7:0] vt;                       // its words' way to dq_r: the high word at vt[RD_LAT - 1], the low at vt[RD_LAT]
   reg [15:0] hi_v;
   // the CPU's request and the burst: another chip bank (or chip), and clear of the video's last READs
   wire       q_safe  = q_addr[24] || (q_addr[22:21] != v_bank);
-  wire       q_gap   = q_we ? !vrd_w3 : !vrd_q1;
+  wire       q_gap   = q_we ? !vrd_w3 : !(vrd_q1 || (CL > 2 && vrd_q2));
   wire       c_want  = m_pend || m_fresh;
   wire       c_go    = c_want && (!v_run || (q_safe && q_gap));
   // ... and the waiting request alone, from this clock's own registers: the READs' choice (below) is made on
   // the clocks between clk_sys's, where no fresh request can start
   wire       p_safe  = xm_addr[24] || (xm_addr[22:21] != v_bank);
-  wire       p_gap   = xm_we ? !vrd_w3 : !vrd_q1;
+  wire       p_gap   = xm_we ? !vrd_w3 : !(vrd_q1 || (CL > 2 && vrd_q2));
   wire       p_go    = (state == S_IDLE) && busy_z && m_pend && p_safe && p_gap;
   reg        vrd_fire;
   // which column each READ names: the CPU's burst wraps in its line
@@ -614,13 +620,13 @@ module iici_sdram #(
       if (vrd_fire) begin
         cmd <= {o_chip, CMD_READ[2:0]}; sd_ba <= o_ba; sd_addr <= o_row;
         v_n <= v_n + 1'b1;
-        if (v_n == 4'd7) v_tail <= 3'd4;        // the last READ's words and tRP: the row's bank is free at + 6
+        if (v_n == 4'd7) v_tail <= 3'd2 + CL;   // the last READ's words and tRP: the row's bank is free at + 6 (CL3: + 7)
       end
       vrd_q1 <= vrd_fire; vrd_q2 <= vrd_q1; vrd_q3 <= vrd_q2;
       vrd_w3 <= vrd_fire || vrd_q1 || vrd_q2;
-      vt <= {vt[4:0], vrd_fire};
-      if (vt[4]) hi_v <= dq_r;
-      if (vt[5]) begin vb[vb_in[2:0]] <= {hi_v, dq_r}; vb_in <= vb_in + 1'b1; end
+      vt <= {vt[6:0], vrd_fire};
+      if (vt[RD_LAT - 1]) hi_v <= dq_r;
+      if (vt[RD_LAT]) begin vb[vb_in[2:0]] <= {hi_v, dq_r}; vb_in <= vb_in + 1'b1; end
       if (v_run && v_n == 4'd8) begin
         if (v_tail != 0) v_tail <= v_tail - 1'b1; else v_run <= 0;
       end

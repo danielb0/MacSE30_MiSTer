@@ -35,7 +35,7 @@ module tb_iici_machine;
   reg clk_mem = 0, clk_sys = 0, clk_k = 0;
   integer cdiv = 0;
   always begin
-    #5.0 clk_mem = ~clk_mem;
+    #(IIXX ? 4.375 : 5.0) clk_mem = ~clk_mem;     // (IIXX: the IIxx's 114.286 / 57.143 / 28.571 MHz)
     if (clk_mem) begin clk_sys = ~clk_sys; if (clk_sys) clk_k = ~clk_k; end
   end
   reg clk_vid = 0;
@@ -148,7 +148,7 @@ module tb_iici_machine;
     wire [12:0] sd_addr;
     wire  [1:0] sd_ba, sd_dqm;
     wire [15:0] sd_dq;
-    iici_sdram #(.TR_READS_LOG2(5)) sdram (
+    iici_sdram #(.TR_READS_LOG2(5), .CL(IIXX ? 3 : 2), .T_RC(IIXX ? 8 : 7), .INIT_PAUSE(IIXX ? 15'd23000 : 15'd20100)) sdram (
       .clk(clk_mem), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(sd_rst_n),
       .ready(s_ready), .cap_sel(s_capsel), .cap_ok(), .cap_fail_a(), .cap_fail_b(), .c1_ok(), .c1_fail(),
       .m_req(mem_req), .m_we(mem_we), .m_burst(mem_burst), .m_addr(mem_addr), .m_be(mem_be), .m_wdata(mem_wdata),
@@ -170,7 +170,7 @@ module tb_iici_machine;
     assign dq_chip = oe_c ? do_c : 16'hzzzz;
     always @(dq_chip or sdram.dq_oe) dq_back <= #(2.0) (sdram.dq_oe ? 16'hzzzz : dq_chip);
     assign sd_dq = dq_back;
-    sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1), .COL_BITS(10), .tCK(10.0), .tAC(6.0)) chip (
+    sdram_model #(.PRELOAD_HEX("rom.hex"), .PRELOAD_WORD(24'hC00000), .FILL_UNWRITTEN(1), .COL_BITS(10), .tCK(IIXX ? 8.75 : 10.0), .tAC(IIXX ? 5.4 : 6.0)) chip (
       .clk(clk_c), .cke(cke_c), .cs_n(cs_c), .ras_n(ras_c), .cas_n(cas_c), .we_n(we_c),
       .ba(ba_c), .addr(a_c), .dqm(a_c[12:11]), .dq(dq_chip));
   end else begin : g_nosd
@@ -189,7 +189,7 @@ module tb_iici_machine;
   wire [63:0] regs;
   wire [15:0] late;
 
-  iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/"), .IIXX(IIXX)) machine (
+  iici_machine #(.FPU_UCODE("../../rtl/fpu/ucode/"), .IIXX(IIXX), .CLK_HZ(IIXX ? 57_142_857 : 50_000_000)) machine (
     .clk(clk_sys), .clk_k(clk_k), .clk_vid(clk_vid), .portrait(PORTRAIT[0]), .phi1(phi1), .phi2(phi2), .reset_n(reset_n), .bank_a(2'd2), .bank_b(2'd2), .cache_card(XCARD[1:0]),
     .mem_req(mem_req), .mem_we(mem_we), .mem_burst(mem_burst), .mem_addr(mem_addr), .mem_be(mem_be),
     .mem_wdata(mem_wdata), .mem_rdata(mem_rdata), .mem_ack(mem_ack), .mem_soon(SDRAM ? s_msoon : 1'b0), .mem_refresh(mem_refresh),

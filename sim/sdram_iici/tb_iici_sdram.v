@@ -22,7 +22,10 @@
 module tb_iici_sdram;
   reg clk = 0, clk_sys = 0;
   // one process: clk_sys's edges are clk's even ones
-  always begin #5.0 clk = ~clk; if (clk) clk_sys = ~clk_sys; end
+  // run.sh's IIXX=1: the IIxx's 114.286 MHz (half period 4.375) at CAS latency 3, tAC 5.4 (AS4C32M16SB-7)
+  parameter IIXX = 0;
+  localparam real HALF = IIXX ? 4.375 : 5.0;
+  always begin #(HALF) clk = ~clk; if (clk) clk_sys = ~clk_sys; end
   parameter real SDC = 2.5, CAPA = 1.667, CAPB = 0.3125;
   reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
   always @(clk) begin
@@ -56,7 +59,7 @@ module tb_iici_sdram;
   wire  [1:0] sd_ba, sd_dqm;
   wire [15:0] sd_dq;
 
-  iici_sdram #(.TR_READS_LOG2(5)) dut (
+  iici_sdram #(.TR_READS_LOG2(5), .CL(IIXX ? 3 : 2), .T_RC(IIXX ? 8 : 7), .INIT_PAUSE(IIXX ? 15'd23000 : 15'd20100)) dut (
     .clk(clk), .clk_sdc(clk_sdc), .clk_capa(clk_capa), .clk_capb(clk_capb), .phi(phi), .reset_n(reset_n),
     .ready(ready), .cap_sel(cap_sel), .cap_ok(cap_ok), .cap_fail_a(cap_fail_a), .cap_fail_b(cap_fail_b),
     .c1_ok(c1_ok), .c1_fail(c1_fail),
@@ -84,7 +87,7 @@ module tb_iici_sdram;
   reg  [15:0] dq_back = 16'hzzzz;
   always @(dq_chip or dut.dq_oe) dq_back <= #(DQ_TO_REG) (dut.dq_oe ? 16'hzzzz : dq_chip);
   assign sd_dq = dq_back;
-  sdram_model #(.COL_BITS(9), .tCK(10.0), .tAC(6.0)) chip (
+  sdram_model #(.COL_BITS(9), .tCK(2.0 * HALF), .tAC(IIXX ? 5.4 : 6.0)) chip (
     .clk(sd_clk_chip), .cke(cke_c), .cs_n(cs_n_c), .ras_n(ras_n_c), .cas_n(cas_n_c), .we_n(we_n_c),
     .ba(ba_c), .addr(addr_c), .dqm(addr_c[12:11]), .dq(dq_chip));
 
@@ -145,24 +148,25 @@ module tb_iici_sdram;
     repeat (5) @(posedge clk); #1 reset_n = 1;
     while (!ready) @(posedge clk);
     $display("      ready at %0.1f us: cap_ok %b (A %0d failures, B %0d), chose %s", $realtime / 1000.0, cap_ok, cap_fail_a, cap_fail_b, cap_sel ? "B" : "A");
-    check(cap_ok == 2'b11 && cap_sel == 0, "the training: both captures clean in the model, A chosen");
+    if (IIXX) check(cap_ok != 2'b00, "the training: a capture clean in the model (IIXX: the bench's fixed pin delays leave one)");
+    else check(cap_ok == 2'b11 && cap_sel == 0, "the training: both captures clean in the model, A chosen");
 
     dl(24'hC00000, 16'h1122); dl(24'hC00001, 16'h3344); dl(24'hC00002, 16'h5566); dl(24'hC00003, 16'h7788);
     req(0, 0, 25'h600000, 4'hF, 0); wait_acks(1);
     $display("      a read: m_soon at clk_sys edge %0d, the long at %0d after its request's, %08x", soon_at - e0, ack_at[0] - e0, got[0]);
-    check(got[0] == 32'h11223344 && soon_at - e0 == 5 && ack_at[0] - e0 == 6,
+    check(got[0] == 32'h11223344 && soon_at - e0 == 5 + IIXX && ack_at[0] - e0 == 6 + IIXX,
           "a read: m_soon at the fifth clk_sys edge (the MDU's termination), the long by the sixth (the wrapper's edge)");
 
     req(1, 0, 25'h000100, 4'hF, 32'hDEADBEEF); wait_acks(1); check(acks == 1, "a write: acknowledged once");
     req(1, 0, 25'h000100, 4'b0101, 32'h00AA00BB); wait_acks(1);
     req(0, 0, 25'h000100, 4'hF, 0); wait_acks(1);
-    check(got[0] == 32'hDEAABEBB && soon_at - e0 == 5 && ack_at[0] - e0 == 6, "a masked write lands by its bytes; read back on time");
+    check(got[0] == 32'hDEAABEBB && soon_at - e0 == 5 + IIXX && ack_at[0] - e0 == 6 + IIXX, "a masked write lands by its bytes; read back on time");
 
     bad = 0;
     for (i = 0; i < 6; i = i + 1) begin
       req(1, 0, 25'h000200 + i, 4'hF, 32'h10000000 + i); wait_acks(1);
       req(0, 0, 25'h000200 + i, 4'hF, 0); wait_acks(1);
-      if (got[0] != 32'h10000000 + i || soon_at - e0 != 5 || ack_at[0] - e0 != 6) bad = bad + 1;
+      if (got[0] != 32'h10000000 + i || soon_at - e0 != 5 + IIXX || ack_at[0] - e0 != 6 + IIXX) bad = bad + 1;
     end
     check(bad == 0, "write/read pairs back to back: every read on time and right");
 
@@ -171,7 +175,7 @@ module tb_iici_sdram;
     req(0, 1, 25'h000302, 4'hF, 0); wait_acks(4);
     $display("      burst: acks at %0d %0d %0d %0d, %08x %08x %08x %08x", ack_at[0] - e0, ack_at[1] - e0, ack_at[2] - e0, ack_at[3] - e0, got[0], got[1], got[2], got[3]);
     check(got[0] == 32'hB0000002 && got[1] == 32'hB0000003 && got[2] == 32'hB0000000 && got[3] == 32'hB0000001, "a burst: the line in wrap order 2 3 0 1");
-    check(soon_at - e0 == 5 && ack_at[0] - e0 == 6 && ack_at[1] - e0 <= 9 && ack_at[2] - e0 <= 13 && ack_at[3] - e0 <= 17, "a burst: m_soon at 5, each long by the MDU's beat (5-2-2-2)");
+    check(soon_at - e0 == 5 + IIXX && ack_at[0] - e0 == 6 + IIXX && ack_at[1] - e0 <= 9 + IIXX && ack_at[2] - e0 <= 13 + IIXX && ack_at[3] - e0 <= 17 + IIXX, "a burst: m_soon at 5, each long by the MDU's beat (5-2-2-2)");
 
     for (i = 0; i < 8; i = i + 1) begin req(1, 0, 25'h000400 + i, 4'hF, 32'hC0000000 + i); wait_acks(1); end
     repeat (4) @(posedge clk_sys);
@@ -201,11 +205,11 @@ module tb_iici_sdram;
         if (kind == 0) begin
           req(0, 0, 25'h200301, 4'hF, 0); wait_acks(1);
           if (got[0] !== 32'hD0000001) bad = bad + 1;
-          if (soon_at - e0 != 5 || ack_at[0] - e0 != 6) begin late = late + 1; if (late <= 4) $display("      a read %0d edges into a burst: m_soon at %0d, the long at %0d", d, soon_at - e0, ack_at[0] - e0); end
+          if (soon_at - e0 != 5 + IIXX || ack_at[0] - e0 != 6 + IIXX) begin late = late + 1; if (late <= 4) $display("      a read %0d edges into a burst: m_soon at %0d, the long at %0d", d, soon_at - e0, ack_at[0] - e0); end
         end else if (kind == 1) begin
           req(0, 1, 25'h200302, 4'hF, 0); wait_acks(4);
           if (got[0] !== 32'hD0000002 || got[1] !== 32'hD0000003 || got[2] !== 32'hD0000000 || got[3] !== 32'hD0000001) bad = bad + 1;
-          if (soon_at - e0 != 5 || ack_at[0] - e0 != 6) begin late = late + 1; if (late <= 4) $display("      a burst %0d edges into a video burst: m_soon at %0d, the first long at %0d", d, soon_at - e0, ack_at[0] - e0); end
+          if (soon_at - e0 != 5 + IIXX || ack_at[0] - e0 != 6 + IIXX) begin late = late + 1; if (late <= 4) $display("      a burst %0d edges into a video burst: m_soon at %0d, the first long at %0d", d, soon_at - e0, ack_at[0] - e0); end
         end else begin
           req(1, 0, 25'h200380, 4'hF, 32'hE0000000 + d); wait_acks(1);
         end
@@ -214,8 +218,8 @@ module tb_iici_sdram;
         if (got[0] !== 32'h11223344) bad = bad + 1;
         // (behind a write that waited for the video's last READ to leave the data pins - 20 ns - the read
         // is a CPU clock late: the chip is busy with the write for as long as it would be alone)
-        if (kind == 2 && soon_at - e0 == 6 && ack_at[0] - e0 == 7) wlate = wlate + 1;
-        else if (soon_at - e0 != 5 || ack_at[0] - e0 != 6) begin late = late + 1; if (late <= 4) $display("      the second read (kind %0d, %0d edges in): m_soon at %0d, the long at %0d", kind, d, soon_at - e0, ack_at[0] - e0); end
+        if (kind == 2 && soon_at - e0 == 6 + IIXX && ack_at[0] - e0 == 7 + IIXX) wlate = wlate + 1;
+        else if (soon_at - e0 != 5 + IIXX || ack_at[0] - e0 != 6 + IIXX) begin late = late + 1; if (late <= 4) $display("      the second read (kind %0d, %0d edges in): m_soon at %0d, the long at %0d", kind, d, soon_at - e0, ack_at[0] - e0); end
         j = 0; while (vacks < 8 && j < 200) begin @(posedge clk_sys); j = j + 1; end
         if (vacks != 8) vbad = vbad + 1;
         for (j = 0; j < 8; j = j + 1) if (vgot[j] !== 32'hC0000000 + j) vbad = vbad + 1;
@@ -225,7 +229,10 @@ module tb_iici_sdram;
         end
       end
     check(bad == 0, "the CPU inside a video burst: every long read right (48 placings, two requests each)");
-    check(late == 0, "the CPU inside a video burst: every read on time, as if the chip were free");
+    // (IIXX, CL3: read DQM reaches two clocks past a video READ, so a fresh ACTIVE waits out the second too -
+    // now and then a clk_sys clock: iici_sdram.v q_gap)
+    if (IIXX) check(late <= 4, "the CPU inside a video burst: every read on time but a few (CL3's DQM gap)");
+    else check(late == 0, "the CPU inside a video burst: every read on time, as if the chip were free");
     check(vbad == 0, "the CPU inside a video burst: the video's eight longs right every time");
     check(wbad == 0, "the CPU inside a video burst: every write lands");
     $display("      inside a video burst: %0d of 16 reads right behind a write were one CPU clock late", wlate);

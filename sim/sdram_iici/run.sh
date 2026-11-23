@@ -5,6 +5,6 @@ set -u
 cd "$(dirname "$0")"
 IVERILOG=${IVERILOG:-/c/iverilog/bin}
 mkdir -p out
-"$IVERILOG/iverilog.exe" -g2005-sv -DSIMULATION -o out/tb.vvp tb_iici_sdram.v ../sdram/sdram_model.v ../../rtl/iici_sdram.v || exit 1
+"$IVERILOG/iverilog.exe" -g2005-sv -DSIMULATION -Ptb_iici_sdram.IIXX=${IIXX:-0} -o out/tb.vvp tb_iici_sdram.v ../sdram/sdram_model.v ../../rtl/iici_sdram.v || exit 1
 "$IVERILOG/vvp.exe" -n out/tb.vvp | tee run.log
 grep -q '^==== PASS' run.log
