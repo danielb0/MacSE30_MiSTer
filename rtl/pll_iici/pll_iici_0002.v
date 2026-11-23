@@ -32,7 +32,8 @@ module  pll_iici_0002(
 `ifdef IIXX
 		// the IIxx (MacIIxx.qsf): a 1142.857 MHz VCO (50 x 160 / 7) - clk_k 28.571429 (the kernel's own
 		// paths had 5.7 ns spare at 40 ns), clk_sys 57.142857, clk_mem 114.285714; the SDRAM phases
-		// kept in ns (the board's delays), rounded to the VCO's eighth, 109.375 ps: 23, 15, 3 steps; clk_vid unchanged at 400 / 7
+		// kept in ns (the board's delays), rounded to the VCO's eighth, 109.375 ps: 23, 20, 3 steps (capture A
+		// 0.55 ns later than the IIci's: build xx5 had it 0.32 ns early at slow 100C, 1.9-2.2 ns of hold); clk_vid unchanged at 400 / 7
 		.output_clock_frequency0("57.142857 MHz"),
 		.phase_shift0("0 ps"),
 		.duty_cycle0(50),
@@ -43,7 +44,7 @@ module  pll_iici_0002(
 		.phase_shift2("2516 ps"),
 		.duty_cycle2(50),
 		.output_clock_frequency3("114.285714 MHz"),
-		.phase_shift3("1641 ps"),
+		.phase_shift3("2188 ps"),
 		.duty_cycle3(50),
 		.output_clock_frequency4("114.285714 MHz"),
 		.phase_shift4("328 ps"),

@@ -137,9 +137,9 @@ module tb_iici_machine;
   wire [31:0] s_mrdata, s_vrdata;
   reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
   always @(clk_mem) begin
-    clk_sdc  <= #(2.5) clk_mem;
-    clk_capa <= #(1.667) clk_mem;
-    clk_capb <= #(0.3125) clk_mem;
+    clk_sdc  <= #(IIXX ? 2.516 : 2.5) clk_mem;           // (IIXX: rtl/pll_iici's phases in 109.375 ps steps)
+    clk_capa <= #(IIXX ? 2.188 : 1.667) clk_mem;
+    clk_capb <= #(IIXX ? 0.328 : 0.3125) clk_mem;
   end
   reg sd_rst_n = 0;
   initial #100 sd_rst_n = 1;

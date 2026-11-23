@@ -117,9 +117,6 @@ set_location_assignment PLLOUTPUTCOUNTER_X0_Y5_N1 -to "pll_hdmi:pll_hdmi|pll_hdm
 # The fitter-only set_max_delay in MacIIci.sdc only asks; the routability-first placer can lose it.
 # Each pinned to the LAB about halfway from its pin (AE24 / AE23 at X82_Y0, AH13 at X60_Y0) to rot3's
 # dq_r, so both hops keep ~1.5 ns.  SE30_PLAN.md "THE ROTATED PORTRAIT DISPLAY", build rot4.
-set_location_assignment LAB_X61_Y18_N0 -to "emu:emu|iici_sdram:sdram|dq_r[8]"
-set_location_assignment LAB_X61_Y20_N0 -to "emu:emu|iici_sdram:sdram|dq_r[11]"
-set_location_assignment LAB_X52_Y19_N0 -to "emu:emu|iici_sdram:sdram|dq_r[4]"
 
 
 # The read capture's first fabric registers (rtl/iici_sdram.v dq_w) beside their pins:

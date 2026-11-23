@@ -119,7 +119,10 @@
 module tg68k #(
   parameter KCLK = 0,                  // 1: the kernel on clk_k (CLOCKING above)
   parameter BURST = 0,                 // 1 (with KCLK): burst fills on CBACK* (BURST FILLS above)
-  parameter XCACHE = 0                 // 1 (with KCLK): the Macintosh IIci's RAM cache card (THE CACHE CARD, below)
+  parameter XCACHE = 0,                // 1 (with KCLK): the Macintosh IIci's RAM cache card (THE CACHE CARD, below)
+  parameter FASTS1 = 0                 // 1: the IIxx (28.57 MHz, the kernel's outputs 17.5 ns from the wrapper's S1 edge):
+                                       //   the S1 data registers load whenever S1 could be taken, the hit left out
+                                       //   of their enable, and the line-crossing test without an adder (THE IIxx's S1)
 ) (
   input         clk,                   // 2 x C16M
   input         clk_k,                 // KCLK: the CPU clock, clk / 2, rising at the end of each phi1 clk
@@ -300,6 +303,10 @@ module tg68k #(
   reg         as_n_r, ds_n_r;
   reg  [31:0] din_r;
   reg   [1:0] dsack_r;
+  // THE IIxx's S1 (FASTS1): the zero a hit or a posted write gives the acknowledge, kept apart from dsack_r
+  // (dz1: a hit; dz2: a posted write) so the hit is in no wide mux; dsack_e is the acknowledge as before
+  reg         dz1, dz2;
+  wire  [1:0] dsack_e = (FASTS1 && (dz1 || dz2)) ? 2'b00 : dsack_r;
   reg         ack_pending, ack_berr;
   reg         berr_hold;
   reg         kk_bclr;                 // the kernel released a held bus error at this edge (berr_hold follows at the phi2 edge)
@@ -436,8 +443,12 @@ module tg68k #(
   wire [13:0] b_cacr   = k_cacr[13:0] & ~{5'b0, coff[0], 7'b0, coff[1]};
   wire        b_cdis   = KCLK ? kk_cdis : cdis;
   wire  [4:0] b_reach  = {1'b0, k_addr[3:0]} + {2'b0, w_size};            // an operand's end in its 16-byte line
+  // (FASTS1: the same test as a choice by SIZ, the latest input, among compares of the address alone)
+  wire        b_fits   = !FASTS1 ? (b_reach <= 5'd16) :
+                         (k_siz == 2'b01) ? 1'b1 : (k_siz == 2'b10) ? (k_addr[3:0] <= 4'd14) :
+                         (k_siz == 2'b11) ? (k_addr[3:0] <= 4'd13) : (k_addr[3:0] <= 4'd12);
   wire        b_icond  = b_cacr[0] && b_cacr[4] && !b_cacr[1] && !b_cdis && i_lnew;
-  wire        b_dcond  = b_cacr[8] && b_cacr[12] && !b_cacr[9] && !b_cdis && d_lnew && !k_rmc && (b_reach <= 5'd16);
+  wire        b_dcond  = b_cacr[8] && b_cacr[12] && !b_cacr[9] && !b_cdis && d_lnew && !k_rmc && b_fits;
   wire        b_req    = BR && !k_ci && (k_fc != 3'd7) && ((k_fetch && b_icond) || (k_dread && b_dcond));
 
   // ECS (UM 5.6.2, 7.1.1): "the earliest indication that the processor is
@@ -645,9 +656,9 @@ module tg68k #(
 
 
   // the bytes a walker beat brings, from the lanes the port answered on
-  wire  [2:0] w_room = (dsack_r == 2'b10) ? 3'd1 : (dsack_r == 2'b01) ? 3'd2 - {2'b0, walk_done[0]} : 3'd4 - walk_done;
+  wire  [2:0] w_room = (dsack_e == 2'b10) ? 3'd1 : (dsack_e == 2'b01) ? 3'd2 - {2'b0, walk_done[0]} : 3'd4 - walk_done;
   wire  [2:0] w_n    = (w_room > 3'd4 - walk_done) ? 3'd4 - walk_done : w_room;
-  wire  [1:0] w_first = (dsack_r == 2'b10) ? 2'd0 : (dsack_r == 2'b01) ? {1'b0, walk_done[0]} : walk_done[1:0];
+  wire  [1:0] w_first = (dsack_e == 2'b10) ? 2'd0 : (dsack_e == 2'b01) ? {1'b0, walk_done[0]} : walk_done[1:0];
   wire [31:0] w_lane = (w_first == 0) ? din_r : (w_first == 1) ? {din_r[23:0], 8'h0} : (w_first == 2) ? {din_r[15:0], 16'h0} : {din_r[7:0], 24'h0};
   integer k;
   reg  [31:0] w_long;
@@ -658,9 +669,17 @@ module tg68k #(
         w_long[31-8*k -: 8] = w_lane[31-8*(k-walk_done) -: 8];
   end
 
+  // (FASTS1, below: the S1 decisions' registered terms, kept as single signals so each decision is one LUT
+  // after the hit; KCLK only - the s == 5 acknowledge rules are the KCLK ones)
+  wire        fs_arm      /* synthesis keep */ = (s == 3'd0) && !post && !hit_ack;
+  wire        fs_ea       /* synthesis keep */ = post && !hit_ack && !post_ack;
+  wire        fs_post_hold /* synthesis keep */ = post && !((s == 3'd5) && (e_berr || pb_n == 3'd1));
+  wire        fs_dclr     = ((s == 3'd3) && cp_local && iack) || ((s == 3'd5) && !post && (e_berr || !cp_local));
+  wire        fs_dz1_hold /* synthesis keep */ = dz1 && !fs_dclr;
+  wire        fs_dz2_hold /* synthesis keep */ = dz2 && !fs_dclr;
   always @(posedge clk or negedge reset_n)
     if (!reset_n) begin
-      s <= 0; as_n_r <= 1; ds_n_r <= 1; din_r <= 0; dsack_r <= 2'b11;
+      s <= 0; as_n_r <= 1; ds_n_r <= 1; din_r <= 0; dsack_r <= 2'b11; dz1 <= 0; dz2 <= 0;
       ack_pending <= 0; ack_berr <= 0; walk <= 0; walk_done <= 0; walk_buf <= 0; e_berr <= 0; e_dsack <= 2'b11;
       w_ack_s <= 0; w_data_s <= 0; berr_hold <= 0;
       hit_ack <= 0; hit_d <= 0; hit_z <= 0; cyc_fill <= 0; cyc_dfill <= 0; cyc_la <= 0; cyc_fc <= 0;
@@ -706,25 +725,38 @@ module tg68k #(
         // a hit while the buffer drains: the bus is the buffer's, the
         // caches are not (the posted write's own acknowledge goes first)
         if (post && any_hit && !hit_ack && !post_ack && !pace_stall_b) begin
-          hit_ack <= 1; hit_d <= !f_hit; hit_z <= z_hit || s_hit; dsack_r <= 2'b00;
+          hit_ack <= 1; hit_d <= !f_hit; hit_z <= z_hit || s_hit; if (!FASTS1) dsack_r <= 2'b00;
+        end
+        // THE IIxx's S1 (FASTS1): S1's data registers whenever S1 could be taken - no cycle, no posted beat,
+        // no acknowledge outstanding - whatever the caches answer.  A hit starts no cycle, and nothing reads
+        // them before the next S1 loads them again: the burst and the fills only once a cycle has begun, the
+        // posted-write buffer only once post is set (which still waits for the hit).  The hit left their
+        // enable: build xx5's -0.8 to -1.1 ns on cyc_la, cyc_fc, pb_addr, pb_lane, walk_buf at 28.57 MHz.
+        if (FASTS1 && (s == 3'd0) && !post && !hit_ack && eff_req) begin
+          if (w_req && !walk) walk_buf <= 0;
+          cyc_la <= k_addr_log[31:2]; cyc_fc <= k_fc; cyc_burst <= b_req;
+          if (k_post) begin
+            pb_addr <= k_addr; pb_lane <= k_addr[1:0];
+            pb_n <= pb_vid ? w_nb : 3'd1; pb_rem <= w_size; pb_fc <= k_fc;
+          end
         end
         case (s)
           3'd0: if (post) begin                                            // the buffer's next beat: S1
                   as_n_r <= 0; ds_n_r <= 1'b1; s <= 3'd2;
                 end else if (any_hit && !ack_pending && !hit_ack && !pace_stall_b) begin   // a hit: no cycle
-                  hit_ack <= 1; hit_d <= !f_hit; hit_z <= z_hit || s_hit; dsack_r <= 2'b00;
+                  hit_ack <= 1; hit_d <= !f_hit; hit_z <= z_hit || s_hit; if (!FASTS1) dsack_r <= 2'b00;
                 end else if (eff_req && !hit_ack && !pace_stall_b) begin     // S1
-                  if (w_req && !walk) begin walk <= 1; walk_done <= 0; walk_buf <= 0; end
+                  if (w_req && !walk) begin walk <= 1; walk_done <= 0; if (!FASTS1) walk_buf <= 0; end
                   as_n_r <= 0; ds_n_r <= !eff_rw ? 1'b1 : 1'b0; s <= 3'd2;
                   cyc_fill  <= k_fetch && !k_ci && (k_fc != 3'd7);
                   cyc_dfill <= k_dread && !k_ci && (k_fc != 3'd7);
-                  cyc_la <= k_addr_log[31:2]; cyc_fc <= k_fc; cyc_burst <= b_req;
+                  if (!FASTS1) begin cyc_la <= k_addr_log[31:2]; cyc_fc <= k_fc; cyc_burst <= b_req; end
                   if (k_post) begin                                          // posted: the buffer takes it from here
-                    post <= 1; post_ack <= 1; dsack_r <= 2'b00;
-                    pb_addr <= k_addr; pb_lane <= k_addr[1:0];
+                    post <= 1; post_ack <= 1; if (!FASTS1) dsack_r <= 2'b00;
+                    if (!FASTS1) begin pb_addr <= k_addr; pb_lane <= k_addr[1:0]; end
                     if (!KCLK) begin pb_dout <= k_dout; pb_lanes <= k_dout; end                 // (KCLK: through kk_dout, above)
                     else pb_ld <= 1;
-                    pb_n <= pb_vid ? w_nb : 3'd1; pb_rem <= w_size; pb_fc <= k_fc;
+                    if (!FASTS1) begin pb_n <= pb_vid ? w_nb : 3'd1; pb_rem <= w_size; pb_fc <= k_fc; end
                   end
                 end
           3'd3: begin                                                      // S3 and the wait states
@@ -772,6 +804,13 @@ module tg68k #(
                 end
           default: ;
         endcase
+        // THE IIxx's S1 (FASTS1): post, and the acknowledge's zero (dz1 / dz2 in dsack_r's place), each one
+        // LUT after the hit from early terms (fs_*): the same decisions as the case above, in its order
+        if (FASTS1) begin
+          post <= fs_post_hold || (fs_arm && eff_req && k_post && (!any_hit || ack_pending));
+          dz1  <= (fs_ea && any_hit) || (fs_arm && !ack_pending && any_hit) || fs_dz1_hold;
+          dz2  <= (fs_arm && eff_req && k_post && (!any_hit || ack_pending)) || fs_dz2_hold;
+        end
       end
     end
 
@@ -819,7 +858,7 @@ module tg68k #(
       // reads kk_din without a cycle's acknowledge or a fill - while din_r -> kk_din, a register-to-
       // register hop between the two clock trees, missed hold by 0.6 ns with the cache card's RAMs placed)
       if ((kc_s4 || b_beat) && !berr) kk_din <= xc_hit ? xc_dq : cpu_din;
-      kk_dsack <= kc_s4 ? (cp_local ? dsack_r : xc_hit ? 2'b00 : dsack_n) : (s == 3'd2 && cp_local && iack) ? 2'b00 : dsack_r;
+      kk_dsack <= kc_s4 ? (cp_local ? dsack_e : xc_hit ? 2'b00 : dsack_n) : (s == 3'd2 && cp_local && iack) ? 2'b00 : dsack_e;
       kk_bh    <= (berr_hold && !(k_make_berr || k_trap_berr || k_cp_berr_ack)) ||
                   (kc_s4 && berr && !walk) || (kc_end0 && post && berr) || (kc_cpn && !walk);
       kk_wberr <= walk && kc_s4 && berr;
@@ -874,7 +913,7 @@ module tg68k #(
     assign k_go         = k_cycle_ack || k_internal || k_force;
     assign k_beat_valid = k_cycle_ack || k_internal;
     assign k_din        = !hit_ack ? din_r : hit_z ? 32'h0 : hit_d ? d_q : i_q;
-    assign k_dsack      = dsack_r;
+    assign k_dsack      = dsack_e;
     assign k_berr       = berr_hold && !(k_make_berr || k_trap_berr);
     assign w_ack = w_ack_s; assign w_data = w_data_s; assign w_berr = ack_berr && walk;
   end endgenerate
@@ -1030,7 +1069,7 @@ module tg68k #(
   wire        kc_pgo_p = kc_taken ? kk_pgo_pt : kk_pgo_pn;
   always @* kk_pgo_p = kc_pgo_p;
   wire        p_go_rel = KCLK ? kk_pgo_p : p_go;                          // the release's p_go
-  assign      pace_stall_b = KCLK ? (k_decode && !kk_pgo_q) : pace_stall;
+  assign      pace_stall_b = FASTS1 ? 1'b0 : KCLK ? (k_decode && !kk_pgo_q) : pace_stall;   // (FASTS1: the IIxx is unpaced)
   reg  [15:0] kk_op;                   // p_op, on clk_k
   reg         kk_rel;                  // p_rel, on clk_k (it moves at phi1 edges only)
   wire        pk_rel   = k_decode && !kk_rel && p_go_rel;                 // a release at this P

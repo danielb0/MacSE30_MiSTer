@@ -171,7 +171,7 @@ module iici_machine #(
   wire  [2:0] cpu_fc, ipl_n;
   wire  [1:0] cpu_siz, dsack_n;
 
-  tg68k #(.KCLK(1), .BURST(1), .XCACHE(1)) cpu (
+  tg68k #(.KCLK(1), .BURST(1), .XCACHE(1), .FASTS1(IIXX)) cpu (
     .clk(clk), .clk_k(clk_k), .phi1(phi1), .phi2(phi2), .reset_n(reset_n),
     .ecs(ecs), .cpu_addr(cpu_addr), .cpu_as_n(cpu_as_n), .cpu_ds_n(cpu_ds_n), .cpu_rw_n(cpu_rw_n),
     .cpu_fc(cpu_fc), .cpu_siz(cpu_siz), .cpu_dout(cpu_dout), .cpu_din(cpu_din),

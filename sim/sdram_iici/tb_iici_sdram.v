@@ -26,7 +26,7 @@ module tb_iici_sdram;
   parameter IIXX = 0;
   localparam real HALF = IIXX ? 4.375 : 5.0;
   always begin #(HALF) clk = ~clk; if (clk) clk_sys = ~clk_sys; end
-  parameter real SDC = 2.5, CAPA = 1.667, CAPB = 0.3125;
+  localparam real SDC = IIXX ? 2.516 : 2.5, CAPA = IIXX ? 2.188 : 1.667, CAPB = IIXX ? 0.328 : 0.3125;   // (IIXX: rtl/pll_iici's)
   reg clk_sdc = 0, clk_capa = 0, clk_capb = 0;
   always @(clk) begin
     clk_sdc  <= #(SDC) clk;
