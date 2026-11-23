@@ -30909,6 +30909,17 @@ few run logs lie untracked.
           trick, +1/2 CPU clock on every bus cycle - RAM-heavy code may lose what the clock gains;
       (c) stop stage 2 at 25 MHz and spend the effort on memory latency instead (SDRAM rows kept open,
           the 68882 engine on a faster clock) - where the bench says the time goes.
+  - STAGE 2 = (c), Daniel 2026-11-23 ("Memory latency instead"); branch iixx-mem (from iixx-s1 = xx4), 25 MHz.
+    He does not plan to merge the IIxx into dev.  MEASURED (sim/iici_vid/mem_watch.v, IIXX=1 SDRAM=1, 2 ms):
+    SDRAM rows kept open would hit 1262 of 1831 CPU ACTIVEs with the caches on (bursts 5-1-1-1 -> 4-1-1-1),
+    2672 of 8524 with them off (5597 conflicts: a PRECHARGE costs a clock back); about 5 % on cache-missing
+    code, ~0 on Norton CPU - NOT DONE (a row compare on the SDRAM decision path for that).  THE 68882
+    PADDING was a speed restraint stage 1 missed: se30_fpu FAST (default 0; the IIxx FAST(IIXX)) drops the
+    WAIT holds, the END pad and the move / conversion / pre-instruction times; sim/fpu FAST=1 19,836 pass
+    bit for bit + the pairs bench, APU clocks 7,195,171 vs the 68882 8,742,312 (-18 %); FAST=0 unchanged
+    (8,742,312 exactly).  BUILD xx7 = 290f2fe: met at every corner (0.110 ns hold worst), the capture met
+    (A -0.373 hold on SDRAM_DQ[9], B met), 37,690 ALMs; output_files/MacIIxx_xx7.rbf md5 600f3069.
+    Predicted: Norton FPU ~10-15 % up on xx4, CPU / graphics / disk unchanged.  Board: pending.
   - NEXT: the board (boot, floppy, Norton); STAGE 2 = Portrait + rotation out, 30 MHz CPU (clk_sys 60,
     SDRAM 120: capture phases re-derived, maybe CL3); later: SDRAM rows kept open, the 68882 engine
     clocked up, a pipelined kernel past ~30 MHz.
