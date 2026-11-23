@@ -30869,6 +30869,12 @@ few run logs lie untracked.
     polled again inside the SWIM's 14-clock clear window and took each nibble twice.  FIX d8f9399:
     se30_swim RD_CLR (default 14), the IIxx 1; build xx2.
     Daniel's Norton references: IIfx CPU 19.3 (xx1 1.07x), Quadra 700 CPU 27.6 (xx1 0.75x: +33 % to go).
+  - xx2 ON THE BOARD (Daniel 2026-11-23): diskettes mount and read; WRITING FAILS - the ROM's GCR write
+    loop ($4086E50C: TST.B (A4) / BPL / MOVE.B D1,(A3)) writes as soon as the buffer shows empty, and the
+    chip ignores writes for 9 FCLK after a load: the unpaced CPU lands inside, the byte is dropped.  FIX
+    259c79d: se30_swim WR_LOCK (default 9), the IIxx 0.  BUILD xx4 = branch iixx-s1 (d8f9399 + the fix as
+    1788c9d; worktree C:/Git/MacSE30_MiSTer_s1), 25 MHz: ours met at every corner, the capture met; only
+    ascal -0.038 (Daniel: ignore); 37,821 ALMs; output_files/MacIIxx_xx4.rbf md5 d48b4d6d.  FOR THE BOARD.
   - STAGE 2's RULE (Daniel 2026-11-23): "I don't want to change the actual CPU RTL. Anything else is fair
     game" - the kernel VHDL untouched; the tg68k.v wrapper is fair game.  The kernel's own paths had +5.7 ns
     at 40 ns, so its ceiling is ~29 MHz: the target is 28.57 MHz (1200/42; clk_sys 57.14, SDRAM 114.3),
