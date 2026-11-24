@@ -33,6 +33,7 @@ if [ "$WHAT" != phase2 ]; then
   {
     echo "job 'insn_probe (bare, wrapper CACR 0, \$0101)' insn_probe bash -c './run.sh && ./run_wrapper.sh && CACR=0x0101 ./run_wrapper.sh'"
     for b in mmu16 machine system pmmu_rom_contract busfault busfault_dib kernel_bus rtr_fc cache030; do echo "job $b $b ./run.sh"; done
+    echo "job oddstack oddstack env W=2 ./run.sh"   # (exception frames on an odd stack: Prince of Persia, 2026-11-24)
     for p in b1 b2 b3a b3b b3c b3u b3n b3s b3r b5a b5b b5c b5d b5u b7e mmu b4 cmpm; do echo "cpjob $p $p"; done
     # (b3u under the caches: its FM3 bus error is absorbed by the data cache, a bench
     # artefact - SE30_PLAN.md KNOWN ISSUES 28's notes - so only b3r and b5u run with them)
