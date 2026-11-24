@@ -614,6 +614,7 @@ architecture logic of TG68KdotC_Kernel is
 	signal rte_saved_mbit   : std_logic;  -- M bit before RTE directSR updates it
 	signal rte_saved_sr_high : std_logic_vector(7 downto 0); -- SR high byte before RTE
 	signal rte_saved_a7     : std_logic_vector(31 downto 0); -- A7 before RTE frame validation
+	signal rte_a7_take      : std_logic;                     -- rte_saved_a7 from the SR read's address next
 	signal a7_is_msp        : std_logic;  -- Tracks which supervisor shadow A7 corresponds to (1=MSP, 0=ISP)
 	signal rte_saved_ccr    : std_logic_vector(7 downto 0);  -- BUG #397: CCR before RTE directSR
 	signal rte_mmu_fix_capture_active : std_logic := '0';
@@ -2766,7 +2767,8 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 					IF dib_sub_hit='1' THEN
 						rte_format_word <= dib_sub_data(15 downto 0);
 					ELSIF beat_valid='1' THEN
-						rte_format_word <= lane_in(31 downto 16);
+						-- the assembled word: on an odd stack it takes two beats (Prince of Persia, IIci)
+						rte_format_word <= data_read(15 downto 0);
 					END IF;
 				END IF;
 			END IF;
@@ -2786,6 +2788,7 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 				rte_saved_mbit <= '0';
 				rte_saved_sr_high <= x"27";
 				rte_saved_a7 <= (others => '0');
+				rte_a7_take <= '0';
 				a7_is_msp <= '0';  -- ISP active after reset (M=0)
 			ELSIF clkena_lw='1' THEN
 				-- Save M bit before any SR modification that could change it.
@@ -2800,6 +2803,13 @@ PROCESS (clk, long_done, last_data_in, data_in, addr, long_start, memmaskmux, me
 					rte_saved_sr_high <= FlagsSR; -- Save full high byte (T, S, M, I)
 					rte_saved_a7 <= regfile(15);
 					rte_saved_ccr <= Flags;  -- BUG #397: Save CCR before directSR
+					rte_a7_take <= '1';
+				END IF;
+				-- A7 = the frame's SR read address: regfile(15) can still lack the previous
+				-- instruction's A7 update (MOVEM (A7)+ then RTE: the format error stacked 32 bytes low)
+				IF micro_state = rte1 AND rte_a7_take = '1' THEN
+					rte_saved_a7 <= regfile(15);
+					rte_a7_take <= '0';
 				END IF;
 				IF exec(to_SR)='1' THEN
 					rte_saved_mbit <= FlagsSR(4);
