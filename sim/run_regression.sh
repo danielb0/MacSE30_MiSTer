@@ -45,12 +45,14 @@ if [ "$WHAT" != phase2 ]; then
 fi
 if [ "$WHAT" != phase1 ]; then
   {
+    k=0   # P2_SKIP=n: the CACR 0 pass's first n sweep lines from regression.log.2.keep (a resume; shared .part files restart)
     for c in ${CACRS:-0 0x2101}; do   # (CACRS: a resume runs only the passes left)
       a=$([ $c = 0 ] && echo w || echo r)   # gap 1: the arming external bus error's direction in this pass
       for s in "predec_fault ./run_isweep.sh" "predec_fault ./run_isweep.sh ISW_CCR=0x1F" "predec_fault ./run_dsweep.sh" "predec_fault ./run_dsweep.sh DSW_WP=1" \
                "predec_fault ./run_xsweep.sh" "predec_fault ./run_xsweep.sh ISW_CCR=0x1F" \
                "predec_fault ./run_ssweep.sh" "predec_fault ./run_ssweep.sh SSW_WP=1"; do   # (the third round: supervisor MOVES, KNOWN ISSUES 34)
         set -- $s; d=$1; shift
+        k=$((k+1)); if [ "$c" = 0 ] && [ "$k" -le "${P2_SKIP:-0}" ]; then sed -n "${k}p" "$LOG.2.keep"; continue; fi
         r=$(cd "$SIM/$d" && "$@" CACR=$c ARMEXT=$a 2>&1 | tail -1); echo "$r CACR=$c ARMEXT=$a $*"
       done
       for w in 0 1; do
