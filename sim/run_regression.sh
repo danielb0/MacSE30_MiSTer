@@ -88,6 +88,7 @@ if [ "$WHAT" != phase1 ]; then
       job "wonly part $pt" predec_fault bash -c "d=../_wo_$pt; rm -rf \$d; mkdir \$d; cp gen_program.py tb_predec_fault.v run.sh \$d/; cd \$d && CASESET=wonly WONLY_PART=$pt TCMODE=aux HANDLER=aux CACR=0x2101 ./run.sh +UOK; r=\$?; cd ..; rm -rf \$d; exit \$r"
     done
     job "bfx (KNOWN ISSUES 21)" predec_fault bash -c 'd=../_bfx; rm -rf $d; mkdir $d; cp gen_program.py tb_predec_fault.v run.sh $d/; cd $d && CASESET=bfx ./run.sh +UOK; r=$?; cd ..; rm -rf _bfx; exit $r'
+    r=$(cd "$SIM/oddstack" && ./run_cpfpu.sh 2>&1 | tail -1); echo "$r"   # (the cpfpu corpus on an odd stack, every frame format: Prince of Persia, 2026-11-24)
   } > "$LOG.2"
   cat "$LOG.2"
 fi

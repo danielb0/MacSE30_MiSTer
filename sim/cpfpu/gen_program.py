@@ -189,7 +189,9 @@ def movel_abs(v, a):                          # move.l #v,a.w
 for v in range(256):
     put(4 * v, L(0x2000 + 16 * v))
     put(0x2000 + 16 * v, [0x21FC] + L(0xDEAD0000 | v) + [0x3FF0, 0x4E72, 0x2700])
-put(0, L(0x8000))
+SSP_OFF = int(os.environ.get('SSP_OFF', '0'), 0)   # the supervisor stack off alignment: $8000 + SSP_OFF (sim/oddstack: odd-stack frames, Prince of Persia)
+SSP = int(os.environ.get('SSP_BASE', '0x8000'), 0) + SSP_OFF   # (SSP_BASE $7F00 for b5d: its page 8 is invalid)
+put(0, L(SSP))
 put(4, L(0x1000))
 
 if MODE == 'b1':
@@ -365,8 +367,8 @@ elif MODE == 'b3a':
     put(0x2400, [0x52B8, 0x3014, 0x21EF, 0x0002, 0x3018, 0x31EF, 0x0006, 0x301C,
                  0x21EF, 0x0008, 0x3020, 0x4E73])
     expect = [
-        (0x3004, 0x00007FFE, 0xFFFFFFFF),     # FScc -(A7): down by 2
-        (0x3008, 0xFF000000, 0xFFFF0000),     # ... the byte at the new A7
+        (0x3004, SSP - 0x02, 0xFFFFFFFF),     # FScc -(A7): down by 2
+        (0x3008, 0xFF000000, 0xFFFF0000 if SSP == 0x8000 else 0xFF000000),   # ... the byte at the new A7 (and the zero beside it, on the aligned stack)
         (0x300C, 0x0000FFFF, 0xFFFFFFFF),     # FDBEQ ran D3.W down to -1
         (0x3010, 0x00000003, 0xFFFFFFFF),     # ... three passes
         (0x3014, 0x00000002, 0xFFFFFFFF),     # two FTRAPcc taken
@@ -545,18 +547,18 @@ elif MODE == 'b3u':
         (0x3008, 0x3FEAED54, 0xFFFFFFFF),     # ... sin(1.0) as a double, on the user stack
         (0x300C, 0x8F090CEE, 0xFFFFFFFF),
         (0x3010, 0x00000001, 0xFFFFFFFF),     # the IRQ, once
-        (0x301C, 0x00007FEC, 0xFFFFFFFF),     # ... on the ISP: $8000 less frame $9
+        (0x301C, SSP - 0x14, 0xFFFFFFFF),     # ... on the ISP: $8000 less frame $9
         (0x3020, 0x90640000, 0xFFFF0000),     # ... frame $9, vector 25
         (0x3038, a.lab['FM1'], 0xFFFFFFFF),   # ... inside FM1's dialog
         (0x3024, 0x00000002, 0xFFFFFFFF),     # the bus errors, FM2's and FM3's
         (0x3028, 0xB0080000, 0xFFFF0000),     # ... a long frame, vector 2
-        (0x302C, 0x00007FA4, 0xFFFFFFFF),     # ... on the ISP: $8000 less $5C
+        (0x302C, SSP - 0x5C, 0xFFFFFFFF),     # ... on the ISP: $8000 less $5C
         (0x3030, 0x000037F0, 0xFFFFFFFF),     # FM2: USP down by 8 more
         (0x3034, 0x8F090CEE, 0xFFFFFFFF),
         (0x303C, 0x000037F8, 0xFFFFFFFF),     # FM3: USP up by 8
         (0x3040, 0x3FEAED54, 0xFFFFFFFF),     # ... the double into FP1
         (0x3044, 0x8F090CEE, 0xFFFFFFFF),
-        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact ($8000 less frame $0)
+        (0x3014, SSP - 0x08, 0xFFFFFFFF),     # TRAP #0: the ISP intact ($8000 less frame $0)
         (0x3018, 0x000037F8, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
@@ -612,7 +614,7 @@ elif MODE == 'b3n':
         (0x3004, 0x000037F8, 0xFFFFFFFF),     # the dialog finished in user mode: USP - 8
         (0x3008, 0x3FEAED54, 0xFFFFFFFF),     # sin(1.0)
         (0x300C, 0x8F090CEE, 0xFFFFFFFF),
-        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0 from user mode: the ISP intact
+        (0x3014, SSP - 0x08, 0xFFFFFFFF),     # TRAP #0 from user mode: the ISP intact
         (0x3018, 0x000037F8, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
@@ -753,7 +755,7 @@ elif MODE == 'b3r':
         (0x3018, 0x00000000, 0xFFFFFFFF),     # no BAD: every pass's A7 and FP3 = FP2, the two sums equal
         (0x3020, 0x00000002, 0xFFFFFFFF),     # two passes
         (0x3024, 0x00000001, 0xFFFFFFFF),     # more than 20 IRQs in the second
-        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact
+        (0x3014, SSP - 0x08, 0xFFFFFFFF),     # TRAP #0: the ISP intact
         (0x301C, 0x00003800, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
@@ -863,7 +865,7 @@ elif MODE == 'b3x':
         (0x3018, 0x00000000, 0xFFFFFFFF),     # no BAD: the two passes' sums equal
         (0x3020, 0x00000002, 0xFFFFFFFF),     # two passes
         (0x3024, 0x00000001, 0xFFFFFFFF),     # more than 20 IRQs in the second
-        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact
+        (0x3014, SSP - 0x08, 0xFFFFFFFF),     # TRAP #0: the ISP intact
         (0x301C, 0x00003800, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),     # no stray exception (a d16 word run: the F-line stub)
     ]
@@ -1211,7 +1213,7 @@ elif MODE == 'b5u':
         (0x3004, 0x00009FF8, 0xFFFFFFFF),     # A7 = USP - 8
         (0x3008, 0x3FEAED54, 0xFFFFFFFF),     # sin(1.0) on the user stack
         (0x300C, 0x8F090CEE, 0xFFFFFFFF),
-        (0x3014, 0x00007FF8, 0xFFFFFFFF),     # TRAP #0: the ISP intact
+        (0x3014, SSP - 0x08, 0xFFFFFFFF),     # TRAP #0: the ISP intact
         (0x3018, 0x00009FF8, 0xFFFFFFFF),     # ... and the USP
         (0x3FF0, 0x600D0001, 0xFFFFFFFF),
     ]
@@ -2838,7 +2840,7 @@ if ARM:
     a.emit(0x4298, 0x51C8, 0xFFFC)            # clr.l (a0)+; dbra d0,*-2 - cleared, as reset left it (b3a reads it back)
     a.emit(movel_abs(1, 0x3F64))              # the bench's dialog triggers live again (tb_cpfpu arm_done)
     a.emit(0x4CF9, 0x7FFF, L(ARM_ORG + 0x70C))   # movem.l zero,d0-d7/a0-a6
-    a.emit(0x2E7C, L(0x8000))                 # movea.l #$8000,a7
+    a.emit(0x2E7C, L(SSP))                    # movea.l #SSP,a7
     a.emit(0x4EF9, L(0x1000))                 # jmp $1000
     aw = a.done()
     assert ARM_ORG + 2 * len(aw) <= h.org and h.org + 2 * len(hw) <= ARM_ORG + 0x700

@@ -1,1 +1,4 @@
 batch/
+cpfpu.log
+run_cpfpu.out
+fail_*.log
