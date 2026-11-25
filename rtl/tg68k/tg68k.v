@@ -1099,8 +1099,9 @@ module tg68k #(
   wire        cr_s5    = (s == 3'd5) && !(KCLK && e_berr && !post) && !(post && pb_old) && (cyc_fc != 3'd6);
   wire  [8:0] cr_wsum  = {1'b0, p_wcred} + {3'd0, p_add};
   wire  [8:0] cr_rsum  = {1'b0, p_rcred} + {3'd0, p_add};
-  wire  [7:0] cr_wc    = !(cr_s5 && !eff_rw) ? p_wcred : (cr_wsum < 9'd255) ? cr_wsum[7:0] : 8'hFF;
-  wire  [7:0] cr_rc    = !(cr_s5 &&  eff_rw) ? p_rcred : (cr_rsum < 9'd255) ? cr_rsum[7:0] : 8'hFF;
+  wire        cr_rw    = KCLK ? kb_rw : eff_rw;   // KCLK: the cycle's own direction, held since S2 (eff_rw ran through the ATC: the IIci's timing)
+  wire  [7:0] cr_wc    = !(cr_s5 && !cr_rw) ? p_wcred : (cr_wsum < 9'd255) ? cr_wsum[7:0] : 8'hFF;
+  wire  [7:0] cr_rc    = !(cr_s5 &&  cr_rw) ? p_rcred : (cr_rsum < 9'd255) ? cr_rsum[7:0] : 8'hFF;
   wire  [9:0] cr_tail  = {8'd0, r_op_t} + {2'd0, cr_wc} + (r_ea_on ? 10'd0 : {2'd0, cr_rc});
   always @(posedge clk or negedge reset_n)
     if (!reset_n) p_tail_q <= 6'd0;
